@@ -1,0 +1,14 @@
+#Ignore json files
+*.json
+
+#Ignore build folders
+/bin/
+/obj/
+/Migrations/
+
+#Ignore db files
+*.db
+*.db3
+
+#Ignore vscode folders
+/.vscode/
