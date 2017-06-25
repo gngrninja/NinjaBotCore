@@ -13,7 +13,7 @@ namespace NinjaBotCore.Modules.Steam
 {
     public class Steam
     {
-        private string _key = $"?key={NinjaBot.SteamApi}";
+        private string _key = $"?key={Config.SteamApi}";
 
         private string getAPIRequest(string url)
         {

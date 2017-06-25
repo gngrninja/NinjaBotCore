@@ -61,7 +61,7 @@ namespace NinjaBotCore.Modules.Giphy
             else
             {
                 embed.Title = $"Sorry, Giphy is disabled here :(\n";
-                embed.Description = $"Use {NinjaBot.Prefix}giphy-toggle to enable it";
+                embed.Description = $"Use {Config.Prefix}giphy-toggle to enable it";
                 await _cc.Reply(Context, embed);
             }
         }
@@ -105,10 +105,10 @@ namespace NinjaBotCore.Modules.Giphy
                         embed.Title = $"Giphy enabled for [**{serverName}**]";                        
                         sb.AppendLine($":question:__How to use **!giphy**__:question:");
                         sb.AppendLine();
-                        sb.AppendLine($"**{NinjaBot.Prefix}giphy**");
+                        sb.AppendLine($"**{Config.Prefix}giphy**");
                         sb.AppendLine($"The above command would get a random image");
                         sb.AppendLine();
-                        sb.AppendLine($"**{NinjaBot.Prefix}giphy Rocket League**");
+                        sb.AppendLine($"**{Config.Prefix}giphy Rocket League**");
                         sb.AppendLine($"The above command would get a random image related to Rocket League");
                     }
                     else if ((bool)giphySettings.GiphyEnabled)
@@ -124,10 +124,10 @@ namespace NinjaBotCore.Modules.Giphy
                         embed.Title = $"Giphy enabled for [**{serverName}**]";                        
                         sb.AppendLine($":question:__How to use **!giphy**__:question:");
                         sb.AppendLine();
-                        sb.AppendLine($"**{NinjaBot.Prefix}giphy**");
+                        sb.AppendLine($"**{Config.Prefix}giphy**");
                         sb.AppendLine($"The above command would get a random image");
                         sb.AppendLine();
-                        sb.AppendLine($"**{NinjaBot.Prefix}giphy Rocket League**");
+                        sb.AppendLine($"**{Config.Prefix}giphy Rocket League**");
                         sb.AppendLine($"The above command would get a random image related to Rocket League");
                     }
                     db.SaveChanges();

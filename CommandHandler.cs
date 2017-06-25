@@ -39,7 +39,7 @@ namespace NinjaBotCore
             // Mark where the prefix ends and the command begins
             int argPos = 0;
             // Determine if the message has a valid prefix, adjust argPos 
-            if (!(message.HasMentionPrefix(_client.CurrentUser, ref argPos) || message.HasCharPrefix(NinjaBot.Prefix, ref argPos))) return;
+            if (!(message.HasMentionPrefix(_client.CurrentUser, ref argPos) || message.HasCharPrefix(Config.Prefix, ref argPos))) return;
 
             // Create a Command Context
             var context = new SocketCommandContext(_client, message);

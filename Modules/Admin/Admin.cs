@@ -455,7 +455,7 @@ namespace NinjaBotCore.Modules.Admin
                 var note = db.Notes.FirstOrDefault(n => n.ServerId == (long)Context.Guild.Id);
                 if (note == null)
                 {
-                    sb.AppendLine($"Unable to find a note for server [{Context.Guild.Name}], perhaps try adding one by using {NinjaBot.Prefix}set-note \"Note goes here!\"");
+                    sb.AppendLine($"Unable to find a note for server [{Context.Guild.Name}], perhaps try adding one by using {Config.Prefix}set-note \"Note goes here!\"");
                 }
                 else
                 {

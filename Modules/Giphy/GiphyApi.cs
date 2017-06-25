@@ -16,7 +16,7 @@ namespace NinjaBotCore.Modules.Giphy
         public string ApiRequest(string url, string appendUrl = null)
         {
             string response = string.Empty; ;
-            string apiKey = $"{NinjaBot.GiphyApi}";
+            string apiKey = $"{Config.GiphyApi}";
             if (string.IsNullOrEmpty(appendUrl))
             {
                 url = $"http://api.giphy.com/v1{url}?api_key={apiKey}";

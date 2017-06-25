@@ -14,8 +14,8 @@ namespace NinjaBotCore.Modules.Weather
 {
     class WeatherApi
     {
-        private readonly string _dsApiKey = NinjaBot.DarkSkyApi;
-        private readonly string _gMapsApiKey = NinjaBot.GoogleMapsApi;
+        private readonly string _dsApiKey = Config.DarkSkyApi;
+        private readonly string _gMapsApiKey = Config.GoogleMapsApi;
 
         public string getAPIRequest(string url)
         {

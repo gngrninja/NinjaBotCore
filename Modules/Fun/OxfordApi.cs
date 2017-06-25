@@ -20,8 +20,8 @@ namespace NinjaBotCore.Modules.Fun
         public OxfordApi()
         {
             _baseUrl = "https://od-api.oxforddictionaries.com/api/v1";
-            _apiKey = NinjaBot.OxfordDictionaryApi.Split(',')[0];
-            _appId = NinjaBot.OxfordDictionaryApi.Split(',')[1];
+            _apiKey = Config.OxfordDictionaryApi.Split(',')[0];
+            _appId = Config.OxfordDictionaryApi.Split(',')[1];
         }
 
         private string getAPIRequest(string url, string sourceLang = "en")

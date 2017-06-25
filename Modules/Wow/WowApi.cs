@@ -104,7 +104,7 @@ namespace NinjaBotCore.Modules.Wow
             string prefix;
 
             prefix = "https://us.api.battle.net/wow";
-            key = $"&apikey={NinjaBot.WowApi}";
+            key = $"&apikey={Config.WowApi}";
             url = $"{prefix}{url}{key}";
 
             Console.WriteLine($"Wow API request to {url}");

@@ -63,7 +63,7 @@ namespace NinjaBotCore.Modules.Fun
             sb.AppendLine();
             sb.AppendLine($"Every little bit counts!");
             sb.AppendLine();
-            sb.AppendLine($"[Donate To Support NinjaBot!]({NinjaBot.DonateUrl}/5) :thumbsup:");
+            sb.AppendLine($"[Donate To Support NinjaBot!]({Config.DonateUrl}/5) :thumbsup:");
 
             embed.ThumbnailUrl = "https://static1.squarespace.com/static/5644323de4b07810c0b6db7b/t/5931c57f46c3c47b464d717a/1496434047310/FdxsNNRt.jpg";            
             embed.WithColor(new Color(0, 255, 0));
@@ -209,14 +209,14 @@ namespace NinjaBotCore.Modules.Fun
             embed.ThumbnailUrl = Context.User.GetAvatarUrl();
             embed.WithColor(new Color(0, 0, 255));
             sb.AppendLine("Here are a few commands to try:");
-            sb.AppendLine($"\t :black_small_square: WoW Commands: {NinjaBot.Prefix}wow **|** {NinjaBot.Prefix}armory characterName **|** {NinjaBot.Prefix}logs **|** {NinjaBot.Prefix}set-guild **|** {NinjaBot.Prefix}get-guild");
-            sb.AppendLine($"\t :black_small_square: Rocket League Stats: {NinjaBot.Prefix}rlstats");            
-            sb.AppendLine($"\t :black_small_square: Server Note Commands: {NinjaBot.Prefix}note **|** {NinjaBot.Prefix}set-note note goes here");
-            sb.AppendLine($"\t :black_small_square: Away System Commands: {NinjaBot.Prefix}away (reason) **|** {NinjaBot.Prefix}back");
-            sb.AppendLine($"\t :black_small_square: Search YouTube: {NinjaBot.Prefix}ysearch search term");
-            sb.AppendLine($"\t :black_small_square: Define a Word: {NinjaBot.Prefix}define word");
-            sb.AppendLine($"\t :black_small_square: Ask Ninja 8-ball a question: {NinjaBot.Prefix}8ball question");
-            sb.AppendLine($"\t :black_small_square: Greeting Commands: {NinjaBot.Prefix}toggle-greetings **|** {NinjaBot.Prefix}set-join-message User join greeting **|** {NinjaBot.Prefix}set-part-message User left message");
+            sb.AppendLine($"\t :black_small_square: WoW Commands: {Config.Prefix}wow **|** {Config.Prefix}armory characterName **|** {Config.Prefix}logs **|** {Config.Prefix}set-guild **|** {Config.Prefix}get-guild");
+            sb.AppendLine($"\t :black_small_square: Rocket League Stats: {Config.Prefix}rlstats");            
+            sb.AppendLine($"\t :black_small_square: Server Note Commands: {Config.Prefix}note **|** {Config.Prefix}set-note note goes here");
+            sb.AppendLine($"\t :black_small_square: Away System Commands: {Config.Prefix}away (reason) **|** {Config.Prefix}back");
+            sb.AppendLine($"\t :black_small_square: Search YouTube: {Config.Prefix}ysearch search term");
+            sb.AppendLine($"\t :black_small_square: Define a Word: {Config.Prefix}define word");
+            sb.AppendLine($"\t :black_small_square: Ask Ninja 8-ball a question: {Config.Prefix}8ball question");
+            sb.AppendLine($"\t :black_small_square: Greeting Commands: {Config.Prefix}toggle-greetings **|** {Config.Prefix}set-join-message User join greeting **|** {Config.Prefix}set-part-message User left message");
             sb.AppendLine();
             sb.AppendLine($"**For a more detailed command list, please visit:** http://gngr.ninja/bot");
             embed.Description = sb.ToString();

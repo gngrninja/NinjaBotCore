@@ -49,7 +49,7 @@ namespace NinjaBotCore.Modules.Wow
         public string logsApiRequest(string url)
         {
             string response = string.Empty;
-            string wowLogsKey = $"api_key={NinjaBot.WarcraftLogsApi}";
+            string wowLogsKey = $"api_key={Config.WarcraftLogsApi}";
             string baseURL = "https://www.warcraftlogs.com:443/v1";
 
             url = $"{baseURL}{url}{wowLogsKey}";

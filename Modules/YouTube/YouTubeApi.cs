@@ -18,7 +18,7 @@ namespace NinjaBotCore.Modules.YouTube
 {
     public class YouTubeApi
     {
-        private string key = NinjaBot.YouTubeApi;
+        private string key = Config.YouTubeApi;
 
         private string getYouTubeApiRequest(string url)
         {
@@ -65,7 +65,7 @@ namespace NinjaBotCore.Modules.YouTube
         {
             var youtubeService = new YouTubeService(new BaseClientService.Initializer()
             {
-                ApiKey = NinjaBot.YouTubeApi,
+                ApiKey = Config.YouTubeApi,
                 ApplicationName = this.GetType().ToString()
 
             });
