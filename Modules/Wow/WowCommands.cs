@@ -693,6 +693,11 @@ namespace NinjaBotCore.Modules.Wow
                         charName = chars[0].charName;
                         realmName = chars[0].realmName;
                     }
+                    else                     
+                    {
+                        charName = string.Empty;
+                        realmName = string.Empty;
+                    }
                 }
             }
             charInfo.charName = charName;
@@ -718,7 +723,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             await _cc.Reply(Context, embed);
         }
-        
+
         [Command("top10", RunMode = RunMode.Async)]
         [Summary("Get the top 10 dps or hps for the latest raid in World of Warcraft (via warcraftlogs.com)")]
         public async Task GetTop10([Remainder] string args = null)
