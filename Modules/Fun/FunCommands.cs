@@ -219,6 +219,8 @@ namespace NinjaBotCore.Modules.Fun
             sb.AppendLine($"\t :black_small_square: Greeting Commands: {Config.Prefix}toggle-greetings **|** {Config.Prefix}set-join-message User join greeting **|** {Config.Prefix}set-part-message User left message");
             sb.AppendLine();
             sb.AppendLine($"**For a more detailed command list, please visit:** http://gngr.ninja/bot");
+            sb.AppendLine();
+            sb.AppendLine("*Having trouble, or is something broken? Please post any issues here:* https://github.com/gngrninja/NinjaBotCore/issues");
             embed.Description = sb.ToString();
             await _cc.Reply(Context, embed);
 
