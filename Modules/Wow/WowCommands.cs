@@ -701,6 +701,7 @@ namespace NinjaBotCore.Modules.Wow
         [Summary("Get a WoW character's gear list")]
         public async Task GetGearList([Remainder] string args)
         {
+            //Add error to response if there is one
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
             try
@@ -712,12 +713,17 @@ namespace NinjaBotCore.Modules.Wow
                     armoryInfo = _wowApi.GetCharInfo(charInfo.charName, charInfo.realmName);
                     embed.Title = $"Gear List For {charInfo.charName} on {charInfo.realmName}";
                     embed.ThumbnailUrl = armoryInfo.profilePicURL;
-                    embed.Author.Name = Context.User.Username;
-                    embed.Author.IconUrl = Context.User.GetAvatarUrl();
                     embed.Fields.Add(new EmbedFieldBuilder
                     {
-                        Name = $"Helm ({armoryInfo.items.head.itemLevel})",
-                        Value = $"[{armoryInfo.items.head.name}](http://www.wowhead.com/item={armoryInfo.items.head.id})"
+                        Name = $"Head ({armoryInfo.items.head.itemLevel})",
+                        Value = $"[{armoryInfo.items.head.name}](http://www.wowhead.com/item={armoryInfo.items.head.id})",
+                        IsInline = true
+                    });
+                    embed.Fields.Add(new EmbedFieldBuilder
+                    {
+                        Name = $"Hands ({armoryInfo.items.hands.itemLevel})",
+                        Value = $"[{armoryInfo.items.hands.name}](http://www.wowhead.com/item={armoryInfo.items.hands.id})",
+                        IsInline = true
                     });
                     embed.Fields.Add(new EmbedFieldBuilder
                     {
@@ -725,6 +731,101 @@ namespace NinjaBotCore.Modules.Wow
                         Value = $"[{armoryInfo.items.neck.name}](http://www.wowhead.com/item={armoryInfo.items.neck.id})",
                         IsInline = true
                     });
+                    embed.Fields.Add(new EmbedFieldBuilder
+                    {
+                        Name = $"Waist ({armoryInfo.items.waist.itemLevel})",
+                        Value = $"[{armoryInfo.items.waist.name}](http://www.wowhead.com/item={armoryInfo.items.waist.id})",
+                        IsInline = true
+                    });
+                    embed.Fields.Add(new EmbedFieldBuilder
+                    {
+                        Name = $"Shoulders ({armoryInfo.items.shoulder.itemLevel})",
+                        Value = $"[{armoryInfo.items.shoulder.name}](http://www.wowhead.com/item={armoryInfo.items.shoulder.id})",
+                        IsInline = true
+                    });
+                    embed.Fields.Add(new EmbedFieldBuilder
+                    {
+                        Name = $"Pants ({armoryInfo.items.legs.itemLevel})",
+                        Value = $"[{armoryInfo.items.legs.name}](http://www.wowhead.com/item={armoryInfo.items.legs.id})",
+                        IsInline = true
+                    });
+                    embed.Fields.Add(new EmbedFieldBuilder
+                    {
+                        Name = $"Back ({armoryInfo.items.back.itemLevel})",
+                        Value = $"[{armoryInfo.items.back.name}](http://www.wowhead.com/item={armoryInfo.items.back.id})",
+                        IsInline = true
+                    });
+                    embed.Fields.Add(new EmbedFieldBuilder
+                    {
+                        Name = $"Feet ({armoryInfo.items.feet.itemLevel})",
+                        Value = $"[{armoryInfo.items.feet.name}](http://www.wowhead.com/item={armoryInfo.items.feet.id})",
+                        IsInline = true
+                    });
+                    embed.Fields.Add(new EmbedFieldBuilder
+                    {
+                        Name = $"Chest ({armoryInfo.items.chest.itemLevel})",
+                        Value = $"[{armoryInfo.items.chest.name}](http://www.wowhead.com/item={armoryInfo.items.chest.id})",
+                        IsInline = true
+                    });
+                    embed.Fields.Add(new EmbedFieldBuilder
+                    {
+                        Name = $"Ring ({armoryInfo.items.finger1.itemLevel})",
+                        Value = $"[{armoryInfo.items.back.name}](http://www.wowhead.com/item={armoryInfo.items.finger1.id})",
+                        IsInline = true
+                    });
+                    embed.Fields.Add(new EmbedFieldBuilder
+                    {
+                        Name = $"Wrists ({armoryInfo.items.wrist.itemLevel})",
+                        Value = $"[{armoryInfo.items.wrist.name}](http://www.wowhead.com/item={armoryInfo.items.wrist.id})",
+                        IsInline = true
+                    });
+                    embed.Fields.Add(new EmbedFieldBuilder
+                    {
+                        Name = $"Trinket ({armoryInfo.items.trinket1.itemLevel})",
+                        Value = $"[{armoryInfo.items.trinket1.name}](http://www.wowhead.com/item={armoryInfo.items.trinket1.id})",
+                        IsInline = true
+                    });
+                    embed.Fields.Add(new EmbedFieldBuilder
+                    {
+                        Name = $"Ring ({armoryInfo.items.finger2.itemLevel})",
+                        Value = $"[{armoryInfo.items.finger2.name}](http://www.wowhead.com/item={armoryInfo.items.finger2.id})",
+                        IsInline = true
+                    });
+                    embed.Fields.Add(new EmbedFieldBuilder
+                    {
+                        Name = $"Trinket ({armoryInfo.items.trinket2.itemLevel})",
+                        Value = $"[{armoryInfo.items.trinket2.name}](http://www.wowhead.com/item={armoryInfo.items.trinket2.id})",
+                        IsInline = true
+                    });
+                    embed.Fields.Add(new EmbedFieldBuilder
+                    {
+                        Name = $"MainHand ({armoryInfo.items.mainHand.itemLevel})",
+                        Value = $"[{armoryInfo.items.mainHand.name}](http://www.wowhead.com/item={armoryInfo.items.mainHand.id})",
+                        IsInline = true
+                    });
+                    if (armoryInfo.items.offHand != null)
+                    {
+                        embed.Fields.Add(new EmbedFieldBuilder
+                        {
+                            Name = $"OffHand ({armoryInfo.items.offHand.itemLevel})",
+                            Value = $"[{armoryInfo.items.offHand.name}](http://www.wowhead.com/item={armoryInfo.items.offHand.id})",
+                            IsInline = true
+                        });
+                    }
+                    if (armoryInfo.items.averageItemLevel < 850)
+                    {
+                        embed.WithColor(new Color(0, 255, 0));
+                    }
+                    else if (armoryInfo.items.averageItemLevel > 850 && armoryInfo.items.averageItemLevel < 885)
+                    {
+                        embed.WithColor(new Color(0, 0, 255));
+                    }
+                    else 
+                    {
+                        embed.WithColor(new Color(148, 0, 211));
+                    }
+                    sb.AppendLine($"Average ilvl ({armoryInfo.items.averageItemLevel}) Equipped ilvl ({armoryInfo.items.averageItemLevelEquipped})");
+                    embed.Footer = new EmbedFooterBuilder { Text = sb.ToString() };
                 }
             }
             catch (Exception ex)

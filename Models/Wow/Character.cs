@@ -10,7 +10,7 @@ namespace NinjaBotCore.Models.Wow
 {
     [JsonObject]
     public class Character
-    {        
+    {
         public long lastModified { get; set; }
         public string name { get; set; }
         public string realm { get; set; }
@@ -173,7 +173,7 @@ namespace NinjaBotCore.Models.Wow
                     itemwrist.itemName = this.items.wrist.name;
                     itemwrist.itemLevel = this.items.wrist.itemLevel;
                     itemCompareList.Add(itemwrist);
-                }            
+                }
 
                 if (this.items.feet != null)
                 {
@@ -239,6 +239,13 @@ namespace NinjaBotCore.Models.Wow
                     itemCompareList.Add(itemweapon);
                 }
 
+                if (this.items.offHand != null)
+                {
+                    ItemComparison itemweapon2 = new ItemComparison();
+                    itemweapon2.itemName = this.items.offHand.name;
+                    itemweapon2.itemLevel = this.items.offHand.itemLevel;
+                    itemCompareList.Add(itemweapon2);
+                }
                 ItemComparison lowestItem = itemCompareList.OrderBy(i => i.itemLevel).FirstOrDefault();
 
                 return lowestItem;
@@ -249,7 +256,7 @@ namespace NinjaBotCore.Models.Wow
             get
             {
                 List<ItemComparison> itemCompareList = new List<ItemComparison>();
-                
+
                 if (this.items.head != null)
                 {
                     ItemComparison itemhead = new ItemComparison();
@@ -346,6 +353,13 @@ namespace NinjaBotCore.Models.Wow
                     itemCompareList.Add(itemweapon);
                 }
 
+                if (this.items.offHand != null)
+                {
+                    ItemComparison itemweapon2 = new ItemComparison();
+                    itemweapon2.itemName = this.items.offHand.name;
+                    itemweapon2.itemLevel = this.items.offHand.itemLevel;
+                    itemCompareList.Add(itemweapon2);
+                }
                 var highestItem = itemCompareList.OrderByDescending(i => i.itemLevel).FirstOrDefault();
 
                 return highestItem;

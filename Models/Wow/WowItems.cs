@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 
 namespace NinjaBotCore.Models.Wow
-{     
+{
     public class Items
     {
         public int averageItemLevel { get; set; }
@@ -26,6 +26,7 @@ namespace NinjaBotCore.Models.Wow
         public Trinket1 trinket1 { get; set; }
         public Trinket2 trinket2 { get; set; }
         public Mainhand mainHand { get; set; }
+        public OffHand offHand { get; set; }
     }
 
     public class Head
@@ -557,6 +558,27 @@ namespace NinjaBotCore.Models.Wow
     }
 
     public class Mainhand
+    {
+        public int id { get; set; }
+        public string name { get; set; }
+        public string icon { get; set; }
+        public int quality { get; set; }
+        public int itemLevel { get; set; }
+        public Tooltipparams15 tooltipParams { get; set; }
+        public Stat14[] stats { get; set; }
+        public int armor { get; set; }
+        public Weaponinfo weaponInfo { get; set; }
+        public string context { get; set; }
+        public int[] bonusLists { get; set; }
+        public int artifactId { get; set; }
+        public int displayInfoId { get; set; }
+        public int artifactAppearanceId { get; set; }
+        public Artifacttrait[] artifactTraits { get; set; }
+        public Relic[] relics { get; set; }
+        public Appearance15 appearance { get; set; }
+    }
+
+    public class OffHand
     {
         public int id { get; set; }
         public string name { get; set; }
