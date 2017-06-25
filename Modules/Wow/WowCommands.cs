@@ -611,6 +611,114 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
+        private async Task<GuildChar> GetCharFromArgs(string args, ICommandContext context)
+        {
+            string charName = string.Empty;
+            string realmName = string.Empty;            
+            GuildChar guildie = null;
+            List<FoundChar> chars;
+            NinjaObjects.GuildObject guildObject = new NinjaObjects.GuildObject();
+            GuildChar charInfo = new GuildChar
+            {
+                realmName = string.Empty,
+                charName = string.Empty
+            };
+            int argNumber = args.Split(' ').Count();
+            switch (argNumber)
+            {
+                case 1:
+                    {
+                        charName = args.Split(' ')[0].Trim();
+                        break;
+                    }
+                case 2:
+                    {
+                        charName = args.Split(' ')[0].Trim();
+                        realmName = args.Split(' ')[1].Trim();
+                        break;
+                    }
+            }
+            if (argNumber > 2)
+            {
+                charName = args.Split(' ')[0].Replace("'", string.Empty).Trim();
+                realmName = string.Empty;
+                int i = 0;
+                do
+                {
+                    i++;
+                    if (i == argNumber - 1)
+                    {
+                        realmName += $"{args.Split(' ')[i]}".Replace("\"", "");
+                    }
+                    else
+                    {
+                        realmName += $"{args.Split(' ')[i]} ".Replace("\"", "");
+                    }
+                }
+                while (i <= argNumber - 2);
+            }
+
+
+            if (string.IsNullOrEmpty(realmName))
+            {
+                //See if they're a guildie first
+                try
+                {
+                    guildObject = await GetGuildName();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error looking up character: {ex.Message}");
+                }
+                if (guildObject.guildName != null && guildObject.realmName != null)
+                {
+                    guildie = _wowApi.GetCharFromGuild(charName, guildObject.realmName, guildObject.guildName);
+                    if (string.IsNullOrEmpty(guildie.charName))
+                    {
+                        guildie = null;
+                    }
+                }
+
+                //Check to see if the character is in the guild
+                if (guildie != null)
+                {
+                    charName = guildie.charName;
+                    realmName = guildie.realmName;
+                }
+                else
+                {
+                    chars = _wowApi.SearchArmory(charName);
+                    if (chars != null)
+                    {
+                        charName = chars[0].charName;
+                        realmName = chars[0].realmName;
+                    }
+                }
+            }
+            charInfo.charName = charName;
+            charInfo.realmName = realmName;
+            return charInfo;
+        }
+
+        [Command("gearlist")]
+        [Summary("Get a WoW character's gear list")]
+        public async Task GetGearList([Remainder] string args)
+        {
+            var embed = new EmbedBuilder();
+            StringBuilder sb = new StringBuilder();            
+            try
+            {
+                var charInfo = await GetCharFromArgs(args, Context);
+                embed.Description = $"charName {charInfo.charName} realmName {charInfo.realmName}";
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine("Error getting gear list, sorry!");
+                System.Console.WriteLine($"Error getting gear list for {ex.Message}");
+            }
+            await _cc.Reply(Context, embed);
+        }
+        
         [Command("top10", RunMode = RunMode.Async)]
         [Summary("Get the top 10 dps or hps for the latest raid in World of Warcraft (via warcraftlogs.com)")]
         public async Task GetTop10([Remainder] string args = null)
