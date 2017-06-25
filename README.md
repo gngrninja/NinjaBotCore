@@ -3,7 +3,7 @@
 # NinjaBot
 | Build Status  |
 | ------------- |
-| [![Build status](https://ci.appveyor.com/api/projects/status/7ueylm1kmrhymfs2?svg=true)](https://ci.appveyor.com/project/gngrninja/ninjabot) |
+| [![Build status](https://ci.appveyor.com/api/projects/status/9r20viaa3r2i9ksf?svg=true)](https://ci.appveyor.com/project/gngrninja/ninjabotcore) |
 
 NinjaBot is a Discord bot written in C#. 
 
