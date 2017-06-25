@@ -713,96 +713,143 @@ namespace NinjaBotCore.Modules.Wow
                     armoryInfo = _wowApi.GetCharInfo(charInfo.charName, charInfo.realmName);
                     embed.Title = $"Gear List For {charInfo.charName} on {charInfo.realmName}";
                     embed.ThumbnailUrl = armoryInfo.profilePicURL;
-                    embed.Fields.Add(new EmbedFieldBuilder
+                    if (armoryInfo.items.head != null)
                     {
-                        Name = $"Head ({armoryInfo.items.head.itemLevel})",
-                        Value = $"[{armoryInfo.items.head.name}](http://www.wowhead.com/item={armoryInfo.items.head.id})",
-                        IsInline = true
-                    });
-                    embed.Fields.Add(new EmbedFieldBuilder
+                        embed.Fields.Add(new EmbedFieldBuilder
+                        {
+                            Name = $"Head ({armoryInfo.items.head.itemLevel})",
+                            Value = $"[{armoryInfo.items.head.name}](http://www.wowhead.com/item={armoryInfo.items.head.id})",
+                            IsInline = true
+                        });
+                    }
+                    if (armoryInfo.items.hands != null)
                     {
-                        Name = $"Hands ({armoryInfo.items.hands.itemLevel})",
-                        Value = $"[{armoryInfo.items.hands.name}](http://www.wowhead.com/item={armoryInfo.items.hands.id})",
-                        IsInline = true
-                    });
-                    embed.Fields.Add(new EmbedFieldBuilder
+                        embed.Fields.Add(new EmbedFieldBuilder
+                        {
+                            Name = $"Hands ({armoryInfo.items.hands.itemLevel})",
+                            Value = $"[{armoryInfo.items.hands.name}](http://www.wowhead.com/item={armoryInfo.items.hands.id})",
+                            IsInline = true
+                        });
+                    }
+                    if (armoryInfo.items.neck != null)
                     {
-                        Name = $"Neck ({armoryInfo.items.neck.itemLevel})",
-                        Value = $"[{armoryInfo.items.neck.name}](http://www.wowhead.com/item={armoryInfo.items.neck.id})",
-                        IsInline = true
-                    });
-                    embed.Fields.Add(new EmbedFieldBuilder
+                        embed.Fields.Add(new EmbedFieldBuilder
+                        {
+                            Name = $"Neck ({armoryInfo.items.neck.itemLevel})",
+                            Value = $"[{armoryInfo.items.neck.name}](http://www.wowhead.com/item={armoryInfo.items.neck.id})",
+                            IsInline = true
+                        });
+                    }
+                    if (armoryInfo.items.waist != null)
                     {
-                        Name = $"Waist ({armoryInfo.items.waist.itemLevel})",
-                        Value = $"[{armoryInfo.items.waist.name}](http://www.wowhead.com/item={armoryInfo.items.waist.id})",
-                        IsInline = true
-                    });
-                    embed.Fields.Add(new EmbedFieldBuilder
+                        embed.Fields.Add(new EmbedFieldBuilder
+                        {
+                            Name = $"Waist ({armoryInfo.items.waist.itemLevel})",
+                            Value = $"[{armoryInfo.items.waist.name}](http://www.wowhead.com/item={armoryInfo.items.waist.id})",
+                            IsInline = true
+                        });
+                    }
+                    if (armoryInfo.items.shoulder != null)
                     {
-                        Name = $"Shoulders ({armoryInfo.items.shoulder.itemLevel})",
-                        Value = $"[{armoryInfo.items.shoulder.name}](http://www.wowhead.com/item={armoryInfo.items.shoulder.id})",
-                        IsInline = true
-                    });
-                    embed.Fields.Add(new EmbedFieldBuilder
+                        embed.Fields.Add(new EmbedFieldBuilder
+                        {
+                            Name = $"Shoulders ({armoryInfo.items.shoulder.itemLevel})",
+                            Value = $"[{armoryInfo.items.shoulder.name}](http://www.wowhead.com/item={armoryInfo.items.shoulder.id})",
+                            IsInline = true
+                        });
+                    }
+                    if (armoryInfo.items.legs != null)
                     {
-                        Name = $"Pants ({armoryInfo.items.legs.itemLevel})",
-                        Value = $"[{armoryInfo.items.legs.name}](http://www.wowhead.com/item={armoryInfo.items.legs.id})",
-                        IsInline = true
-                    });
-                    embed.Fields.Add(new EmbedFieldBuilder
+                        embed.Fields.Add(new EmbedFieldBuilder
+                        {
+                            Name = $"Pants ({armoryInfo.items.legs.itemLevel})",
+                            Value = $"[{armoryInfo.items.legs.name}](http://www.wowhead.com/item={armoryInfo.items.legs.id})",
+                            IsInline = true
+                        });
+                    }
+                    if (armoryInfo.items.back != null)
                     {
-                        Name = $"Back ({armoryInfo.items.back.itemLevel})",
-                        Value = $"[{armoryInfo.items.back.name}](http://www.wowhead.com/item={armoryInfo.items.back.id})",
-                        IsInline = true
-                    });
-                    embed.Fields.Add(new EmbedFieldBuilder
+                        embed.Fields.Add(new EmbedFieldBuilder
+                        {
+                            Name = $"Back ({armoryInfo.items.back.itemLevel})",
+                            Value = $"[{armoryInfo.items.back.name}](http://www.wowhead.com/item={armoryInfo.items.back.id})",
+                            IsInline = true
+                        });
+                    }
+                    if (armoryInfo.items.feet != null)
                     {
-                        Name = $"Feet ({armoryInfo.items.feet.itemLevel})",
-                        Value = $"[{armoryInfo.items.feet.name}](http://www.wowhead.com/item={armoryInfo.items.feet.id})",
-                        IsInline = true
-                    });
-                    embed.Fields.Add(new EmbedFieldBuilder
+                        embed.Fields.Add(new EmbedFieldBuilder
+                        {
+                            Name = $"Feet ({armoryInfo.items.feet.itemLevel})",
+                            Value = $"[{armoryInfo.items.feet.name}](http://www.wowhead.com/item={armoryInfo.items.feet.id})",
+                            IsInline = true
+                        });
+                    }
+                    if (armoryInfo.items.chest != null)
                     {
-                        Name = $"Chest ({armoryInfo.items.chest.itemLevel})",
-                        Value = $"[{armoryInfo.items.chest.name}](http://www.wowhead.com/item={armoryInfo.items.chest.id})",
-                        IsInline = true
-                    });
-                    embed.Fields.Add(new EmbedFieldBuilder
+                        embed.Fields.Add(new EmbedFieldBuilder
+                        {
+                            Name = $"Chest ({armoryInfo.items.chest.itemLevel})",
+                            Value = $"[{armoryInfo.items.chest.name}](http://www.wowhead.com/item={armoryInfo.items.chest.id})",
+                            IsInline = true
+                        });
+                    }
+                    if (armoryInfo.items.finger1 != null)
                     {
-                        Name = $"Ring ({armoryInfo.items.finger1.itemLevel})",
-                        Value = $"[{armoryInfo.items.finger1.name}](http://www.wowhead.com/item={armoryInfo.items.finger1.id})",
-                        IsInline = true
-                    });
-                    embed.Fields.Add(new EmbedFieldBuilder
+                        embed.Fields.Add(new EmbedFieldBuilder
+                        {
+                            Name = $"Ring ({armoryInfo.items.finger1.itemLevel})",
+                            Value = $"[{armoryInfo.items.finger1.name}](http://www.wowhead.com/item={armoryInfo.items.finger1.id})",
+                            IsInline = true
+                        });
+                    }
+
+                    if (armoryInfo.items.wrist != null)
                     {
-                        Name = $"Wrists ({armoryInfo.items.wrist.itemLevel})",
-                        Value = $"[{armoryInfo.items.wrist.name}](http://www.wowhead.com/item={armoryInfo.items.wrist.id})",
-                        IsInline = true
-                    });
-                    embed.Fields.Add(new EmbedFieldBuilder
+                        embed.Fields.Add(new EmbedFieldBuilder
+                        {
+                            Name = $"Wrists ({armoryInfo.items.wrist.itemLevel})",
+                            Value = $"[{armoryInfo.items.wrist.name}](http://www.wowhead.com/item={armoryInfo.items.wrist.id})",
+                            IsInline = true
+                        });
+                    }
+                    if (armoryInfo.items.trinket1 != null)
                     {
-                        Name = $"Trinket ({armoryInfo.items.trinket1.itemLevel})",
-                        Value = $"[{armoryInfo.items.trinket1.name}](http://www.wowhead.com/item={armoryInfo.items.trinket1.id})",
-                        IsInline = true
-                    });
-                    embed.Fields.Add(new EmbedFieldBuilder
+                        embed.Fields.Add(new EmbedFieldBuilder
+                        {
+                            Name = $"Trinket ({armoryInfo.items.trinket1.itemLevel})",
+                            Value = $"[{armoryInfo.items.trinket1.name}](http://www.wowhead.com/item={armoryInfo.items.trinket1.id})",
+                            IsInline = true
+                        });
+                    }
+                    if (armoryInfo.items.finger2 != null)
                     {
-                        Name = $"Ring ({armoryInfo.items.finger2.itemLevel})",
-                        Value = $"[{armoryInfo.items.finger2.name}](http://www.wowhead.com/item={armoryInfo.items.finger2.id})",
-                        IsInline = true
-                    });
-                    embed.Fields.Add(new EmbedFieldBuilder
+                        embed.Fields.Add(new EmbedFieldBuilder
+                        {
+                            Name = $"Ring ({armoryInfo.items.finger2.itemLevel})",
+                            Value = $"[{armoryInfo.items.finger2.name}](http://www.wowhead.com/item={armoryInfo.items.finger2.id})",
+                            IsInline = true
+                        });
+                    }
+
+                    if (armoryInfo.items.trinket2 != null)
                     {
-                        Name = $"Trinket ({armoryInfo.items.trinket2.itemLevel})",
-                        Value = $"[{armoryInfo.items.trinket2.name}](http://www.wowhead.com/item={armoryInfo.items.trinket2.id})",
-                        IsInline = true
-                    });
-                    embed.Fields.Add(new EmbedFieldBuilder
+                        embed.Fields.Add(new EmbedFieldBuilder
+                        {
+                            Name = $"Trinket ({armoryInfo.items.trinket2.itemLevel})",
+                            Value = $"[{armoryInfo.items.trinket2.name}](http://www.wowhead.com/item={armoryInfo.items.trinket2.id})",
+                            IsInline = true
+                        });
+                    }
+                    if (armoryInfo.items.mainHand != null)
                     {
-                        Name = $"MainHand ({armoryInfo.items.mainHand.itemLevel})",
-                        Value = $"[{armoryInfo.items.mainHand.name}](http://www.wowhead.com/item={armoryInfo.items.mainHand.id})",
-                        IsInline = true
-                    });
+                        embed.Fields.Add(new EmbedFieldBuilder
+                        {
+                            Name = $"MainHand ({armoryInfo.items.mainHand.itemLevel})",
+                            Value = $"[{armoryInfo.items.mainHand.name}](http://www.wowhead.com/item={armoryInfo.items.mainHand.id})",
+                            IsInline = true
+                        });
+                    }
                     if (armoryInfo.items.offHand != null)
                     {
                         embed.Fields.Add(new EmbedFieldBuilder
@@ -820,7 +867,7 @@ namespace NinjaBotCore.Modules.Wow
                     {
                         embed.WithColor(new Color(0, 0, 255));
                     }
-                    else 
+                    else
                     {
                         embed.WithColor(new Color(148, 0, 211));
                     }
