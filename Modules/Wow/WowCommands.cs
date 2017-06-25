@@ -711,11 +711,20 @@ namespace NinjaBotCore.Modules.Wow
                 {
                     armoryInfo = _wowApi.GetCharInfo(charInfo.charName, charInfo.realmName);
                     embed.Title = $"Gear List For {charInfo.charName} on {charInfo.realmName}";
+                    embed.ThumbnailUrl = armoryInfo.profilePicURL;
+                    embed.Author.Name = Context.User.Username;
+                    embed.Author.IconUrl = Context.User.GetAvatarUrl();
                     embed.Fields.Add(new EmbedFieldBuilder
                     {
-                        Name = "Helm",
+                        Name = $"Helm ({armoryInfo.items.head.itemLevel})",
                         Value = $"[{armoryInfo.items.head.name}](http://www.wowhead.com/item={armoryInfo.items.head.id})"
-                    });                    
+                    });
+                    embed.Fields.Add(new EmbedFieldBuilder
+                    {
+                        Name = $"Neck ({armoryInfo.items.neck.itemLevel})",
+                        Value = $"[{armoryInfo.items.neck.name}](http://www.wowhead.com/item={armoryInfo.items.neck.id})",
+                        IsInline = true
+                    });
                 }
             }
             catch (Exception ex)
