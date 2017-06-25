@@ -614,7 +614,7 @@ namespace NinjaBotCore.Modules.Wow
         private async Task<GuildChar> GetCharFromArgs(string args, ICommandContext context)
         {
             string charName = string.Empty;
-            string realmName = string.Empty;            
+            string realmName = string.Empty;
             GuildChar guildie = null;
             List<FoundChar> chars;
             NinjaObjects.GuildObject guildObject = new NinjaObjects.GuildObject();
@@ -657,8 +657,6 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 while (i <= argNumber - 2);
             }
-
-
             if (string.IsNullOrEmpty(realmName))
             {
                 //See if they're a guildie first
@@ -678,7 +676,6 @@ namespace NinjaBotCore.Modules.Wow
                         guildie = null;
                     }
                 }
-
                 //Check to see if the character is in the guild
                 if (guildie != null)
                 {
@@ -693,11 +690,6 @@ namespace NinjaBotCore.Modules.Wow
                         charName = chars[0].charName;
                         realmName = chars[0].realmName;
                     }
-                    else                     
-                    {
-                        charName = string.Empty;
-                        realmName = string.Empty;
-                    }
                 }
             }
             charInfo.charName = charName;
@@ -710,15 +702,26 @@ namespace NinjaBotCore.Modules.Wow
         public async Task GetGearList([Remainder] string args)
         {
             var embed = new EmbedBuilder();
-            StringBuilder sb = new StringBuilder();            
+            StringBuilder sb = new StringBuilder();
             try
             {
                 var charInfo = await GetCharFromArgs(args, Context);
-                embed.Description = $"charName {charInfo.charName} realmName {charInfo.realmName}";
+                Character armoryInfo = new Character();
+                if (!string.IsNullOrEmpty(charInfo.charName) && !string.IsNullOrEmpty(charInfo.realmName))
+                {
+                    armoryInfo = _wowApi.GetCharInfo(charInfo.charName, charInfo.realmName);
+                    embed.Title = $"Gear List For {charInfo.charName} on {charInfo.realmName}";
+                    embed.Fields.Add(new EmbedFieldBuilder
+                    {
+                        Name = "Helm",
+                        Value = $"[{armoryInfo.items.head.name}](http://www.wowhead.com/item={armoryInfo.items.head.id})"
+                    });                    
+                }
             }
             catch (Exception ex)
             {
                 sb.AppendLine("Error getting gear list, sorry!");
+                embed.Description = sb.ToString();
                 System.Console.WriteLine($"Error getting gear list for {ex.Message}");
             }
             await _cc.Reply(Context, embed);
