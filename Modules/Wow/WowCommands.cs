@@ -770,7 +770,7 @@ namespace NinjaBotCore.Modules.Wow
                     embed.Fields.Add(new EmbedFieldBuilder
                     {
                         Name = $"Ring ({armoryInfo.items.finger1.itemLevel})",
-                        Value = $"[{armoryInfo.items.back.name}](http://www.wowhead.com/item={armoryInfo.items.finger1.id})",
+                        Value = $"[{armoryInfo.items.finger1.name}](http://www.wowhead.com/item={armoryInfo.items.finger1.id})",
                         IsInline = true
                     });
                     embed.Fields.Add(new EmbedFieldBuilder
