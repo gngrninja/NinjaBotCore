@@ -11,6 +11,12 @@ namespace NinjaBotCore.Models.Wow
     [JsonObject]
     public class Character
     {
+        private string _thumbNailUrl;
+        private string _region;
+        private string _insetUrl;
+        private string _profilePicUrl;
+        private string _armoryUrl;
+
         public long lastModified { get; set; }
         public string name { get; set; }
         public string realm { get; set; }
@@ -68,44 +74,33 @@ namespace NinjaBotCore.Models.Wow
         {
             get
             {
-                string url;
-                url = string.Empty;
-
-                url = $"http://render-us.worldofwarcraft.com/character/{this.thumbnail}";
-
-                return url;
+                return _thumbNailUrl;
+            }
+            set
+            {
+                this._thumbNailUrl = value;
             }
         }
         public string profilePicURL
         {
             get
             {
-                string url;
-                string append;
-                append = string.Empty;
-                url = string.Empty;
-
-                append = this.thumbnail.Replace("-avatar", "-profilemain");
-
-                url = $"http://render-us.worldofwarcraft.com/character/{append}";
-
-                return url;
+                return this._profilePicUrl;
             }
+            set 
+            {
+                this._profilePicUrl = value;
+            }            
         }
         public string insetURL
         {
             get
             {
-                string url;
-                string append;
-                append = string.Empty;
-                url = string.Empty;
-
-                append = this.thumbnail.Replace("-avatar", "-inset");
-
-                url = $"http://render-us.worldofwarcraft.com/character/{append}";
-
-                return url;
+                return this._insetUrl;
+            }
+            set
+            {
+                this._insetUrl = value;
             }
         }
         [JsonProperty(PropertyName = "achievements")]
@@ -114,8 +109,11 @@ namespace NinjaBotCore.Models.Wow
         {
             get
             {
-                string armoryURL = $"http://us.battle.net/wow/en/character/{this.realm}/{this.name}/advanced";
-                return armoryURL;
+                return this._armoryUrl;                            
+            }
+            set
+            {
+                this._armoryUrl = value;
             }
         }
         [JsonProperty(PropertyName = "talents")]
@@ -392,6 +390,7 @@ namespace NinjaBotCore.Models.Wow
     {
         public string charName { get; set; }
         public string realmName { get; set; }
+        public string regionName { get; set; }
     }
 
     public class WowClasses
