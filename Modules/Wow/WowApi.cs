@@ -97,13 +97,14 @@ namespace NinjaBotCore.Modules.Wow
         public WowClasses wowclasses;
         //public TalentList wowtalents;
 
-        public string GetAPIRequest(string url)
+        public string GetAPIRequest(string url, string region = "us")
         {
             string response;
             string key;
             string prefix;
 
-            prefix = "https://us.api.battle.net/wow";
+            region = region.ToLower();
+            prefix = $"https://{region}.api.battle.net/wow";
             key = $"&apikey={Config.WowApi}";
             url = $"{prefix}{url}{key}";
 
@@ -136,7 +137,7 @@ namespace NinjaBotCore.Modules.Wow
             {
                 httpClient.DefaultRequestHeaders
                     .Accept
-                    .Add(new MediaTypeWithQualityHeaderValue("application/json"));                
+                    .Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = httpClient.GetStringAsync(url).Result;
             }
 
@@ -282,17 +283,65 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
-        public Character GetCharInfo(string name, string realm)
+        public Character GetCharInfo(string name, string realm, string regionName = "us")
         {
             string url;
-
+            string region = string.Empty;
+            region = GetRegionFromString(regionName);
             Character c = new Character();
             realm = realm.Replace("'", string.Empty).Replace(" ", "-");
-            url = $"/character/{realm}/{name}?fields=achievements,talents,items,stats&locale=en_US";
-
-            c = JsonConvert.DeserializeObject<Character>(GetAPIRequest(url));
-
+            url = $"/character/{realm}/{name}?fields=achievements,talents,items,stats&locale={region}";
+            if (region != "en_US")
+            {
+                c = JsonConvert.DeserializeObject<Character>(GetAPIRequest(url, "eu"));
+            }
+            else
+            {
+                c = JsonConvert.DeserializeObject<Character>(GetAPIRequest(url));
+            }
+            string thumbUrl = $"http://render-{regionName}.worldofwarcraft.com/character/{c.thumbnail}";            
+            c.thumbnailURL = thumbUrl;
+            string insetUrl = $"http://render-{regionName}.worldofwarcraft.com/character/{c.thumbnail.Replace("-avatar", "-inset")}";
+            c.insetURL = insetUrl;
+            string profilePicUrl = $"http://render-{regionName}.worldofwarcraft.com/character/{c.thumbnail.Replace("-avatar", "-profilemain")}";
+            c.profilePicURL = profilePicUrl;                
+            string armoryUrl = $"http://{regionName}.battle.net/wow/en/character/{c.realm}/{c.name}/advanced";
+            c.armoryURL = armoryUrl;
             return c;
+        }
+
+        private static string GetRegionFromString(string regionName)
+        {
+            string region;
+            switch (regionName.ToLower())
+            {
+                case "us":
+                    {
+                        region = "en_US";
+                        break;
+                    }
+                case "uk":
+                    {
+                        region = "en_GB";
+                        break;
+                    }
+                case "gb":
+                    {
+                        region = "en_GB";
+                        break;
+                    }
+                case "eu":
+                    {
+                        region = "en_GB";
+                        break;
+                    }
+                default:
+                    {
+                        region = "en_US";
+                        break;
+                    }
+            }
+            return region;
         }
 
         public ItemInfo GetItemInfo(int itemID)
@@ -365,14 +414,20 @@ namespace NinjaBotCore.Modules.Wow
             return c;
         }
 
-        public GuildMembers GetGuildMembers(string realm, string guildName)
+        public GuildMembers GetGuildMembers(string realm, string guildName, string regionName = "us")
         {
             string url;
             GuildMembers g;
-
-            url = $"/guild/{realm}/{guildName}?fields=members&locale=en_US";
-            g = JsonConvert.DeserializeObject<GuildMembers>(GetAPIRequest(url));
-            Console.WriteLine(g.members);
+            string region = GetRegionFromString(regionName);
+            url = $"/guild/{realm}/{guildName}?fields=members&locale={region}";
+            if (region != "en_US")
+            {
+                g = JsonConvert.DeserializeObject<GuildMembers>(GetAPIRequest(url, "eu"));
+            }
+            else
+            {
+                g = JsonConvert.DeserializeObject<GuildMembers>(GetAPIRequest(url));
+            }
             return g;
         }
 
@@ -405,7 +460,7 @@ namespace NinjaBotCore.Modules.Wow
             return dtDateTime;
         }
 
-        public GuildChar GetCharFromGuild(string findName, string realmName, string guildName)
+        public GuildChar GetCharFromGuild(string findName, string realmName, string guildName, string regionName = "us")
         {
             GuildMembers members = new GuildMembers();
             string matchedName = string.Empty;
@@ -415,7 +470,7 @@ namespace NinjaBotCore.Modules.Wow
             Console.WriteLine(guildName);
             try
             {
-                members = GetGuildMembers(realmName, guildName);
+                members = GetGuildMembers(realmName, guildName, regionName);
             }
             catch (Exception ex)
             {
@@ -439,6 +494,7 @@ namespace NinjaBotCore.Modules.Wow
 
                             guildInfo.charName = curMember;
                             guildInfo.realmName = realmName;
+                            guildInfo.regionName = regionName;
 
                             break;
                         }
@@ -459,7 +515,7 @@ namespace NinjaBotCore.Modules.Wow
             using (var httpclient = new HttpClient())
             {
                 url_string = httpclient.GetStringAsync(url).Result;
-            }            
+            }
             document.LoadHtml(url_string);
             List<FoundChar> chars = new List<FoundChar>();
             FoundChar found = new FoundChar();
