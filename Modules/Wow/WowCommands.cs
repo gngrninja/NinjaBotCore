@@ -181,6 +181,7 @@ namespace NinjaBotCore.Modules.Wow
             NinjaObjects.GuildObject guildObject = new NinjaObjects.GuildObject();
             string guildName = string.Empty;
             string realmName = string.Empty;
+            string guildRegion = string.Empty;
             StringBuilder sb = new StringBuilder();
             List<Reports> guildLogs = new List<Reports>();
             int maxReturn = 2;
@@ -192,7 +193,11 @@ namespace NinjaBotCore.Modules.Wow
             guildObject = await GetGuildName();
             guildName = guildObject.guildName;
             realmName = guildObject.realmName.Replace("'", string.Empty);
-
+            guildRegion = guildObject.regionName;
+            if (string.IsNullOrEmpty(guildRegion))
+            {
+                guildRegion = "US";
+            }
             if (Context.Channel is IDMChannel)
             {
                 discordGuildName = Context.Channel.Name;
@@ -255,8 +260,22 @@ namespace NinjaBotCore.Modules.Wow
                 {
                     if (args.Contains(',') && !string.IsNullOrEmpty(args))
                     {
-                        guildName = args.Split(',')[1].ToString().Trim();
-                        realmName = args.Split(',')[0].ToString().Trim();
+                        switch (args.Split(',').Count())
+                        {
+                            case 2:
+                                {
+                                    realmName = args.Split(',')[0].ToString().Trim();
+                                    guildName = args.Split(',')[1].ToString().Trim();
+                                    break;
+                                }
+                            case 3:
+                                {
+                                    realmName = args.Split(',')[0].ToString().Trim();
+                                    guildName = args.Split(',')[1].ToString().Trim();
+                                    guildRegion = args.Split(',')[2].ToString().Trim();
+                                    break;
+                                }
+                        }
                     }
                     else
                     {
@@ -275,7 +294,7 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 try
                 {
-                    guildLogs = _logsApi.GetReportsFromGuild(guildName, realmName);
+                    guildLogs = _logsApi.GetReportsFromGuild(guildName, realmName, guildRegion);
                     arrayCount = guildLogs.Count - 1;
                 }
                 catch (Exception ex)
@@ -283,7 +302,6 @@ namespace NinjaBotCore.Modules.Wow
                     sb.AppendLine($"Unable to find logs for **{guildName}** on **{realmName}**");
                     Console.WriteLine($"{ex.Message}");
                     await _cc.Reply(Context, sb.ToString());
-                    await _cc.SetDoneEmoji(Context);
                     return;
                 }
                 if (arrayCount > 0)
@@ -1183,7 +1201,6 @@ namespace NinjaBotCore.Modules.Wow
         {
             if (args.Split(' ').Count() > 1)
             {
-                await _cc.SetDoneEmoji(Context);
                 await _cc.Reply(Context, $"Please specify only a character name for the search!");
                 return;
             }
