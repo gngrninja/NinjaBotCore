@@ -55,9 +55,8 @@ namespace NinjaBotCore.Modules.Wow
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
             if (string.IsNullOrEmpty(args))
-            {
-                var embedError = new EmbedBuilder();
-                embedError.Title = $"WoW Armory Command Reference";
+            {                
+                embed.Title = $"WoW Armory Command Reference";
                 sb.AppendLine($"Usage examples:");
                 sb.AppendLine($":black_small_square: **{Config.Prefix}armory** charactername");
                 sb.AppendLine($"\t:black_small_square: Search armory for *charactername* (first in guild, then in the rest of WoW(US))");
@@ -65,8 +64,8 @@ namespace NinjaBotCore.Modules.Wow
                 sb.AppendLine($"\t:black_small_square: Search armory for *charactername* on *realmname* WoW (US)");
                 sb.AppendLine($":black_small_square: **{Config.Prefix}armory** charactername realmname region(us or eu)");
                 sb.AppendLine($"\t:black_small_square: Search armory for *charactername* on *realmname* WoW (US or EU as specified)");
-                embedError.Description = sb.ToString();
-                await _cc.Reply(Context, embedError);
+                embed.Description = sb.ToString();
+                await _cc.Reply(Context, embed);
                 return;
             }
             else
@@ -867,7 +866,7 @@ namespace NinjaBotCore.Modules.Wow
             string difficulty = string.Empty;
             string metric = string.Empty;
             int encounterID = 0;
-            var fightList = WarcraftLogs.Zones.Where(z => z.id == 11).Select(z => z.encounters).FirstOrDefault();
+            var fightList = WarcraftLogs.Zones.Where(z => z.id == 13).Select(z => z.encounters).FirstOrDefault();
             var embed = new EmbedBuilder();
 
             //Get Guild Information for Discord Server, start embed            
@@ -897,19 +896,19 @@ namespace NinjaBotCore.Modules.Wow
                 sb.AppendLine($"Get a list of all encounters and shortcut IDs");
                 sb.AppendLine();
                 sb.AppendLine($"**{Config.Prefix}top10** 1");
-                sb.AppendLine($"The above command would get all top 10 **dps** results for **Skorpyron** on **{realmName}**.");
+                sb.AppendLine($"The above command would get all top 10 **dps** results for **Goroth** on **{realmName}**.");
                 sb.AppendLine();
-                sb.AppendLine($"**{Config.Prefix}top10** 1 guild");
-                sb.AppendLine($"The above command would get the top 10 **dps** results for **Skorpyron** on **{realmName}** for **{guildName}**.");
+                sb.AppendLine($"**{Config.Prefix}top10** 1, guild");
+                sb.AppendLine($"The above command would get the top 10 **dps** results for **Goroth** on **{realmName}** for **{guildName}**.");
                 sb.AppendLine();
-                sb.AppendLine($"**{Config.Prefix}top10** 1 guild hps");
-                sb.AppendLine($"The above command would get the top 10 **hps** results for **Skorpyron** on **{realmName}** for **{guildName}**.");
+                sb.AppendLine($"**{Config.Prefix}top10** 1, guild, hps");
+                sb.AppendLine($"The above command would get the top 10 **hps** results for **Goroth** on **{realmName}** for **{guildName}**.");
                 sb.AppendLine();
-                sb.AppendLine($"**{Config.Prefix}top10** 1 all hps");
-                sb.AppendLine($"The above command would get all top 10 **hps** results for **Skorpyron** on **{realmName}**.");
+                sb.AppendLine($"**{Config.Prefix}top10** 1, all, hps");
+                sb.AppendLine($"The above command would get all top 10 **hps** results for **Goroth** on **{realmName}**.");
                 sb.AppendLine();
-                sb.AppendLine($"**{Config.Prefix}top10** 1 guild dps mythic");
-                sb.AppendLine($"The above command would get the top 10 **dps** results for **Skorpyron** on **{realmName}** for **{guildName}** on **mythic** difficulty.");
+                sb.AppendLine($"**{Config.Prefix}top10** 1, guild, dps, mythic");
+                sb.AppendLine($"The above command would get the top 10 **dps** results for **Goroth** on **{realmName}** for **{guildName}** on **mythic** difficulty.");
                 embed.Title = $"{Context.User.Username}, here are some examples for **{Config.Prefix}top10**";
                 embed.Description = sb.ToString();
                 await _cc.Reply(Context, embed);
@@ -1144,7 +1143,7 @@ namespace NinjaBotCore.Modules.Wow
                 foreach (var rank in top10)
                 {
                     var classInfo = WarcraftLogs.CharClasses.Where(c => c.id == rank._class).FirstOrDefault();
-                    sb.AppendLine($"**{i}** [**{rank.name}**](http://us.battle.net/wow/en/character/{rank.server}/{rank.name}/advanced) ilvl **{rank.itemLevel}** {classInfo.name} from *{rank.guild}*");
+                    sb.AppendLine($"**{i}** [{rank.name}](http://us.battle.net/wow/en/character/{rank.server}/{rank.name}/advanced) ilvl **{rank.itemLevel}** {classInfo.name} from *[{rank.guild}]*");
                     sb.AppendLine($"\t{metricEmoji}[**{rank.total.ToString("###,###")}** {metric.ToLower()}]");
                     i++;
                 }
