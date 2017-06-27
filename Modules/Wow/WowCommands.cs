@@ -55,7 +55,7 @@ namespace NinjaBotCore.Modules.Wow
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
             if (string.IsNullOrEmpty(args))
-            {                
+            {
                 embed.Title = $"WoW Armory Command Reference";
                 sb.AppendLine($"Usage examples:");
                 sb.AppendLine($":black_small_square: **{Config.Prefix}armory** charactername");
@@ -860,33 +860,38 @@ namespace NinjaBotCore.Modules.Wow
         [Summary("Get the top 10 dps or hps for the latest raid in World of Warcraft (via warcraftlogs.com)")]
         public async Task GetTop10([Remainder] string args = null)
         {
+            var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
             string fightName = string.Empty;
             string guildOnly = string.Empty;
             string difficulty = string.Empty;
             string metric = string.Empty;
-            int encounterID = 0;
-            var fightList = WarcraftLogs.Zones.Where(z => z.id == 13).Select(z => z.encounters).FirstOrDefault();
-            var embed = new EmbedBuilder();
-
-            //Get Guild Information for Discord Server, start embed            
+            string raidName = string.Empty;
             string thumbUrl = string.Empty;
             var guildInfo = Context.Guild;
             string discordGuildName = string.Empty;
-            if (guildInfo == null)
+            int encounterID = 0;
+
+            //Attempt to get guild info
+            NinjaObjects.GuildObject guildObject = await GetGuildName();
+            string realmName = guildObject.realmName.Replace("'", string.Empty);
+            string guildName = guildObject.guildName;
+            string region = guildObject.regionName;
+
+            var fightList = WarcraftLogs.Zones.Where(z => z.id == 13).Select(z => z.encounters).FirstOrDefault();
+            raidName = WarcraftLogs.Zones.Where(z => z.id == 13).Select(z => z.name).FirstOrDefault();
+
+            //Get Guild Information for Discord Server (or channel for DM)
+            if (Context.Channel is IDMChannel)
             {
                 discordGuildName = Context.User.Username;
                 thumbUrl = Context.User.GetAvatarUrl();
             }
-            else
+            else if (Context.Channel is IGuildChannel)
             {
                 discordGuildName = Context.Guild.Name;
                 thumbUrl = Context.Guild.IconUrl;
             }
-            NinjaObjects.GuildObject guildObject = await GetGuildName();
-
-            string realmName = guildObject.realmName.Replace("'", string.Empty);
-            string guildName = guildObject.guildName;
             //Argument logic
             if (args == null || args.Split(',')[0] == "help")
             {
@@ -921,7 +926,7 @@ namespace NinjaBotCore.Modules.Wow
                     //list fights here
                     if (fightList != null)
                     {
-                        embed.Title = "__Fight names for **The Nighthold**__";
+                        embed.Title = $"__Fight names for **{raidName}**__";
                         int j = 1;
                         foreach (var fight in fightList)
                         {
@@ -951,6 +956,7 @@ namespace NinjaBotCore.Modules.Wow
                             metric = splitArgs[1].Trim();
                             break;
                         }
+                    //Name + metric + guild/all
                     case 3:
                         {
                             fightName = splitArgs[0].Trim();
@@ -958,8 +964,9 @@ namespace NinjaBotCore.Modules.Wow
                             metric = splitArgs[2].Trim();
                             break;
                         }
+                    //Name + metric + guild/all + difficulty
                     case 4:
-                        {
+                        {                    
                             fightName = splitArgs[0].Trim();
                             guildOnly = splitArgs[1].Trim();
                             metric = splitArgs[2].Trim();
@@ -1094,7 +1101,7 @@ namespace NinjaBotCore.Modules.Wow
                 if (string.IsNullOrEmpty(fightName))
                 {
                     sb.AppendLine($"{Context.User.Username}, please specify a fight name!");
-                    sb.AppendLine($"**Example:** !top10 Skorpyron");
+                    sb.AppendLine($"**Example:** !top10 Goroth");
                     sb.AppendLine($"**Encounter Lists:** !top10 list");
                     await _cc.Reply(Context, sb.ToString());
                     return;
@@ -1393,7 +1400,7 @@ namespace NinjaBotCore.Modules.Wow
             NinjaObjects.GuildObject guildObject = new NinjaObjects.GuildObject();
             string guildName = string.Empty;
             string realmName = string.Empty;
-            string regionName = "us";            
+            string regionName = "us";
             if (string.IsNullOrEmpty(args))
             {
                 guildObject = await GetGuildName();
