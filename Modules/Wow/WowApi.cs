@@ -124,11 +124,7 @@ namespace NinjaBotCore.Modules.Wow
 
         public string GetAPIRequest(string url, bool fileDownload)
         {
-            string response;
-            //string key;
-            //string prefix;
-            //prefix = "https://us.api.battle.net/wow";            
-            //test = httpClient.PostAsJsonAsync<FaceRequest>(fullUrl, request).Result;             
+            string response;          
             url = $"{url}";
 
             Console.WriteLine($"Wow API request to {url}");
@@ -152,7 +148,7 @@ namespace NinjaBotCore.Modules.Wow
             return w;
         }
 
-        public async Task<List<WowAuctions>> GetAuctionsByRealm(string realmName)
+        public async Task<List<WowAuctions>> GetAuctionsByRealm(string realmName, string regionName = "us")
         {
             AuctionsModel.AuctionFile file;
             AuctionsModel.Auctions a = new AuctionsModel.Auctions();
@@ -162,9 +158,10 @@ namespace NinjaBotCore.Modules.Wow
             DateTime? latestTimeStampFromDb;
             List<WowAuctions> dbAuctions = new List<WowAuctions>();
             List<WowAuctions> returnAuction = new List<WowAuctions>();
+            string region = GetRegionFromString(regionName);
 
-            url = $"/auction/data/{realmName}?locale=en_US";
-            file = JsonConvert.DeserializeObject<AuctionsModel.AuctionFile>(GetAPIRequest(url));
+            url = $"/auction/data/{realmName}?locale={region}";
+            file = JsonConvert.DeserializeObject<AuctionsModel.AuctionFile>(GetAPIRequest(url, regionName));
             string fileURL = file.files[0].url;
             DateTime lastModified = UnixTimeStampToDateTime(file.files[0].lastModified);
 

@@ -337,7 +337,7 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 else
                 {
-                    embed.Title = $"Unable to find logs for {guildName} on {realmName}";
+                    embed.Title = $"Unable to find logs for {guildName} on {realmName} ({guildRegion})";
                     embed.Description = $"**{Context.User.Username}**, ensure you've uploaded the logs as attached to **{guildName}** on http://www.warcraftlogs.com \n";
                     embed.Description += $"More information: http://www.wowhead.com/guides/raiding/warcraft-logs";
                     await _cc.Reply(Context, embed);
@@ -1225,10 +1225,12 @@ namespace NinjaBotCore.Modules.Wow
             {
                 NinjaObjects.GuildObject guildObject = new NinjaObjects.GuildObject();
                 string realmName = string.Empty;
+                string regionName = "us";
                 if (string.IsNullOrEmpty(args))
                 {
                     guildObject = await GetGuildName();
                     realmName = guildObject.realmName;
+                    regionName = guildObject.regionName;
                 }
                 else
                 {
@@ -1250,11 +1252,11 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 if (string.IsNullOrEmpty(realmName))
                 {
-                    await _cc.Reply(Context, $"Unable to find a guild/realm association!\nTry {Config.Prefix}wow auctions realmName guildName");
+                    await _cc.Reply(Context, $"Unable to find realm \nTry {Config.Prefix}wow auctions realmName");
                     return;
                 }
                 Console.WriteLine($"Looking up auctions for realm {realmName.ToUpper()}");
-                List<WowAuctions> auctions = await _wowApi.GetAuctionsByRealm(realmName.ToLower());
+                List<WowAuctions> auctions = await _wowApi.GetAuctionsByRealm(realmName.ToLower(), regionName);
                 StringBuilder sb = new StringBuilder();
                 var auctionList = GetAuctionItemIDs();
                 var embed = new EmbedBuilder();
@@ -1392,18 +1394,36 @@ namespace NinjaBotCore.Modules.Wow
             NinjaObjects.GuildObject guildObject = new NinjaObjects.GuildObject();
             string guildName = string.Empty;
             string realmName = string.Empty;
+            string regionName = "us";            
             if (string.IsNullOrEmpty(args))
             {
                 guildObject = await GetGuildName();
                 guildName = guildObject.guildName;
                 realmName = guildObject.realmName;
+                regionName = guildObject.regionName;
             }
             else
             {
                 if (args.Contains(','))
                 {
-                    guildName = args.Split(',')[1].ToString().Trim();
-                    realmName = args.Split(',')[0].ToString().Trim();
+                    switch (args.Split(',').Count())
+                    {
+                        case 2:
+                            {
+                                realmName = args.Split(',')[0].ToString().Trim();
+                                guildName = args.Split(',')[1].ToString().Trim();
+                                break;
+                            }
+                        case 3:
+                            {
+                                realmName = args.Split(',')[0].ToString().Trim();
+                                guildName = args.Split(',')[1].ToString().Trim();
+                                regionName = args.Split(',')[2].ToString().Trim();
+                                break;
+                            }
+                    }
+
+
                 }
                 else
                 {
@@ -1432,7 +1452,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             try
             {
-                var guildMembers = _wowApi.GetGuildMembers(realmName, guildName);
+                var guildMembers = _wowApi.GetGuildMembers(realmName, guildName, regionName);
                 int memberCount = 0;
                 if (guildMembers != null)
                 {
@@ -1444,8 +1464,8 @@ namespace NinjaBotCore.Modules.Wow
                 StringBuilder sb = new StringBuilder();
                 var embed = new EmbedBuilder();
                 embed.WithColor(new Color(255, 255, 0));
-                var ranking = wowProgressApi.getGuildRank(guildName, realmName);
-                var realmObject = wowProgressApi.getRealmObject(realmName, wowProgressApi._links);
+                var ranking = wowProgressApi.GetGuildRank(guildName, realmName, regionName);
+                var realmObject = wowProgressApi.GetRealmObject(realmName, wowProgressApi._links, regionName);
                 var topGuilds = realmObject.OrderBy(r => r.realm_rank).Take(3);
                 var guild = realmObject.Where(r => r.name.ToLower() == guildName.ToLower()).FirstOrDefault();
                 int guildRank = guild.realm_rank;
