@@ -12,15 +12,7 @@ using System.IO;
 using NinjaBotCore.Database;
 using System.Net.Http;
 using System.Net.Http.Headers;
-//wowachievements = this.GetWoWAchievements();
-//guildMates = this.getGuildMembers("thunderlord", "ur%20key%20ur%20carry");
-//wowtalents = this.getWowTalents();
-//Context.Client.CurrentUser.ModifyAsync(x => x.Username = "whatever name")
-//public static Wowapi getInstance()
-//{
-//    return INSTANCE;
-//}
-//private static Wowapi INSTANCE = new Wowapi();        
+ 
 namespace NinjaBotCore.Modules.Wow
 {
     public class WowApi
@@ -124,11 +116,7 @@ namespace NinjaBotCore.Modules.Wow
 
         public string GetAPIRequest(string url, bool fileDownload)
         {
-            string response;
-            //string key;
-            //string prefix;
-            //prefix = "https://us.api.battle.net/wow";            
-            //test = httpClient.PostAsJsonAsync<FaceRequest>(fullUrl, request).Result;             
+            string response;          
             url = $"{url}";
 
             Console.WriteLine($"Wow API request to {url}");
@@ -144,15 +132,16 @@ namespace NinjaBotCore.Modules.Wow
             return response;
         }
 
-        public WowRealm GetRealmStatus(string locale = "en_US")
-        {
+        public WowRealm GetRealmStatus(string locale = "us")
+        {            
+            string localeName = GetRegionFromString(locale);
             WowRealm w = new WowRealm();
-            string url = $"/realm/status?locale={locale}";
-            w = JsonConvert.DeserializeObject<WowRealm>(GetAPIRequest(url));
+            string url = $"/realm/status?locale={localeName}";
+            w = JsonConvert.DeserializeObject<WowRealm>(GetAPIRequest(url, locale));
             return w;
         }
 
-        public async Task<List<WowAuctions>> GetAuctionsByRealm(string realmName)
+        public async Task<List<WowAuctions>> GetAuctionsByRealm(string realmName, string regionName = "us")
         {
             AuctionsModel.AuctionFile file;
             AuctionsModel.Auctions a = new AuctionsModel.Auctions();
@@ -162,9 +151,10 @@ namespace NinjaBotCore.Modules.Wow
             DateTime? latestTimeStampFromDb;
             List<WowAuctions> dbAuctions = new List<WowAuctions>();
             List<WowAuctions> returnAuction = new List<WowAuctions>();
+            string region = GetRegionFromString(regionName);
 
-            url = $"/auction/data/{realmName}?locale=en_US";
-            file = JsonConvert.DeserializeObject<AuctionsModel.AuctionFile>(GetAPIRequest(url));
+            url = $"/auction/data/{realmName}?locale={region}";
+            file = JsonConvert.DeserializeObject<AuctionsModel.AuctionFile>(GetAPIRequest(url, regionName));
             string fileURL = file.files[0].url;
             DateTime lastModified = UnixTimeStampToDateTime(file.files[0].lastModified);
 

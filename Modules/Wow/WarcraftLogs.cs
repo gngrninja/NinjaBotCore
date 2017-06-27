@@ -222,19 +222,19 @@ namespace NinjaBotCore.Modules.Wow
             return table;
         }
 
-        public WarcraftlogRankings.RankingObject GetRankingsByEncounter(int encounterID, string realmName, string metric = "dps", int difficulty = 4)
+        public WarcraftlogRankings.RankingObject GetRankingsByEncounter(int encounterID, string realmName, string metric = "dps", int difficulty = 4, string regionName = "us")
         {
             WarcraftlogRankings.RankingObject l = new WarcraftlogRankings.RankingObject();
-            string url = $"/rankings/encounter/{encounterID}?metric={metric}&server={realmName}&region=US&difficulty={difficulty}&limit=1000&";
+            string url = $"/rankings/encounter/{encounterID}?metric={metric}&server={realmName}&region={regionName}&difficulty={difficulty}&limit=1000&";
             l = JsonConvert.DeserializeObject<WarcraftlogRankings.RankingObject>(logsApiRequest(url));
             return l;
         }
 
-        public WarcraftlogRankings.RankingObject GetRankingsByEncounterGuild(int encounterID, string realmName, string guildName, string metric = "dps", int difficulty = 4)
+        public WarcraftlogRankings.RankingObject GetRankingsByEncounterGuild(int encounterID, string realmName, string guildName, string metric = "dps", int difficulty = 4, string regionName = "us")
         {
             WarcraftlogRankings.RankingObject l = new WarcraftlogRankings.RankingObject();
             guildName = guildName.Replace(" ", "%20");
-            string url = $"/rankings/encounter/{encounterID}?guild={guildName}&server={realmName}&region=US&metric={metric}&difficulty={difficulty}&limit=1000&";
+            string url = $"/rankings/encounter/{encounterID}?guild={guildName}&server={realmName}&region={regionName}&metric={metric}&difficulty={difficulty}&limit=1000&";
             l = JsonConvert.DeserializeObject<WarcraftlogRankings.RankingObject>(logsApiRequest(url));
             return l;
         }

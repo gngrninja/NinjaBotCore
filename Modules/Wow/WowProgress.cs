@@ -24,12 +24,11 @@ namespace NinjaBotCore.Modules.Wow
 
         public List<HtmlNode> _links;
 
-        public string getApiRequest(string url)
+        public string GetApiRequest(string url, string regionName = "us")
         {
-            string fullUrl = $"http://www.wowprogress.com/guild/us/{url}/json_rank";
+            string fullUrl = $"http://www.wowprogress.com/guild/{regionName}/{url}/json_rank";
             Console.WriteLine(fullUrl);
             string response = string.Empty;
-
             using (HttpClient httpClient = new HttpClient())
             {
                 httpClient.DefaultRequestHeaders
@@ -37,62 +36,55 @@ namespace NinjaBotCore.Modules.Wow
                     .Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = httpClient.GetStringAsync(fullUrl).Result;
             }
-
             return response;
         }
 
-        public ProgressGuildRanks.GuildRank getGuildRank(string guildName, string realmName)
+        public ProgressGuildRanks.GuildRank GetGuildRank(string guildName, string realmName, string regionName = "us")
         {
             string url = $"{realmName.Replace("'", "-")}/{guildName.Replace(' ', '+')}";
             Console.WriteLine($"{realmName}/{guildName.Replace(' ', '+')}");
             ProgressGuildRanks.GuildRank rank = new ProgressGuildRanks.GuildRank();
-
-            rank = JsonConvert.DeserializeObject<ProgressGuildRanks.GuildRank>(getApiRequest(url));
-
+            rank = JsonConvert.DeserializeObject<ProgressGuildRanks.GuildRank>(GetApiRequest(url, regionName));
             return rank;
         }
 
-        public List<ProgressGuildRanks.Ranking> getRealmObject(string realmName, List<HtmlNode> links)
+        public List<ProgressGuildRanks.Ranking> GetRealmObject(string realmName, List<HtmlNode> links, string regionName = "us")
         {
             realmName = realmName.Replace("'", "-");
-            string downloadURL = findRealmLink(links, realmName);
+            string downloadURL = FindRealmLink(links, realmName, regionName);
             Console.WriteLine($"l{links} r{realmName}");
             DateTime remoteFileModified = GetLastModifyTime(downloadURL);
             DateTime localFileModified = new DateTime();
 
-            if (File.Exists($"{realmName}.json"))
+            if (File.Exists($"{realmName}-{regionName}.json"))
             {
-                localFileModified = File.GetLastWriteTime($"{realmName}.json");
+                localFileModified = File.GetLastWriteTime($"{realmName}-{regionName}.json");
             }
             string bytesAsString = string.Empty;
             Console.WriteLine($"remote: {remoteFileModified} local: {localFileModified}");
             if (remoteFileModified > localFileModified)
             {
 
-                byte[] fileDL = getRankingsFile(downloadURL);
+                byte[] fileDL = GetRankingsFile(downloadURL);
                 var decompressed = DecompressFile(fileDL);
-                File.WriteAllBytes($"{realmName}.json", decompressed);
-                File.SetLastWriteTime($"{realmName}.json", GetLastModifyTime(downloadURL));
+                File.WriteAllBytes($"{realmName}-{regionName}.json", decompressed);
+                File.SetLastWriteTime($"{realmName}-{regionName}.json", GetLastModifyTime(downloadURL));
                 bytesAsString = Encoding.ASCII.GetString(decompressed);
             }
             else
             {
-                bytesAsString = Encoding.ASCII.GetString(File.ReadAllBytes($"{realmName}.json"));
+                bytesAsString = Encoding.ASCII.GetString(File.ReadAllBytes($"{realmName}-{regionName}.json"));
             }
-
-
             var realmObject = JsonConvert.DeserializeObject<List<ProgressGuildRanks.Ranking>>(bytesAsString);
             return realmObject;
         }
 
-        private static string findRealmLink(List<HtmlNode> links, string realmName)
+        private static string FindRealmLink(List<HtmlNode> links, string realmName, string regionName = "us")
         {
             string baseURL = "http://www.wowprogress.com/export/ranks/";
             string url = string.Empty;
-            string pattern = $"^us.+{realmName.ToLower()}.+\\.gz$";
-
+            string pattern = $"^{regionName}.+{realmName.ToLower()}.+\\.gz$";
             List<HtmlNode> possibleLinks = new List<HtmlNode>();
-
             foreach (HtmlNode link in links)
             {
                 if (System.Text.RegularExpressions.Regex.IsMatch(link.InnerText, pattern))
@@ -100,16 +92,13 @@ namespace NinjaBotCore.Modules.Wow
                     possibleLinks.Add(link);
                 }
             }
-
             url = $"{baseURL}{possibleLinks.Select(l => l.InnerHtml).LastOrDefault()}";
-
             return url;
         }
 
-        public byte[] getRankingsFile(string url)
+        public byte[] GetRankingsFile(string url)
         {
             byte[] fileDL;
-
             using (HttpClient httpClient = new HttpClient())
             {
                 httpClient.DefaultRequestHeaders
@@ -118,7 +107,6 @@ namespace NinjaBotCore.Modules.Wow
 
                 fileDL = httpClient.GetByteArrayAsync(url).Result;
             }
-
             return fileDL;
         }
 
@@ -173,12 +161,9 @@ namespace NinjaBotCore.Modules.Wow
             {
                 url_string = httpclient.GetStringAsync(url).Result;
             }
-
             doc.LoadHtml(url_string);
-            List<HtmlNode> links = new List<HtmlNode>();
-            
-            string sPattern = "^us.+\\.gz$";
-
+            List<HtmlNode> links = new List<HtmlNode>();            
+            string sPattern = "^(us|eu).+\\.gz$";
             foreach (HtmlNode link in doc.DocumentNode.SelectNodes("//a[@href]"))
             {
                 if (System.Text.RegularExpressions.Regex.IsMatch(link.InnerText, sPattern))
