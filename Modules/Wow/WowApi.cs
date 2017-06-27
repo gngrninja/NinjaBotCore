@@ -12,15 +12,7 @@ using System.IO;
 using NinjaBotCore.Database;
 using System.Net.Http;
 using System.Net.Http.Headers;
-//wowachievements = this.GetWoWAchievements();
-//guildMates = this.getGuildMembers("thunderlord", "ur%20key%20ur%20carry");
-//wowtalents = this.getWowTalents();
-//Context.Client.CurrentUser.ModifyAsync(x => x.Username = "whatever name")
-//public static Wowapi getInstance()
-//{
-//    return INSTANCE;
-//}
-//private static Wowapi INSTANCE = new Wowapi();        
+ 
 namespace NinjaBotCore.Modules.Wow
 {
     public class WowApi
