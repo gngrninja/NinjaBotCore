@@ -494,7 +494,7 @@ namespace NinjaBotCore.Modules.Wow
             else
             {
                 sb.AppendLine($"No guild association found for **{discordGuildName}**!");
-                sb.AppendLine($"Please use {Config.Prefix}set-guild realmName guild name to associate a guild with **{discordGuildName}**");
+                sb.AppendLine($"Please use {Config.Prefix}set-guild realmName, guild name, region (optional, defaults to US, valid values are eu or us) to associate a guild with **{discordGuildName}**");
             }
             embed.Description = sb.ToString();
             await _cc.Reply(Context, embed);
@@ -547,10 +547,10 @@ namespace NinjaBotCore.Modules.Wow
                 sb.Clear();
                 sb.AppendLine($":black_medium_small_square: **rankings**");
                 sb.AppendLine($"\t :black_small_square: Get rankings for the guild associated with this Discord server from http://www.wowprogress.com");
-                sb.AppendLine($"\t :black_small_square: Alternatively, you can provide a guild and realm in this format: {Config.Prefix}wow rankings *realmname*, *guildname*");
+                sb.AppendLine($"\t :black_small_square: Alternatively, you can provide a guild and realm in this format: {Config.Prefix}wow rankings *realmname*, *guildname*, (optional, defaults to US) *region* (us or eu are valid)");
                 sb.AppendLine($":black_medium_small_square: **auctions**");
                 sb.AppendLine($"\t :black_small_square: Get a list of the current auctions (most used raiding/crafting items) for the realm associated with this Discord server");
-                sb.AppendLine($"\t :black_small_square: Alternatively, you can provide a realm in this format: {Config.Prefix}wow auctions *realmname*");
+                sb.AppendLine($"\t :black_small_square: Alternatively, you can provide a realm in this format: {Config.Prefix}wow auctions *realmname* (defaults to US)");
                 sb.AppendLine($":black_medium_small_square: **search**");
                 sb.AppendLine($"\t :black_small_square: Search the WoW website for a character name to find out the associated level and realm");
                 var embed = new EmbedBuilder();
@@ -663,11 +663,45 @@ namespace NinjaBotCore.Modules.Wow
 
         [Command("gearlist")]
         [Summary("Get a WoW character's gear list")]
-        public async Task GetGearList([Remainder] string args)
-        {
-            //Add error to response if there is one
+        public async Task GetGearList([Remainder] string args = null)
+        {            
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
+            if (args == null)
+            {
+                embed.WithColor(new Color(0, 255, 0));
+                embed.Title = $"{Config.Prefix}gearlist Command Usage Guide";                
+                embed.WithAuthor(new EmbedAuthorBuilder
+                {
+                    Name = Context.User.Username,
+                    IconUrl = Context.User.GetAvatarUrl()
+                });
+                embed.AddField(new EmbedFieldBuilder
+                {
+                    Name = $"{Config.Prefix}gearlist charName",
+                    Value = "Get the gearlist for a character. Just specifying name will result in a guild lookup, followed by NA/US search",
+                    IsInline = true
+                });
+                embed.AddField(new EmbedFieldBuilder
+                {
+                    Name = $"{Config.Prefix}gearlist charName realmName",
+                    Value = "Get the gearlist for a character on a specific realm (defaults to US)",
+                    IsInline = true
+                });
+                embed.AddField(new EmbedFieldBuilder
+                {
+                    Name = $"{Config.Prefix}gearlist charName realmName region(supports us or eu values)",
+                    Value = "Get the gearlist for a character on a specific realm from a specific region (us or eu)",
+                    IsInline = true
+                });
+                embed.AddField(new EmbedFieldBuilder
+                {
+                    Name = "Still need help?",
+                    Value = "Visit [gngr.ninja/bot](https://gngr.ninja/bot)"
+                });          
+                await _cc.Reply(Context, embed);                      
+                return;                
+            }            
             try
             {
                 var charInfo = await GetCharFromArgs(args, Context);
@@ -682,7 +716,6 @@ namespace NinjaBotCore.Modules.Wow
                     {
                         armoryInfo = _wowApi.GetCharInfo(charInfo.charName, charInfo.realmName);
                     }
-
                     embed.Title = $"Gear List For {charInfo.charName} on {charInfo.realmName}";
                     embed.ThumbnailUrl = armoryInfo.profilePicURL;
                     if (armoryInfo.items.head != null)
@@ -871,12 +904,13 @@ namespace NinjaBotCore.Modules.Wow
             var guildInfo = Context.Guild;
             string discordGuildName = string.Empty;
             int encounterID = 0;
+            string region = "us";
 
             //Attempt to get guild info
             NinjaObjects.GuildObject guildObject = await GetGuildName();
             string realmName = guildObject.realmName.Replace("'", string.Empty);
             string guildName = guildObject.guildName;
-            string region = guildObject.regionName;
+            region = guildObject.regionName;
 
             var fightList = WarcraftLogs.Zones.Where(z => z.id == 13).Select(z => z.encounters).FirstOrDefault();
             raidName = WarcraftLogs.Zones.Where(z => z.id == 13).Select(z => z.name).FirstOrDefault();
@@ -1108,11 +1142,11 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 if (!(string.IsNullOrEmpty(guildOnly) || guildOnly.ToLower() != "guild"))
                 {
-                    l = _logsApi.GetRankingsByEncounterGuild(encounterID, realmName, guildObject.guildName, metric, difficultyID);
+                    l = _logsApi.GetRankingsByEncounterGuild(encounterID, realmName, guildObject.guildName, metric, difficultyID, region);
                 }
                 else
                 {
-                    l = _logsApi.GetRankingsByEncounter(encounterID, realmName, metric, difficultyID);
+                    l = _logsApi.GetRankingsByEncounter(encounterID, realmName, metric, difficultyID, region);
                 }
                 string fightNameFromEncounterID = fightList.Where(f => f.id == encounterID).Select(f => f.name).FirstOrDefault();
                 var top10 = l.rankings.OrderByDescending(a => a.total).Take(10);
@@ -1150,7 +1184,7 @@ namespace NinjaBotCore.Modules.Wow
                 foreach (var rank in top10)
                 {
                     var classInfo = WarcraftLogs.CharClasses.Where(c => c.id == rank._class).FirstOrDefault();
-                    sb.AppendLine($"**{i}** [{rank.name}](http://us.battle.net/wow/en/character/{rank.server}/{rank.name}/advanced) ilvl **{rank.itemLevel}** {classInfo.name} from *[{rank.guild}]*");
+                    sb.AppendLine($"**{i}** [{rank.name}](http://{region}.battle.net/wow/en/character/{rank.server}/{rank.name}/advanced) ilvl **{rank.itemLevel}** {classInfo.name} from *[{rank.guild}]*");
                     sb.AppendLine($"\t{metricEmoji}[**{rank.total.ToString("###,###")}** {metric.ToLower()}]");
                     i++;
                 }
@@ -1170,11 +1204,30 @@ namespace NinjaBotCore.Modules.Wow
 
         [Command("realm-info", RunMode = RunMode.Async)]
         [Summary("Return WoW realm information")]
-        public async Task GetRealmInfo([Remainder] string args)
+        public async Task GetRealmInfo([Remainder] string args = null)
         {
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
-            var foundRealm = WowApi.RealmInfo.realms.Where(r => r.name.ToLower().Contains(args.ToLower())).FirstOrDefault();
+            var guildInfo = await GetGuildName();
+            string region = string.Empty;        
+            string findMe = string.Empty;
+            findMe = args;
+
+            if (!string.IsNullOrEmpty(guildInfo.regionName))
+            {
+                region = guildInfo.regionName;    
+            }
+            else 
+            {
+                region = "us";
+            }
+            
+            if (!string.IsNullOrEmpty(guildInfo.realmName) && string.IsNullOrEmpty(findMe))
+            {
+                findMe = guildInfo.realmName;
+            }
+            var getRealmList = _wowApi.GetRealmStatus(region);
+            var foundRealm = getRealmList.realms.Where(r => r.name.ToLower().Contains(findMe.ToLower())).FirstOrDefault();            
             if (foundRealm != null)
             {
                 embed.Title = $"Realm Information for {foundRealm.name}!";
@@ -1566,6 +1619,29 @@ namespace NinjaBotCore.Modules.Wow
                 {
                     guildName = guildInfo.Name;
                     guildId = guildInfo.Id;
+                }
+                switch (regionName)
+                {
+                    case "na":
+                    {
+                        regionName = "us";
+                        break;                        
+                    }
+                    case "gb":
+                    {
+                        regionName = "eu";
+                        break;                        
+                    }
+                    case "uk":
+                    {
+                        regionName = "eu";
+                        break;
+                    }
+                    default:
+                    {
+                        regionName = "us";
+                        break;
+                    }
                 }
                 using (var db = new NinjaBotEntities())
                 {

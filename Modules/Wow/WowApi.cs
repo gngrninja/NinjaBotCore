@@ -132,11 +132,12 @@ namespace NinjaBotCore.Modules.Wow
             return response;
         }
 
-        public WowRealm GetRealmStatus(string locale = "en_US")
-        {
+        public WowRealm GetRealmStatus(string locale = "us")
+        {            
+            string localeName = GetRegionFromString(locale);
             WowRealm w = new WowRealm();
-            string url = $"/realm/status?locale={locale}";
-            w = JsonConvert.DeserializeObject<WowRealm>(GetAPIRequest(url));
+            string url = $"/realm/status?locale={localeName}";
+            w = JsonConvert.DeserializeObject<WowRealm>(GetAPIRequest(url, locale));
             return w;
         }
 
