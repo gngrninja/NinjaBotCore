@@ -8,6 +8,7 @@ using System;
 using System.Linq;
 using System.Collections.Generic;
 using NinjaBotCore.Database;
+using Discord;
 
 namespace NinjaBotCore
 {
@@ -77,14 +78,21 @@ namespace NinjaBotCore
         private static async Task LogCommandUsage(SocketCommandContext context, IResult result)
         {
             var request = new Request();
-
+            if (context.Channel is IGuildChannel)
+            {
+                request.ServerID = (long)context.Guild.Id;
+                request.ServerName = context.Guild.Name;
+                System.Console.WriteLine($"+[{System.DateTime.Now.ToString("t")}] User: {context.User.Username} Guild: {context.Guild.Name} -> {context.Message.Content}");
+            }
+            else
+            {
+                System.Console.WriteLine($"+[{System.DateTime.Now.ToString("t")}] User: {context.User.Username} -> {context.Message.Content}");
+            }
             request.ChannelId = (long)context.Channel.Id;
             request.ChannelName = context.Channel.Name;
             request.UserId = (long)context.User.Id;
             request.Command = context.Message.Content;
             request.UserName = context.User.Username;
-            request.ServerID = (long)context.Guild.Id;
-            request.ServerName = context.Guild.Name;
             request.Success = true;
             request.RequestTime = DateTime.Now;
 
@@ -94,7 +102,6 @@ namespace NinjaBotCore
                 request.Success = false;
                 request.FailureReason = result.ErrorReason;
             }
-            System.Console.WriteLine($"+[{System.DateTime.Now.ToString("t")}] User: {context.User.Username} Guild: {context.Guild.Name} -> {context.Message.Content}");
             using (var db = new NinjaBotEntities())
             {
                 db.Requests.Add(request);

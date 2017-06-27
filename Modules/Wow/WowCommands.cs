@@ -51,7 +51,7 @@ namespace NinjaBotCore.Modules.Wow
             string cheevMessage = string.Empty;
             string userName = string.Empty;
             string errorMessage = string.Empty;
-            GuildChar charInfo = null;            
+            GuildChar charInfo = null;
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
             if (string.IsNullOrEmpty(args))
@@ -79,11 +79,11 @@ namespace NinjaBotCore.Modules.Wow
                 realmName = charInfo.realmName;
                 Character armoryInfo = null;
                 if (!(string.IsNullOrEmpty(charInfo.regionName)))
-                {                    
+                {
                     armoryInfo = _wowApi.GetCharInfo(charName, realmName, charInfo.regionName);
                 }
                 else
-                {                 
+                {
                     armoryInfo = _wowApi.GetCharInfo(charName, realmName);
                 }
                 string powerMessage = GetPowerMessage(armoryInfo);
@@ -185,7 +185,6 @@ namespace NinjaBotCore.Modules.Wow
             List<Reports> guildLogs = new List<Reports>();
             int maxReturn = 2;
             int arrayCount = 0;
-            bool privateMessage = false;
             string discordGuildName = string.Empty;
             var guildInfo = Context.Guild;
             var embed = new EmbedBuilder();
@@ -194,25 +193,13 @@ namespace NinjaBotCore.Modules.Wow
             guildName = guildObject.guildName;
             realmName = guildObject.realmName.Replace("'", string.Empty);
 
-            if (guildInfo == null)
+            if (Context.Channel is IDMChannel)
             {
-                privateMessage = true;
+                discordGuildName = Context.Channel.Name;
             }
-            try
+            else if (Context.Channel is IGuildChannel)
             {
-                if (privateMessage)
-                {
-                    discordGuildName = Context.Channel.Name;
-                }
-                else
-                {
-                    discordGuildName = Context.Guild.Name;
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Logs Error -> [{ex.Message}]");
-                return;
+                discordGuildName = Context.Guild.Name;
             }
             if (args != null && args.Split(' ')[0].ToLower() == "name")
             {
@@ -342,14 +329,11 @@ namespace NinjaBotCore.Modules.Wow
 
         [Command("set-guild", RunMode = RunMode.Async)]
         [Summary("Sets a realm/guild association for a Discord server")]
-        [RequireUserPermission(GuildPermission.KickMembers)]
         public async Task SetGuild([Remainder]string args = "")
         {
-            bool privateMessage = false;
             string realmName = string.Empty;
             string guildName = string.Empty;
             string region = string.Empty;
-
             if (args.Contains(',') && !string.IsNullOrEmpty(args))
             {
                 switch (args.Split(',').Count())
@@ -380,22 +364,17 @@ namespace NinjaBotCore.Modules.Wow
                 return;
             }
             string discordGuildName = string.Empty;
-            var guildInfo = Context.Guild;
-            if (guildInfo == null)
-            {
-                privateMessage = true;
-            }
             try
             {
-                if (privateMessage)
+                if (Context.Channel is IDMChannel)
                 {
                     discordGuildName = Context.Channel.Name;
                 }
-                else
+                else if (Context.Channel is IGuildChannel)
                 {
                     discordGuildName = Context.Guild.Name;
+                    if (!((IGuildUser)Context.User).GuildPermissions.KickMembers) return;
                 }
-
                 GuildMembers members = null;
                 try
                 {
@@ -661,7 +640,7 @@ namespace NinjaBotCore.Modules.Wow
                 charInfo.regionName = foundRegion;
             }
             charInfo.charName = charName;
-            charInfo.realmName = realmName;            
+            charInfo.realmName = realmName;
             return charInfo;
         }
 
@@ -1495,12 +1474,11 @@ namespace NinjaBotCore.Modules.Wow
             NinjaObjects.GuildObject guildObject = new NinjaObjects.GuildObject();
             try
             {
-                var guildInfo = Context.Guild;
-                if (guildInfo == null)
+                if (Context.Channel is IDMChannel)
                 {
                     guildObject = await GetGuildAssociation(Context.User.Username);
                 }
-                else
+                else if (Context.Channel is IGuildChannel)
                 {
                     guildObject = await GetGuildAssociation(Context.Guild.Name);
                 }
