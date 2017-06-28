@@ -1627,6 +1627,11 @@ namespace NinjaBotCore.Modules.Wow
                         regionName = "us";
                         break;                        
                     }
+                    case "eu":
+                    {
+                        regionName = "eu";
+                        break;
+                    }
                     case "gb":
                     {
                         regionName = "eu";
