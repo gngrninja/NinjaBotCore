@@ -11,7 +11,7 @@ namespace NinjaBotCore.Modules.Admin
 {
     public class SetChanCommands : ModuleBase
     {
-        private static ChannelCheck _cc;
+        private static ChannelCheck _cc;        
 
         public SetChanCommands(ChannelCheck cc)
         {

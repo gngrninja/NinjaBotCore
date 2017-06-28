@@ -27,6 +27,28 @@ namespace NinjaBotCore.Modules.Admin
             Console.WriteLine($"Admin module loaded");
         }
 
+        [Command("Show-Servers")]
+        [Summary("Show the servers the bot is in")]
+        [RequireOwner]
+        public async Task ListGuilds()
+        {
+            StringBuilder sb = new StringBuilder();            
+            var guilds = _client.Guilds.ToList();
+            foreach (var guild in guilds)
+            {
+                sb.AppendLine($"Name: {guild.Name} Id: {guild.Id} Owner: {guild.Owner} OwnerId {guild.OwnerId}");                
+            }
+            await _cc.Reply(Context, sb.ToString());
+        }
+
+        [Command("Leave-Server")]
+        [Summary("Leave a server")]
+        [RequireOwner]
+        public async Task LeaveServer([Remainder] ulong serverId)
+        {
+            await _client.GetGuild(serverId).LeaveAsync();
+        }
+
         [Command("kick", RunMode = RunMode.Async)]
         [Summary("Kick someone, not nice... but needed sometimes")]
         [RequireBotPermission(GuildPermission.KickMembers)]
