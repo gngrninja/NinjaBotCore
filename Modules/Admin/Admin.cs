@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using NinjaBotCore.Database;
+using System.Collections.Generic;
 
 namespace NinjaBotCore.Modules.Admin
 {
@@ -32,11 +33,11 @@ namespace NinjaBotCore.Modules.Admin
         [RequireOwner]
         public async Task ListGuilds()
         {
-            StringBuilder sb = new StringBuilder();            
+            StringBuilder sb = new StringBuilder();
             var guilds = _client.Guilds.ToList();
             foreach (var guild in guilds)
             {
-                sb.AppendLine($"Name: {guild.Name} Id: {guild.Id} Owner: {guild.Owner} OwnerId {guild.OwnerId}");                
+                sb.AppendLine($"Name: {guild.Name} Id: {guild.Id} Owner: {guild.Owner} OwnerId {guild.OwnerId}");
             }
             await _cc.Reply(Context, sb.ToString());
         }
@@ -47,6 +48,89 @@ namespace NinjaBotCore.Modules.Admin
         public async Task LeaveServer([Remainder] ulong serverId)
         {
             await _client.GetGuild(serverId).LeaveAsync();
+        }
+
+        [Command("AddWResource")]
+        [RequireOwner]
+        [Alias("awr")]
+        public async Task AddWoWResource([Remainder] string args = null)
+        {
+            if (args != null)
+            {
+                try
+                {
+                    int argCount = args.Split(',').Count();
+                    if (argCount == 4)
+                    {
+                        using (var db = new NinjaBotEntities())
+                        {
+                            db.WowResources.Add(new WowResources
+                            {
+                                ClassName = args.Split(',')[0].Trim(),
+                                Specialization = args.Split(',')[1].Trim(),
+                                Resource = args.Split(',')[2].Trim(),
+                                ResourceDescription = args.Split(',')[3].Trim(),
+                            });
+                            await db.SaveChangesAsync();
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    await _cc.Reply(Context, $"Error adding resource: [{ex.Message}]");
+                }
+            }
+        }
+        [Command("RemoveWResource")]
+        [RequireOwner]
+        [Alias("rwr")]
+        public async Task RemoveWoWResource([Remainder] int resourceId = 0)
+        {
+            if (resourceId > 0)
+            {
+                try
+                {
+                    using (var db = new NinjaBotEntities())
+                    {
+                        db.WowResources.Remove(db.WowResources.Where(r => r.Id == resourceId).FirstOrDefault());
+                        await db.SaveChangesAsync();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    await _cc.Reply(Context, $"Error removing resource: [{ex.Message}]");
+                }
+            }
+        }
+        
+        [Command("AdminListWowResources")]
+        [Alias("alwr")]
+        public async Task ListWoWResource([Remainder] string args = null)
+        {
+            List<WowResources> resources = null;
+            using (var db = new NinjaBotEntities())
+            {
+                resources = db.WowResources.Where(r => r.ClassName.ToLower().Contains(args)).ToList();
+            }
+            if (resources != null)
+            {
+                var embed = new EmbedBuilder();
+                embed.Title = $"WoW Resource List Search: [{args}]";
+                foreach (var resource in resources)
+                {
+                    StringBuilder sb = new StringBuilder();
+                    sb.AppendLine($"Class: [{resource.ClassName}]");
+                    sb.AppendLine($"Specialization: [{resource.Specialization}]");
+                    sb.AppendLine($"Resource: [{resource.Resource}]");
+                    sb.AppendLine($"ResourceDescription: [{resource.ResourceDescription}]");
+                    embed.AddField(new EmbedFieldBuilder
+                    {
+                        Name = $"{resource.Id}",
+                        Value = sb.ToString()
+                    });
+                }
+                await _cc.Reply(Context, embed);
+            }
         }
 
         [Command("kick", RunMode = RunMode.Async)]

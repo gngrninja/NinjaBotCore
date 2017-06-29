@@ -40,6 +40,40 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
+        [Command("wowdiscord", RunMode = RunMode.Async)]
+        [Summary("List out the class discord channels")]
+        public async Task ListWowDiscordServers()
+        {
+            try 
+            {
+                List<WowResources> resourceList = null;
+                using (var db = new NinjaBotEntities())
+                {
+                    resourceList = db.WowResources.Where(r => r.ResourceDescription == "Discord").ToList();
+                }
+                if (resourceList != null)
+                {
+                    var embed = new EmbedBuilder();
+                    embed.Title = $"WoW Class Discord List";
+                    foreach (var resource in resourceList)
+                    {
+                        embed.AddField(new EmbedFieldBuilder
+                        {
+                            Name = $"{resource.ClassName}",
+                            Value = $"{resource.Resource}",
+                            IsInline = true
+                        });
+                    }
+                    embed.WithColor(new Color(0, 255, 0));                    
+                    await _cc.Reply(Context, embed);
+                }                
+            }
+            catch (Exception ex)
+            {
+                System.Console.WriteLine($"Error listing channels: [{ex.Message}]");
+                await _cc.Reply(Context, $"Sorry, {Context.User.Username}, something went wrong :(");
+            }
+        }
         [Command("armory", RunMode = RunMode.Async)]
         [Summary("Gets a character's armory info (WoW)")]
         public async Task GetArmory([Remainder]string args = null)
@@ -107,6 +141,11 @@ namespace NinjaBotCore.Modules.Wow
 
                 switch (armoryInfo.className.ToLower())
                 {
+                    case "monk":
+                    {
+                        embed.WithColor(new Color(0, 255, 0));
+                        break;
+                    }
                     case "druid":
                         {
                             embed.WithColor(new Color(214, 122, 2));
@@ -419,7 +458,7 @@ namespace NinjaBotCore.Modules.Wow
                 Console.WriteLine($"Set-Guild error: {ex.Message}");
             }
         }
-
+        
         [Command("get-guild", RunMode = RunMode.Async)]
         [Summary("Report Discord Server -> Guild Association")]
         public async Task GetGuild([Remainder] string args = "")
