@@ -40,11 +40,23 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
+        [Command("tu", RunMode = RunMode.Async)]
+        public async Task StartTimer()
+        {
+            await _logsApi.StartTimer();
+        }
+
+        [Command("td", RunMode = RunMode.Async)]
+        public async Task StopTimer()
+        {
+            await _logsApi.StopTimer();
+        }
+
         [Command("wowdiscord", RunMode = RunMode.Async)]
         [Summary("List out the class discord channels")]
         public async Task ListWowDiscordServers()
         {
-            try 
+            try
             {
                 List<WowResources> resourceList = null;
                 using (var db = new NinjaBotEntities())
@@ -64,9 +76,9 @@ namespace NinjaBotCore.Modules.Wow
                             IsInline = true
                         });
                     }
-                    embed.WithColor(new Color(0, 255, 0));                    
+                    embed.WithColor(new Color(0, 255, 0));
                     await _cc.Reply(Context, embed);
-                }                
+                }
             }
             catch (Exception ex)
             {
@@ -142,10 +154,10 @@ namespace NinjaBotCore.Modules.Wow
                 switch (armoryInfo.className.ToLower())
                 {
                     case "monk":
-                    {
-                        embed.WithColor(new Color(0, 255, 0));
-                        break;
-                    }
+                        {
+                            embed.WithColor(new Color(0, 255, 0));
+                            break;
+                        }
                     case "druid":
                         {
                             embed.WithColor(new Color(214, 122, 2));
@@ -458,7 +470,7 @@ namespace NinjaBotCore.Modules.Wow
                 Console.WriteLine($"Set-Guild error: {ex.Message}");
             }
         }
-        
+
         [Command("get-guild", RunMode = RunMode.Async)]
         [Summary("Report Discord Server -> Guild Association")]
         public async Task GetGuild([Remainder] string args = "")
@@ -703,13 +715,13 @@ namespace NinjaBotCore.Modules.Wow
         [Command("gearlist")]
         [Summary("Get a WoW character's gear list")]
         public async Task GetGearList([Remainder] string args = null)
-        {            
+        {
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
             if (args == null)
             {
                 embed.WithColor(new Color(0, 255, 0));
-                embed.Title = $"{Config.Prefix}gearlist Command Usage Guide";                
+                embed.Title = $"{Config.Prefix}gearlist Command Usage Guide";
                 embed.WithAuthor(new EmbedAuthorBuilder
                 {
                     Name = Context.User.Username,
@@ -737,10 +749,10 @@ namespace NinjaBotCore.Modules.Wow
                 {
                     Name = "Still need help?",
                     Value = "Visit [gngr.ninja/bot](https://gngr.ninja/bot)"
-                });          
-                await _cc.Reply(Context, embed);                      
-                return;                
-            }            
+                });
+                await _cc.Reply(Context, embed);
+                return;
+            }
             try
             {
                 var charInfo = await GetCharFromArgs(args, Context);
@@ -1039,7 +1051,7 @@ namespace NinjaBotCore.Modules.Wow
                         }
                     //Name + metric + guild/all + difficulty
                     case 4:
-                        {                    
+                        {
                             fightName = splitArgs[0].Trim();
                             guildOnly = splitArgs[1].Trim();
                             metric = splitArgs[2].Trim();
@@ -1248,25 +1260,25 @@ namespace NinjaBotCore.Modules.Wow
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
             var guildInfo = await GetGuildName();
-            string region = string.Empty;        
+            string region = string.Empty;
             string findMe = string.Empty;
             findMe = args;
 
             if (!string.IsNullOrEmpty(guildInfo.regionName))
             {
-                region = guildInfo.regionName;    
+                region = guildInfo.regionName;
             }
-            else 
+            else
             {
                 region = "us";
             }
-            
+
             if (!string.IsNullOrEmpty(guildInfo.realmName) && string.IsNullOrEmpty(findMe))
             {
                 findMe = guildInfo.realmName;
             }
             var getRealmList = _wowApi.GetRealmStatus(region);
-            var foundRealm = getRealmList.realms.Where(r => r.name.ToLower().Contains(findMe.ToLower())).FirstOrDefault();            
+            var foundRealm = getRealmList.realms.Where(r => r.name.ToLower().Contains(findMe.ToLower())).FirstOrDefault();
             if (foundRealm != null)
             {
                 embed.Title = $"Realm Information for {foundRealm.name}!";
@@ -1662,30 +1674,30 @@ namespace NinjaBotCore.Modules.Wow
                 switch (regionName)
                 {
                     case "na":
-                    {
-                        regionName = "us";
-                        break;                        
-                    }
+                        {
+                            regionName = "us";
+                            break;
+                        }
                     case "eu":
-                    {
-                        regionName = "eu";
-                        break;
-                    }
+                        {
+                            regionName = "eu";
+                            break;
+                        }
                     case "gb":
-                    {
-                        regionName = "eu";
-                        break;                        
-                    }
+                        {
+                            regionName = "eu";
+                            break;
+                        }
                     case "uk":
-                    {
-                        regionName = "eu";
-                        break;
-                    }
+                        {
+                            regionName = "eu";
+                            break;
+                        }
                     default:
-                    {
-                        regionName = "us";
-                        break;
-                    }
+                        {
+                            regionName = "us";
+                            break;
+                        }
                 }
                 using (var db = new NinjaBotEntities())
                 {

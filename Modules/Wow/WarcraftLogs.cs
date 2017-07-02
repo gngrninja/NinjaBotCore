@@ -8,12 +8,14 @@ using Newtonsoft.Json;
 using NinjaBotCore.Models.Wow;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Threading;
 
 namespace NinjaBotCore.Modules.Wow
 {
     public class WarcraftLogs
     {
 
+        private static CancellationTokenSource _tokenSource;
         private static List<Zones> _zones;
         private static List<CharClasses> _charClasses;
 
@@ -33,7 +35,18 @@ namespace NinjaBotCore.Modules.Wow
             {
                 _zones = value;
             }
-        }        
+        }
+        public static CancellationTokenSource TokenSource
+        {
+            get
+            {
+                return _tokenSource;
+            }
+            set
+            {
+                _tokenSource = value;
+            }
+        }
         public static List<CharClasses> CharClasses
         {
             get
@@ -54,7 +67,7 @@ namespace NinjaBotCore.Modules.Wow
 
             url = $"{baseURL}{url}{wowLogsKey}";
             Console.WriteLine($"Calling WarcraftLogs API with URL: {url}");
-            
+
             using (HttpClient httpClient = new HttpClient())
             {
                 httpClient.DefaultRequestHeaders
@@ -142,7 +155,7 @@ namespace NinjaBotCore.Modules.Wow
                     }
                 case "nh":
                     {
-                        findString = "The Nighthold";                        
+                        findString = "The Nighthold";
                         break;
                     }
                 case "tos":
@@ -156,7 +169,6 @@ namespace NinjaBotCore.Modules.Wow
             charRankings = JsonConvert.DeserializeObject<List<LogCharRankings>>(logsApiRequest(url));
             return charRankings;
         }
-
 
         public List<Zones> GetZones()
         {
@@ -245,6 +257,39 @@ namespace NinjaBotCore.Modules.Wow
             System.DateTime dtDateTime = new DateTime(1970, 1, 1, 0, 0, 0, 0, System.DateTimeKind.Utc);
             dtDateTime = dtDateTime.AddMilliseconds(unixTimeStamp).ToLocalTime();
             return dtDateTime;
+        }
+
+        public async Task WarcraftLogsTimer(Action action, TimeSpan interval, CancellationToken token)
+        {
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    action();
+                    await Task.Delay(interval, token);
+                }
+            }
+            catch (TaskCanceledException ex)
+            {
+
+            }
+        }
+
+        public async Task StartTimer()
+        {
+            TokenSource = new CancellationTokenSource();
+            var timerAction = new Action(CheckForNewLogs);
+            await WarcraftLogsTimer(timerAction, TimeSpan.FromSeconds(15), TokenSource.Token);
+        }
+
+        public async Task StopTimer()
+        {
+            TokenSource.Cancel();
+        }
+
+        async void CheckForNewLogs()
+        {
+            System.Console.WriteLine("Timer is up!");
         }
     }
 }

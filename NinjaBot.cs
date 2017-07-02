@@ -50,9 +50,7 @@ namespace NinjaBotCore
             await _client.StartAsync();
             _handler = new CommandHandler(serviceProvider);
             await _handler.ConfigureAsync();
-            new UserInteraction(serviceProvider);    
-            //BotTimers timer = new BotTimers();       
-            //await timer.StartTimer();            
+            new UserInteraction(serviceProvider);                
             // Block this program until it is closed.                            
             await Task.Delay(-1);
         }
