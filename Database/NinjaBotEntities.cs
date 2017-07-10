@@ -29,6 +29,7 @@ namespace NinjaBotCore.Database
         public virtual DbSet<DiscordServer> DiscordServers { get; set; }
         public virtual DbSet<Request> Requests { get; set; }
         public virtual DbSet<WowResources> WowResources { get; set; }
+        public virtual DbSet<LogMonitoring> LogMonitoring { get; set; }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {

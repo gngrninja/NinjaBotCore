@@ -22,7 +22,8 @@ namespace NinjaBotCore
     {
         private DiscordSocketClient _client;
         private CommandHandler _handler;        
-        
+        public static DiscordSocketClient Client;
+
         public NinjaBot()
         {
             //Make sure we have a db file (if not, create one)
@@ -50,7 +51,8 @@ namespace NinjaBotCore
             await _client.StartAsync();
             _handler = new CommandHandler(serviceProvider);
             await _handler.ConfigureAsync();
-            new UserInteraction(serviceProvider);                
+            new UserInteraction(serviceProvider);            
+            Client = _client;    
             // Block this program until it is closed.                            
             await Task.Delay(-1);
         }

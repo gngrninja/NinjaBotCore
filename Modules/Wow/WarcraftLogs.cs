@@ -9,6 +9,10 @@ using NinjaBotCore.Models.Wow;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading;
+using NinjaBotCore.Database;
+using Discord;
+using Discord.Net;
+using Discord.WebSocket;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -192,7 +196,7 @@ namespace NinjaBotCore.Modules.Wow
             return fights;
         }
 
-        public ReportTable GetReportResults(string fightID)
+        public ReportTable GetReportResults(string fightID, string view = "damage-done")
         {
             List<Reports> reports = GetReportsFromGuild();
             Fights fights = GetFights(reports[0].id);
@@ -206,14 +210,14 @@ namespace NinjaBotCore.Modules.Wow
                 }
             }
 
-            string url = $"/report/tables/damage-done/{reports[0].id}?start={bossFights[0].start_time}&end={bossFights[0].end_time}&";
+            string url = $"/report/tables/{view}/{reports[0].id}?start={bossFights[0].start_time}&end={bossFights[0].end_time}&";
 
             ReportTable table = JsonConvert.DeserializeObject<ReportTable>(logsApiRequest(url));
 
             return table;
         }
 
-        public ReportTable GetReportResults(bool getLastFight)
+        public ReportTable GetReportResults(bool getLastFight, string view = "damage-done")
         {
             List<Reports> reports = GetReportsFromGuild();
             Fights fights = GetFights(reports[0].id);
@@ -227,7 +231,7 @@ namespace NinjaBotCore.Modules.Wow
                 }
             }
 
-            string url = $"/report/tables/damage-done/{reports[0].id}?start={bossFights[0].start_time}&end={bossFights[0].end_time}&";
+            string url = $"/report/tables/{view}/{reports[0].id}?start={bossFights[0].start_time}&end={bossFights[0].end_time}&";
 
             ReportTable table = JsonConvert.DeserializeObject<ReportTable>(logsApiRequest(url));
 
@@ -289,7 +293,57 @@ namespace NinjaBotCore.Modules.Wow
 
         async void CheckForNewLogs()
         {
-            System.Console.WriteLine("Timer is up!");
+            List<WowGuildAssociations> guildList = null;
+            List<LogMonitoring> logWatchList = null;
+            using (var db = new NinjaBotEntities())
+            {
+                guildList = db.WowGuildAssociations.ToList();
+                logWatchList = db.LogMonitoring.ToList();
+            }
+            if (guildList != null)
+            {
+                foreach (var guild in guildList)
+                {
+                    var watchGuild = logWatchList.Where(w => w.ServerId == guild.ServerId).FirstOrDefault();
+                    if (watchGuild.MonitorLogs)
+                    {
+                        System.Console.WriteLine($"YES! Watch logs on {guild.ServerName}!");
+                        var logs = GetReportsFromGuild(guild.WowGuild, guild.WowRealm, guild.WowRegion);
+                        if (logs != null)
+                        {
+                            var latestLog = logs[logs.Count - 1];
+                            DateTime startTime = UnixTimeStampToDateTime(latestLog.start);
+                            if (startTime > watchGuild.LatestLog)
+                            {
+                                using (var db = new NinjaBotEntities())
+                                {
+                                    var latestForGuild = db.LogMonitoring.Where(l => l.ServerId == guild.ServerId).FirstOrDefault();
+                                    latestForGuild.LatestLog = startTime;
+                                    await db.SaveChangesAsync();
+                                }
+                                System.Console.WriteLine($"New log found for [{guild.WowGuild}] on [{guild.WowRegion}] for Discord server [{guild.ServerName}] -> log start time [{startTime}]");
+                                DiscordSocketClient client = NinjaBot.Client;
+                                ISocketMessageChannel channel = client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
+                                var embed = new EmbedBuilder();
+                                embed.Title = $"New log found for [{guild.WowGuild}]!";
+                                StringBuilder sb = new StringBuilder();
+                                sb.AppendLine($"__**{latestLog.title}** **/** **{latestLog.zoneName}**__");
+                                sb.AppendLine($"\t:timer: Start time: **{UnixTimeStampToDateTime(latestLog.start)}**");
+                                if (string.IsNullOrEmpty(latestLog.end.ToString()))
+                                {
+                                    sb.AppendLine($"\t:stopwatch: End time: **{UnixTimeStampToDateTime(latestLog.end)}**");
+                                }                                
+                                sb.AppendLine($"\tLink: **{latestLog.reportURL}**");
+                                sb.AppendLine($"\t:white_check_mark: My WoW: **http://www.checkmywow.com/reports/{latestLog.id}**");
+                                sb.AppendLine();
+                                embed.Description = sb.ToString();
+                                embed.WithColor(new Color(0, 0, 255));
+                                await channel.SendMessageAsync("", false, embed);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
