@@ -299,6 +299,7 @@ namespace NinjaBotCore.Modules.Wow
             {
                 guildList = db.WowGuildAssociations.ToList();
                 logWatchList = db.LogMonitoring.ToList();
+                
             }
             if (guildList != null)
             {
