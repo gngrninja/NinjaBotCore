@@ -329,7 +329,7 @@ namespace NinjaBotCore.Modules.Wow
                                 StringBuilder sb = new StringBuilder();
                                 sb.AppendLine($"__**{latestLog.title}** **/** **{latestLog.zoneName}**__");
                                 sb.AppendLine($"\t:timer: Start time: **{UnixTimeStampToDateTime(latestLog.start)}**");
-                                if (string.IsNullOrEmpty(latestLog.end.ToString()))
+                                if (!string.IsNullOrEmpty(latestLog.end.ToString()))
                                 {
                                     sb.AppendLine($"\t:stopwatch: End time: **{UnixTimeStampToDateTime(latestLog.end)}**");
                                 }                                
