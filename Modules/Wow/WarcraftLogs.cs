@@ -329,11 +329,7 @@ namespace NinjaBotCore.Modules.Wow
                                 embed.Title = $"New log found for [{guild.WowGuild}]!";
                                 StringBuilder sb = new StringBuilder();
                                 sb.AppendLine($"__**{latestLog.title}** **/** **{latestLog.zoneName}**__");
-                                sb.AppendLine($"\t:timer: Start time: **{UnixTimeStampToDateTime(latestLog.start)}**");
-                                if (!string.IsNullOrEmpty(latestLog.end.ToString()))
-                                {
-                                    sb.AppendLine($"\t:stopwatch: End time: **{UnixTimeStampToDateTime(latestLog.end)}**");
-                                }                                
+                                sb.AppendLine($"\t:timer: Start time: **{UnixTimeStampToDateTime(latestLog.start)}**");                             
                                 sb.AppendLine($"\tLink: **{latestLog.reportURL}**");
                                 sb.AppendLine($"\t:white_check_mark: My WoW: **http://www.checkmywow.com/reports/{latestLog.id}**");
                                 sb.AppendLine();
