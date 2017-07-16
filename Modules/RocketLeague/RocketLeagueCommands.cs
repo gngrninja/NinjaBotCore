@@ -43,6 +43,20 @@ namespace NinjaBotCore.Modules.RocketLeague
             }
         }
 
+        [Command("rlplatforms", RunMode = RunMode.Async)]
+        [Summary("Get a list of platforms")]
+        public async Task GetPlatforms()
+        {
+            var newRlApi = new RlStatsApi();
+            var platforms = newRlApi.GetCurrentPlatforms();
+            StringBuilder sb = new StringBuilder();
+            foreach (var platform in platforms)
+            {
+                sb.AppendLine($"{platform.name} [id = {platform.id}]");
+            }
+            await _cc.Reply(Context,sb.ToString());
+        }
+
         [Command("rlstats", RunMode = RunMode.Async)]
         [Summary("Get Rocket League Stats. Use this command with set, followed by your steam URL/ID/VanityName to set a default user (rlstats set URL/ID/VanityName")]
         public async Task RlStats([Remainder]string input = "")
@@ -250,7 +264,7 @@ namespace NinjaBotCore.Modules.RocketLeague
                 Console.WriteLine($"Error looking up stats {ex.Message}");
             }
         }
-
+        
         private async Task<EmbedBuilder> rlEmbed(StringBuilder sb, SteamModel.Player fromSteam)
         {
             RlUserStat getStats = null;

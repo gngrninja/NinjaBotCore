@@ -2,6 +2,8 @@ using System;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Collections.Generic;
+using Newtonsoft.Json;
+using NinjaBotCore.Models.RocketLeague;
 
 namespace NinjaBotCore.Modules.RocketLeague
 {
@@ -13,7 +15,7 @@ namespace NinjaBotCore.Modules.RocketLeague
             string rlStatsKey = $"{Config.RlStatsApi}";
             string baseUrl = "https://api.rocketleaguestats.com/v1/data";
 
-            url = $"{baseUrl}";
+            url = $"{baseUrl}{url}";
             Console.WriteLine($"Calling RlStats API with URL: {url}");
 
             using (HttpClient httpClient = new HttpClient())
@@ -28,11 +30,12 @@ namespace NinjaBotCore.Modules.RocketLeague
             return response;
         }
 
-        public string GetCurrentPlatforms()
+        public List<Platforms> GetCurrentPlatforms()
         {
-            string platformData = string.Empty;
-
-            return platformData;
-        }
+            List<Platforms> p = null;
+            string url = "/platforms";
+            p = JsonConvert.DeserializeObject<List<Platforms>>(RlStatsApiRequest(url));
+            return p;
+        }        
     }
 }
