@@ -18,5 +18,6 @@ namespace NinjaBotCore
         public string OxfordDictionaryApi { get; set; }
         public string DonateUrl { get; set; }
         public string WarcraftlogsApi { get; set; }
+        public string RlStatsApi { get; set; }
     }
 }

@@ -21,6 +21,7 @@ namespace NinjaBotCore
         private static string _oxfordDictionaryApi;
         private static string _donateUrl;
         private static string _warcraftlogsApi;
+        private static string _rlStatsApi;
 
         public Config()
         {
@@ -45,6 +46,7 @@ namespace NinjaBotCore
                 OxfordDictionaryApi = botConfig.OxfordDictionaryApi;
                 WarcraftLogsApi = botConfig.WarcraftlogsApi;
                 DonateUrl = botConfig.DonateUrl;
+                RlStatsApi = botConfig.RlStatsApi;
             }
         }
         public static string Token 
@@ -190,6 +192,17 @@ namespace NinjaBotCore
                 _imageApi = value;
             }
         }        
+        public static string RlStatsApi
+        {
+            get 
+            {
+                return _rlStatsApi;
+            }
+            set 
+            {
+                _rlStatsApi = value;
+            }
+        }
         ConfigData GetConfigData(string configFile)
         {
             ConfigData configData = null;
