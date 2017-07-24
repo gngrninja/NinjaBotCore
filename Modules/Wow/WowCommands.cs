@@ -105,12 +105,14 @@ namespace NinjaBotCore.Modules.Wow
         }
 
         [Command("tu", RunMode = RunMode.Async)]
+        [RequireOwner]
         public async Task StartTimer()
         {
             await _logsApi.StartTimer();
         }
 
         [Command("td", RunMode = RunMode.Async)]
+        [RequireOwner]
         public async Task StopTimer()
         {
             await _logsApi.StopTimer();
