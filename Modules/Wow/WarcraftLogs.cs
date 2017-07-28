@@ -307,38 +307,41 @@ namespace NinjaBotCore.Modules.Wow
                     foreach (var guild in guildList)
                     {
                         var watchGuild = logWatchList.Where(w => w.ServerId == guild.ServerId).FirstOrDefault();
-                        if (watchGuild.MonitorLogs)
+                        if (watchGuild != null)
                         {
-                            System.Console.WriteLine($"YES! Watch logs on {guild.ServerName}!");
-                            var logs = GetReportsFromGuild(guild.WowGuild, guild.WowRealm, guild.WowRegion);
-                            if (logs != null)
+                            if (watchGuild.MonitorLogs)
                             {
-                                var latestLog = logs[logs.Count - 1];
-                                DateTime startTime = UnixTimeStampToDateTime(latestLog.start);
-                                if (startTime > watchGuild.LatestLog)
+                                System.Console.WriteLine($"YES! Watch logs on {guild.ServerName}!");
+                                var logs = GetReportsFromGuild(guild.WowGuild, guild.WowRealm, guild.WowRegion);
+                                if (logs != null)
                                 {
-                                    using (var db = new NinjaBotEntities())
+                                    var latestLog = logs[logs.Count - 1];
+                                    DateTime startTime = UnixTimeStampToDateTime(latestLog.start);
+                                    if (startTime > watchGuild.LatestLog)
                                     {
-                                        var latestForGuild = db.LogMonitoring.Where(l => l.ServerId == guild.ServerId).FirstOrDefault();
-                                        latestForGuild.LatestLog = startTime;
-                                        await db.SaveChangesAsync();
-                                    }
-                                    
-                                    DiscordSocketClient client = NinjaBot.Client;
-                                    ISocketMessageChannel channel = client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
-                                    if (channel != null)
-                                    {
-                                        var embed = new EmbedBuilder();
-                                        embed.Title = $"New log found for [{guild.WowGuild}]!";
-                                        StringBuilder sb = new StringBuilder();
-                                        sb.AppendLine($"__**{latestLog.title}** **/** **{latestLog.zoneName}**__");
-                                        sb.AppendLine($"\t:timer: Start time: **{UnixTimeStampToDateTime(latestLog.start)}**");
-                                        sb.AppendLine($"\tLink: **{latestLog.reportURL}**");
-                                        sb.AppendLine($"\t:white_check_mark: My WoW: **http://www.checkmywow.com/reports/{latestLog.id}**");
-                                        sb.AppendLine();
-                                        embed.Description = sb.ToString();
-                                        embed.WithColor(new Color(0, 0, 255));
-                                        await channel.SendMessageAsync("", false, embed);
+                                        using (var db = new NinjaBotEntities())
+                                        {
+                                            var latestForGuild = db.LogMonitoring.Where(l => l.ServerId == guild.ServerId).FirstOrDefault();
+                                            latestForGuild.LatestLog = startTime;
+                                            await db.SaveChangesAsync();
+                                        }
+
+                                        DiscordSocketClient client = NinjaBot.Client;
+                                        ISocketMessageChannel channel = client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
+                                        if (channel != null)
+                                        {
+                                            var embed = new EmbedBuilder();
+                                            embed.Title = $"New log found for [{guild.WowGuild}]!";
+                                            StringBuilder sb = new StringBuilder();
+                                            sb.AppendLine($"__**{latestLog.title}** **/** **{latestLog.zoneName}**__");
+                                            sb.AppendLine($"\t:timer: Start time: **{UnixTimeStampToDateTime(latestLog.start)}**");
+                                            sb.AppendLine($"\tLink: **{latestLog.reportURL}**");
+                                            sb.AppendLine($"\t:white_check_mark: My WoW: **http://www.checkmywow.com/reports/{latestLog.id}**");
+                                            sb.AppendLine();
+                                            embed.Description = sb.ToString();
+                                            embed.WithColor(new Color(0, 0, 255));
+                                            await channel.SendMessageAsync("", false, embed);
+                                        }
                                     }
                                 }
                             }
