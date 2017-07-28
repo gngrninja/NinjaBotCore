@@ -67,7 +67,8 @@ namespace NinjaBotCore
                 .AddSingleton(new RocketLeague())
                 .AddSingleton(new OxfordApi())
                 .AddSingleton(new AwayCommands(_client))
-                .AddSingleton(new Steam());
+                .AddSingleton(new RlStatsApi())
+                .AddSingleton(new Steam());                
             var provider = new DefaultServiceProviderFactory().CreateServiceProvider(services);
             //provider.GetService<PaginationService>();
             return provider;
