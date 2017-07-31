@@ -37,7 +37,7 @@ namespace NinjaBotCore.Modules.Admin
             var guilds = _client.Guilds.ToList();
             foreach (var guild in guilds)
             {
-                sb.AppendLine($"Name: {guild.Name} Id: {guild.Id} Owner: {guild.Owner} OwnerId {guild.OwnerId}");
+                sb.AppendLine($"Name: {guild.Name} Id: {guild.Id} Owner: {guild.Owner}");
             }
             await _cc.Reply(Context, sb.ToString());
         }
