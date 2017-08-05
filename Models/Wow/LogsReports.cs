@@ -30,9 +30,7 @@ namespace NinjaBotCore.Models.Wow
             get
             {
                 string url = string.Empty;
-
                 url = $"https://www.warcraftlogs.com/reports/{id}";
-
                 return url;
             }
         }
