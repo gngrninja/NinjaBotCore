@@ -42,13 +42,13 @@ namespace NinjaBotCore.Modules.Admin
             await _cc.Reply(Context, sb.ToString());
         }
 
-        [Command("Announce")]
+        [Command("Announce", RunMode = RunMode.Async)]
         [RequireOwner]
         public async Task AnnounceMessage([Remainder] string message)
         {
             var guilds = _client.Guilds.ToList();
             foreach (var guild in guilds)
-            {
+            {                
                 var messageChannel = guild.DefaultChannel as ISocketMessageChannel;
                 if (messageChannel != null)
                 {
@@ -57,7 +57,7 @@ namespace NinjaBotCore.Modules.Admin
                     embed.Description = message;
                     embed.ThumbnailUrl = Context.User.GetAvatarUrl();
                     await messageChannel.SendMessageAsync("", false, embed);
-
+                    System.Threading.Thread.Sleep(5000);
                 }
             }
         }
