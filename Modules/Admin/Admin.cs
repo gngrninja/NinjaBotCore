@@ -53,8 +53,9 @@ namespace NinjaBotCore.Modules.Admin
                 if (messageChannel != null)
                 {
                     var embed = new EmbedBuilder();
-                    embed.Title = "NinjaBot Annoucement";
+                    embed.Title = "NinjaBot Announcement";
                     embed.Description = message;
+                    embed.ThumbnailUrl = Context.User.GetAvatarUrl()
                     await messageChannel.SendMessageAsync("", false, embed);
 
                 }
