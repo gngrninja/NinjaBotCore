@@ -55,7 +55,7 @@ namespace NinjaBotCore.Modules.Admin
                     var embed = new EmbedBuilder();
                     embed.Title = "NinjaBot Announcement";
                     embed.Description = message;
-                    embed.ThumbnailUrl = Context.User.GetAvatarUrl()
+                    embed.ThumbnailUrl = Context.User.GetAvatarUrl();
                     await messageChannel.SendMessageAsync("", false, embed);
 
                 }
