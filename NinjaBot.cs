@@ -48,6 +48,8 @@ namespace NinjaBotCore
             var serviceProvider = ConfigureServices();
             await _client.LoginAsync(TokenType.Bot, Config.Token);
             await _client.StartAsync();
+            //await services.GetRequiredService<CommandHandlingService>().InitializeAsync(services);
+            //await services.GetRequiredService<TagService>().InitializeAsync(services);
             _handler = new CommandHandler(serviceProvider);
             await _handler.ConfigureAsync();
             new UserInteraction(serviceProvider);                

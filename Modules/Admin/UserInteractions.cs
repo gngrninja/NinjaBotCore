@@ -60,19 +60,22 @@ namespace NinjaBotCore.Modules.Admin
             if (shouldGreet != null && shouldGreet.GreetUsers == true)
             {
                 var messageChannel = user.Guild.DefaultChannel as ISocketMessageChannel;
-                var embed = new EmbedBuilder();
-                embed.Title = $"[{user.Username}] has left [**{user.Guild.Name}**]!";
-                if (string.IsNullOrEmpty(shouldGreet.PartingMessage))
+                if (messageChannel != null)
                 {
-                    embed.Description = $"Fine, be that way! :wave:";
+                    var embed = new EmbedBuilder();
+                    embed.Title = $"[{user.Username}] has left [**{user.Guild.Name}**]!";
+                    if (string.IsNullOrEmpty(shouldGreet.PartingMessage))
+                    {
+                        embed.Description = $"Fine, be that way! :wave:";
+                    }
+                    else
+                    {
+                        embed.Description = shouldGreet.PartingMessage;
+                    }
+                    embed.ThumbnailUrl = user.GetAvatarUrl();
+                    embed.WithColor(new Color(255, 0, 0));
+                    await messageChannel.SendMessageAsync("", false, embed);
                 }
-                else
-                {
-                    embed.Description = shouldGreet.PartingMessage;
-                }
-                embed.ThumbnailUrl = user.GetAvatarUrl();
-                embed.WithColor(new Color(255, 0, 0));
-                await messageChannel.SendMessageAsync("", false, embed);
             }
         }
 

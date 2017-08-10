@@ -42,6 +42,25 @@ namespace NinjaBotCore.Modules.Admin
             await _cc.Reply(Context, sb.ToString());
         }
 
+        [Command("Announce")]
+        [RequireOwner]
+        public async Task AnnounceMessage([Remainder] string message)
+        {
+            var guilds = _client.Guilds.ToList();
+            foreach (var guild in guilds)
+            {
+                var messageChannel = guild.DefaultChannel as ISocketMessageChannel;
+                if (messageChannel != null)
+                {
+                    var embed = new EmbedBuilder();
+                    embed.Title = "NinjaBot Annoucement";
+                    embed.Description = message;
+                    await messageChannel.SendMessageAsync("", false, embed);
+
+                }
+            }
+        }
+
         [Command("Leave-Server")]
         [Summary("Leave a server")]
         [RequireOwner]
@@ -102,7 +121,7 @@ namespace NinjaBotCore.Modules.Admin
                 }
             }
         }
-        
+
         [Command("AdminListWowResources")]
         [Alias("alwr")]
         public async Task ListWoWResource([Remainder] string args = null)
