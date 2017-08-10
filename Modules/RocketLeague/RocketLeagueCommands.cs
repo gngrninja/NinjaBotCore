@@ -19,8 +19,9 @@ namespace NinjaBotCore.Modules.RocketLeague
         private Steam.Steam _steam = null;
         private RocketLeague _rl = null;
         private static ChannelCheck _cc = null;
+        private RlStatsApi _rlStatsApi = null;
 
-        public RlCommands(Steam.Steam steam, ChannelCheck cc, RocketLeague rl)
+        public RlCommands(Steam.Steam steam, ChannelCheck cc, RocketLeague rl, RlStatsApi rlStatsApi)
         {
             try
             {
@@ -31,23 +32,32 @@ namespace NinjaBotCore.Modules.RocketLeague
                 if (_rl == null)
                 {
                     _rl = rl;
-                }                       
+                }
                 if (_cc == null)
                 {
                     _cc = cc;
                 }
+                if (_rlStatsApi == null)
+                {
+                    _rlStatsApi = rlStatsApi;
+                }
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
-                Console.WriteLine($"UNABLE TO CREATE CLASS ROCKET LEAGUE {ex.Message}");
+                Console.WriteLine($"Unable to create Rocket League Commands class ->  [{ex.Message}]");
             }
         }
 
+        [Command("newrlstats", RunMode = RunMode.Async)]
+        public async Task GetNewStats()
+        {
+
+        }
         [Command("rlstats", RunMode = RunMode.Async)]
         [Summary("Get Rocket League Stats. Use this command with set, followed by your steam URL/ID/VanityName to set a default user (rlstats set URL/ID/VanityName")]
         public async Task RlStats([Remainder]string input = "")
-        {      
-            System.Console.WriteLine("RLSTATS");      
+        {
+            System.Console.WriteLine("RLSTATS");
             StringBuilder sb = new StringBuilder();
             var rlStats = new RlStat();
             bool ps = false;
@@ -94,7 +104,7 @@ namespace NinjaBotCore.Modules.RocketLeague
                 {
                     sb.AppendLine($"Please specify a name / steamID after using the set/get commands!");
                     await _cc.Reply(Context, sb.ToString());
-                    
+
                     return;
                 }
             }
@@ -112,7 +122,7 @@ namespace NinjaBotCore.Modules.RocketLeague
                 using (var db = new NinjaBotEntities())
                 {
                     string channel = Context.Channel.Name;
-                    string userName = Context.User.Username;                   
+                    string userName = Context.User.Username;
                     StringBuilder sb = new StringBuilder();
                     string rlUserName = name;
 
@@ -171,38 +181,38 @@ namespace NinjaBotCore.Modules.RocketLeague
 
             if (string.IsNullOrEmpty(fromSteam.steamid))
             {
-                sb.AppendLine($"Unable to find steam user for steam name/id: {name}!");                
+                sb.AppendLine($"Unable to find steam user for steam name/id: {name}!");
                 await _cc.Reply(Context, sb.ToString());
                 return;
             }
             else
-            {                
+            {
                 try
-                {                    
+                {
                     EmbedBuilder embed = await rlEmbed(sb, fromSteam);
-                    await _cc.Reply(Context, embed);
-                }
-                catch(Exception ex)
-                {
-                    Console.WriteLine(ex.Message);
-                }                                                
-                return;
-            }
-        }
-
-        public async Task GetStats(string name, bool ps)
-        {
-                try
-                {
-                    StringBuilder sb = new StringBuilder();                    
-                    EmbedBuilder embed = await rlEmbed(sb, name);
                     await _cc.Reply(Context, embed);
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine(ex.Message);
                 }
-                return;            
+                return;
+            }
+        }
+
+        public async Task GetStats(string name, bool ps)
+        {
+            try
+            {
+                StringBuilder sb = new StringBuilder();
+                EmbedBuilder embed = await rlEmbed(sb, name);
+                await _cc.Reply(Context, embed);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+            }
+            return;
         }
 
         public async Task SendStats(bool ps)
@@ -220,7 +230,7 @@ namespace NinjaBotCore.Modules.RocketLeague
                 if (rlUser == null)
                 {
                     sb.AppendLine($"Unable to find steam name association for discord user {userName}");
-                    await _cc.Reply(Context, sb.ToString());                    
+                    await _cc.Reply(Context, sb.ToString());
                     return;
                 }
                 else
@@ -231,24 +241,126 @@ namespace NinjaBotCore.Modules.RocketLeague
                     if (string.IsNullOrEmpty(fromSteam.steamid))
                     {
                         sb.AppendLine($"Unable to find steam user for steam name/id: {steamUserId}!");
-                        sb.AppendLine($"Please try using !rlstats set steamVanityUserNameOrID");                        
+                        sb.AppendLine($"Please try using !rlstats set steamVanityUserNameOrID");
                         await _cc.Reply(Context, sb.ToString());
                         return;
                     }
                     else
                     {
-                        
+
                         //sb.AppendLine($"Stats from: {fullURL}");
-                        EmbedBuilder embed = await rlEmbed(sb, fromSteam);
-                        
+                        //EmbedBuilder embed = await rlEmbed(sb, fromSteam);
+                        EmbedBuilder embed = await RlEmbedApi(sb, fromSteam);
                         await _cc.Reply(Context, embed);
                     }
-                }                
+                }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error looking up stats {ex.Message}");
             }
+        }
+
+        private async Task<EmbedBuilder> RlEmbedApi(StringBuilder sb, SteamModel.Player fromSteam)
+        {            
+            long steamId = 0;
+            long.TryParse(fromSteam.steamid, out steamId);
+            var stats = await _rlStatsApi.GetUserStats(steamId);            
+            var embed = new EmbedBuilder();
+            embed.Title = "RL Stats";
+            embed.WithAuthor(new EmbedAuthorBuilder
+            {
+                Name = $"{Context.User.Username}",
+                IconUrl = $"{Context.User.GetAvatarUrl()}"
+            });
+            embed.Description = "Season 5 Stats:";
+            embed.AddField(new EmbedFieldBuilder
+            {
+                Name = "1v1 MMR",
+                Value = $"{stats.rankedSeasons._5._onevone.rankPoints}",                
+                IsInline = true
+            });
+            embed.AddField(new EmbedFieldBuilder
+            {
+                Name = "1v1 Matches Played",
+                Value = $"{stats.rankedSeasons._5._onevone.matchesPlayed}",                
+            });
+            embed.AddField(new EmbedFieldBuilder
+            {
+                Name = "2v2 MMR",
+                Value = $"{stats.rankedSeasons._5._twovtwo.rankPoints}",        
+                IsInline = true                   
+            });
+            embed.AddField(new EmbedFieldBuilder
+            {
+                Name = "2v2 Matches Played",
+                Value = $"{stats.rankedSeasons._5._twovtwo.matchesPlayed}",                
+            });
+            embed.AddField(new EmbedFieldBuilder
+            {
+                Name = "Solo Standard MMR",
+                Value = $"{stats.rankedSeasons._5._solostandard.rankPoints}",                          
+            });
+            embed.AddField(new EmbedFieldBuilder
+            {
+                Name = "Solo Standard Matches Played",
+                Value = $"{stats.rankedSeasons._5._solostandard.matchesPlayed}",
+                IsInline = true
+            });
+            embed.AddField(new EmbedFieldBuilder
+            {
+                Name = "Standard MMR",
+                Value = $"{stats.rankedSeasons._5._standard.rankPoints}",                     
+            });
+            embed.AddField(new EmbedFieldBuilder
+            {
+                Name = "Unranked Matches Played",
+                Value = $"{stats.rankedSeasons._5._standard.matchesPlayed}",
+                IsInline = true
+            });            
+            embed.AddField(new EmbedFieldBuilder
+            {
+                Name = "Standard Matches Played",
+                Value = $"{stats.rankedSeasons._5._standard.matchesPlayed}",
+                IsInline = true
+            });
+            embed.AddField(new EmbedFieldBuilder
+            {
+                Name = "Shots",
+                Value = $"{stats.stats.shots}",
+                IsInline = true
+            });            
+            embed.AddField(new EmbedFieldBuilder
+            {
+                Name = "Goals",
+                Value = $"{stats.stats.goals}",
+                IsInline = true
+            });
+            embed.AddField(new EmbedFieldBuilder
+            {
+                Name = "MVPs",
+                Value = $"{stats.stats.mvps}",
+                IsInline = true
+            });
+            embed.AddField(new EmbedFieldBuilder
+            {
+                Name = "Assists",
+                Value = $"{stats.stats.assists}",
+                IsInline = true
+            });
+            embed.AddField(new EmbedFieldBuilder
+            {
+                Name = "Saves",
+                Value = $"{stats.stats.saves}",
+                IsInline = true
+            });
+            embed.AddField(new EmbedFieldBuilder
+            {
+                Name = "Wins",
+                Value = $"{stats.stats.wins}",
+                IsInline = true
+            });
+            return embed;
         }
 
         private async Task<EmbedBuilder> rlEmbed(StringBuilder sb, SteamModel.Player fromSteam)
@@ -261,12 +373,12 @@ namespace NinjaBotCore.Modules.RocketLeague
                 stats = await _rl.getRLStats(fromSteam.steamid);
                 getStats = await GetStatsFromDb(fromSteam);
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 Console.WriteLine($"Error getting RL Stats -> [{ex.Message}]");
                 embed.Title = $"Error getting stats for {fromSteam.personaname}!";
                 embed.Description = $"Sorry, something dun went wrong :(";
-                return embed;                
+                return embed;
             }
             if (stats != null)
             {
@@ -372,8 +484,8 @@ namespace NinjaBotCore.Modules.RocketLeague
             if (statsUrl != null)
             {
                 sb.AppendLine($"Stats from: {statsUrl}");
-            }            
-            embed.WithColor(new Color(0, 71, 171));            
+            }
+            embed.WithColor(new Color(0, 71, 171));
             embed.ThumbnailUrl = fromSteam.avatarfull;
             //embed.ThumbnailUrl = Context.User.GetAvatarUrl();
             embed.Title = $"__Rocket League Stats For [**{fromSteam.personaname}**]__";
@@ -428,9 +540,9 @@ namespace NinjaBotCore.Modules.RocketLeague
                 var soloStandard = stats.Where(s => s.Title == "Solo Standard 3v3").FirstOrDefault();
                 var rankedThrees = stats.Where(s => s.Title == "Standard 3v3").FirstOrDefault();
                 var unranked = stats.Where(s => s.Title == "Unranked").FirstOrDefault();
-               
+
                 if (getStat == null)
-                {                    
+                {
                     if (doubles != null)
                     {
                         statAdd.Ranked2v2 = doubles.MMR.ToString();
@@ -438,7 +550,7 @@ namespace NinjaBotCore.Modules.RocketLeague
                     else
                     {
                         statAdd.Ranked2v2 = "0";
-                    }                    
+                    }
                     if (duel != null)
                     {
                         statAdd.RankedDuel = duel.MMR.ToString();
@@ -446,7 +558,7 @@ namespace NinjaBotCore.Modules.RocketLeague
                     else
                     {
                         statAdd.RankedDuel = "0";
-                    }                    
+                    }
                     if (soloStandard != null)
                     {
                         statAdd.RankedSolo = soloStandard.MMR.ToString();
@@ -454,7 +566,7 @@ namespace NinjaBotCore.Modules.RocketLeague
                     else
                     {
                         statAdd.RankedSolo = "0";
-                    }                    
+                    }
                     if (rankedThrees != null)
                     {
                         statAdd.Ranked3v3 = rankedThrees.MMR.ToString();
@@ -462,7 +574,7 @@ namespace NinjaBotCore.Modules.RocketLeague
                     else
                     {
                         statAdd.Ranked3v3 = "0";
-                    }                    
+                    }
                     if (unranked != null)
                     {
                         statAdd.Unranked = unranked.MMR.ToString();
@@ -470,36 +582,36 @@ namespace NinjaBotCore.Modules.RocketLeague
                     else
                     {
                         statAdd.Unranked = "0";
-                    }              
+                    }
                     statAdd.SteamID = steamId;
                     db.RlUserStats.Add(statAdd);
                 }
                 else
-                {                    
+                {
                     if (doubles != null)
                     {
                         getStat.Ranked2v2 = doubles.MMR.ToString();
                     }
-                 
+
                     if (duel != null)
                     {
                         getStat.RankedDuel = duel.MMR.ToString();
                     }
-                 
+
                     if (soloStandard != null)
                     {
                         getStat.RankedSolo = soloStandard.MMR.ToString();
                     }
-                 
+
                     if (rankedThrees != null)
                     {
                         getStat.Ranked3v3 = rankedThrees.MMR.ToString();
                     }
-                 
+
                     if (unranked != null)
                     {
                         getStat.Unranked = unranked.MMR.ToString();
-                    }                    
+                    }
                     getStat.SteamID = steamId;
                 }
                 await db.SaveChangesAsync();

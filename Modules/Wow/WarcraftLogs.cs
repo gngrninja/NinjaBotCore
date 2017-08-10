@@ -9,12 +9,15 @@ using NinjaBotCore.Models.Wow;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading;
+using NinjaBotCore.Database;
+using Discord;
+using Discord.Net;
+using Discord.WebSocket;
 
 namespace NinjaBotCore.Modules.Wow
 {
     public class WarcraftLogs
     {
-
         private static CancellationTokenSource _tokenSource;
         private static List<Zones> _zones;
         private static List<CharClasses> _charClasses;
@@ -59,7 +62,7 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
-        public string logsApiRequest(string url)
+        public string LogsApiRequest(string url)
         {
             string response = string.Empty;
             string wowLogsKey = $"api_key={Config.WarcraftLogsApi}";
@@ -84,7 +87,7 @@ namespace NinjaBotCore.Modules.Wow
             List<CharClasses> charClasses;
             string url = "/classes?";
 
-            charClasses = JsonConvert.DeserializeObject<List<CharClasses>>(logsApiRequest(url));
+            charClasses = JsonConvert.DeserializeObject<List<CharClasses>>(LogsApiRequest(url));
 
             return charClasses;
         }
@@ -95,7 +98,7 @@ namespace NinjaBotCore.Modules.Wow
             url = $"/reports/guild/{guildName.Replace(" ", "%20")}/{realm}/{region}?";
             List<Reports> logs;
 
-            logs = JsonConvert.DeserializeObject<List<Reports>>(logsApiRequest(url));
+            logs = JsonConvert.DeserializeObject<List<Reports>>(LogsApiRequest(url));
 
             return logs;
         }
@@ -106,31 +109,31 @@ namespace NinjaBotCore.Modules.Wow
             url = $"/reports/user/{userName.Replace(" ", "%20")}?";
             List<Reports> logs;
 
-            logs = JsonConvert.DeserializeObject<List<Reports>>(logsApiRequest(url));
+            logs = JsonConvert.DeserializeObject<List<Reports>>(LogsApiRequest(url));
 
             return logs;
         }
 
-        public List<CharParses> getParsesFromCharacterName(string charName, string realm, string region = "us")
+        public List<CharParses> GetParsesFromCharacterName(string charName, string realm, string region = "us")
         {
             List<CharParses> parse;
             string url = string.Empty;
             //https://www.warcraftlogs.com:443/v1/parses/character/oceanbreeze/thunderlord/US?zone=10&api_key=06cd4398efb2643988e1bb0e1387419a
             url = $"/parses/character/{charName}/{realm}/{region}?";
 
-            parse = JsonConvert.DeserializeObject<List<CharParses>>(logsApiRequest(url));
+            parse = JsonConvert.DeserializeObject<List<CharParses>>(LogsApiRequest(url));
 
             return parse;
         }
 
-        public List<LogCharRankings> getRankingFromCharName(string charName, string realm, string region = "us")
+        public List<LogCharRankings> GetRankingFromCharName(string charName, string realm, string region = "us")
         {
             List<LogCharRankings> charRankings;
             string url = string.Empty;
 
             url = $"/rankings/character/{charName}/{realm}/{region}?";
 
-            charRankings = JsonConvert.DeserializeObject<List<LogCharRankings>>(logsApiRequest(url));
+            charRankings = JsonConvert.DeserializeObject<List<LogCharRankings>>(LogsApiRequest(url));
 
             return charRankings;
         }
@@ -166,7 +169,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             zoneID = Zones.Where(z => z.name == findString).Select(z => z.id).FirstOrDefault();
             url = $"/rankings/character/{charName}/{realm}/{region}?zone={zoneID}&";
-            charRankings = JsonConvert.DeserializeObject<List<LogCharRankings>>(logsApiRequest(url));
+            charRankings = JsonConvert.DeserializeObject<List<LogCharRankings>>(LogsApiRequest(url));
             return charRankings;
         }
 
@@ -176,7 +179,7 @@ namespace NinjaBotCore.Modules.Wow
             url = "/zones?";
             List<Zones> zones;
 
-            zones = JsonConvert.DeserializeObject<List<Zones>>(logsApiRequest(url));
+            zones = JsonConvert.DeserializeObject<List<Zones>>(LogsApiRequest(url));
 
             return zones;
         }
@@ -187,12 +190,12 @@ namespace NinjaBotCore.Modules.Wow
             Fights fights;
             url = $"/report/fights/{code}?";
 
-            fights = JsonConvert.DeserializeObject<Fights>(logsApiRequest(url));
+            fights = JsonConvert.DeserializeObject<Fights>(LogsApiRequest(url));
 
             return fights;
         }
 
-        public ReportTable GetReportResults(string fightID)
+        public ReportTable GetReportResults(string fightID, string view = "damage-done")
         {
             List<Reports> reports = GetReportsFromGuild();
             Fights fights = GetFights(reports[0].id);
@@ -206,14 +209,14 @@ namespace NinjaBotCore.Modules.Wow
                 }
             }
 
-            string url = $"/report/tables/damage-done/{reports[0].id}?start={bossFights[0].start_time}&end={bossFights[0].end_time}&";
+            string url = $"/report/tables/{view}/{reports[0].id}?start={bossFights[0].start_time}&end={bossFights[0].end_time}&";
 
-            ReportTable table = JsonConvert.DeserializeObject<ReportTable>(logsApiRequest(url));
+            ReportTable table = JsonConvert.DeserializeObject<ReportTable>(LogsApiRequest(url));
 
             return table;
         }
 
-        public ReportTable GetReportResults(bool getLastFight)
+        public ReportTable GetReportResults(bool getLastFight, string view = "damage-done")
         {
             List<Reports> reports = GetReportsFromGuild();
             Fights fights = GetFights(reports[0].id);
@@ -227,9 +230,9 @@ namespace NinjaBotCore.Modules.Wow
                 }
             }
 
-            string url = $"/report/tables/damage-done/{reports[0].id}?start={bossFights[0].start_time}&end={bossFights[0].end_time}&";
+            string url = $"/report/tables/{view}/{reports[0].id}?start={bossFights[0].start_time}&end={bossFights[0].end_time}&";
 
-            ReportTable table = JsonConvert.DeserializeObject<ReportTable>(logsApiRequest(url));
+            ReportTable table = JsonConvert.DeserializeObject<ReportTable>(LogsApiRequest(url));
 
             return table;
         }
@@ -238,7 +241,7 @@ namespace NinjaBotCore.Modules.Wow
         {
             WarcraftlogRankings.RankingObject l = new WarcraftlogRankings.RankingObject();
             string url = $"/rankings/encounter/{encounterID}?metric={metric}&server={realmName}&region={regionName}&difficulty={difficulty}&limit=1000&";
-            l = JsonConvert.DeserializeObject<WarcraftlogRankings.RankingObject>(logsApiRequest(url));
+            l = JsonConvert.DeserializeObject<WarcraftlogRankings.RankingObject>(LogsApiRequest(url));
             return l;
         }
 
@@ -247,7 +250,7 @@ namespace NinjaBotCore.Modules.Wow
             WarcraftlogRankings.RankingObject l = new WarcraftlogRankings.RankingObject();
             guildName = guildName.Replace(" ", "%20");
             string url = $"/rankings/encounter/{encounterID}?guild={guildName}&server={realmName}&region={regionName}&metric={metric}&difficulty={difficulty}&limit=1000&";
-            l = JsonConvert.DeserializeObject<WarcraftlogRankings.RankingObject>(logsApiRequest(url));
+            l = JsonConvert.DeserializeObject<WarcraftlogRankings.RankingObject>(LogsApiRequest(url));
             return l;
         }
 
@@ -289,7 +292,67 @@ namespace NinjaBotCore.Modules.Wow
 
         async void CheckForNewLogs()
         {
-            System.Console.WriteLine("Timer is up!");
+            try
+            {
+                List<WowGuildAssociations> guildList = null;
+                List<LogMonitoring> logWatchList = null;
+                using (var db = new NinjaBotEntities())
+                {
+                    guildList = db.WowGuildAssociations.ToList();
+                    logWatchList = db.LogMonitoring.ToList();
+
+                }
+                if (guildList != null)
+                {
+                    foreach (var guild in guildList)
+                    {
+                        var watchGuild = logWatchList.Where(w => w.ServerId == guild.ServerId).FirstOrDefault();
+                        if (watchGuild != null)
+                        {
+                            if (watchGuild.MonitorLogs)
+                            {
+                                System.Console.WriteLine($"YES! Watch logs on {guild.ServerName}!");
+                                var logs = GetReportsFromGuild(guild.WowGuild, guild.WowRealm, guild.WowRegion);
+                                if (logs != null)
+                                {
+                                    var latestLog = logs[logs.Count - 1];
+                                    DateTime startTime = UnixTimeStampToDateTime(latestLog.start);
+                                    if (startTime > watchGuild.LatestLog)
+                                    {
+                                        using (var db = new NinjaBotEntities())
+                                        {
+                                            var latestForGuild = db.LogMonitoring.Where(l => l.ServerId == guild.ServerId).FirstOrDefault();
+                                            latestForGuild.LatestLog = startTime;
+                                            await db.SaveChangesAsync();
+                                        }
+
+                                        DiscordSocketClient client = NinjaBot.Client;
+                                        ISocketMessageChannel channel = client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
+                                        if (channel != null)
+                                        {
+                                            var embed = new EmbedBuilder();
+                                            embed.Title = $"New log found for [{guild.WowGuild}]!";
+                                            StringBuilder sb = new StringBuilder();
+                                            sb.AppendLine($"__**{latestLog.title}** **/** **{latestLog.zoneName}**__");
+                                            sb.AppendLine($"\t:timer: Start time: **{UnixTimeStampToDateTime(latestLog.start)}**");
+                                            sb.AppendLine($"\tLink: **{latestLog.reportURL}**");
+                                            sb.AppendLine($"\t:white_check_mark: My WoW: **http://www.checkmywow.com/reports/{latestLog.id}**");
+                                            sb.AppendLine();
+                                            embed.Description = sb.ToString();
+                                            embed.WithColor(new Color(0, 0, 255));
+                                            await channel.SendMessageAsync("", false, embed);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Console.WriteLine($"Error checking for logs! -> [{ex.Message}]");
+            }
         }
     }
 }

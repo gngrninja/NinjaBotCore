@@ -22,7 +22,8 @@ namespace NinjaBotCore
     {
         private DiscordSocketClient _client;
         private CommandHandler _handler;        
-        
+        public static DiscordSocketClient Client;
+
         public NinjaBot()
         {
             //Make sure we have a db file (if not, create one)
@@ -52,7 +53,8 @@ namespace NinjaBotCore
             //await services.GetRequiredService<TagService>().InitializeAsync(services);
             _handler = new CommandHandler(serviceProvider);
             await _handler.ConfigureAsync();
-            new UserInteraction(serviceProvider);                
+            new UserInteraction(serviceProvider);            
+            Client = _client;    
             // Block this program until it is closed.                            
             await Task.Delay(-1);
         }
@@ -67,7 +69,8 @@ namespace NinjaBotCore
                 .AddSingleton(new RocketLeague())
                 .AddSingleton(new OxfordApi())
                 .AddSingleton(new AwayCommands(_client))
-                .AddSingleton(new Steam());
+                .AddSingleton(new RlStatsApi())
+                .AddSingleton(new Steam());                
             var provider = new DefaultServiceProviderFactory().CreateServiceProvider(services);
             //provider.GetService<PaginationService>();
             return provider;

@@ -40,13 +40,79 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
+        [Command("watch-logs", RunMode = RunMode.Async)]
+        [Summary("Toggle automatic log watching from Warcraft logs")]
+        public async Task ToggleLogWatchCommand()
+        {
+            bool enable = false;
+            var embed = new EmbedBuilder();
+            List<LogMonitoring> logMonitorList = null;
+            StringBuilder sb = new StringBuilder();
+            using (var db = new NinjaBotEntities())
+            {
+                logMonitorList = db.LogMonitoring.ToList();
+            }
+            if (logMonitorList != null)
+            {
+                var getGuild = logMonitorList.Where(l => l.ServerId == (long)Context.Guild.Id).FirstOrDefault();
+                if (getGuild != null)
+                {
+                    if (!getGuild.MonitorLogs)
+                    {
+                        enable = true;
+                    }
+                }
+                else 
+                {
+                    enable = true;
+                }
+            }
+            if (enable)
+            {
+                embed.Title = $"Enabling log watching for {Context.Guild.Name}!";
+                sb.AppendLine($"When a new log is posted, you'll get a notification in this channel: **{Context.Channel.Name}**");
+                sb.AppendLine($"If you'd like to have them posted in a different channel, use this command to disable the auto posting, and then again to enable them from the channel you'd like them posted in");
+            }
+            else
+            {
+                embed.Title = $"Disabling log watching for {Context.Guild.Name}!";
+                sb.AppendLine($"Use the command again to enable log watching!");
+            }
+            using (var db = new NinjaBotEntities())
+            {
+                var getGuild = db.LogMonitoring.Where(l => l.ServerId == (long)Context.Guild.Id).FirstOrDefault();
+                if (getGuild != null)
+                {
+                    getGuild.ChannelId = (long)Context.Channel.Id;
+                    getGuild.ChannelName = Context.Channel.Name;
+                    getGuild.MonitorLogs = enable;
+                }
+                else
+                {
+                    db.LogMonitoring.Add(new LogMonitoring
+                    {
+                        ServerId = (long)Context.Guild.Id,
+                        ServerName = Context.Guild.Name,
+                        ChannelId = (long)Context.Channel.Id,
+                        ChannelName = Context.Channel.Name,
+                        MonitorLogs = enable
+                    });
+                }                
+                await db.SaveChangesAsync();
+            }
+            embed.Description = sb.ToString();
+            await _cc.Reply(Context, embed);
+        }
+
         [Command("tu", RunMode = RunMode.Async)]
+        [RequireOwner]
         public async Task StartTimer()
         {
             await _logsApi.StartTimer();
         }
 
         [Command("td", RunMode = RunMode.Async)]
+        [RequireOwner]
         public async Task StopTimer()
         {
             await _logsApi.StopTimer();
