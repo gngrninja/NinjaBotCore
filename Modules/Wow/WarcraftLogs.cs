@@ -292,19 +292,27 @@ namespace NinjaBotCore.Modules.Wow
 
         async void CheckForNewLogs()
         {
+            List<WowGuildAssociations> guildList = null;
+            List<LogMonitoring> logWatchList = null;
             try
             {
-                List<WowGuildAssociations> guildList = null;
-                List<LogMonitoring> logWatchList = null;
+
                 using (var db = new NinjaBotEntities())
                 {
                     guildList = db.WowGuildAssociations.ToList();
                     logWatchList = db.LogMonitoring.ToList();
 
                 }
-                if (guildList != null)
+            }
+            catch (Exception ex)
+            {
+                System.Console.WriteLine($"Error getting guild/logwatch list -> [{ex.Message}]");
+            }
+            if (guildList != null)
+            {
+                foreach (var guild in guildList)
                 {
-                    foreach (var guild in guildList)
+                    try
                     {
                         var watchGuild = logWatchList.Where(w => w.ServerId == guild.ServerId).FirstOrDefault();
                         if (watchGuild != null)
@@ -347,11 +355,11 @@ namespace NinjaBotCore.Modules.Wow
                             }
                         }
                     }
+                    catch (Exception ex)
+                    {
+                        System.Console.WriteLine($"Error checking for logs! -> [{ex.Message}]");
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                System.Console.WriteLine($"Error checking for logs! -> [{ex.Message}]");
             }
         }
     }
