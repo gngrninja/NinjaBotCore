@@ -333,7 +333,6 @@ namespace NinjaBotCore.Modules.Wow
                                             latestForGuild.LatestLog = startTime;
                                             await db.SaveChangesAsync();
                                         }
-
                                         DiscordSocketClient client = NinjaBot.Client;
                                         ISocketMessageChannel channel = client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
                                         if (channel != null)
