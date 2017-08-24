@@ -62,7 +62,7 @@ namespace NinjaBotCore.Modules.Wow
                         enable = true;
                     }
                 }
-                else 
+                else
                 {
                     enable = true;
                 }
@@ -97,7 +97,7 @@ namespace NinjaBotCore.Modules.Wow
                         ChannelName = Context.Channel.Name,
                         MonitorLogs = enable
                     });
-                }                
+                }
                 await db.SaveChangesAsync();
             }
             embed.Description = sb.ToString();
@@ -152,6 +152,59 @@ namespace NinjaBotCore.Modules.Wow
                 await _cc.Reply(Context, $"Sorry, {Context.User.Username}, something went wrong :(");
             }
         }
+
+        [Command("ksm", RunMode = RunMode.Async)]
+        [Summary("Check a character for the Keystone Master achievement")]
+        public async Task CheckKsm([Remainder]string args = null)
+        {
+            //11162
+            var charInfo = await GetCharFromArgs(args, Context);
+            var sb = new StringBuilder();
+            var embed = new EmbedBuilder();
+            bool ksm = false;
+            embed.Title = "Keystone Master Achivement Check";
+            if (!string.IsNullOrEmpty(charInfo.charName))
+            {
+                Character charAchievements = null;
+                if (!string.IsNullOrEmpty(charInfo.regionName))
+                {
+                    charAchievements = _wowApi.GetCharInfo(charInfo.charName, charInfo.realmName, charInfo.regionName);
+
+                }
+                else
+                {
+                    charAchievements = _wowApi.GetCharInfo(charInfo.charName, charInfo.realmName);
+                }
+                if (charAchievements != null)
+                {
+                    foreach (var cheeve in charAchievements.achievements.achievementsCompleted)
+                    {
+                        if (cheeve == 11162)
+                        {
+                            ksm = true;
+                        }
+                    }
+                }
+                if (!ksm)
+                {
+                    sb.AppendLine($"**{charAchievements.name}** from **{charAchievements.realm}** does not have the Keystone Master achievement! :(");
+                    embed.WithColor(new Color(255, 0, 0));
+                }
+                else
+                {
+                    sb.AppendLine($"**{charAchievements.name}** from **{charAchievements.realm}** has the Keystone Master achievement! :)");
+                    embed.WithColor(new Color(0, 255, 0));
+                }
+                embed.ThumbnailUrl = charAchievements.profilePicURL;                
+            }
+            else
+            {
+                sb.AppendLine($"Sorry, unable to find that character!");
+            }
+            embed.Description = sb.ToString();
+            await _cc.Reply(Context, embed);
+        }
+
         [Command("armory", RunMode = RunMode.Async)]
         [Summary("Gets a character's armory info (WoW)")]
         public async Task GetArmory([Remainder]string args = null)
