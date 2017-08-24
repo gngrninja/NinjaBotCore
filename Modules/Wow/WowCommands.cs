@@ -162,7 +162,7 @@ namespace NinjaBotCore.Modules.Wow
             var sb = new StringBuilder();
             var embed = new EmbedBuilder();
             bool ksm = false;
-            embed.Title = "Keystone Master Achivement Check";
+            embed.Title = "Keystone Master Achievement Check";
             if (!string.IsNullOrEmpty(charInfo.charName))
             {
                 Character charAchievements = null;
@@ -195,7 +195,7 @@ namespace NinjaBotCore.Modules.Wow
                     sb.AppendLine($"**{charAchievements.name}** from **{charAchievements.realm}** has the Keystone Master achievement! :)");
                     embed.WithColor(new Color(0, 255, 0));
                 }
-                embed.ThumbnailUrl = charAchievements.profilePicURL;                
+                embed.ThumbnailUrl = charAchievements.thumbnailURL;                
             }
             else
             {
