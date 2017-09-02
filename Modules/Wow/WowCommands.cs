@@ -156,8 +156,7 @@ namespace NinjaBotCore.Modules.Wow
         [Command("ksm", RunMode = RunMode.Async)]
         [Summary("Check a character for the Keystone Master achievement")]
         public async Task CheckKsm([Remainder]string args = null)
-        {
-            //11162
+        {            
             var charInfo = await GetCharFromArgs(args, Context);
             var sb = new StringBuilder();
             var embed = new EmbedBuilder();
