@@ -128,4 +128,19 @@ namespace NinjaBotCore.Models.RocketLeague
         [JsonProperty(PropertyName = "13")]
         public SeasonStats _standard { get; set; }
     }
+
+    public class SearchResult
+    {
+        public List<UserStats> data { get; set; }
+        public int maxResultsPerPage { get; set; }
+        public int page { get; set; }
+        public int results { get; set; } 
+        public int totalResults { get; set; }        
+    }
+
+    public class Tier
+    {
+        public int tierId { get; set; }
+        public string tierName { get; set; }
+    }
 }
