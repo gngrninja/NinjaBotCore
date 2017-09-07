@@ -45,7 +45,7 @@ namespace NinjaBotCore.Modules.RocketLeague
                 nodeCount++;
                 Console.WriteLine($"Node count: [{nodeCount}]");
                 if (!seasonEnderFound)
-                {
+                {                
                     if (oi == 4)
                     {
                         seasonEnderFound = true;

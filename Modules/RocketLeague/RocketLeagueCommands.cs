@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -47,12 +48,6 @@ namespace NinjaBotCore.Modules.RocketLeague
             {
                 Console.WriteLine($"Unable to create Rocket League Commands class ->  [{ex.Message}]");
             }
-        }
-
-        [Command("newrlstats", RunMode = RunMode.Async)]
-        public async Task GetNewStats()
-        {
-
         }
 
         [Command("rl-search", RunMode = RunMode.Async)]
@@ -216,11 +211,28 @@ namespace NinjaBotCore.Modules.RocketLeague
         {
             StringBuilder sb = new StringBuilder();
             //SteamModel.Player fromSteam = _steam.getSteamPlayerInfo(name);
+            if (Uri.IsWellFormedUriString(name, UriKind.RelativeOrAbsolute))
+            {
+                name = name.TrimEnd('/');
+                name = name.Substring(name.LastIndexOf('/') + 1);
+                SteamModel.Player fromSteam = _steam.getSteamPlayerInfo(name);
+                try
+                {
+                    EmbedBuilder embed = await RlEmbedApi(fromSteam);
+                    await _cc.Reply(Context, embed);
+                }
+                catch (Exception ex)
+                {
+                    await _cc.Reply(Context, "Sorry, something went wrong!");
+                    Console.WriteLine(ex.Message);
+                }
+                return;
+            }
             var searchResults = await _rlStatsApi.SearchForPlayer(name);
             if (searchResults.data.Count > 0)
             {
                 try
-                {                    
+                {
                     EmbedBuilder embed = await RlEmbedApi(searchResults.data[0]);
                     await _cc.Reply(Context, embed);
                 }
@@ -237,33 +249,147 @@ namespace NinjaBotCore.Modules.RocketLeague
                 await _cc.Reply(Context, sb.ToString());
                 return;
             }
-            //if (string.IsNullOrEmpty(fromSteam.steamid))
-            //{
-            //    sb.AppendLine($"Unable to find steam user for steam name/id: {name}!");
-            //    await _cc.Reply(Context, sb.ToString());
-            //    return;
-            // }
-            //else
-            //{
-            //    try
-            //    {
-            //        //EmbedBuilder embed = await rlEmbed(sb, fromSteam);
-            //        EmbedBuilder embed = await RlEmbedApi(fromSteam);
-            //        await _cc.Reply(Context, embed);
-            //    }
-            //    catch (Exception ex)
-            //    {
-            //        Console.WriteLine(ex.Message);
-            //    }
-            //    return;
-            //}
+        }
+
+        public async Task GetStats(string name, bool ps)
+        {
+            try
+            {
+                StringBuilder sb = new StringBuilder();
+                EmbedBuilder embed = await rlEmbed(sb, name);
+                await _cc.Reply(Context, embed);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+            }
+            return;
+        }
+
+        private static void FormatStatInfo(StringBuilder sb, PropertyInfo rank, SeasonStats rankInfo)
+        {
+            string rankMoji = string.Empty;
+            int matchesPlayed = rankInfo.matchesPlayed;
+            int rankPoints = rankInfo.rankPoints;
+            string tier = RlStatsApi.Tiers.Where(t => t.tierId == rankInfo.tier).Select(t => t.tierName).FirstOrDefault();
+            if (rankInfo.tier >= 1 & rankInfo.tier < 4)
+            {
+                rankMoji = ":tangerine:";
+            }
+            else if (rankInfo.tier >= 4 & rankInfo.tier < 7)
+            {
+                rankMoji = ":full_moon:";
+            }
+            else if (rankInfo.tier >= 7 & rankInfo.tier < 10)
+            {
+                rankMoji = ":sunny:";
+            }
+            else if (rankInfo.tier >= 10 & rankInfo.tier < 13)
+            {
+                rankMoji = ":fork_knife_plate:";
+            }
+            else if (rankInfo.tier >= 13 & rankInfo.tier < 16)
+            {
+                rankMoji = ":large_blue_diamond:";
+            }
+            else if (rankInfo.tier >= 16 & rankInfo.tier < 19)
+            {
+                rankMoji = ":purple_heart:";
+            }
+            else if (rankInfo.tier == 19)
+            {
+                rankMoji = ":eggplant:";
+            }
+            else
+            {
+                rankMoji = ":question:";
+            }
+            if (string.IsNullOrEmpty(tier))
+            {
+                tier = ":(";
+            }
+            switch (rank.Name)
+            {
+                case "_onevone":
+                    {
+                        sb.AppendLine("Duel");
+                        break;
+                    }
+                case "_twovtwo":
+                    {
+                        sb.AppendLine("Doubles");
+                        break;
+                    }
+                case "_solostandard":
+                    {
+                        sb.AppendLine("Solo Standard");
+                        break;
+                    }
+                case "_standard":
+                    {
+                        sb.AppendLine("Standard");
+                        break;
+                    }
+                default:
+                    {
+                        sb.AppendLine(rank.Name);
+                        break;
+                    }
+            }
+            sb.AppendLine($"{rankMoji} [*{tier}(div {rankInfo.division + 1})* [**{rankPoints}**]] Matches played [**{matchesPlayed}**]");
+        }
+
+        public async Task SendStats(bool ps)
+        {
+            try
+            {
+                string userName = Context.User.Username;
+                string channel = Context.Channel.Name;
+                StringBuilder sb = new StringBuilder();
+                RlStat rlUser = null;
+                using (var db = new NinjaBotEntities())
+                {
+                    rlUser = db.RlStats.FirstOrDefault(r => r.DiscordUserName == userName);
+                }
+                if (rlUser == null)
+                {
+                    sb.AppendLine($"Unable to find steam name association for discord user {userName}");
+                    await _cc.Reply(Context, sb.ToString());
+                    return;
+                }
+                else
+                {
+                    string steamUserId = rlUser.SteamID.ToString();
+                    SteamModel.Player fromSteam = _steam.getSteamPlayerInfo(steamUserId);
+
+                    if (string.IsNullOrEmpty(fromSteam.steamid))
+                    {
+                        sb.AppendLine($"Unable to find steam user for steam name/id: {steamUserId}!");
+                        sb.AppendLine($"Please try using !rlstats set steamVanityUserNameOrID");
+                        await _cc.Reply(Context, sb.ToString());
+                        return;
+                    }
+                    else
+                    {
+
+                        //sb.AppendLine($"Stats from: {fullURL}");
+                        //EmbedBuilder embed = await rlEmbed(sb, fromSteam);
+                        EmbedBuilder embed = await RlEmbedApi(fromSteam);
+                        await _cc.Reply(Context, embed);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error looking up stats {ex.Message}");
+            }
         }
 
         private async Task<EmbedBuilder> RlEmbedApi(UserStats userStats)
         {
             long steamId = 0;
             long.TryParse(userStats.uniqueId, out steamId);
-            var stats = userStats;              
+            var stats = userStats;
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
             embed.Title = $"Stats for [{userStats.displayName}]";
@@ -274,161 +400,12 @@ namespace NinjaBotCore.Modules.RocketLeague
                 Name = $"{Context.User.Username}",
                 IconUrl = $"{Context.User.GetAvatarUrl()}"
             });
-            string onevoneRankMoji = string.Empty;
-            string twovtwoRankMoji = string.Empty;
-            string soloStandardRankMoji = string.Empty;
-            string standardRankMoji = string.Empty;
-            if (stats.rankedSeasons._5._onevone != null)
+            var rankings = Enum.GetValues(typeof(RlRankingList));
+            var rankingsFromObject = stats.rankedSeasons._5.GetType().GetProperties();
+            foreach (var rank in rankingsFromObject)
             {
-                var onevoneTier = RlStatsApi.Tiers.Where(t => t.tierId == stats.rankedSeasons._5._onevone.tier).Select(t => t.tierName).FirstOrDefault();
-                sb.AppendLine($"__Duel__");
-                if (stats.rankedSeasons._5._onevone.tier >= 1 & stats.rankedSeasons._5._onevone.tier < 4)
-                {
-                    onevoneRankMoji = ":tangerine:";
-                }
-                else if (stats.rankedSeasons._5._onevone.tier >= 4 & stats.rankedSeasons._5._onevone.tier < 7)
-                {
-                    onevoneRankMoji = ":full_moon:";
-                }
-                else if (stats.rankedSeasons._5._onevone.tier >= 7 & stats.rankedSeasons._5._onevone.tier < 10)
-                {
-                    onevoneRankMoji = ":sunny:";
-                }
-                else if (stats.rankedSeasons._5._onevone.tier >= 10 & stats.rankedSeasons._5._onevone.tier < 13)
-                {
-                    onevoneRankMoji = ":fork_knife_plate:";
-                }
-                else if (stats.rankedSeasons._5._onevone.tier >= 13 & stats.rankedSeasons._5._onevone.tier < 16)
-                {
-                    onevoneRankMoji = ":large_blue_diamond:";
-                }
-                else if (stats.rankedSeasons._5._onevone.tier >= 16 & stats.rankedSeasons._5._onevone.tier < 19)
-                {
-                    onevoneRankMoji = ":purple_heart:";
-                }
-                else if (stats.rankedSeasons._5._onevone.tier == 19)
-                {
-                    onevoneRankMoji = ":top:";
-                }
-                else
-                {
-                    onevoneRankMoji = ":question:";
-                }
-                sb.AppendLine($"{onevoneRankMoji} [*{onevoneTier}* [**{stats.rankedSeasons._5._onevone.rankPoints}**]] Matches played [**{stats.rankedSeasons._5._onevone.matchesPlayed}**]");
-            }
-            if (stats.rankedSeasons._5._twovtwo != null)
-            {
-                var twovtwoTier = RlStatsApi.Tiers.Where(t => t.tierId == stats.rankedSeasons._5._twovtwo.tier).Select(t => t.tierName).FirstOrDefault();
-                sb.AppendLine($"__Doubles__");
-                if (stats.rankedSeasons._5._twovtwo.tier >= 1 & stats.rankedSeasons._5._twovtwo.tier <= 3)
-                {
-                    twovtwoRankMoji = ":tangerine:";
-                }
-                else if (stats.rankedSeasons._5._twovtwo.tier >= 4 & stats.rankedSeasons._5._twovtwo.tier <= 6)
-                {
-                    twovtwoRankMoji = ":full_moon:";
-                }
-                else if (stats.rankedSeasons._5._twovtwo.tier >= 7 & stats.rankedSeasons._5._twovtwo.tier <= 9)
-                {
-                    twovtwoRankMoji = ":sunny:";
-                }
-                else if (stats.rankedSeasons._5._twovtwo.tier >= 10 & stats.rankedSeasons._5._twovtwo.tier <= 12)
-                {
-                    twovtwoRankMoji = ":fork_knife_plate:";
-                }
-                else if (stats.rankedSeasons._5._twovtwo.tier >= 13 & stats.rankedSeasons._5._twovtwo.tier <= 15)
-                {
-                    twovtwoRankMoji = ":large_blue_diamond:";
-                }
-                else if (stats.rankedSeasons._5._twovtwo.tier >= 16 & stats.rankedSeasons._5._twovtwo.tier <= 18)
-                {
-                    twovtwoRankMoji = ":purple_heart:";
-                }
-                else if (stats.rankedSeasons._5._twovtwo.tier == 19)
-                {
-                    twovtwoRankMoji = ":top:";
-                }
-                else
-                {
-                    twovtwoRankMoji = ":question:";
-                }
-                sb.AppendLine($"{twovtwoRankMoji} [*{twovtwoTier}* [**{stats.rankedSeasons._5._twovtwo.rankPoints}**]] Matches played [**{stats.rankedSeasons._5._twovtwo.matchesPlayed}**]");
-            }
-            if (stats.rankedSeasons._5._standard != null)
-            {
-                var standardTier = RlStatsApi.Tiers.Where(t => t.tierId == stats.rankedSeasons._5._standard.tier).Select(t => t.tierName).FirstOrDefault();
-                sb.AppendLine($"__Standard__");
-                if (stats.rankedSeasons._5._standard.tier >= 1 & stats.rankedSeasons._5._standard.tier < 4)
-                {
-                    standardRankMoji = ":tangerine:";
-                }
-                else if (stats.rankedSeasons._5._standard.tier >= 4 & stats.rankedSeasons._5._standard.tier < 7)
-                {
-                    standardRankMoji = ":full_moon:";
-                }
-                else if (stats.rankedSeasons._5._standard.tier >= 7 & stats.rankedSeasons._5._standard.tier < 10)
-                {
-                    standardRankMoji = ":sunny:";
-                }
-                else if (stats.rankedSeasons._5._standard.tier >= 10 & stats.rankedSeasons._5._standard.tier < 13)
-                {
-                    standardRankMoji = ":fork_knife_plate:";
-                }
-                else if (stats.rankedSeasons._5._standard.tier >= 13 & stats.rankedSeasons._5._standard.tier < 16)
-                {
-                    standardRankMoji = ":large_blue_diamond:";
-                }
-                else if (stats.rankedSeasons._5._standard.tier >= 16 & stats.rankedSeasons._5._standard.tier < 19)
-                {
-                    standardRankMoji = ":purple_heart:";
-                }
-                else if (stats.rankedSeasons._5._standard.tier == 19)
-                {
-                    standardRankMoji = ":top:";
-                }
-                else
-                {
-                    standardRankMoji = ":question:";
-                }
-                sb.AppendLine($"{standardRankMoji} [*{standardTier}* [**{stats.rankedSeasons._5._standard.rankPoints}**]] Matches played [**{stats.rankedSeasons._5._standard.matchesPlayed}**]");
-            }
-            if (stats.rankedSeasons._5._solostandard != null)
-            {
-                var threevthreeTier = RlStatsApi.Tiers.Where(t => t.tierId == stats.rankedSeasons._5._solostandard.tier).Select(t => t.tierName).FirstOrDefault();
-                sb.AppendLine($"__Solo Standard__");
-                if (stats.rankedSeasons._5._solostandard.tier >= 1 & stats.rankedSeasons._5._solostandard.tier < 4)
-                {
-                    soloStandardRankMoji = ":tangerine:";
-                }
-                else if (stats.rankedSeasons._5._solostandard.tier >= 4 & stats.rankedSeasons._5._solostandard.tier < 7)
-                {
-                    soloStandardRankMoji = ":full_moon:";
-                }
-                else if (stats.rankedSeasons._5._solostandard.tier >= 7 & stats.rankedSeasons._5._solostandard.tier < 10)
-                {
-                    soloStandardRankMoji = ":sunny:";
-                }
-                else if (stats.rankedSeasons._5._solostandard.tier >= 10 & stats.rankedSeasons._5._solostandard.tier < 13)
-                {
-                    soloStandardRankMoji = ":fork_knife_plate:";
-                }
-                else if (stats.rankedSeasons._5._solostandard.tier >= 13 & stats.rankedSeasons._5._solostandard.tier < 16)
-                {
-                    soloStandardRankMoji = ":large_blue_diamond:";
-                }
-                else if (stats.rankedSeasons._5._solostandard.tier >= 16 & stats.rankedSeasons._5._solostandard.tier < 19)
-                {
-                    soloStandardRankMoji = ":purple_heart:";
-                }
-                else if (stats.rankedSeasons._5._solostandard.tier == 19)
-                {
-                    soloStandardRankMoji = ":top:";
-                }
-                else
-                {
-                    soloStandardRankMoji = ":question:";
-                }
-                sb.AppendLine($"{soloStandardRankMoji} [*{threevthreeTier}* [**{stats.rankedSeasons._5._solostandard.rankPoints}**]] Matches played [**{stats.rankedSeasons._5._solostandard.matchesPlayed}**]");
+                var rankInfo = (SeasonStats)stats.rankedSeasons._5.GetType().GetProperty(rank.Name).GetValue(stats.rankedSeasons._5, null);
+                FormatStatInfo(sb, rank, rankInfo);
             }
             embed.AddField(new EmbedFieldBuilder
             {
@@ -481,67 +458,6 @@ namespace NinjaBotCore.Modules.RocketLeague
             return embed;
         }
 
-        public async Task GetStats(string name, bool ps)
-        {
-            try
-            {
-                StringBuilder sb = new StringBuilder();
-                EmbedBuilder embed = await rlEmbed(sb, name);
-                await _cc.Reply(Context, embed);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.Message);
-            }
-            return;
-        }
-
-        public async Task SendStats(bool ps)
-        {
-            try
-            {
-                string userName = Context.User.Username;
-                string channel = Context.Channel.Name;
-                StringBuilder sb = new StringBuilder();
-                RlStat rlUser = null;
-                using (var db = new NinjaBotEntities())
-                {
-                    rlUser = db.RlStats.FirstOrDefault(r => r.DiscordUserName == userName);
-                }
-                if (rlUser == null)
-                {
-                    sb.AppendLine($"Unable to find steam name association for discord user {userName}");
-                    await _cc.Reply(Context, sb.ToString());
-                    return;
-                }
-                else
-                {
-                    string steamUserId = rlUser.SteamID.ToString();
-                    SteamModel.Player fromSteam = _steam.getSteamPlayerInfo(steamUserId);
-
-                    if (string.IsNullOrEmpty(fromSteam.steamid))
-                    {
-                        sb.AppendLine($"Unable to find steam user for steam name/id: {steamUserId}!");
-                        sb.AppendLine($"Please try using !rlstats set steamVanityUserNameOrID");
-                        await _cc.Reply(Context, sb.ToString());
-                        return;
-                    }
-                    else
-                    {
-
-                        //sb.AppendLine($"Stats from: {fullURL}");
-                        //EmbedBuilder embed = await rlEmbed(sb, fromSteam);
-                        EmbedBuilder embed = await RlEmbedApi(fromSteam);
-                        await _cc.Reply(Context, embed);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error looking up stats {ex.Message}");
-            }
-        }
-
         private async Task<EmbedBuilder> RlEmbedApi(SteamModel.Player fromSteam)
         {
             long steamId = 0;
@@ -557,161 +473,11 @@ namespace NinjaBotCore.Modules.RocketLeague
                 Name = $"{Context.User.Username}",
                 IconUrl = $"{Context.User.GetAvatarUrl()}"
             });
-            string onevoneRankMoji = string.Empty;
-            string twovtwoRankMoji = string.Empty;
-            string soloStandardRankMoji = string.Empty;
-            string standardRankMoji = string.Empty;
-            if (stats.rankedSeasons._5._onevone != null)
+            var rankingsFromObject = stats.rankedSeasons._5.GetType().GetProperties();
+            foreach (var rank in rankingsFromObject)
             {
-                var onevoneTier = RlStatsApi.Tiers.Where(t => t.tierId == stats.rankedSeasons._5._onevone.tier).Select(t => t.tierName).FirstOrDefault();
-                sb.AppendLine($"__Duel__");
-                if (stats.rankedSeasons._5._onevone.tier >= 1 & stats.rankedSeasons._5._onevone.tier < 4)
-                {
-                    onevoneRankMoji = ":tangerine:";
-                }
-                else if (stats.rankedSeasons._5._onevone.tier >= 4 & stats.rankedSeasons._5._onevone.tier < 7)
-                {
-                    onevoneRankMoji = ":full_moon:";
-                }
-                else if (stats.rankedSeasons._5._onevone.tier >= 7 & stats.rankedSeasons._5._onevone.tier < 10)
-                {
-                    onevoneRankMoji = ":sunny:";
-                }
-                else if (stats.rankedSeasons._5._onevone.tier >= 10 & stats.rankedSeasons._5._onevone.tier < 13)
-                {
-                    onevoneRankMoji = ":fork_knife_plate:";
-                }
-                else if (stats.rankedSeasons._5._onevone.tier >= 13 & stats.rankedSeasons._5._onevone.tier < 16)
-                {
-                    onevoneRankMoji = ":large_blue_diamond:";
-                }
-                else if (stats.rankedSeasons._5._onevone.tier >= 16 & stats.rankedSeasons._5._onevone.tier < 19)
-                {
-                    onevoneRankMoji = ":purple_heart:";
-                }
-                else if (stats.rankedSeasons._5._onevone.tier == 19)
-                {
-                    onevoneRankMoji = ":top:";
-                }
-                else
-                {
-                    onevoneRankMoji = ":question:";
-                }
-                sb.AppendLine($"{onevoneRankMoji} [*{onevoneTier}* [**{stats.rankedSeasons._5._onevone.rankPoints}**]] Matches played [**{stats.rankedSeasons._5._onevone.matchesPlayed}**]");
-            }
-            if (stats.rankedSeasons._5._twovtwo != null)
-            {
-                var twovtwoTier = RlStatsApi.Tiers.Where(t => t.tierId == stats.rankedSeasons._5._twovtwo.tier).Select(t => t.tierName).FirstOrDefault();
-                sb.AppendLine($"__Doubles__");
-                if (stats.rankedSeasons._5._twovtwo.tier >= 1 & stats.rankedSeasons._5._twovtwo.tier <= 3)
-                {
-                    twovtwoRankMoji = ":tangerine:";
-                }
-                else if (stats.rankedSeasons._5._twovtwo.tier >= 4 & stats.rankedSeasons._5._twovtwo.tier <= 6)
-                {
-                    twovtwoRankMoji = ":full_moon:";
-                }
-                else if (stats.rankedSeasons._5._twovtwo.tier >= 7 & stats.rankedSeasons._5._twovtwo.tier <= 9)
-                {
-                    twovtwoRankMoji = ":sunny:";
-                }
-                else if (stats.rankedSeasons._5._twovtwo.tier >= 10 & stats.rankedSeasons._5._twovtwo.tier <= 12)
-                {
-                    twovtwoRankMoji = ":fork_knife_plate:";
-                }
-                else if (stats.rankedSeasons._5._twovtwo.tier >= 13 & stats.rankedSeasons._5._twovtwo.tier <= 15)
-                {
-                    twovtwoRankMoji = ":large_blue_diamond:";
-                }
-                else if (stats.rankedSeasons._5._twovtwo.tier >= 16 & stats.rankedSeasons._5._twovtwo.tier <= 18)
-                {
-                    twovtwoRankMoji = ":purple_heart:";
-                }
-                else if (stats.rankedSeasons._5._twovtwo.tier == 19)
-                {
-                    twovtwoRankMoji = ":top:";
-                }
-                else
-                {
-                    twovtwoRankMoji = ":question:";
-                }
-                sb.AppendLine($"{twovtwoRankMoji} [*{twovtwoTier}* [**{stats.rankedSeasons._5._twovtwo.rankPoints}**]] Matches played [**{stats.rankedSeasons._5._twovtwo.matchesPlayed}**]");
-            }
-            if (stats.rankedSeasons._5._standard != null)
-            {
-                var standardTier = RlStatsApi.Tiers.Where(t => t.tierId == stats.rankedSeasons._5._standard.tier).Select(t => t.tierName).FirstOrDefault();
-                sb.AppendLine($"__Standard__");
-                if (stats.rankedSeasons._5._standard.tier >= 1 & stats.rankedSeasons._5._standard.tier < 4)
-                {
-                    standardRankMoji = ":tangerine:";
-                }
-                else if (stats.rankedSeasons._5._standard.tier >= 4 & stats.rankedSeasons._5._standard.tier < 7)
-                {
-                    standardRankMoji = ":full_moon:";
-                }
-                else if (stats.rankedSeasons._5._standard.tier >= 7 & stats.rankedSeasons._5._standard.tier < 10)
-                {
-                    standardRankMoji = ":sunny:";
-                }
-                else if (stats.rankedSeasons._5._standard.tier >= 10 & stats.rankedSeasons._5._standard.tier < 13)
-                {
-                    standardRankMoji = ":fork_knife_plate:";
-                }
-                else if (stats.rankedSeasons._5._standard.tier >= 13 & stats.rankedSeasons._5._standard.tier < 16)
-                {
-                    standardRankMoji = ":large_blue_diamond:";
-                }
-                else if (stats.rankedSeasons._5._standard.tier >= 16 & stats.rankedSeasons._5._standard.tier < 19)
-                {
-                    standardRankMoji = ":purple_heart:";
-                }
-                else if (stats.rankedSeasons._5._standard.tier == 19)
-                {
-                    standardRankMoji = ":top:";
-                }
-                else
-                {
-                    standardRankMoji = ":question:";
-                }
-                sb.AppendLine($"{standardRankMoji} [*{standardTier}* [**{stats.rankedSeasons._5._standard.rankPoints}**]] Matches played [**{stats.rankedSeasons._5._standard.matchesPlayed}**]");
-            }
-            if (stats.rankedSeasons._5._solostandard != null)
-            {
-                var threevthreeTier = RlStatsApi.Tiers.Where(t => t.tierId == stats.rankedSeasons._5._solostandard.tier).Select(t => t.tierName).FirstOrDefault();
-                sb.AppendLine($"__Solo Standard__");
-                if (stats.rankedSeasons._5._solostandard.tier >= 1 & stats.rankedSeasons._5._solostandard.tier < 4)
-                {
-                    soloStandardRankMoji = ":tangerine:";
-                }
-                else if (stats.rankedSeasons._5._solostandard.tier >= 4 & stats.rankedSeasons._5._solostandard.tier < 7)
-                {
-                    soloStandardRankMoji = ":full_moon:";
-                }
-                else if (stats.rankedSeasons._5._solostandard.tier >= 7 & stats.rankedSeasons._5._solostandard.tier < 10)
-                {
-                    soloStandardRankMoji = ":sunny:";
-                }
-                else if (stats.rankedSeasons._5._solostandard.tier >= 10 & stats.rankedSeasons._5._solostandard.tier < 13)
-                {
-                    soloStandardRankMoji = ":fork_knife_plate:";
-                }
-                else if (stats.rankedSeasons._5._solostandard.tier >= 13 & stats.rankedSeasons._5._solostandard.tier < 16)
-                {
-                    soloStandardRankMoji = ":large_blue_diamond:";
-                }
-                else if (stats.rankedSeasons._5._solostandard.tier >= 16 & stats.rankedSeasons._5._solostandard.tier < 19)
-                {
-                    soloStandardRankMoji = ":purple_heart:";
-                }
-                else if (stats.rankedSeasons._5._solostandard.tier == 19)
-                {
-                    soloStandardRankMoji = ":top:";
-                }
-                else
-                {
-                    soloStandardRankMoji = ":question:";
-                }
-                sb.AppendLine($"{soloStandardRankMoji} [*{threevthreeTier}* [**{stats.rankedSeasons._5._solostandard.rankPoints}**]] Matches played [**{stats.rankedSeasons._5._solostandard.matchesPlayed}**]");
+                var rankInfo = (SeasonStats)stats.rankedSeasons._5.GetType().GetProperty(rank.Name).GetValue(stats.rankedSeasons._5, null);
+                FormatStatInfo(sb, rank, rankInfo);
             }
             embed.AddField(new EmbedFieldBuilder
             {
