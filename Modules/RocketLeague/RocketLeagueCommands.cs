@@ -210,8 +210,8 @@ namespace NinjaBotCore.Modules.RocketLeague
         public async Task GetStats(string name)
         {
             StringBuilder sb = new StringBuilder();
-            //SteamModel.Player fromSteam = _steam.getSteamPlayerInfo(name);
-            if (Uri.IsWellFormedUriString(name, UriKind.RelativeOrAbsolute))
+            //SteamModel.Player fromSteam = _steam.getSteamPlayerInfo(name);\            
+            if (name.Contains("/:") && Uri.IsWellFormedUriString(name, UriKind.RelativeOrAbsolute))
             {
                 name = name.TrimEnd('/');
                 name = name.Substring(name.LastIndexOf('/') + 1);
@@ -234,6 +234,7 @@ namespace NinjaBotCore.Modules.RocketLeague
                 try
                 {
                     EmbedBuilder embed = await RlEmbedApi(searchResults.data[0]);
+                    await InsertStats(searchResults.data[0]);
                     await _cc.Reply(Context, embed);
                 }
                 catch (Exception ex)
@@ -385,15 +386,14 @@ namespace NinjaBotCore.Modules.RocketLeague
             }
         }
 
-        private async Task<EmbedBuilder> RlEmbedApi(UserStats userStats)
+        private async Task<EmbedBuilder> RlEmbedApi(UserStats stats)
         {
             long steamId = 0;
-            long.TryParse(userStats.uniqueId, out steamId);
-            var stats = userStats;
+            long.TryParse(stats.uniqueId, out steamId);
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
-            embed.Title = $"Stats for [{userStats.displayName}]";
-            embed.ThumbnailUrl = userStats.avatar;
+            embed.Title = $"Stats for [{stats.displayName}]";
+            embed.ThumbnailUrl = stats.avatar;
             embed.WithColor(new Color(0, 255, 0));
             embed.WithAuthor(new EmbedAuthorBuilder
             {
@@ -778,6 +778,58 @@ namespace NinjaBotCore.Modules.RocketLeague
                     if (unranked != null)
                     {
                         getStat.Unranked = unranked.MMR.ToString();
+                    }
+                    getStat.SteamID = steamId;
+                }
+                await db.SaveChangesAsync();
+            }
+        }
+
+        private async Task InsertStats(UserStats stats)
+        {
+            long steamId = long.Parse(stats.uniqueId);
+            using (var db = new NinjaBotEntities())
+            {
+                var statAdd = new RlUserStat();
+                var getStat = db.RlUserStats.Where(s => s.SteamID == steamId).FirstOrDefault();
+                if (stats.rankedSeasons._5._onevone != null)
+                {
+                    statAdd.RankedDuel = stats.rankedSeasons._5._onevone.rankPoints.ToString();
+                }
+                if (stats.rankedSeasons._5._twovtwo != null)
+                {
+                    statAdd.Ranked2v2 = stats.rankedSeasons._5._twovtwo.rankPoints.ToString();
+                }
+                if (stats.rankedSeasons._5._solostandard != null)
+                {
+                    statAdd.RankedSolo = stats.rankedSeasons._5._solostandard.rankPoints.ToString();
+                }
+                if (stats.rankedSeasons._5._standard != null)
+                {
+                    statAdd.Ranked3v3 = stats.rankedSeasons._5._standard.rankPoints.ToString();
+                }
+                if (getStat == null)
+                {
+                    statAdd.SteamID = steamId;
+                    db.RlUserStats.Add(statAdd);
+                }
+                else
+                {
+                    if (stats.rankedSeasons._5._onevone != null)
+                    {
+                        getStat.RankedDuel = stats.rankedSeasons._5._onevone.rankPoints.ToString();
+                    }
+                    if (stats.rankedSeasons._5._twovtwo != null)
+                    {
+                        getStat.Ranked2v2 = stats.rankedSeasons._5._twovtwo.rankPoints.ToString();
+                    }
+                    if (stats.rankedSeasons._5._solostandard != null)
+                    {
+                        getStat.RankedSolo = stats.rankedSeasons._5._solostandard.rankPoints.ToString();
+                    }
+                    if (stats.rankedSeasons._5._standard != null)
+                    {
+                        getStat.Ranked3v3 = stats.rankedSeasons._5._standard.rankPoints.ToString();
                     }
                     getStat.SteamID = steamId;
                 }
