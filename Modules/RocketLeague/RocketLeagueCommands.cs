@@ -101,16 +101,16 @@ namespace NinjaBotCore.Modules.RocketLeague
 
         [Command("rlstats", RunMode = RunMode.Async)]
         [Summary("Get Rocket League Stats. Use this command with set, followed by your steam URL/ID/VanityName to set a default user (rlstats set URL/ID/VanityName")]
-        public async Task RlStats([Remainder]string input = "")
+        public async Task RlStats([Remainder]string args = null)
         {
             StringBuilder sb = new StringBuilder();
             var rlStats = new RlStat();
-            if (!string.IsNullOrEmpty(input))
+            if (!string.IsNullOrEmpty(args))
             {
-                if (input.Split(' ').Count() > 1)
+                if (args.Split(' ').Count() > 1)
                 {
-                    string arg = input.Split(' ')[1].ToLower().ToString();
-                    switch (input.Split(' ')[0].ToString().ToLower())
+                    string arg = args.Split(' ')[1].ToLower().ToString();
+                    switch (args.Split(' ')[0].ToString().ToLower())
                     {
                         case "get":
                             {
@@ -144,7 +144,17 @@ namespace NinjaBotCore.Modules.RocketLeague
             }
             else
             {
-                await SendStats(false);
+                var rlUser = await GetRlUserInfo(false);
+                if (rlUser == null)
+                {
+                    sb.AppendLine($"Unable to find steam name association for discord user {rlUser.DiscordUserName}");
+                    await _cc.Reply(Context, sb.ToString());
+                    return;
+                }
+                else
+                {
+                    await GetStats(rlUser.SteamID);
+                }
             }
         }
 
@@ -252,6 +262,33 @@ namespace NinjaBotCore.Modules.RocketLeague
             }
         }
 
+        public async Task GetStats(long? uniqueId)
+        {
+            StringBuilder sb = new StringBuilder();            
+            var userStats = await _rlStatsApi.SearchForPlayer(uniqueId);
+            if (userStats != null)
+            {
+                try
+                {
+                    EmbedBuilder embed = await RlEmbedApi(userStats);
+                    await InsertStats(userStats);
+                    await _cc.Reply(Context, embed);
+                }
+                catch (Exception ex)
+                {
+                    await _cc.Reply(Context, "Sorry, something went wrong!");
+                    Console.WriteLine(ex.Message);
+                }
+                return;
+            }
+            else
+            {
+                sb.AppendLine($"Unable to find steam user for steam name/id: {uniqueId}!");
+                await _cc.Reply(Context, sb.ToString());
+                return;
+            }
+        }
+
         public async Task GetStats(string name, bool ps)
         {
             try
@@ -340,50 +377,16 @@ namespace NinjaBotCore.Modules.RocketLeague
             sb.AppendLine($"{rankMoji} [*{tier}(div {rankInfo.division + 1})* [**{rankPoints}**]] Matches played [**{matchesPlayed}**]");
         }
 
-        public async Task SendStats(bool ps)
+        public async Task<RlStat> GetRlUserInfo(bool ps)
         {
-            try
+            string userName = Context.User.Username;
+            StringBuilder sb = new StringBuilder();
+            RlStat rlUser = null;
+            using (var db = new NinjaBotEntities())
             {
-                string userName = Context.User.Username;
-                string channel = Context.Channel.Name;
-                StringBuilder sb = new StringBuilder();
-                RlStat rlUser = null;
-                using (var db = new NinjaBotEntities())
-                {
-                    rlUser = db.RlStats.FirstOrDefault(r => r.DiscordUserName == userName);
-                }
-                if (rlUser == null)
-                {
-                    sb.AppendLine($"Unable to find steam name association for discord user {userName}");
-                    await _cc.Reply(Context, sb.ToString());
-                    return;
-                }
-                else
-                {
-                    string steamUserId = rlUser.SteamID.ToString();
-                    SteamModel.Player fromSteam = _steam.getSteamPlayerInfo(steamUserId);
-
-                    if (string.IsNullOrEmpty(fromSteam.steamid))
-                    {
-                        sb.AppendLine($"Unable to find steam user for steam name/id: {steamUserId}!");
-                        sb.AppendLine($"Please try using !rlstats set steamVanityUserNameOrID");
-                        await _cc.Reply(Context, sb.ToString());
-                        return;
-                    }
-                    else
-                    {
-
-                        //sb.AppendLine($"Stats from: {fullURL}");
-                        //EmbedBuilder embed = await rlEmbed(sb, fromSteam);
-                        EmbedBuilder embed = await RlEmbedApi(fromSteam);
-                        await _cc.Reply(Context, embed);
-                    }
-                }
+                rlUser = db.RlStats.FirstOrDefault(r => r.DiscordUserName == userName);
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error looking up stats {ex.Message}");
-            }
+            return rlUser;
         }
 
         private async Task<EmbedBuilder> RlEmbedApi(UserStats stats)
@@ -401,10 +404,10 @@ namespace NinjaBotCore.Modules.RocketLeague
                 IconUrl = $"{Context.User.GetAvatarUrl()}"
             });
             var rankings = Enum.GetValues(typeof(RlRankingList));
-            var rankingsFromObject = stats.rankedSeasons._5.GetType().GetProperties();
+            var rankingsFromObject = stats.rankedSeasons._6.GetType().GetProperties();
             foreach (var rank in rankingsFromObject)
             {
-                var rankInfo = (SeasonStats)stats.rankedSeasons._5.GetType().GetProperty(rank.Name).GetValue(stats.rankedSeasons._5, null);
+                var rankInfo = (SeasonStats)stats.rankedSeasons._6.GetType().GetProperty(rank.Name).GetValue(stats.rankedSeasons._6, null);
                 FormatStatInfo(sb, rank, rankInfo);
             }
             embed.AddField(new EmbedFieldBuilder
@@ -473,10 +476,10 @@ namespace NinjaBotCore.Modules.RocketLeague
                 Name = $"{Context.User.Username}",
                 IconUrl = $"{Context.User.GetAvatarUrl()}"
             });
-            var rankingsFromObject = stats.rankedSeasons._5.GetType().GetProperties();
+            var rankingsFromObject = stats.rankedSeasons._6.GetType().GetProperties();
             foreach (var rank in rankingsFromObject)
             {
-                var rankInfo = (SeasonStats)stats.rankedSeasons._5.GetType().GetProperty(rank.Name).GetValue(stats.rankedSeasons._5, null);
+                var rankInfo = (SeasonStats)stats.rankedSeasons._6.GetType().GetProperty(rank.Name).GetValue(stats.rankedSeasons._6, null);
                 FormatStatInfo(sb, rank, rankInfo);
             }
             embed.AddField(new EmbedFieldBuilder

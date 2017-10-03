@@ -54,6 +54,8 @@ namespace NinjaBotCore.Models.RocketLeague
         public _4 _4 { get; set; }
         [JsonProperty(PropertyName = "5")]
         public _5 _5 { get; set; }
+        [JsonProperty(PropertyName = "6")]
+        public _6 _6 { get; set; }
     }
 
     public class _1
@@ -129,13 +131,25 @@ namespace NinjaBotCore.Models.RocketLeague
         public SeasonStats _standard { get; set; }
     }
 
+    public class _6
+    {
+        [JsonProperty(PropertyName = "10")]
+        public SeasonStats _onevone { get; set; }
+        [JsonProperty(PropertyName = "11")]
+        public SeasonStats _twovtwo { get; set; }
+        [JsonProperty(PropertyName = "12")]
+        public SeasonStats _solostandard { get; set; }
+        [JsonProperty(PropertyName = "13")]
+        public SeasonStats _standard { get; set; }
+    }
+
     public class SearchResult
     {
         public List<UserStats> data { get; set; }
         public int maxResultsPerPage { get; set; }
         public int page { get; set; }
-        public int results { get; set; } 
-        public int totalResults { get; set; }        
+        public int results { get; set; }
+        public int totalResults { get; set; }
     }
 
     public class Tier

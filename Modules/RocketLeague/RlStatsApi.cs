@@ -88,6 +88,14 @@ namespace NinjaBotCore.Modules.RocketLeague
             return searchResults;
         }
 
+        public async Task<UserStats> SearchForPlayer(long? uniqueId, int platformId = 1)
+        {
+            UserStats userStats = null;
+            string url = $"/player?unique_id={uniqueId.ToString()}&platform_id={platformId}";
+            userStats = JsonConvert.DeserializeObject<UserStats>(RlStatsApiRequest(url));
+            return userStats;
+        }
+
         public List<Tier> GetTiers()
         {
             List<Tier> tiers = new List<Tier>();
