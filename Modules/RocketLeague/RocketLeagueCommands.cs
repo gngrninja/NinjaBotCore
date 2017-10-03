@@ -795,21 +795,21 @@ namespace NinjaBotCore.Modules.RocketLeague
             {
                 var statAdd = new RlUserStat();
                 var getStat = db.RlUserStats.Where(s => s.SteamID == steamId).FirstOrDefault();
-                if (stats.rankedSeasons._5._onevone != null)
+                if (stats.rankedSeasons._6._onevone != null)
                 {
-                    statAdd.RankedDuel = stats.rankedSeasons._5._onevone.rankPoints.ToString();
+                    statAdd.RankedDuel = stats.rankedSeasons._6._onevone.rankPoints.ToString();
                 }
-                if (stats.rankedSeasons._5._twovtwo != null)
+                if (stats.rankedSeasons._6._twovtwo != null)
                 {
-                    statAdd.Ranked2v2 = stats.rankedSeasons._5._twovtwo.rankPoints.ToString();
+                    statAdd.Ranked2v2 = stats.rankedSeasons._6._twovtwo.rankPoints.ToString();
                 }
-                if (stats.rankedSeasons._5._solostandard != null)
+                if (stats.rankedSeasons._6._solostandard != null)
                 {
-                    statAdd.RankedSolo = stats.rankedSeasons._5._solostandard.rankPoints.ToString();
+                    statAdd.RankedSolo = stats.rankedSeasons._6._solostandard.rankPoints.ToString();
                 }
-                if (stats.rankedSeasons._5._standard != null)
+                if (stats.rankedSeasons._6._standard != null)
                 {
-                    statAdd.Ranked3v3 = stats.rankedSeasons._5._standard.rankPoints.ToString();
+                    statAdd.Ranked3v3 = stats.rankedSeasons._6._standard.rankPoints.ToString();
                 }
                 if (getStat == null)
                 {
@@ -818,21 +818,21 @@ namespace NinjaBotCore.Modules.RocketLeague
                 }
                 else
                 {
-                    if (stats.rankedSeasons._5._onevone != null)
+                    if (stats.rankedSeasons._6._onevone != null)
                     {
-                        getStat.RankedDuel = stats.rankedSeasons._5._onevone.rankPoints.ToString();
+                        getStat.RankedDuel = stats.rankedSeasons._6._onevone.rankPoints.ToString();
                     }
-                    if (stats.rankedSeasons._5._twovtwo != null)
+                    if (stats.rankedSeasons._6._twovtwo != null)
                     {
-                        getStat.Ranked2v2 = stats.rankedSeasons._5._twovtwo.rankPoints.ToString();
+                        getStat.Ranked2v2 = stats.rankedSeasons._6._twovtwo.rankPoints.ToString();
                     }
-                    if (stats.rankedSeasons._5._solostandard != null)
+                    if (stats.rankedSeasons._6._solostandard != null)
                     {
-                        getStat.RankedSolo = stats.rankedSeasons._5._solostandard.rankPoints.ToString();
+                        getStat.RankedSolo = stats.rankedSeasons._6._solostandard.rankPoints.ToString();
                     }
-                    if (stats.rankedSeasons._5._standard != null)
+                    if (stats.rankedSeasons._6._standard != null)
                     {
-                        getStat.Ranked3v3 = stats.rankedSeasons._5._standard.rankPoints.ToString();
+                        getStat.Ranked3v3 = stats.rankedSeasons._6._standard.rankPoints.ToString();
                     }
                     getStat.SteamID = steamId;
                 }
