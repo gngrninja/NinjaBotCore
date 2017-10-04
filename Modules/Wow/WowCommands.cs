@@ -1311,11 +1311,11 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 if (!(string.IsNullOrEmpty(guildOnly) || guildOnly.ToLower() != "guild"))
                 {
-                    l = _logsApi.GetRankingsByEncounterGuild(encounterID, realmName, guildObject.guildName, metric, difficultyID, region);
+                    l = _logsApi.GetRankingsByEncounterGuild(encounterID, realmName, guildObject.guildName, "2", metric, difficultyID, region);
                 }
                 else
                 {
-                    l = _logsApi.GetRankingsByEncounter(encounterID, realmName, metric, difficultyID, region);
+                    l = _logsApi.GetRankingsByEncounter(encounterID, realmName, "2", metric, difficultyID, region);
                 }
                 string fightNameFromEncounterID = fightList.Where(f => f.id == encounterID).Select(f => f.name).FirstOrDefault();
                 var top10 = l.rankings.OrderByDescending(a => a.total).Take(10);

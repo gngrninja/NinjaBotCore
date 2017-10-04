@@ -254,6 +254,23 @@ namespace NinjaBotCore.Modules.Wow
             return l;
         }
 
+        public WarcraftlogRankings.RankingObject GetRankingsByEncounter(int encounterID, string realmName, string partition, string metric = "dps", int difficulty = 4, string regionName = "us")
+        {
+            WarcraftlogRankings.RankingObject l = new WarcraftlogRankings.RankingObject();
+            string url = $"/rankings/encounter/{encounterID}?metric={metric}&server={realmName}&region={regionName}&difficulty={difficulty}&limit=1000&partition={partition}&";
+            l = JsonConvert.DeserializeObject<WarcraftlogRankings.RankingObject>(LogsApiRequest(url));
+            return l;
+        }
+
+        public WarcraftlogRankings.RankingObject GetRankingsByEncounterGuild(int encounterID, string realmName, string guildName, string partition, string metric = "dps", int difficulty = 4, string regionName = "us")
+        {
+            WarcraftlogRankings.RankingObject l = new WarcraftlogRankings.RankingObject();
+            guildName = guildName.Replace(" ", "%20");
+            string url = $"/rankings/encounter/{encounterID}?guild={guildName}&server={realmName}&region={regionName}&metric={metric}&difficulty={difficulty}&limit=1000&partition={partition}& ";
+            l = JsonConvert.DeserializeObject<WarcraftlogRankings.RankingObject>(LogsApiRequest(url));
+            return l;
+        }
+
         public DateTime UnixTimeStampToDateTime(long unixTimeStamp)
         {
             // Unix timestamp is seconds past epoch
