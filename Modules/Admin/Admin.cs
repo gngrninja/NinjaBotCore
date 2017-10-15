@@ -410,12 +410,14 @@ namespace NinjaBotCore.Modules.Admin
                     {
                         if (currentSetting.GreetUsers == true)
                         {
-                            currentSetting.GreetUsers = false;
+                            currentSetting.GreetUsers = false;                            
                             sb.AppendLine("Greetings have been disabled!");
                         }
                         else
                         {
                             currentSetting.GreetUsers = true;
+                            currentSetting.GreetingChannelId = (long)Context.Channel.Id;
+                            currentSetting.GreetingChannelName = Context.Channel.Name;
                             sb.AppendLine("Greetings have been enabled!");
                         }
                     }
@@ -424,6 +426,8 @@ namespace NinjaBotCore.Modules.Admin
                         db.ServerGreetings.Add(new ServerGreeting
                         {
                             DiscordGuildId = (long)Context.Guild.Id,
+                            GreetingChannelId = (long)Context.Channel.Id,
+                            GreetingChannelName = Context.Channel.Name,
                             GreetUsers = true
                         });
                         sb.AppendLine("Greetings have been enabled!");

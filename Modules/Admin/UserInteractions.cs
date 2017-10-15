@@ -35,7 +35,15 @@ namespace NinjaBotCore.Modules.Admin
             if (shouldGreet != null && shouldGreet.GreetUsers == true)
             {
                 StringBuilder sb = new StringBuilder();
-                var messageChannel = user.Guild.DefaultChannel as ISocketMessageChannel;
+                ISocketMessageChannel messageChannel = null;
+                if (shouldGreet.GreetingChannelId != 0)
+                {
+                    messageChannel = user.Guild.GetChannel((ulong)shouldGreet.GreetingChannelId) as ISocketMessageChannel;
+                }
+                else 
+                {
+                    messageChannel = user.Guild.DefaultChannel as ISocketMessageChannel;
+                }     
                 var embed = new EmbedBuilder();
                 embed.Title = $"[{user.Username}] has joined [**{user.Guild.Name}**]!";
                 if (string.IsNullOrEmpty(shouldGreet.Greeting))
@@ -59,7 +67,15 @@ namespace NinjaBotCore.Modules.Admin
             ServerGreeting shouldGreet = GetGreeting(user);
             if (shouldGreet != null && shouldGreet.GreetUsers == true)
             {
-                var messageChannel = user.Guild.DefaultChannel as ISocketMessageChannel;
+                ISocketMessageChannel messageChannel = null;
+                if (shouldGreet.GreetingChannelId != 0)
+                {
+                    messageChannel = user.Guild.GetChannel((ulong)shouldGreet.GreetingChannelId) as ISocketMessageChannel;
+                }
+                else 
+                {
+                    messageChannel = user.Guild.DefaultChannel as ISocketMessageChannel;
+                }                
                 if (messageChannel != null)
                 {
                     var embed = new EmbedBuilder();
