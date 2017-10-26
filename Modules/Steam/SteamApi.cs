@@ -34,7 +34,7 @@ namespace NinjaBotCore.Modules.Steam
             return response;
         }
 
-        public SteamModel.Player getProfileInfoBySteamID(long steamId)
+        public SteamModel.Player GetProfileInfoBySteamID(long steamId)
         {
             SteamModel.UserInfo u;
             SteamModel.Player p;
@@ -46,7 +46,7 @@ namespace NinjaBotCore.Modules.Steam
             return p;
         }
 
-        public SteamModel.VanitySteam getSteamIDbyVanityURL(string vanityName)
+        public SteamModel.VanitySteam GetSteamIDbyVanityURL(string vanityName)
         {
             SteamModel.VanityResponse p = new SteamModel.VanityResponse();
             SteamModel.VanitySteam vs = new SteamModel.VanitySteam();
@@ -58,7 +58,7 @@ namespace NinjaBotCore.Modules.Steam
             return vs;
         }
 
-        public SteamModel.Player getSteamPlayerInfo(string lookupPlayer)
+        public SteamModel.Player GetSteamPlayerInfo(string lookupPlayer)
         {
             Steam s = new Steam();
             SteamModel.Player p = new SteamModel.Player();
@@ -73,7 +73,7 @@ namespace NinjaBotCore.Modules.Steam
                     {
                         try
                         {
-                            p = s.getProfileInfoBySteamID(steamID);
+                            p = s.GetProfileInfoBySteamID(steamID);
                         }
                         catch (Exception ex)
                         {
@@ -84,10 +84,10 @@ namespace NinjaBotCore.Modules.Steam
                 else
                 {
                     SteamModel.VanitySteam v;
-                    v = s.getSteamIDbyVanityURL(lookupPlayer);
+                    v = s.GetSteamIDbyVanityURL(lookupPlayer);
                     if (v.success == 1)
                     {
-                        p = s.getProfileInfoBySteamID(long.Parse(v.steamid));
+                        p = s.GetProfileInfoBySteamID(long.Parse(v.steamid));
                         Console.WriteLine(p.steamid);
                     }
                     else

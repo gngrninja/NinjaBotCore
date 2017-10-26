@@ -175,7 +175,7 @@ namespace NinjaBotCore.Modules.RocketLeague
                         rlUserName = rlUserName.Substring(rlUserName.LastIndexOf('/') + 1);
                     }
 
-                    SteamModel.Player fromSteam = _steam.getSteamPlayerInfo(rlUserName);
+                    SteamModel.Player fromSteam = _steam.GetSteamPlayerInfo(rlUserName);
                     if (string.IsNullOrEmpty(fromSteam.steamid))
                     {
                         sb.AppendLine($"{Context.User.Mention}, Please specify a steam username/full profile URL to link with your Discord username!");
@@ -225,7 +225,7 @@ namespace NinjaBotCore.Modules.RocketLeague
             {
                 name = name.TrimEnd('/');
                 name = name.Substring(name.LastIndexOf('/') + 1);
-                SteamModel.Player fromSteam = _steam.getSteamPlayerInfo(name);
+                SteamModel.Player fromSteam = _steam.GetSteamPlayerInfo(name);
                 try
                 {
                     EmbedBuilder embed = await RlEmbedApi(fromSteam);
@@ -238,6 +238,7 @@ namespace NinjaBotCore.Modules.RocketLeague
                 }
                 return;
             }
+            
             var searchResults = await _rlStatsApi.SearchForPlayer(name);
             if (searchResults.data.Count > 0)
             {
