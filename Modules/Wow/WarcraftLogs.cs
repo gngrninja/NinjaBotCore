@@ -336,8 +336,8 @@ namespace NinjaBotCore.Modules.Wow
                         {
                             if (watchGuild.MonitorLogs)
                             {
-                                System.Console.WriteLine($"YES! Watch logs on {guild.ServerName}!");
-                                var logs = GetReportsFromGuild(guild.WowGuild, guild.WowRealm, guild.WowRegion);
+                                //System.Console.WriteLine($"YES! Watch logs on {guild.ServerName}!");
+                                var logs = GetReportsFromGuild(guild.WowGuild, guild.WowRealm.Replace("'",""), guild.WowRegion);
                                 if (logs != null)
                                 {
                                     var latestLog = logs[logs.Count - 1];
@@ -348,7 +348,7 @@ namespace NinjaBotCore.Modules.Wow
                                         {
                                             var latestForGuild = db.LogMonitoring.Where(l => l.ServerId == guild.ServerId).FirstOrDefault();
                                             latestForGuild.LatestLog = startTime;
-                                            await db.SaveChangesAsync();
+                                            await db.SaveChangesAsync();                                            
                                         }
                                         DiscordSocketClient client = NinjaBot.Client;
                                         ISocketMessageChannel channel = client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
