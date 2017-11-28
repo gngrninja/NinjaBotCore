@@ -104,6 +104,89 @@ namespace NinjaBotCore.Modules.Wow
             await _cc.Reply(Context, embed);
         }
 
+        [Command("remove-achievement", RunMode = RunMode.Async)]
+        [Alias("ra")]
+        [RequireOwner]
+        public async Task RemoveAchieve(long id)
+        {
+            using (var db = new NinjaBotEntities())
+            {
+                var foundCheeve = db.FindWowCheeves.Where(c => c.AchId == id).FirstOrDefault();
+                if (foundCheeve != null)
+                {
+                    db.Remove(foundCheeve);
+                    await db.SaveChangesAsync();
+                    await _cc.Reply(Context, $"Removed achievement id {id} from the database!");
+                }
+                else
+                {
+                    await _cc.Reply(Context, $"Sorry, unable to find achievement ID {id} in the database!");
+                }
+            }
+        }
+
+        [Command("add-achievement", RunMode = RunMode.Async)]
+        [Alias("adda")]
+        [RequireOwner]
+        public async Task AddAchieve(long id, int cat)
+        {
+            using (var db = new NinjaBotEntities())
+            {
+                var foundCheeve = db.FindWowCheeves.Where(c => c.AchId == id);
+                if (foundCheeve != null)
+                {
+                    var category = db.AchCategories.Where(c => c.CatId == cat).FirstOrDefault();
+                    if (category != null)
+                    {
+                        try
+                        {
+                            db.FindWowCheeves.Add(new FindWowCheeve
+                            {
+                                AchId = id,
+                                AchCategory = category
+                            });
+                            await db.SaveChangesAsync();
+                            await _cc.Reply(Context, $"Added achievement ID {id} with category {category.CatName} to the database!");
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Console.WriteLine($"{ex.Message}");
+                        }
+                    }
+                    else
+                    {
+                        await _cc.Reply(Context, $"Unable to find category with ID {cat} in the database!");
+                    }
+
+                }
+                else
+                {
+                    await _cc.Reply(Context, $"Sorry, achievement {id} already exists in the database!");
+                }
+            }
+        }
+
+        [Command("list-achievements",RunMode = RunMode.Async)]
+        [Alias("la")]
+        [RequireOwner]
+        public async Task ListCheeves()
+        {
+            StringBuilder sb = new StringBuilder();
+            List<FindWowCheeve> cheeves = new List<FindWowCheeve>();
+            using (var db = new NinjaBotEntities())
+            {
+                cheeves = db.FindWowCheeves.ToList();
+            }
+            if (cheeves.Count > 0)
+            {
+                foreach (var cheeve in cheeves)
+                {
+                    sb.AppendLine($"{cheeve.AchId}");
+                }
+            }
+            await _cc.Reply(Context,sb.ToString());
+        }
+
         [Command("tu", RunMode = RunMode.Async)]
         [RequireOwner]
         public async Task StartTimer()
@@ -156,7 +239,7 @@ namespace NinjaBotCore.Modules.Wow
         [Command("ksm", RunMode = RunMode.Async)]
         [Summary("Check a character for the Keystone Master achievement")]
         public async Task CheckKsm([Remainder]string args = null)
-        {            
+        {
             var charInfo = await GetCharFromArgs(args, Context);
             var sb = new StringBuilder();
             var embed = new EmbedBuilder();
@@ -194,7 +277,7 @@ namespace NinjaBotCore.Modules.Wow
                     sb.AppendLine($"**{charAchievements.name}** from **{charAchievements.realm}** has the Keystone Master achievement! :)");
                     embed.WithColor(new Color(0, 255, 0));
                 }
-                embed.ThumbnailUrl = charAchievements.thumbnailURL;                
+                embed.ThumbnailUrl = charAchievements.thumbnailURL;
             }
             else
             {
