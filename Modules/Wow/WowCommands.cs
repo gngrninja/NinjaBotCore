@@ -1081,8 +1081,8 @@ namespace NinjaBotCore.Modules.Wow
             string guildName = guildObject.guildName;
             region = guildObject.regionName;
 
-            var fightList = WarcraftLogs.Zones.Where(z => z.id == 13).Select(z => z.encounters).FirstOrDefault();
-            raidName = WarcraftLogs.Zones.Where(z => z.id == 13).Select(z => z.name).FirstOrDefault();
+            var fightList = WarcraftLogs.Zones.Where(z => z.id == 17).Select(z => z.encounters).FirstOrDefault();
+            raidName = WarcraftLogs.Zones.Where(z => z.id == 17).Select(z => z.name).FirstOrDefault();
 
             //Get Guild Information for Discord Server (or channel for DM)
             if (Context.Channel is IDMChannel)
@@ -1104,19 +1104,19 @@ namespace NinjaBotCore.Modules.Wow
                 sb.AppendLine($"Get a list of all encounters and shortcut IDs");
                 sb.AppendLine();
                 sb.AppendLine($"**{Config.Prefix}top10** 1");
-                sb.AppendLine($"The above command would get all top 10 **dps** results for **Goroth** on **{realmName}**.");
+                sb.AppendLine($"The above command would get all top 10 **dps** results for **Garothi Worldbreaker** on **{realmName}**.");
                 sb.AppendLine();
                 sb.AppendLine($"**{Config.Prefix}top10** 1, guild");
-                sb.AppendLine($"The above command would get the top 10 **dps** results for **Goroth** on **{realmName}** for **{guildName}**.");
+                sb.AppendLine($"The above command would get the top 10 **dps** results for **Garothi Worldbreaker** on **{realmName}** for **{guildName}**.");
                 sb.AppendLine();
                 sb.AppendLine($"**{Config.Prefix}top10** 1, guild, hps");
-                sb.AppendLine($"The above command would get the top 10 **hps** results for **Goroth** on **{realmName}** for **{guildName}**.");
+                sb.AppendLine($"The above command would get the top 10 **hps** results for **Garothi Worldbreaker** on **{realmName}** for **{guildName}**.");
                 sb.AppendLine();
                 sb.AppendLine($"**{Config.Prefix}top10** 1, all, hps");
-                sb.AppendLine($"The above command would get all top 10 **hps** results for **Goroth** on **{realmName}**.");
+                sb.AppendLine($"The above command would get all top 10 **hps** results for **Garothi Worldbreaker** on **{realmName}**.");
                 sb.AppendLine();
                 sb.AppendLine($"**{Config.Prefix}top10** 1, guild, dps, mythic");
-                sb.AppendLine($"The above command would get the top 10 **dps** results for **Goroth** on **{realmName}** for **{guildName}** on **mythic** difficulty.");
+                sb.AppendLine($"The above command would get the top 10 **dps** results for **Garothi Worldbreaker** on **{realmName}** for **{guildName}** on **mythic** difficulty.");
                 embed.Title = $"{Context.User.Username}, here are some examples for **{Config.Prefix}top10**";
                 embed.Description = sb.ToString();
                 await _cc.Reply(Context, embed);
@@ -1315,7 +1315,7 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 else
                 {
-                    l = _logsApi.GetRankingsByEncounter(encounterID, realmName, "2", metric, difficultyID, region);
+                    l = _logsApi.GetRankingsByEncounter(encounterID, realmName, metric, difficultyID, region);
                 }
                 string fightNameFromEncounterID = fightList.Where(f => f.id == encounterID).Select(f => f.name).FirstOrDefault();
                 var top10 = l.rankings.OrderByDescending(a => a.total).Take(10);
