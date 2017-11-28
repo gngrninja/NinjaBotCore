@@ -12,7 +12,7 @@ using System.IO;
 using NinjaBotCore.Database;
 using System.Net.Http;
 using System.Net.Http.Headers;
- 
+
 namespace NinjaBotCore.Modules.Wow
 {
     public class WowApi
@@ -22,6 +22,7 @@ namespace NinjaBotCore.Modules.Wow
         private static Race _race;
         private static List<Achievement2> _achievements;
         private static WowRealm _realmInfo;
+        private static WowRealm _realmInfoEu;
 
         public WowApi()
         {
@@ -32,6 +33,7 @@ namespace NinjaBotCore.Modules.Wow
                 Achievements cheeves = this.GetWoWAchievements();
                 Achievements = cheeves.achievements.Select(m => m.categories).Skip(1).SelectMany(i => i).Select(a => a.achievements).SelectMany(d => d).ToList();
                 RealmInfo = this.GetRealmStatus();
+                RealmInfoEu = this.GetRealmStatus("eu");
             }
             catch (Exception ex)
             {
@@ -48,6 +50,17 @@ namespace NinjaBotCore.Modules.Wow
             private set
             {
                 _realmInfo = value;
+            }
+        }
+        public static WowRealm RealmInfoEu
+        {
+            get
+            {
+                return _realmInfoEu;
+            }
+            private set
+            {
+                _realmInfoEu = value;
             }
         }
         public static List<Achievement2> Achievements
@@ -87,6 +100,7 @@ namespace NinjaBotCore.Modules.Wow
         }
 
         public WowClasses wowclasses;
+
         //public TalentList wowtalents;
 
         public string GetAPIRequest(string url, string region = "us")
@@ -116,7 +130,7 @@ namespace NinjaBotCore.Modules.Wow
 
         public string GetAPIRequest(string url, bool fileDownload)
         {
-            string response;          
+            string response;
             url = $"{url}";
 
             Console.WriteLine($"Wow API request to {url}");
@@ -133,7 +147,7 @@ namespace NinjaBotCore.Modules.Wow
         }
 
         public WowRealm GetRealmStatus(string locale = "us")
-        {            
+        {
             string localeName = GetRegionFromString(locale);
             WowRealm w = new WowRealm();
             string url = $"/realm/status?locale={localeName}";
@@ -289,12 +303,12 @@ namespace NinjaBotCore.Modules.Wow
             {
                 c = JsonConvert.DeserializeObject<Character>(GetAPIRequest(url));
             }
-            string thumbUrl = $"http://render-{regionName}.worldofwarcraft.com/character/{c.thumbnail}";            
+            string thumbUrl = $"http://render-{regionName}.worldofwarcraft.com/character/{c.thumbnail}";
             c.thumbnailURL = thumbUrl;
             string insetUrl = $"http://render-{regionName}.worldofwarcraft.com/character/{c.thumbnail.Replace("-avatar", "-inset")}";
             c.insetURL = insetUrl;
             string profilePicUrl = $"http://render-{regionName}.worldofwarcraft.com/character/{c.thumbnail.Replace("-avatar", "-profilemain")}";
-            c.profilePicURL = profilePicUrl;                
+            c.profilePicURL = profilePicUrl;
             string armoryUrl = $"http://{regionName}.battle.net/wow/en/character/{c.realm}/{c.name}/advanced";
             c.armoryURL = armoryUrl;
             return c;

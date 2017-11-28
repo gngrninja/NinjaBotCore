@@ -95,6 +95,22 @@ namespace NinjaBotCore.Modules.Wow
         public List<Reports> GetReportsFromGuild(string guildName = "The benchwarmers", string realm = "Thunderlord", string region = "US")
         {
             string url = string.Empty;
+            string realmSlug = string.Empty;
+            switch (region.ToLower())
+            {
+                case "us":
+                {
+                    realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.ToLower().Contains(realm.ToLower())).Select(s => s.slug).FirstOrDefault();
+                    break;                
+                }
+                case "eu":
+                {
+                    realmSlug = WowApi.RealmInfoEu.realms.Where(r => r.name.ToLower().Contains(realm.ToLower())).Select(s => s.slug).FirstOrDefault();
+                    break;
+                }
+            }
+            System.Console.WriteLine($"SLUG: {realmSlug}");
+            System.Console.WriteLine($"SLUGS: {WowApi.RealmInfoEu.realms[0].name}");
             url = $"/reports/guild/{guildName.Replace(" ", "%20")}/{realm}/{region}?";
             List<Reports> logs;
 
