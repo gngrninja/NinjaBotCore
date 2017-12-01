@@ -476,11 +476,11 @@ namespace NinjaBotCore.Modules.Wow
                     sb.AppendLine();
                     for (int i = 0; i <= maxReturn && i <= guildLogs.Count; i++)
                     {
-                        sb.AppendLine($"__**{guildLogs[arrayCount].title}** **/** **{guildLogs[arrayCount].zoneName}**__");
+                        sb.AppendLine($"[__**{guildLogs[arrayCount].title}** **/** **{guildLogs[arrayCount].zoneName}**__]({guildLogs[arrayCount].reportURL})");
                         sb.AppendLine($"\t:timer: Start time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].start)}**");
                         sb.AppendLine($"\t:stopwatch: End time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].end)}**");
-                        sb.AppendLine($"\tLink: **{guildLogs[arrayCount].reportURL}**");
-                        sb.AppendLine($"\t:white_check_mark: My WoW: **http://www.checkmywow.com/reports/{guildLogs[arrayCount].id}**");
+                        //sb.AppendLine($"\tLink: **{guildLogs[arrayCount].reportURL}**");
+                        sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[arrayCount].id})");
                         sb.AppendLine();
                         arrayCount--;
                     }
@@ -493,11 +493,11 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 else if (arrayCount == 0)
                 {
-                    sb.AppendLine($"__**{guildLogs[0].title}** **/** **{guildLogs[0].zoneName}**__");
+                    sb.AppendLine($"[__**{guildLogs[0].title}** **/** **{guildLogs[0].zoneName}**__]({guildLogs[0].reportURL})");
                     sb.AppendLine($"\t:timer: Start time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].start)}**");
                     sb.AppendLine($"\t:stopwatch: End time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].end)}**");
-                    sb.AppendLine($"\tLink: **{guildLogs[0].reportURL}**");
-                    sb.AppendLine($"\t:white_check_mark: My WoW: **http://www.checkmywow.com/reports/{guildLogs[0].id}**");
+                    //sb.AppendLine($"\tLink: **{guildLogs[0].reportURL}**");
+                    sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[0].id})");
                     sb.AppendLine();
                     Console.WriteLine($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
                     embed.Title = $":1234: __Logs for **{guildName}** on **{realmName}**__:1234: ";
@@ -560,11 +560,11 @@ namespace NinjaBotCore.Modules.Wow
                     sb.AppendLine();
                     for (int i = 0; i <= maxReturn && i <= guildLogs.Count; i++)
                     {
-                        sb.AppendLine($"__**{guildLogs[arrayCount].title}** **/** **{guildLogs[arrayCount].zoneName}**__");
+                        sb.AppendLine($"[__**{guildLogs[arrayCount].title}** **/** **{guildLogs[arrayCount].zoneName}**__]({guildLogs[arrayCount].reportURL})");
                         sb.AppendLine($"\t:timer: Start time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].start)}**");
                         sb.AppendLine($"\t:stopwatch: End time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].end)}**");
-                        sb.AppendLine($"\tLink: **{guildLogs[arrayCount].reportURL}**");
-                        sb.AppendLine($"\t:white_check_mark: My WoW: **http://www.checkmywow.com/reports/{guildLogs[arrayCount].id}**");
+                        //sb.AppendLine($"\tLink: **{guildLogs[arrayCount].reportURL}**");
+                        sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[arrayCount].id})");
                         sb.AppendLine();
                         arrayCount--;
                     }
@@ -575,11 +575,11 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 else if (arrayCount == 0)
                 {
-                    sb.AppendLine($"__**{guildLogs[0].title}** **/** **{guildLogs[0].zoneName}**__");
+                    sb.AppendLine($"[__**{guildLogs[0].title}** **/** **{guildLogs[0].zoneName}**__]({guildLogs[0].reportURL})");
                     sb.AppendLine($"\t:timer: Start time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].start)}**");
                     sb.AppendLine($"\t:stopwatch: End time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].end)}**");
-                    sb.AppendLine($"\tLink: **{guildLogs[0].reportURL}**");
-                    sb.AppendLine($"\t:white_check_mark: My WoW: **http://www.checkmywow.com/reports/{guildLogs[0].id}**");
+                    //sb.AppendLine($"\tLink: **{guildLogs[0].reportURL}**");
+                    sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[0].id})");
                     sb.AppendLine();
                     Console.WriteLine($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
                     embed.Title = $":1234: __Logs for **{guildName}** on **{realmName}**__:1234: ";
@@ -1386,8 +1386,8 @@ namespace NinjaBotCore.Modules.Wow
                 //End metric set
                 if (string.IsNullOrEmpty(fightName))
                 {
-                    sb.AppendLine($"{Context.User.Username}, please specify a fight name!");
-                    sb.AppendLine($"**Example:** !top10 Goroth");
+                    sb.AppendLine($"{Context.User.Username}, please specify a fight name/number!");
+                    sb.AppendLine($"**Example:** !top10 1");
                     sb.AppendLine($"**Encounter Lists:** !top10 list");
                     await _cc.Reply(Context, sb.ToString());
                     return;
