@@ -40,6 +40,66 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
+        [Command("Populate-Logs")]
+        [RequireOwner]
+        public async Task PopulateLogs()
+        {
+            {
+                List<WowGuildAssociations> guildList = null;
+                List<LogMonitoring> logWatchList = null;
+                try
+                {
+
+                    using (var db = new NinjaBotEntities())
+                    {
+                        guildList = db.WowGuildAssociations.ToList();
+                        logWatchList = db.LogMonitoring.ToList();
+
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Console.WriteLine($"Error getting guild/logwatch list -> [{ex.Message}]");
+                }
+                if (guildList != null)
+                {
+                    foreach (var guild in guildList)
+                    {
+                        try
+                        {
+                            var watchGuild = logWatchList.Where(w => w.ServerId == guild.ServerId).FirstOrDefault();
+                            if (watchGuild != null)
+                            {
+                                if (watchGuild.MonitorLogs)
+                                {
+                                    //System.Console.WriteLine($"YES! Watch logs on {guild.ServerName}!");
+                                    var logs = _logsApi.GetReportsFromGuild(guild.WowGuild, guild.WowRealm.Replace("'", ""), guild.WowRegion);
+                                    if (logs != null)
+                                    {
+                                        var latestLog = logs[logs.Count - 1];
+                                        DateTime startTime = _wowApi.UnixTimeStampToDateTime(latestLog.start);
+                                        {
+                                            using (var db = new NinjaBotEntities())
+                                            {
+                                                var latestForGuild = db.LogMonitoring.Where(l => l.ServerId == guild.ServerId).FirstOrDefault();
+                                                latestForGuild.LatestLog = startTime;
+                                                latestForGuild.ReportId = latestLog.id;
+                                                await db.SaveChangesAsync();
+                                            }
+                                            System.Console.WriteLine($"Updated [{watchGuild.ServerName}] -> [{latestLog.id}] [{latestLog.owner}]!");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Console.WriteLine($"Error checking for logs! -> [{ex.Message}]");
+                        }
+                    }
+                }
+            }
+        }
         [Command("watch-logs", RunMode = RunMode.Async)]
         [Summary("Toggle automatic log watching from Warcraft logs")]
         public async Task ToggleLogWatchCommand()
@@ -166,7 +226,7 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
-        [Command("list-achievements",RunMode = RunMode.Async)]
+        [Command("list-achievements", RunMode = RunMode.Async)]
         [Alias("la")]
         [RequireOwner]
         public async Task ListCheeves()
@@ -184,7 +244,7 @@ namespace NinjaBotCore.Modules.Wow
                     sb.AppendLine($"{cheeve.AchId}");
                 }
             }
-            await _cc.Reply(Context,sb.ToString());
+            await _cc.Reply(Context, sb.ToString());
         }
 
         [Command("tu", RunMode = RunMode.Async)]
