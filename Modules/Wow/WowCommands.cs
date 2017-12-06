@@ -40,7 +40,7 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
-        [Command("Populate-Logs")]
+        [Command("Populate-Logs",RunMode = RunMode.Async)]
         [RequireOwner]
         public async Task PopulateLogs()
         {
@@ -86,7 +86,7 @@ namespace NinjaBotCore.Modules.Wow
                                                 latestForGuild.ReportId = latestLog.id;
                                                 await db.SaveChangesAsync();
                                             }
-                                            System.Console.WriteLine($"Updated [{watchGuild.ServerName}] -> [{latestLog.id}] [{latestLog.owner}]!");
+                                            //System.Console.WriteLine($"Updated [{watchGuild.ServerName}] -> [{latestLog.id}] [{latestLog.owner}]!");
                                         }
                                     }
                                 }
@@ -100,7 +100,7 @@ namespace NinjaBotCore.Modules.Wow
                 }
             }
         }
-        
+
         [Command("watch-logs", RunMode = RunMode.Async)]
         [Summary("Toggle automatic log watching from Warcraft logs")]
         public async Task ToggleLogWatchCommand()
