@@ -69,7 +69,7 @@ namespace NinjaBotCore.Modules.Wow
             string baseURL = "https://www.warcraftlogs.com:443/v1";
 
             url = $"{baseURL}{url}{wowLogsKey}";
-            Console.WriteLine($"Calling WarcraftLogs API with URL: {url}");
+            //Console.WriteLine($"Calling WarcraftLogs API with URL: {url}");
 
             using (HttpClient httpClient = new HttpClient())
             {
@@ -100,18 +100,17 @@ namespace NinjaBotCore.Modules.Wow
             {
                 case "us":
                     {
-                        realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.ToLower().Contains(realm.ToLower())).Select(s => s.slug).FirstOrDefault();
+                        realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realm.ToLower())).Select(s => s.slug).FirstOrDefault();
                         break;
                     }
                 case "eu":
                     {
-                        realmSlug = WowApi.RealmInfoEu.realms.Where(r => r.name.ToLower().Contains(realm.ToLower())).Select(s => s.slug).FirstOrDefault();
+                        realmSlug = WowApi.RealmInfoEu.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realm.ToLower())).Select(s => s.slug).FirstOrDefault();
                         break;
                     }
             }
-            System.Console.WriteLine($"SLUG: {realmSlug}");
-            System.Console.WriteLine($"SLUGS: {WowApi.RealmInfoEu.realms[0].name}");
-            url = $"/reports/guild/{guildName.Replace(" ", "%20")}/{realm}/{region}?";
+            System.Console.WriteLine($"SLUG: {realmSlug}");            
+            url = $"/reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?";
             List<Reports> logs;
 
             logs = JsonConvert.DeserializeObject<List<Reports>>(LogsApiRequest(url));
@@ -343,9 +342,9 @@ namespace NinjaBotCore.Modules.Wow
             if (guildList != null)
             {
                 foreach (var guild in guildList)
-                {
+                {                    
                     try
-                    {
+                    {                        
                         var watchGuild = logWatchList.Where(w => w.ServerId == guild.ServerId).FirstOrDefault();
                         if (watchGuild != null)
                         {
@@ -389,7 +388,7 @@ namespace NinjaBotCore.Modules.Wow
                     }
                     catch (Exception ex)
                     {
-                        System.Console.WriteLine($"Error checking for logs! -> [{ex.Message}]");
+                        System.Console.WriteLine($"Error checking for logs [{guild.WowGuild}]:[{guild.WowRealm}]:[{guild.WowRealm}]! -> [{ex.Message}]");
                     }
                 }
             }
