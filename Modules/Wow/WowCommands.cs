@@ -100,6 +100,7 @@ namespace NinjaBotCore.Modules.Wow
                 }
             }
         }
+        
         [Command("watch-logs", RunMode = RunMode.Async)]
         [Summary("Toggle automatic log watching from Warcraft logs")]
         public async Task ToggleLogWatchCommand()
