@@ -13,6 +13,7 @@ namespace NinjaBotCore.Database
         public string ServerName { get; set; }
         public bool MonitorLogs { get; set; }
         public bool WatchLog { get; set; }
+        public string ReportId { get; set; }
         public DateTime LatestLog { get; set; }
     }
 }

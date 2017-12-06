@@ -99,15 +99,15 @@ namespace NinjaBotCore.Modules.Wow
             switch (region.ToLower())
             {
                 case "us":
-                {
-                    realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.ToLower().Contains(realm.ToLower())).Select(s => s.slug).FirstOrDefault();
-                    break;                
-                }
+                    {
+                        realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.ToLower().Contains(realm.ToLower())).Select(s => s.slug).FirstOrDefault();
+                        break;
+                    }
                 case "eu":
-                {
-                    realmSlug = WowApi.RealmInfoEu.realms.Where(r => r.name.ToLower().Contains(realm.ToLower())).Select(s => s.slug).FirstOrDefault();
-                    break;
-                }
+                    {
+                        realmSlug = WowApi.RealmInfoEu.realms.Where(r => r.name.ToLower().Contains(realm.ToLower())).Select(s => s.slug).FirstOrDefault();
+                        break;
+                    }
             }
             System.Console.WriteLine($"SLUG: {realmSlug}");
             System.Console.WriteLine($"SLUGS: {WowApi.RealmInfoEu.realms[0].name}");
@@ -334,7 +334,6 @@ namespace NinjaBotCore.Modules.Wow
                 {
                     guildList = db.WowGuildAssociations.ToList();
                     logWatchList = db.LogMonitoring.ToList();
-
                 }
             }
             catch (Exception ex)
@@ -353,18 +352,19 @@ namespace NinjaBotCore.Modules.Wow
                             if (watchGuild.MonitorLogs)
                             {
                                 //System.Console.WriteLine($"YES! Watch logs on {guild.ServerName}!");
-                                var logs = GetReportsFromGuild(guild.WowGuild, guild.WowRealm.Replace("'",""), guild.WowRegion);
+                                var logs = GetReportsFromGuild(guild.WowGuild, guild.WowRealm.Replace("'", ""), guild.WowRegion);
                                 if (logs != null)
                                 {
-                                    var latestLog = logs[logs.Count - 1];
+                                    var latestLog = logs[logs.Count - 1];                                    
                                     DateTime startTime = UnixTimeStampToDateTime(latestLog.start);
-                                    if (startTime > watchGuild.LatestLog)
+                                    if (latestLog.id != watchGuild.ReportId)
                                     {
                                         using (var db = new NinjaBotEntities())
                                         {
                                             var latestForGuild = db.LogMonitoring.Where(l => l.ServerId == guild.ServerId).FirstOrDefault();
                                             latestForGuild.LatestLog = startTime;
-                                            await db.SaveChangesAsync();                                            
+                                            latestForGuild.ReportId = latestLog.id;
+                                            await db.SaveChangesAsync();
                                         }
                                         DiscordSocketClient client = NinjaBot.Client;
                                         ISocketMessageChannel channel = client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
@@ -373,10 +373,10 @@ namespace NinjaBotCore.Modules.Wow
                                             var embed = new EmbedBuilder();
                                             embed.Title = $"New log found for [{guild.WowGuild}]!";
                                             StringBuilder sb = new StringBuilder();
-                                            sb.AppendLine($"__**{latestLog.title}** **/** **{latestLog.zoneName}**__");
+                                            sb.AppendLine($"[__**{latestLog.title}** **/** **{latestLog.zoneName}**__]({latestLog.reportURL})");
                                             sb.AppendLine($"\t:timer: Start time: **{UnixTimeStampToDateTime(latestLog.start)}**");
-                                            sb.AppendLine($"\tLink: **{latestLog.reportURL}**");
-                                            sb.AppendLine($"\t:white_check_mark: My WoW: **http://www.checkmywow.com/reports/{latestLog.id}**");
+                                            //sb.AppendLine($"\tLink: ***");
+                                            sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{latestLog.id})");
                                             sb.AppendLine();
                                             embed.Description = sb.ToString();
                                             embed.WithColor(new Color(0, 0, 255));
