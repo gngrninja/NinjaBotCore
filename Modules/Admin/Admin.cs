@@ -537,6 +537,17 @@ namespace NinjaBotCore.Modules.Admin
             await _cc.Reply(Context, embed);
         }
 
+        [Command("warn",RunMode= RunMode.Async)]
+        [Summary("Send a warning message to a user")]
+        public async Task WarnUser(IGuildUser user, [Remainder] string message)
+        {
+            var warnMessage = new StringBuilder();
+            warnMessage.AppendLine($":warning: {user.Mention}, you have been issued the following warning: :warning:");
+            warnMessage.AppendLine(message);
+            await user.SendMessageAsync(warnMessage.ToString());
+            await _cc.Reply(Context,warnMessage.ToString());
+        }
+
         private async Task<string> SetNoteInfo(ICommandContext Context, string noteText)
         {
             StringBuilder sb = new StringBuilder();
