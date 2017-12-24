@@ -539,10 +539,20 @@ namespace NinjaBotCore.Modules.Admin
 
         [Command("warn",RunMode= RunMode.Async)]
         [Summary("Send a warning message to a user")]
-        public async Task WarnUser(IGuildUser user, [Remainder] string message)
+        [RequireUserPermission(GuildPermission.KickMembers)]
+        public async Task WarnUser(IGuildUser user, [Remainder] string message = null)
         {
             var warnMessage = new StringBuilder();
-            warnMessage.AppendLine($":warning: {user.Mention}, you have been issued the following warning: :warning:");
+            if (message == null) 
+            {
+                warnMessage.AppendLine($"{user.Mention},");
+                message = $":warning: You have been issued a warning from: {Context.User.Username}! :warning:";
+            }
+            else 
+            {
+                warnMessage.AppendLine($":warning: {user.Mention}, you have been issued the following warning (from: {Context.User.Username}) :warning:");
+                
+            }
             warnMessage.AppendLine(message);
             await user.SendMessageAsync(warnMessage.ToString());
             await _cc.Reply(Context,warnMessage.ToString());
