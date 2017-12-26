@@ -12,3 +12,4 @@
 
 #Ignore vscode folders
 /.vscode/
+config.json.save
