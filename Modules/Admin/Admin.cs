@@ -542,6 +542,8 @@ namespace NinjaBotCore.Modules.Admin
         [RequireUserPermission(GuildPermission.KickMembers)]
         public async Task WarnUser(IGuildUser user, [Remainder] string message = null)
         {
+            int numWarnings = 0;
+            var currentWarnings = await GetWarning(Context, user);
             var warnMessage = new StringBuilder();
             if (message == null) 
             {
@@ -552,10 +554,116 @@ namespace NinjaBotCore.Modules.Admin
             {
                 warnMessage.AppendLine($":warning: {user.Mention}, you have been issued the following warning (from: {Context.User.Username}) :warning:");
                 
+            }            
+            if (currentWarnings != null)
+            {
+                numWarnings = currentWarnings.NumWarnings + 1;
+            }
+            else
+            {
+                numWarnings = 1;
             }
             warnMessage.AppendLine(message);
+            switch (numWarnings)
+            {
+                case 1:
+                {
+                    warnMessage.AppendLine("This is your first warning. At three warnings, you will be kicked!");
+                    break;
+                }
+                case 2:
+                {
+                    warnMessage.AppendLine("This is your second warning. At three warnings, you will be kicked!");
+                    break;
+                }
+                case 3:
+                {
+                    warnMessage.AppendLine("This was your final warning, goodbye!");                    
+                    break;
+                }                
+            }
+            try
+            {
+                AddWarning(Context, user);
+            }
+            catch (Exception ex)
+            {
+                System.Console.WriteLine($"Unable to log warning in database -> [{ex.Message}]!");
+            }
             await user.SendMessageAsync(warnMessage.ToString());
             await _cc.Reply(Context,warnMessage.ToString());
+            if (numWarnings >= 3)
+            {
+                await KickUser(user, "Maximum number of warnings reached!");
+                ResetWarnings(currentWarnings);
+            }            
+        }
+
+        [Command("reset-warnings",RunMode = RunMode.Async)]
+        [Summary("Reset warnings for a user")]
+        [RequireUserPermission(GuildPermission.KickMembers)]
+        public async Task ResetWarning(IGuildUser user)
+        {
+            var warnings = await GetWarning(Context, user);
+            if (warnings != null)
+            {
+                ResetWarnings(warnings);
+                await _cc.Reply(Context, $"Warnings reset for **{user.Username}**");
+            }
+            else
+            {
+                await _cc.Reply(Context, $"No warnings found for **{user.Username}**!");
+            }
+        }
+
+        private async void AddWarning(ICommandContext context, IGuildUser userWarned)
+        {
+            using (var db = new NinjaBotEntities())
+            {                          
+                var warnings = db.Warnings.Where(w => w.ServerId == (long)context.Guild.Id && w.UserWarnedId == (long)userWarned.Id).FirstOrDefault();
+                if (warnings != null)
+                {
+                    warnings.NumWarnings = warnings.NumWarnings + 1;
+                }  
+                else
+                {
+                    db.Warnings.Add(new Warnings
+                    {
+                        ServerId = (long)context.Guild.Id,
+                        ServerName = context.Guild.Name,
+                        UserWarnedId = (long)userWarned.Id,
+                        UserWarnedName = userWarned.Username,
+                        IssuerId = (long)context.User.Id,
+                        IssuerName = context.User.Username,
+                        TimeIssued = DateTime.Now,
+                        NumWarnings = 1
+                    });                    
+                }
+                await db.SaveChangesAsync();
+            }
+        }
+
+        private async void ResetWarnings(Warnings warning)
+        {
+            using (var db = new NinjaBotEntities())
+            {
+                var currentWarning = db.Warnings.Where(w => w.Warnid == warning.Warnid).FirstOrDefault();
+                if (currentWarning != null)
+                {
+                    db.Warnings.Remove(currentWarning);
+                    await db.SaveChangesAsync();
+                }
+            }
+        }
+
+        private async Task<Warnings> GetWarning(ICommandContext context, IGuildUser userWarned)
+        {
+            Warnings warning = null;
+            using (var db = new NinjaBotEntities())
+            {
+                warning = db.Warnings.Where(w => w.ServerId == (long)context.Guild.Id && w.UserWarnedId == (long)userWarned.Id).FirstOrDefault();
+            }
+            return warning;
         }
 
         private async Task<string> SetNoteInfo(ICommandContext Context, string noteText)
