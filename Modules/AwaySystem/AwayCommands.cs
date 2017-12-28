@@ -103,13 +103,22 @@ namespace NinjaBotCore.Modules.Away
 
         [Command("back", RunMode = RunMode.Async)]
         [Summary("Set yourself as back from being away")]
-        public async Task SetBack()
+        public async Task SetBack(bool forced = false, IGuildUser forceUser = null)
         {
             try
             {
+                IGuildUser user = null;
                 StringBuilder sb = new StringBuilder();
                 var data = new AwayData();
-                var user = Context.User;
+                if (forced)
+                {
+                    user = forceUser;
+                }
+                else
+                {
+                    user = Context.User as IGuildUser;
+                }                
+
                 string userName = string.Empty;
                 string userMentionName = string.Empty;
                 if (user != null)
@@ -143,7 +152,14 @@ namespace NinjaBotCore.Modules.Away
                                 awayDuration = $"**{awayTime.Value.Days}** days, **{awayTime.Value.Hours}** hours, **{awayTime.Value.Minutes}** minutes, and **{awayTime.Value.Seconds}** seconds";
                             }
                         }
-                        sb.AppendLine($"You're now set as back, **{userMentionName}**!");
+                        if (forced)
+                        {
+                            sb.AppendLine($"You're now set as back **{userMentionName}** (forced by: **{Context.User.Username}**)!");
+                        }
+                        else
+                        {
+                            sb.AppendLine($"You're now set as back, **{userMentionName}**!");
+                        }                        
                         sb.AppendLine($"You were away for: [{awayDuration}]");
                     }
                     await _cc.Reply(Context, sb.ToString());
@@ -156,6 +172,13 @@ namespace NinjaBotCore.Modules.Away
                 Console.WriteLine($"Back command error {ex.Message}");
                 await _cc.Reply(Context, sb.ToString());
             }
+        }
+
+        [Command("set-back", RunMode = RunMode.Async)]
+        [RequireUserPermission(GuildPermission.KickMembers)]
+        public async Task SetBack(IGuildUser user)
+        {
+            await SetBack(forced: true, forceUser: user);
         }
 
         private static async Task AwayMentionFinder(SocketMessage messageDetails)
