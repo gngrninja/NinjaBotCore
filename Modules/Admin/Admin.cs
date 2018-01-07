@@ -8,23 +8,25 @@ using System.Text;
 using System.Threading.Tasks;
 using NinjaBotCore.Database;
 using System.Collections.Generic;
+using Microsoft.Extensions.Configuration;
 
 namespace NinjaBotCore.Modules.Admin
 {
     public class Admin : ModuleBase
     {
+
         private static DiscordSocketClient _client;
         private static ChannelCheck _cc;
-        public Admin(DiscordSocketClient client, ChannelCheck cc)
-        {
-            if (_client == null)
-            {
-                _client = client;
-            }
-            if (_cc == null)
-            {
-                _cc = cc;
-            }
+        private readonly IConfigurationRoot _config;
+        private string _prefix;
+
+        public Admin(DiscordSocketClient client, ChannelCheck cc, IConfigurationRoot config)
+        {            
+            _client = client;            
+            _cc = cc;
+            _config = config;            
+            _prefix = _config["prefix"];
+            
             Console.WriteLine($"Admin module loaded");
         }
 
@@ -714,7 +716,7 @@ namespace NinjaBotCore.Modules.Admin
                 var note = db.Notes.FirstOrDefault(n => n.ServerId == (long)Context.Guild.Id);
                 if (note == null)
                 {
-                    sb.AppendLine($"Unable to find a note for server [{Context.Guild.Name}], perhaps try adding one by using {Config.Prefix}set-note \"Note goes here!\"");
+                    sb.AppendLine($"Unable to find a note for server [{Context.Guild.Name}], perhaps try adding one by using {_prefix}set-note \"Note goes here!\"");
                 }
                 else
                 {

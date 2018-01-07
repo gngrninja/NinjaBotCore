@@ -16,7 +16,7 @@ namespace NinjaBotCore
         {
             try
             {
-                new NinjaBot().Start().GetAwaiter().GetResult();       
+                new NinjaBot().StartAsync().GetAwaiter().GetResult();       
             }
             catch (Exception ex)
             {

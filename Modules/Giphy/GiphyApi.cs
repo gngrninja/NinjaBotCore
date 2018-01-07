@@ -8,15 +8,26 @@ using NinjaBotCore.Models.Giphy;
 using Newtonsoft.Json;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using Discord;
+using Discord.Net;
+using Discord.WebSocket;
+using Microsoft.Extensions.Configuration;
 
 namespace NinjaBotCore.Modules.Giphy
 {
-    class GiphyApi
+    public class GiphyApi
     {
+        private readonly IConfigurationRoot _config;
+
+        public GiphyApi(IConfigurationRoot config)
+        {
+            _config = config;
+        }
+
         public string ApiRequest(string url, string appendUrl = null)
         {
             string response = string.Empty; ;
-            string apiKey = $"{Config.GiphyApi}";
+            string apiKey = $"{_config["GiphyApi"]}";
             if (string.IsNullOrEmpty(appendUrl))
             {
                 url = $"http://api.giphy.com/v1{url}?api_key={apiKey}";

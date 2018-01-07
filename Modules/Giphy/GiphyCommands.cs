@@ -9,18 +9,23 @@ using Discord;
 using Discord.Commands;
 using NinjaBotCore.Database;
 using NinjaBotCore.Models.Giphy;
+using Microsoft.Extensions.Configuration;
 
 namespace NinjaBotCore.Modules.Giphy
 {
     public class GiphyCommands : ModuleBase
     {
         private static ChannelCheck _cc = null;
-        public GiphyCommands(ChannelCheck cc)
+        private GiphyApi _api;
+        private readonly IConfigurationRoot _config;
+        private string _prefix;
+
+        public GiphyCommands(ChannelCheck cc, GiphyApi api, IConfigurationRoot config)
         {
-            if (_cc == null)
-            {
-                _cc = cc;
-            }
+            _config = config;
+            _cc = cc;            
+            _api = api;
+            _prefix = _config["prefix"];
         }
 
         [Command("giphy", RunMode = RunMode.Async)]
@@ -32,20 +37,19 @@ namespace NinjaBotCore.Modules.Giphy
             var embed = new EmbedBuilder();
             embed.WithColor(new Color(0, 255, 255));
             if (isEnabled)
-            {
-                GiphyApi api = new GiphyApi();
+            {                
                 StringBuilder sb = new StringBuilder();
                 GiphyReponse r = new GiphyReponse();                
                 try
                 {
                     if (string.IsNullOrEmpty(args))
                     {
-                        r = api.GetRandomImage(string.Empty);
+                        r = _api.GetRandomImage(string.Empty);
                         embed.Title = $"__Giphy for [**{Context.User.Username}**]__";
                     }
                     else
                     {                                              
-                        r = api.GetRandomImage(args);                        
+                        r = _api.GetRandomImage(args);                        
                         embed.Title = $"__Giphy for [**{Context.User.Username}**] ({args})__";
                     }                                                        
                     
@@ -61,7 +65,7 @@ namespace NinjaBotCore.Modules.Giphy
             else
             {
                 embed.Title = $"Sorry, Giphy is disabled here :(\n";
-                embed.Description = $"Use {Config.Prefix}giphy-toggle to enable it";
+                embed.Description = $"Use {_prefix}giphy-toggle to enable it";
                 await _cc.Reply(Context, embed);
             }
         }
@@ -103,12 +107,12 @@ namespace NinjaBotCore.Modules.Giphy
                             ServerName = serverName
                         });
                         embed.Title = $"Giphy enabled for [**{serverName}**]";                        
-                        sb.AppendLine($":question:__How to use **!giphy**__:question:");
+                        sb.AppendLine($":question:__How to use **{_prefix}giphy**__:question:");
                         sb.AppendLine();
-                        sb.AppendLine($"**{Config.Prefix}giphy**");
+                        sb.AppendLine($"**{_prefix}giphy**");
                         sb.AppendLine($"The above command would get a random image");
                         sb.AppendLine();
-                        sb.AppendLine($"**{Config.Prefix}giphy Rocket League**");
+                        sb.AppendLine($"**{_prefix}giphy Rocket League**");
                         sb.AppendLine($"The above command would get a random image related to Rocket League");
                     }
                     else if ((bool)giphySettings.GiphyEnabled)
@@ -122,12 +126,12 @@ namespace NinjaBotCore.Modules.Giphy
                     {
                         giphySettings.GiphyEnabled = true;
                         embed.Title = $"Giphy enabled for [**{serverName}**]";                        
-                        sb.AppendLine($":question:__How to use **!giphy**__:question:");
+                        sb.AppendLine($":question:__How to use **{_prefix}giphy**__:question:");
                         sb.AppendLine();
-                        sb.AppendLine($"**{Config.Prefix}giphy**");
+                        sb.AppendLine($"**{_prefix}giphy**");
                         sb.AppendLine($"The above command would get a random image");
                         sb.AppendLine();
-                        sb.AppendLine($"**{Config.Prefix}giphy Rocket League**");
+                        sb.AppendLine($"**{_prefix}giphy Rocket League**");
                         sb.AppendLine($"The above command would get a random image related to Rocket League");
                     }
                     db.SaveChanges();

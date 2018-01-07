@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using Newtonsoft.Json;
 using NinjaBotCore.Models.RocketLeague;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
 
 namespace NinjaBotCore.Modules.RocketLeague
 {
@@ -12,9 +13,11 @@ namespace NinjaBotCore.Modules.RocketLeague
     {
         private static List<Platforms> _platforms = null;
         private static List<Tier> _tiers = null;
+        private readonly IConfigurationRoot _config;
 
-        public RlStatsApi()
+        public RlStatsApi(IConfigurationRoot config)
         {
+            _config = config;
             Platforms = GetCurrentPlatforms();
             Tiers = GetTiers();
         }
@@ -46,7 +49,7 @@ namespace NinjaBotCore.Modules.RocketLeague
         public string RlStatsApiRequest(string url)
         {
             string response = string.Empty;
-            string rlStatsKey = $"{Config.RlStatsApi}";
+            string rlStatsKey = $"{_config["RlStatsApi"]}";
             string baseUrl = "https://api.rocketleaguestats.com/v1";
 
             url = $"{baseUrl}{url}";
