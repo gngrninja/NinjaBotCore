@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
 
 namespace NinjaBotCore.Modules.Fun
 {
@@ -17,27 +18,19 @@ namespace NinjaBotCore.Modules.Fun
         private static OxfordApi _oxApi = null;        
         private DiscordSocketClient _client;
         private CommandService _commands;
+        private readonly IConfigurationRoot _config;
+        private string _prefix;
 
-        public FunCommands(DiscordSocketClient client, CommandService commands, ChannelCheck cc, OxfordApi oxApi)
+        public FunCommands(DiscordSocketClient client, CommandService commands, ChannelCheck cc, OxfordApi oxApi, IConfigurationRoot config)
         {
             try
-            {
-                if (_cc == null)
-                {
-                    _cc = cc;
-                }
-                if (_oxApi == null)
-                {
-                    _oxApi = oxApi;
-                }
-                if (_commands == null)
-                {
-                    _commands = commands;
-                }
-                if (_client == null)
-                {
-                    _client = client;
-                }
+            {            
+                _cc = cc;               
+                _oxApi = oxApi;                
+                _commands = commands;            
+                _client = client;
+                _config = config;          
+                _prefix = _config["prefix"];      
             }
             catch (Exception ex)
             {
@@ -63,7 +56,7 @@ namespace NinjaBotCore.Modules.Fun
             sb.AppendLine();
             sb.AppendLine($"Every little bit counts!");
             sb.AppendLine();
-            sb.AppendLine($"[Donate To Support NinjaBot!]({Config.DonateUrl}/5) :thumbsup:");
+            sb.AppendLine($"[Donate To Support NinjaBot!]({_config["DonateUrl"]}/5) :thumbsup:");
 
             embed.ThumbnailUrl = "https://static1.squarespace.com/static/5644323de4b07810c0b6db7b/t/5931c57f46c3c47b464d717a/1496434047310/FdxsNNRt.jpg";            
             embed.WithColor(new Color(0, 255, 0));
@@ -209,14 +202,14 @@ namespace NinjaBotCore.Modules.Fun
             embed.ThumbnailUrl = Context.User.GetAvatarUrl();
             embed.WithColor(new Color(0, 0, 255));
             sb.AppendLine("Here are a few commands to try:");
-            sb.AppendLine($"\t :black_small_square: WoW Commands: {Config.Prefix}wow **|** {Config.Prefix}armory characterName **|** {Config.Prefix}logs **|** {Config.Prefix}set-guild **|** {Config.Prefix}get-guild");
-            sb.AppendLine($"\t :black_small_square: Rocket League Stats: {Config.Prefix}rlstats");            
-            sb.AppendLine($"\t :black_small_square: Server Note Commands: {Config.Prefix}note **|** {Config.Prefix}set-note note goes here");
-            sb.AppendLine($"\t :black_small_square: Away System Commands: {Config.Prefix}away (reason) **|** {Config.Prefix}back");
-            sb.AppendLine($"\t :black_small_square: Search YouTube: {Config.Prefix}ysearch search term");
-            sb.AppendLine($"\t :black_small_square: Define a Word: {Config.Prefix}define word");
-            sb.AppendLine($"\t :black_small_square: Ask Ninja 8-ball a question: {Config.Prefix}8ball question");
-            sb.AppendLine($"\t :black_small_square: Greeting Commands: {Config.Prefix}toggle-greetings **|** {Config.Prefix}set-join-message User join greeting **|** {Config.Prefix}set-part-message User left message");
+            sb.AppendLine($"\t :black_small_square: WoW Commands: {_prefix}wow **|** {_prefix}armory characterName **|** {_prefix}logs **|** {_prefix}set-guild **|** {_prefix}get-guild");
+            sb.AppendLine($"\t :black_small_square: Rocket League Stats: {_prefix}rlstats");            
+            sb.AppendLine($"\t :black_small_square: Server Note Commands: {_prefix}note **|** {_prefix}set-note note goes here");
+            sb.AppendLine($"\t :black_small_square: Away System Commands: {_prefix}away (reason) **|** {_prefix}back");
+            sb.AppendLine($"\t :black_small_square: Search YouTube: {_prefix}ysearch search term");
+            sb.AppendLine($"\t :black_small_square: Define a Word: {_prefix}define word");
+            sb.AppendLine($"\t :black_small_square: Ask Ninja 8-ball a question: {_prefix}8ball question");
+            sb.AppendLine($"\t :black_small_square: Greeting Commands: {_prefix}toggle-greetings **|** {_prefix}set-join-message User join greeting **|** {_prefix}set-part-message User left message");
             sb.AppendLine();
             sb.AppendLine($"**For a more detailed command list, please visit:** http://gngr.ninja/bot");
             sb.AppendLine();

@@ -13,18 +13,27 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using Google.Apis.YouTube.v3.Data;
 using Google.Apis.Services;
+using Microsoft.Extensions.Configuration;
 
 namespace NinjaBotCore.Modules.YouTube
 {
     public class YouTubeApi
     {
-        private string key = Config.YouTubeApi;
+        private string _key;
+        private readonly IConfigurationRoot _config;
 
+        public YouTubeApi(IConfigurationRoot config)
+        {
+            _config = config;
+            _key = _config["YouTubeApi"];
+            System.Console.WriteLine(_key);
+        }
         private string getYouTubeApiRequest(string url)
         {
             string reponse = string.Empty;
-            string fullUrl = $"https://www.googleapis.com/youtube/v3/search?key={key}{url}";
-
+            
+            string fullUrl = $"https://www.googleapis.com/youtube/v3/search?key={_key}{url}";
+            System.Console.WriteLine($"{fullUrl}");
             Console.WriteLine($"YouTube API Request {fullUrl}");
 
             string response = string.Empty;
@@ -65,7 +74,7 @@ namespace NinjaBotCore.Modules.YouTube
         {
             var youtubeService = new YouTubeService(new BaseClientService.Initializer()
             {
-                ApiKey = Config.YouTubeApi,
+                ApiKey = _key,
                 ApplicationName = this.GetType().ToString()
 
             });

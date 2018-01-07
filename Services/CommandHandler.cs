@@ -9,26 +9,24 @@ using System.Linq;
 using System.Collections.Generic;
 using NinjaBotCore.Database;
 using Discord;
+using Microsoft.Extensions.Configuration;
 
-namespace NinjaBotCore
+namespace NinjaBotCore.Services
 {
     public class CommandHandler
     {
         private CommandService _commands;
         private DiscordSocketClient _client;
         private readonly IServiceProvider _provider;
+        private readonly IConfigurationRoot _config;
 
-        public CommandHandler(IServiceProvider provider)
+        public CommandHandler(IServiceProvider provider, IConfigurationRoot config)
         {
+            _config = config;
             _provider = provider;
             _client = _provider.GetService<DiscordSocketClient>();
             _commands = _provider.GetService<CommandService>();
-            _client.MessageReceived += HandleCommand;
-        }
-
-        public async Task ConfigureAsync()
-        {
-            await _commands.AddModulesAsync(Assembly.GetEntryAssembly());
+            _client.MessageReceived += HandleCommand;            
         }
 
         public async Task HandleCommand(SocketMessage parameterMessage)
@@ -40,7 +38,7 @@ namespace NinjaBotCore
             // Mark where the prefix ends and the command begins
             int argPos = 0;
             // Determine if the message has a valid prefix, adjust argPos 
-            if (!(message.HasMentionPrefix(_client.CurrentUser, ref argPos) || message.HasCharPrefix(Config.Prefix, ref argPos))) return;
+            if (!(message.HasMentionPrefix(_client.CurrentUser, ref argPos) || message.HasCharPrefix(Char.Parse(_config["prefix"]), ref argPos))) return;
 
             // Create a Command Context
             var context = new SocketCommandContext(_client, message);

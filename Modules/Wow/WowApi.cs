@@ -12,6 +12,7 @@ using System.IO;
 using NinjaBotCore.Database;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using Microsoft.Extensions.Configuration;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -23,17 +24,19 @@ namespace NinjaBotCore.Modules.Wow
         private static List<Achievement2> _achievements;
         private static WowRealm _realmInfo;
         private static WowRealm _realmInfoEu;
+        private readonly IConfigurationRoot _config;
 
-        public WowApi()
+        public WowApi(IConfigurationRoot config)
         {
             try
             {
+                _config = config;
                 Races = this.GetRaces();
                 Classes = this.GetWowClasses();
                 Achievements cheeves = this.GetWoWAchievements();
                 Achievements = cheeves.achievements.Select(m => m.categories).Skip(1).SelectMany(i => i).Select(a => a.achievements).SelectMany(d => d).ToList();
                 RealmInfo = this.GetRealmStatus();
-                RealmInfoEu = this.GetRealmStatus("eu");
+                RealmInfoEu = this.GetRealmStatus("eu");                
             }
             catch (Exception ex)
             {
@@ -111,7 +114,7 @@ namespace NinjaBotCore.Modules.Wow
 
             region = region.ToLower();
             prefix = $"https://{region}.api.battle.net/wow";
-            key = $"&apikey={Config.WowApi}";
+            key = $"&apikey={_config["WowApi"]}";
             url = $"{prefix}{url}{key}";
 
             Console.WriteLine($"Wow API request to {url}");

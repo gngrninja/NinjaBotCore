@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using Discord.Net;
 using Discord.WebSocket;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Configuration;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -19,25 +20,17 @@ namespace NinjaBotCore.Modules.Wow
         private WarcraftLogs _logsApi;
         private WowApi _wowApi;
         private DiscordSocketClient _client;
+        private readonly IConfigurationRoot _config;
+        private string _prefix;
 
-        public WowCommands(WowApi api, ChannelCheck cc, WarcraftLogs logsApi, DiscordSocketClient client)
+        public WowCommands(WowApi api, ChannelCheck cc, WarcraftLogs logsApi, DiscordSocketClient client, IConfigurationRoot config)
         {
-            if (_cc == null)
-            {
-                _cc = cc;
-            }
-            if (_logsApi == null)
-            {
-                _logsApi = logsApi;
-            }
-            if (_wowApi == null)
-            {
-                _wowApi = api;
-            }
-            if (_client == null)
-            {
-                _client = client;
-            }
+            _cc = cc;            
+            _logsApi = logsApi;            
+            _wowApi = api;                                    
+            _client = client;            
+            _config = config;
+            _prefix = _config["prefix"];
         }
 
         [Command("Populate-Logs",RunMode = RunMode.Async)]
@@ -365,11 +358,11 @@ namespace NinjaBotCore.Modules.Wow
             {
                 embed.Title = $"WoW Armory Command Reference";
                 sb.AppendLine($"Usage examples:");
-                sb.AppendLine($":black_small_square: **{Config.Prefix}armory** charactername");
+                sb.AppendLine($":black_small_square: **{_prefix}armory** charactername");
                 sb.AppendLine($"\t:black_small_square: Search armory for *charactername* (first in guild, then in the rest of WoW(US))");
-                sb.AppendLine($":black_small_square: **{Config.Prefix}armory** charactername realmname");
+                sb.AppendLine($":black_small_square: **{_prefix}armory** charactername realmname");
                 sb.AppendLine($"\t:black_small_square: Search armory for *charactername* on *realmname* WoW (US)");
-                sb.AppendLine($":black_small_square: **{Config.Prefix}armory** charactername realmname region(us or eu)");
+                sb.AppendLine($":black_small_square: **{_prefix}armory** charactername realmname region(us or eu)");
                 sb.AppendLine($"\t:black_small_square: Search armory for *charactername* on *realmname* WoW (US or EU as specified)");
                 embed.Description = sb.ToString();
                 await _cc.Reply(Context, embed);
@@ -591,7 +584,7 @@ namespace NinjaBotCore.Modules.Wow
                     else
                     {
                         sb.AppendLine("Please specify a guild and realm name!");
-                        sb.AppendLine($"Example: {Config.Prefix}logs Thunderlord, UR KEY UR CARRY");
+                        sb.AppendLine($"Example: {_prefix}logs Thunderlord, UR KEY UR CARRY");
                         await _cc.Reply(Context, sb.ToString());
                         return;
                     }
@@ -599,7 +592,7 @@ namespace NinjaBotCore.Modules.Wow
                 if (string.IsNullOrEmpty(guildName) || string.IsNullOrEmpty(realmName))
                 {
                     sb.AppendLine("Please specify a guild and realm name!");
-                    sb.AppendLine($"Example: {Config.Prefix}logs Thunderlord, UR KEY UR CARRY");
+                    sb.AppendLine($"Example: {_prefix}logs Thunderlord, UR KEY UR CARRY");
                     await _cc.Reply(Context, sb.ToString());
                     return;
                 }
@@ -687,8 +680,8 @@ namespace NinjaBotCore.Modules.Wow
             {
                 StringBuilder sb = new StringBuilder();
                 sb.AppendLine("Please specify realm, guild, and region (defaults to US if blank, valid options are us/eu)!");
-                sb.AppendLine($"Example: {Config.Prefix}set-guild Thunderlord, UR KEY UR CARRY, us");
-                sb.AppendLine($"Example: {Config.Prefix}set-guild Silvermoon, rome in a day, eu");
+                sb.AppendLine($"Example: {_prefix}set-guild Thunderlord, UR KEY UR CARRY, us");
+                sb.AppendLine($"Example: {_prefix}set-guild Silvermoon, rome in a day, eu");
                 await _cc.Reply(Context, sb.ToString());
                 return;
             }
@@ -806,7 +799,7 @@ namespace NinjaBotCore.Modules.Wow
             else
             {
                 sb.AppendLine($"No guild association found for **{discordGuildName}**!");
-                sb.AppendLine($"Please use {Config.Prefix}set-guild realmName, guild name, region (optional, defaults to US, valid values are eu or us) to associate a guild with **{discordGuildName}**");
+                sb.AppendLine($"Please use {_prefix}set-guild realmName, guild name, region (optional, defaults to US, valid values are eu or us) to associate a guild with **{discordGuildName}**");
             }
             embed.Description = sb.ToString();
             await _cc.Reply(Context, embed);
@@ -859,14 +852,14 @@ namespace NinjaBotCore.Modules.Wow
                 sb.Clear();
                 sb.AppendLine($":black_medium_small_square: **rankings**");
                 sb.AppendLine($"\t :black_small_square: Get rankings for the guild associated with this Discord server from http://www.wowprogress.com");
-                sb.AppendLine($"\t :black_small_square: Alternatively, you can provide a guild and realm in this format: {Config.Prefix}wow rankings *realmname*, *guildname*, (optional, defaults to US) *region* (us or eu are valid)");
+                sb.AppendLine($"\t :black_small_square: Alternatively, you can provide a guild and realm in this format: {_prefix}wow rankings *realmname*, *guildname*, (optional, defaults to US) *region* (us or eu are valid)");
                 sb.AppendLine($":black_medium_small_square: **auctions**");
                 sb.AppendLine($"\t :black_small_square: Get a list of the current auctions (most used raiding/crafting items) for the realm associated with this Discord server");
-                sb.AppendLine($"\t :black_small_square: Alternatively, you can provide a realm in this format: {Config.Prefix}wow auctions *realmname* (defaults to US)");
+                sb.AppendLine($"\t :black_small_square: Alternatively, you can provide a realm in this format: {_prefix}wow auctions *realmname* (defaults to US)");
                 sb.AppendLine($":black_medium_small_square: **search**");
                 sb.AppendLine($"\t :black_small_square: Search the WoW website for a character name to find out the associated level and realm");
                 var embed = new EmbedBuilder();
-                embed.Title = $"{Config.Prefix}wow Command Usage";
+                embed.Title = $"{_prefix}wow Command Usage";
                 embed.Description = sb.ToString();
                 await _cc.Reply(Context, embed);
             }
@@ -982,7 +975,7 @@ namespace NinjaBotCore.Modules.Wow
             if (args == null)
             {
                 embed.WithColor(new Color(0, 255, 0));
-                embed.Title = $"{Config.Prefix}gearlist Command Usage Guide";
+                embed.Title = $"{_prefix}gearlist Command Usage Guide";
                 embed.WithAuthor(new EmbedAuthorBuilder
                 {
                     Name = Context.User.Username,
@@ -990,19 +983,19 @@ namespace NinjaBotCore.Modules.Wow
                 });
                 embed.AddField(new EmbedFieldBuilder
                 {
-                    Name = $"{Config.Prefix}gearlist charName",
+                    Name = $"{_prefix}gearlist charName",
                     Value = "Get the gearlist for a character. Just specifying name will result in a guild lookup, followed by NA/US search",
                     IsInline = true
                 });
                 embed.AddField(new EmbedFieldBuilder
                 {
-                    Name = $"{Config.Prefix}gearlist charName realmName",
+                    Name = $"{_prefix}gearlist charName realmName",
                     Value = "Get the gearlist for a character on a specific realm (defaults to US)",
                     IsInline = true
                 });
                 embed.AddField(new EmbedFieldBuilder
                 {
-                    Name = $"{Config.Prefix}gearlist charName realmName region(supports us or eu values)",
+                    Name = $"{_prefix}gearlist charName realmName region(supports us or eu values)",
                     Value = "Get the gearlist for a character on a specific realm from a specific region (us or eu)",
                     IsInline = true
                 });
@@ -1241,26 +1234,26 @@ namespace NinjaBotCore.Modules.Wow
             //Argument logic
             if (args == null || args.Split(',')[0] == "help")
             {
-                sb.AppendLine($"**{Config.Prefix}top10** fightName(or ID from {Config.Prefix}top10 list) guild(type guild to get guild only results, all for all guilds) metric(dps(default), or hps) difficulty(lfr, flex, normal, heroic(default), or mythic) ");
+                sb.AppendLine($"**{_prefix}top10** fightName(or ID from {_prefix}top10 list) guild(type guild to get guild only results, all for all guilds) metric(dps(default), or hps) difficulty(lfr, flex, normal, heroic(default), or mythic) ");
                 sb.AppendLine();
-                sb.AppendLine($"**{Config.Prefix}top10** list");
+                sb.AppendLine($"**{_prefix}top10** list");
                 sb.AppendLine($"Get a list of all encounters and shortcut IDs");
                 sb.AppendLine();
-                sb.AppendLine($"**{Config.Prefix}top10** 1");
+                sb.AppendLine($"**{_prefix}top10** 1");
                 sb.AppendLine($"The above command would get all top 10 **dps** results for **Garothi Worldbreaker** on **{realmName}**.");
                 sb.AppendLine();
-                sb.AppendLine($"**{Config.Prefix}top10** 1, guild");
+                sb.AppendLine($"**{_prefix}top10** 1, guild");
                 sb.AppendLine($"The above command would get the top 10 **dps** results for **Garothi Worldbreaker** on **{realmName}** for **{guildName}**.");
                 sb.AppendLine();
-                sb.AppendLine($"**{Config.Prefix}top10** 1, guild, hps");
+                sb.AppendLine($"**{_prefix}top10** 1, guild, hps");
                 sb.AppendLine($"The above command would get the top 10 **hps** results for **Garothi Worldbreaker** on **{realmName}** for **{guildName}**.");
                 sb.AppendLine();
-                sb.AppendLine($"**{Config.Prefix}top10** 1, all, hps");
+                sb.AppendLine($"**{_prefix}top10** 1, all, hps");
                 sb.AppendLine($"The above command would get all top 10 **hps** results for **Garothi Worldbreaker** on **{realmName}**.");
                 sb.AppendLine();
-                sb.AppendLine($"**{Config.Prefix}top10** 1, guild, dps, mythic");
+                sb.AppendLine($"**{_prefix}top10** 1, guild, dps, mythic");
                 sb.AppendLine($"The above command would get the top 10 **dps** results for **Garothi Worldbreaker** on **{realmName}** for **{guildName}** on **mythic** difficulty.");
-                embed.Title = $"{Context.User.Username}, here are some examples for **{Config.Prefix}top10**";
+                embed.Title = $"{Context.User.Username}, here are some examples for **{_prefix}top10**";
                 embed.Description = sb.ToString();
                 await _cc.Reply(Context, embed);
                 return;
@@ -1623,7 +1616,7 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 if (string.IsNullOrEmpty(realmName))
                 {
-                    await _cc.Reply(Context, $"Unable to find realm \nTry {Config.Prefix}wow auctions realmName");
+                    await _cc.Reply(Context, $"Unable to find realm \nTry {_prefix}wow auctions realmName");
                     return;
                 }
                 Console.WriteLine($"Looking up auctions for realm {realmName.ToUpper()}");
@@ -1801,9 +1794,9 @@ namespace NinjaBotCore.Modules.Wow
                     StringBuilder sb = new StringBuilder();
                     var embed = new EmbedBuilder();
                     embed.WithColor(new Color(255, 0, 0));
-                    embed.Title = $"Unable to find a guild/realm association!\nTry {Config.Prefix}wow rankings Realm Name, Guild Name";
-                    sb.AppendLine($"Command syntax: {Config.Prefix}wow rankings realm name, guild name");
-                    sb.AppendLine($"Command example: {Config.Prefix}wow rankings azgalor, carebears");
+                    embed.Title = $"Unable to find a guild/realm association!\nTry {_prefix}wow rankings Realm Name, Guild Name";
+                    sb.AppendLine($"Command syntax: {_prefix}wow rankings realm name, guild name");
+                    sb.AppendLine($"Command example: {_prefix}wow rankings azgalor, carebears");
                     embed.Description = sb.ToString();
                     await _cc.Reply(Context, embed);
                     return;
@@ -1814,9 +1807,9 @@ namespace NinjaBotCore.Modules.Wow
                 StringBuilder sb = new StringBuilder();
                 var embed = new EmbedBuilder();
                 embed.WithColor(new Color(255, 0, 0));
-                embed.Title = $"Unable to find a guild/realm association!\nTry {Config.Prefix}wow rankings Realm Name, Guild Name";
-                sb.AppendLine($"Command syntax: {Config.Prefix}wow rankings realm name, guild name");
-                sb.AppendLine($"Command example: {Config.Prefix}wow rankings azgalor, carebears");
+                embed.Title = $"Unable to find a guild/realm association!\nTry {_prefix}wow rankings Realm Name, Guild Name";
+                sb.AppendLine($"Command syntax: {_prefix}wow rankings realm name, guild name");
+                sb.AppendLine($"Command example: {_prefix}wow rankings azgalor, carebears");
                 embed.Description = sb.ToString();
                 await _cc.Reply(Context, embed);
                 return;
@@ -1870,8 +1863,8 @@ namespace NinjaBotCore.Modules.Wow
                 var embed = new EmbedBuilder();
                 embed.WithColor(new Color(255, 0, 0));
                 embed.Title = $":frowning: Sorry, {Context.User.Username}, something went wrong! Perhaps check the guild's home realm.:frowning: ";
-                sb.AppendLine($"Command syntax: {Config.Prefix}wow rankings realm name, guild name");
-                sb.AppendLine($"Command example: {Config.Prefix}wow rankings azgalor, carebears");
+                sb.AppendLine($"Command syntax: {_prefix}wow rankings realm name, guild name");
+                sb.AppendLine($"Command example: {_prefix}wow rankings azgalor, carebears");
                 embed.Description = sb.ToString();
                 await _cc.Reply(Context, embed);
             }

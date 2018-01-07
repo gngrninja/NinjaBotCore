@@ -13,6 +13,7 @@ using NinjaBotCore.Database;
 using Discord;
 using Discord.Net;
 using Discord.WebSocket;
+using Microsoft.Extensions.Configuration;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -21,9 +22,13 @@ namespace NinjaBotCore.Modules.Wow
         private static CancellationTokenSource _tokenSource;
         private static List<Zones> _zones;
         private static List<CharClasses> _charClasses;
+        private readonly IConfigurationRoot _config;
+        private DiscordSocketClient _client;
 
-        public WarcraftLogs()
+        public WarcraftLogs(IConfigurationRoot config, DiscordSocketClient client)
         {
+            _client = client;
+            _config = config;
             Zones = this.GetZones();
             CharClasses = this.GetCharClasses();
         }
@@ -65,7 +70,7 @@ namespace NinjaBotCore.Modules.Wow
         public string LogsApiRequest(string url)
         {
             string response = string.Empty;
-            string wowLogsKey = $"api_key={Config.WarcraftLogsApi}";
+            string wowLogsKey = $"api_key={_config["WarcraftLogsApi"]}";
             string baseURL = "https://www.warcraftlogs.com:443/v1";
 
             url = $"{baseURL}{url}{wowLogsKey}";
@@ -364,9 +369,8 @@ namespace NinjaBotCore.Modules.Wow
                                             latestForGuild.LatestLog = startTime;
                                             latestForGuild.ReportId = latestLog.id;
                                             await db.SaveChangesAsync();
-                                        }
-                                        DiscordSocketClient client = NinjaBot.Client;
-                                        ISocketMessageChannel channel = client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
+                                        }                                        
+                                        ISocketMessageChannel channel = _client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
                                         if (channel != null)
                                         {
                                             var embed = new EmbedBuilder();

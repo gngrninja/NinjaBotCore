@@ -9,13 +9,22 @@ using NinjaBotCore.Models.Google;
 using NinjaBotCore.Models.DarkSky;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using Microsoft.Extensions.Configuration;
 
 namespace NinjaBotCore.Modules.Weather
 {
-    class WeatherApi
+    public class WeatherApi
     {
-        private readonly string _dsApiKey = Config.DarkSkyApi;
-        private readonly string _gMapsApiKey = Config.GoogleMapsApi;
+        private readonly string _dsApiKey;
+        private readonly string _gMapsApiKey;
+        private readonly IConfigurationRoot _config;
+
+        public WeatherApi(IConfigurationRoot config)
+        {
+            _config = config;
+            _dsApiKey = _config["DarkSkyApi"];
+            _gMapsApiKey = _config["GoogleMapsApi"];
+        }
 
         public string getAPIRequest(string url)
         {

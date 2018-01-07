@@ -8,12 +8,20 @@ using System.Net;
 using NinjaBotCore.Models.Steam;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using Microsoft.Extensions.Configuration;
 
 namespace NinjaBotCore.Modules.Steam
 {
-    public class Steam
+    public class SteamApi
     {
-        private string _key = $"?key={Config.SteamApi}";
+        private readonly IConfigurationRoot _config;
+        private string _key;
+
+        public SteamApi(IConfigurationRoot config)
+        {
+            _config = config;
+            _key =  $"?key={_config["SteamApi"]}";
+        }        
 
         private string getAPIRequest(string url)
         {
@@ -59,8 +67,7 @@ namespace NinjaBotCore.Modules.Steam
         }
 
         public SteamModel.Player GetSteamPlayerInfo(string lookupPlayer)
-        {
-            Steam s = new Steam();
+        {            
             SteamModel.Player p = new SteamModel.Player();
             try
             {
@@ -73,7 +80,7 @@ namespace NinjaBotCore.Modules.Steam
                     {
                         try
                         {
-                            p = s.GetProfileInfoBySteamID(steamID);
+                            GetProfileInfoBySteamID(steamID);
                         }
                         catch (Exception ex)
                         {
@@ -84,10 +91,10 @@ namespace NinjaBotCore.Modules.Steam
                 else
                 {
                     SteamModel.VanitySteam v;
-                    v = s.GetSteamIDbyVanityURL(lookupPlayer);
+                    v = GetSteamIDbyVanityURL(lookupPlayer);
                     if (v.success == 1)
                     {
-                        p = s.GetProfileInfoBySteamID(long.Parse(v.steamid));
+                        p = GetProfileInfoBySteamID(long.Parse(v.steamid));
                         Console.WriteLine(p.steamid);
                     }
                     else

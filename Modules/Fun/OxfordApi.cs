@@ -8,6 +8,7 @@ using Newtonsoft.Json;
 using NinjaBotCore.Models.OxfordDictionary;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using Microsoft.Extensions.Configuration;
 
 namespace NinjaBotCore.Modules.Fun
 {
@@ -16,12 +17,14 @@ namespace NinjaBotCore.Modules.Fun
         private string _baseUrl;
         private string _apiKey;
         private string _appId;      
+        private readonly IConfigurationRoot _config;
 
-        public OxfordApi()
+        public OxfordApi(IConfigurationRoot config)
         {
+            _config = config;
             _baseUrl = "https://od-api.oxforddictionaries.com/api/v1";
-            _apiKey = Config.OxfordDictionaryApi.Split(',')[0];
-            _appId = Config.OxfordDictionaryApi.Split(',')[1];
+            _apiKey = _config["OxfordDictionaryApi"].Split(',')[0];
+            _appId = _config["OxfordDictionaryApi"].Split(',')[1];
         }
 
         private string getAPIRequest(string url, string sourceLang = "en")

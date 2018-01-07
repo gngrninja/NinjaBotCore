@@ -8,29 +8,22 @@ using Discord.Net;
 using Discord.WebSocket;
 using Discord.Commands;
 using NinjaBotCore.Modules.Wow;
+using Microsoft.Extensions.Configuration;
 
 namespace NinjaBotCore.Modules.Weather
 {
     public class WeatherCommands : ModuleBase
-    {
-        private static ChannelCheck _cc = null;
-        private static WeatherApi _weather = null;      
-        private static WowApi _wowApi = null;
+    {        
+        private ChannelCheck _cc;
+        private WeatherApi _weather; 
+        private WowApi _wowApi;
 
-        public WeatherCommands(ChannelCheck cc, WowApi wowApi)
-        {
-            if (_cc == null)
-            {
-                _cc = cc;
-            }
-            if (_weather == null)
-            {
-                _weather = new WeatherApi();
-            }            
-            if (_wowApi == null) 
-            {
-                _wowApi = wowApi;
-            }
+        public WeatherCommands(ChannelCheck cc, WeatherApi weatherApi, WowApi wowApi)
+        {         
+            _wowApi = wowApi;
+            _cc = cc;                                    
+            _weather = weatherApi;
+                     
         }
         
         [Command("weather")]

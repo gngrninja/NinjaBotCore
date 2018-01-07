@@ -13,36 +13,30 @@ using NinjaBotCore.Modules.Steam;
 using Discord.WebSocket;
 using NinjaBotCore.Models.RocketLeague;
 using NinjaBotCore.Modules.RocketLeague;
+using Microsoft.Extensions.Configuration;
 
 namespace NinjaBotCore.Modules.RocketLeague
 {
     public class RlCommands : ModuleBase
     {
-        private Steam.Steam _steam = null;
-        private RocketLeague _rl = null;
-        private static ChannelCheck _cc = null;
-        private RlStatsApi _rlStatsApi = null;
+        private SteamApi _steam;
+        private RocketLeague _rl;
+        private static ChannelCheck _cc;
+        private RlStatsApi _rlStatsApi;
+        private readonly IConfigurationRoot _config;
+        private string _prefix;
 
-        public RlCommands(Steam.Steam steam, ChannelCheck cc, RocketLeague rl, RlStatsApi rlStatsApi)
+        public RlCommands(SteamApi steam, ChannelCheck cc, RocketLeague rl, RlStatsApi rlStatsApi, IConfigurationRoot config)
         {
             try
-            {
-                if (_steam == null)
-                {
-                    _steam = steam;
-                }
-                if (_rl == null)
-                {
-                    _rl = rl;
-                }
-                if (_cc == null)
-                {
-                    _cc = cc;
-                }
-                if (_rlStatsApi == null)
-                {
-                    _rlStatsApi = rlStatsApi;
-                }
+            {               
+                _steam = steam;             
+                _rl = rl;                
+                _cc = cc;               
+                _rlStatsApi = rlStatsApi;              
+                _config = config;
+                _prefix = _config["prefix"];
+
             }
             catch (Exception ex)
             {
@@ -63,7 +57,7 @@ namespace NinjaBotCore.Modules.RocketLeague
                 {
                     if (searchResults.data.Count > 1)
                     {
-                        sb.AppendLine($"**Use the {Config.Prefix}rlstats command with one of the following player names:**");
+                        sb.AppendLine($"**Use the {_prefix}rlstats command with one of the following player names:**");
                         for (int i = 0; i <= searchResults.data.Count - 1; i++)
                         {
                             DateTime humanTime = _rlStatsApi.UnixTimeStampToDateTimeSeconds(searchResults.data[i].updatedAt);

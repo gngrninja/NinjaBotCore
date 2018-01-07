@@ -19,7 +19,7 @@ namespace NinjaBotCore.Modules.YouTube
         private static ChannelCheck _cc = null;
         private static YouTubeApi _youTubeApi = null;
 
-        public YouTubeCommands(ChannelCheck cc)
+        public YouTubeCommands(ChannelCheck cc, YouTubeApi youTubeApi)
         {
             if (_cc == null)
             {
@@ -27,7 +27,7 @@ namespace NinjaBotCore.Modules.YouTube
             }
             if (_youTubeApi == null)
             {
-                _youTubeApi = new YouTubeApi();
+                _youTubeApi = youTubeApi;
             }
         }
         //Command that links just one video normally so it has play button
