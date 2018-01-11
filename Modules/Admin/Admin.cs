@@ -30,6 +30,33 @@ namespace NinjaBotCore.Modules.Admin
             Console.WriteLine($"Admin module loaded");
         }
 
+        [Command("change-prefix",RunMode = RunMode.Async)]
+        [RequireUserPermission(GuildPermission.Administrator)]
+        public async Task ChangePrefix(char prefix)
+        {
+            using (var db = new NinjaBotEntities())
+            {
+                var currentPrefix = db.PrefixList.Where(p => p.ServerId == (long)Context.Guild.Id).FirstOrDefault();
+                if (currentPrefix != null)
+                {
+                    currentPrefix.Prefix = prefix;
+                    currentPrefix.SetById = (long)Context.User.Id;
+                }
+                else
+                {
+                    db.PrefixList.Add(new PrefixList
+                    {
+                        ServerId = (long)Context.Guild.Id,
+                        ServerName = Context.Guild.Name,
+                        Prefix = prefix,
+                        SetById = (long)Context.User.Id
+                    });
+                }
+                await db.SaveChangesAsync();
+            }
+            await _cc.Reply(Context, $"Prefix for [**{Context.Guild.Name}**] changed to [**{prefix}**]");
+        }
+
         [Command("Show-Servers")]
         [Summary("Show the servers the bot is in")]
         [RequireOwner]

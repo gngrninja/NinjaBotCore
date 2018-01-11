@@ -21,6 +21,7 @@ using NinjaBotCore.Services;
 using NinjaBotCore.Modules.Giphy;
 using NinjaBotCore.Modules.Weather;
 using NinjaBotCore.Modules.YouTube;
+using Microsoft.EntityFrameworkCore;
 
 namespace NinjaBotCore
 {
@@ -30,15 +31,6 @@ namespace NinjaBotCore
         private CommandHandler _handler;        
         public static DiscordSocketClient Client;
         private IConfigurationRoot _config;
-
-        public NinjaBot()
-        {
-            //Make sure we have a db file (if not, create one)
-            using (var db = new NinjaBotEntities())
-            {
-                db.Database.EnsureCreated();
-            }                        
-        }
 
         public async Task StartAsync()
         {            

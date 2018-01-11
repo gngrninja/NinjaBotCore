@@ -37,11 +37,22 @@ namespace NinjaBotCore.Services
 
             // Mark where the prefix ends and the command begins
             int argPos = 0;
-            // Determine if the message has a valid prefix, adjust argPos 
-            if (!(message.HasMentionPrefix(_client.CurrentUser, ref argPos) || message.HasCharPrefix(Char.Parse(_config["prefix"]), ref argPos))) return;
+            
 
             // Create a Command Context
             var context = new SocketCommandContext(_client, message);
+
+            char prefix = Char.Parse(_config["prefix"]);
+
+            var serverPrefix = GetPrefix((long)context.Guild.Id); 
+
+            if (serverPrefix != null)
+            {
+                prefix = serverPrefix.Prefix;
+            }
+            
+            // Determine if the message has a valid prefix, adjust argPos
+            if (!(message.HasMentionPrefix(_client.CurrentUser, ref argPos) || message.HasCharPrefix(prefix, ref argPos))) return;
 
             //Check blacklist
             List<Blacklist> blacklist = new List<Blacklist>();
@@ -73,6 +84,17 @@ namespace NinjaBotCore.Services
             }
         }
 
+        private PrefixList GetPrefix(long serverId)
+        {
+            PrefixList prefix = null;
+
+            using (var db = new NinjaBotEntities())
+            {
+                prefix = db.PrefixList.Where(p => p.ServerId == serverId).FirstOrDefault();
+            }
+
+            return prefix;
+        }
         private static async Task LogCommandUsage(SocketCommandContext context, IResult result)
         {
             var request = new Request();
