@@ -26,14 +26,12 @@ namespace NinjaBotCore.Modules.YouTube
         {
             _config = config;
             _key = _config["YouTubeApi"];
-            System.Console.WriteLine(_key);
         }
         private string getYouTubeApiRequest(string url)
         {
             string reponse = string.Empty;
             
             string fullUrl = $"https://www.googleapis.com/youtube/v3/search?key={_key}{url}";
-            System.Console.WriteLine($"{fullUrl}");
             Console.WriteLine($"YouTube API Request {fullUrl}");
 
             string response = string.Empty;

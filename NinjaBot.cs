@@ -66,6 +66,7 @@ namespace NinjaBotCore
                     CaseSensitiveCommands = false, 
                     ThrowOnError = false 
                 }))
+                .AddSingleton<LoggingService>()
                 .AddSingleton<WowApi>()
                 .AddSingleton<WarcraftLogs>()
                 .AddSingleton<ChannelCheck>()
@@ -88,7 +89,8 @@ namespace NinjaBotCore
             //Start the command handler
             serviceProvider.GetRequiredService<CommandHandler>();
             
-            //Instantiate services            
+            //Instantiate services    
+            serviceProvider.GetRequiredService<LoggingService>();        
             serviceProvider.GetRequiredService<UserInteraction>();              
             serviceProvider.GetRequiredService<AwayCommands>();
             serviceProvider.GetRequiredService<WowApi>();
