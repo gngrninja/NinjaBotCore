@@ -6,19 +6,17 @@ using System.Threading.Tasks;
 using Discord;
 using Discord.Net;
 using Discord.Commands;
+using NinjaBotCore.Services;
 
 namespace NinjaBotCore.Modules.Admin
 {
     public class SetChanCommands : ModuleBase
     {
-        private static ChannelCheck _cc;        
+        private ChannelCheck _cc;        
 
         public SetChanCommands(ChannelCheck cc)
         {
-            if (_cc == null)
-            {
-                _cc = cc;                
-            }
+            _cc = cc;
         }
 
         [Command("set-channel")]

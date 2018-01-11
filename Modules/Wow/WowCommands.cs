@@ -11,6 +11,7 @@ using Discord.Net;
 using Discord.WebSocket;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
+using NinjaBotCore.Services;
 
 namespace NinjaBotCore.Modules.Wow
 {

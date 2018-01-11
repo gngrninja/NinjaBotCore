@@ -10,7 +10,7 @@ using Discord.Commands;
 using Discord.WebSocket;
 using System.Threading;
 
-namespace NinjaBotCore
+namespace NinjaBotCore.Services
 {
     public class ChannelCheck
     {

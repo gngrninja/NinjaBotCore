@@ -9,6 +9,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
+using NinjaBotCore.Services;
 
 namespace NinjaBotCore.Modules.Fun
 {

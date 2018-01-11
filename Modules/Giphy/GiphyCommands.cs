@@ -10,6 +10,7 @@ using Discord.Commands;
 using NinjaBotCore.Database;
 using NinjaBotCore.Models.Giphy;
 using Microsoft.Extensions.Configuration;
+using NinjaBotCore.Services;
 
 namespace NinjaBotCore.Modules.Giphy
 {

@@ -9,6 +9,7 @@ using Discord.Net;
 using Discord.Commands;
 using Discord.WebSocket;
 using NinjaBotCore.Database;
+using NinjaBotCore.Services;
 
 namespace NinjaBotCore.Modules.Admin
 {

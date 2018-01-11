@@ -14,6 +14,7 @@ using Discord.WebSocket;
 using NinjaBotCore.Models.RocketLeague;
 using NinjaBotCore.Modules.RocketLeague;
 using Microsoft.Extensions.Configuration;
+using NinjaBotCore.Services;
 
 namespace NinjaBotCore.Modules.RocketLeague
 {

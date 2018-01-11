@@ -9,6 +9,7 @@ using Discord.WebSocket;
 using Discord.Commands;
 using NinjaBotCore.Modules.Wow;
 using Microsoft.Extensions.Configuration;
+using NinjaBotCore.Services;
 
 namespace NinjaBotCore.Modules.Weather
 {

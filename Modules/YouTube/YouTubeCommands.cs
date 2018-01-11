@@ -11,6 +11,7 @@ using NinjaBotCore.Models.YouTube;
 using Google.Apis.YouTube;
 using Google.Apis.YouTube.v3;
 using Google.Apis.YouTube.v3.Data;
+using NinjaBotCore.Services;
 
 namespace NinjaBotCore.Modules.YouTube
 {

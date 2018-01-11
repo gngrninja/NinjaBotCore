@@ -7,6 +7,7 @@ using Discord.Commands;
 using Discord;
 using Discord.WebSocket;
 using NinjaBotCore.Database;
+using NinjaBotCore.Services;
 
 namespace NinjaBotCore.Modules.Away
 {

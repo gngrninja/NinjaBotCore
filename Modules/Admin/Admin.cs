@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using NinjaBotCore.Database;
 using System.Collections.Generic;
 using Microsoft.Extensions.Configuration;
+using NinjaBotCore.Services;
 
 namespace NinjaBotCore.Modules.Admin
 {
