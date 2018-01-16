@@ -351,6 +351,7 @@ namespace NinjaBotCore.Modules.Admin
             }
             embed.Description = sb.ToString();
             embed.WithColor(new Color(0, 0, 255));
+            //await _client.Log("test")
             await _cc.Reply(Context, embed);
         }
 
@@ -672,7 +673,7 @@ namespace NinjaBotCore.Modules.Admin
             {
                 await KickUser(user, "Maximum number of warnings reached!");
                 ResetWarnings(currentWarnings);
-            }            
+            }      
         }
 
         [Command("reset-warnings",RunMode = RunMode.Async)]
@@ -801,6 +802,7 @@ namespace NinjaBotCore.Modules.Admin
             }
             return sb.ToString();
         }
+        
         //[Command("Deafen")]
     }
 }
