@@ -131,6 +131,7 @@ namespace NinjaBotCore.Modules.Admin
                 }
             }
         }
+
         [Command("RemoveWResource")]
         [RequireOwner]
         [Alias("rwr")]
@@ -200,6 +201,7 @@ namespace NinjaBotCore.Modules.Admin
                 {
                     reason = "Buh bye.";
                 }
+                await user.SendMessageAsync($"You've been kicked from [**{Context.Guild.Name}**] by [**{Context.User.Username}**]: [**{reason}**]");
                 sb.AppendLine($"Reason: [**{reason}**]");
             }
             catch (Exception ex)
@@ -216,19 +218,55 @@ namespace NinjaBotCore.Modules.Admin
         [Summary("Ban someone, not nice... but needed sometimes")]
         [RequireBotPermission(GuildPermission.BanMembers)]
         [RequireUserPermission(GuildPermission.BanMembers)]
-        public async Task BanUser(IGuildUser user, [Remainder] string reason = null)
+        public async Task BanUser(IGuildUser user, [Remainder] string args = null)
         {
+            int pruneDays = 0;
+            string reason = "Buy bye!";            
+            if (args != null)
+            {
+                try 
+                {
+                    pruneDays = int.Parse(args.Split(" ")[0]);
+                }
+                catch (Exception ex)
+                {
+                    pruneDays = 0;
+                }
+                var numArgs = args.Split(" ").Count();
+                if (numArgs > 1)
+                {
+                    int iValue = 0;
+                    if (pruneDays > 0)
+                    {
+                        iValue = 1;                        
+                    }
+                    reason = string.Empty;
+                    for (int i = iValue; i <= numArgs - 1; i++)
+                    {
+                        if (i + 1 == numArgs - 1)
+                        {
+                            reason += $"{args.Split(" ")[i]}";
+                        }
+                        else
+                        {
+                            reason += $" {args.Split(" ")[i]} ";
+                        }
+                    }
+                    reason = reason.Trim();
+                }
+                else if (pruneDays == 0) 
+                {
+                    reason = args;
+                }
+            }
             var embed = new EmbedBuilder();
             embed.ThumbnailUrl = user.GetAvatarUrl();
             StringBuilder sb = new StringBuilder();
             try
             {
-                await Context.Guild.AddBanAsync(user);
+                await user.SendMessageAsync($"You have been banned from [**{Context.Guild.Name}**] -> [**{reason}**]");
+                await Context.Guild.AddBanAsync(user, pruneDays, reason);
                 embed.Title = $"Banning {user.Username}";
-                if (string.IsNullOrEmpty(reason))
-                {
-                    reason = "Buh bye.";
-                }
                 sb.AppendLine($"Reason: [**{reason}**]");
             }
             catch (Exception ex)
@@ -245,27 +283,30 @@ namespace NinjaBotCore.Modules.Admin
         [Summary("Unban someone... whew!")]
         [RequireBotPermission(GuildPermission.BanMembers)]
         [RequireUserPermission(GuildPermission.BanMembers)]
-        public async Task UnBanUser(string user, [Remainder] string reason = null)
+        public async Task UnBanUser(string user)
         {
             var embed = new EmbedBuilder();
             embed.ThumbnailUrl = Context.Guild.IconUrl;
             StringBuilder sb = new StringBuilder();
             var currentBans = await Context.Guild.GetBansAsync();
             var bannedUser = currentBans.Where(c => c.User.Username.Contains(user)).FirstOrDefault();
-            try
+            if (bannedUser != null)
             {
-                await Context.Guild.RemoveBanAsync(bannedUser.User.Id);
-                embed.Title = $"UnBanning {bannedUser.User.Username}";
-                if (string.IsNullOrEmpty(reason))
+                try
                 {
-                    reason = "Hello again.";
+                    await Context.Guild.RemoveBanAsync(bannedUser.User.Id);
+                    embed.Title = $"UnBanning {bannedUser.User.Username}";
                 }
-                sb.AppendLine($"Reason: [**{reason}**]");
+                catch (Exception ex)
+                {
+                    embed.Title = $"Error attempting to unban {bannedUser.User.Username}";
+                    sb.AppendLine($"[{ex.Message}]");
+                }
             }
-            catch (Exception ex)
+            else 
             {
-                embed.Title = $"Error attempting to unban {bannedUser.User.Username}";
-                sb.AppendLine($"[{ex.Message}]");
+                embed.Title = $"{user} not found!";
+                sb.AppendLine($"Unable to find [{user}] in the ban list!");
             }
             embed.Description = sb.ToString();
             embed.WithColor(new Color(0, 0, 255));
@@ -289,7 +330,12 @@ namespace NinjaBotCore.Modules.Admin
                 {
                     foreach (var ban in bans)
                     {
-                        sb.AppendLine($":black_medium_small_square: **{ban.User.Username}** (*{ban.Reason}*)");
+                        string reason = ban.Reason;
+                        if (string.IsNullOrEmpty(reason))
+                        {
+                            reason = "/shrug";
+                        }
+                        sb.AppendLine($":black_medium_small_square: **{ban.User.Username}** (*{reason}*)");
                     }
                 }
                 else
