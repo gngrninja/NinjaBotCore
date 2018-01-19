@@ -43,11 +43,8 @@ namespace NinjaBotCore
             var services = new ServiceCollection()
                 .AddSingleton(new DiscordSocketClient(new DiscordSocketConfig
                 {
-#if DEBUG
-                    LogLevel = LogSeverity.Debug,
-#else
-                    LogLevel = LogSeverity.Verbose,
-#endif                
+                    //LogLevel = LogSeverity.Debug,
+                    LogLevel = LogSeverity.Verbose, 
                     MessageCacheSize = 1000
                 }))
                 .AddSingleton(_config)
