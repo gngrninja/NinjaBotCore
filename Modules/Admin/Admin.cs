@@ -195,13 +195,13 @@ namespace NinjaBotCore.Modules.Admin
             StringBuilder sb = new StringBuilder();
             try
             {
+                await user.SendMessageAsync($"You've been kicked from [**{Context.Guild.Name}**] by [**{Context.User.Username}**]: [**{reason}**]");
                 await user.KickAsync();
                 embed.Title = $"Kicking {user.Username}";
                 if (string.IsNullOrEmpty(reason))
                 {
                     reason = "Buh bye.";
-                }
-                await user.SendMessageAsync($"You've been kicked from [**{Context.Guild.Name}**] by [**{Context.User.Username}**]: [**{reason}**]");
+                }                
                 sb.AppendLine($"Reason: [**{reason}**]");
             }
             catch (Exception ex)
