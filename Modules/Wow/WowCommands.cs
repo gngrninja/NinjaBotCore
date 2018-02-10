@@ -1402,6 +1402,11 @@ namespace NinjaBotCore.Modules.Wow
                                 encounterID = fightList[9].id;
                                 break;
                             }
+                        case "11":
+                            {
+                                encounterID = fightList[10].id;
+                                break;
+                            }
                     }
                 }
                 else
@@ -1441,14 +1446,14 @@ namespace NinjaBotCore.Modules.Wow
                 if (string.IsNullOrEmpty(fightName))
                 {
                     sb.AppendLine($"{Context.User.Username}, please specify a fight name/number!");
-                    sb.AppendLine($"**Example:** !top10 1");
-                    sb.AppendLine($"**Encounter Lists:** !top10 list");
+                    sb.AppendLine($"**Example:** {_prefix}top10 1");
+                    sb.AppendLine($"**Encounter Lists:** {_prefix}top10 list");
                     await _cc.Reply(Context, sb.ToString());
                     return;
                 }
                 if (!(string.IsNullOrEmpty(guildOnly) || guildOnly.ToLower() != "guild"))
                 {
-                    l = _logsApi.GetRankingsByEncounterGuild(encounterID, realmName, guildObject.guildName, "2", metric, difficultyID, region);
+                    l = _logsApi.GetRankingsByEncounterGuild(encounterID, realmName, guildObject.guildName, metric, difficultyID, region);
                 }
                 else
                 {
@@ -1490,7 +1495,7 @@ namespace NinjaBotCore.Modules.Wow
                 foreach (var rank in top10)
                 {
                     var classInfo = WarcraftLogs.CharClasses.Where(c => c.id == rank._class).FirstOrDefault();
-                    sb.AppendLine($"**{i}** [{rank.name}](http://{region}.battle.net/wow/en/character/{rank.server}/{rank.name}/advanced) ilvl **{rank.itemLevel}** {classInfo.name} from *[{rank.guild}]*");
+                    sb.AppendLine($"**{i}** [{rank.name}](http://{region}.battle.net/wow/en/character/{rank.server.Replace(" ","-")}/{rank.name}/advanced) ilvl **{rank.itemLevel}** {classInfo.name} from *[{rank.guild}]*");
                     sb.AppendLine($"\t{metricEmoji}[**{rank.total.ToString("###,###")}** {metric.ToLower()}]");
                     i++;
                 }
