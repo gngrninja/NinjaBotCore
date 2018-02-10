@@ -6,9 +6,10 @@
 /obj/
 /Migrations/
 
-#Ignore db files
+#Ignore db/log files
 *.db
 *.db3
+*.log
 
 #Ignore vscode folders
 /.vscode/
