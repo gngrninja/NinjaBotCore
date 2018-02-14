@@ -15,6 +15,9 @@ using NinjaBotCore.Models.RocketLeague;
 using NinjaBotCore.Modules.RocketLeague;
 using Microsoft.Extensions.Configuration;
 using NinjaBotCore.Services;
+using RLSApi;
+using RLSApi.Data;
+using RLSApi.Net.Requests;
 
 namespace NinjaBotCore.Modules.RocketLeague
 {
@@ -24,25 +27,21 @@ namespace NinjaBotCore.Modules.RocketLeague
         private RocketLeague _rl;
         private static ChannelCheck _cc;
         private RlStatsApi _rlStatsApi;
+        private string _rlStatsKey;
         private readonly IConfigurationRoot _config;
         private string _prefix;
+        private RLSClient _rlsClient; 
 
         public RlCommands(SteamApi steam, ChannelCheck cc, RocketLeague rl, RlStatsApi rlStatsApi, IConfigurationRoot config)
-        {
-            try
-            {               
-                _steam = steam;             
-                _rl = rl;                
-                _cc = cc;               
-                _rlStatsApi = rlStatsApi;              
-                _config = config;
-                _prefix = _config["prefix"];
-
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Unable to create Rocket League Commands class ->  [{ex.Message}]");
-            }
+        {          
+            _steam = steam;             
+            _rl = rl;                
+            _cc = cc;               
+            _rlStatsApi = rlStatsApi;              
+            _config = config;
+            _rlStatsKey = $"{_config["RlStatsApi"]}";
+            _prefix = _config["prefix"];
+            _rlsClient = new RLSClient(_rlStatsKey);
         }
 
         [Command("rl-search", RunMode = RunMode.Async)]
@@ -53,29 +52,29 @@ namespace NinjaBotCore.Modules.RocketLeague
             if (searchPlayer != null)
             {
                 StringBuilder sb = new StringBuilder();
-                var searchResults = await _rlStatsApi.SearchForPlayer(searchPlayer);
+                var searchResults = await _rlsClient.SearchPlayerAsync(searchPlayer);
                 if (searchResults != null)
                 {
-                    if (searchResults.data.Count > 1)
+                    if (searchResults.TotalResults > 1)
                     {
                         sb.AppendLine($"**Use the {_prefix}rlstats command with one of the following player names:**");
-                        for (int i = 0; i <= searchResults.data.Count - 1; i++)
+                        for (int i = 0; i <= searchResults.Data.Count() - 1; i++)
                         {
-                            DateTime humanTime = _rlStatsApi.UnixTimeStampToDateTimeSeconds(searchResults.data[i].updatedAt);
+                            DateTime humanTime = _rlStatsApi.UnixTimeStampToDateTimeSeconds(searchResults.Data[i].UpdatedAt);
                             embed.AddField(new EmbedFieldBuilder
                             {
-                                Name = $":white_small_square: {searchResults.data[i].displayName}",
+                                Name = $":white_small_square: {searchResults.Data[i].DisplayName}",
                                 Value = $"Last Updated: [*{string.Format("{0:MM-dd-yy HH:mm}", humanTime)}*]",
                                 IsInline = true
                             });
                         }
                     }
-                    else if (searchResults.data.Count == 1)
+                    else if (searchResults.Data.Count() == 1)
                     {
-                        DateTime humanTime = _rlStatsApi.UnixTimeStampToDateTimeSeconds(searchResults.data[0].updatedAt);
+                        DateTime humanTime = _rlStatsApi.UnixTimeStampToDateTimeSeconds(searchResults.Data[0].UpdatedAt);
                         embed.AddField(new EmbedFieldBuilder
                         {
-                            Name = $":white_small_square: {searchResults.data[0].displayName}",
+                            Name = $":white_small_square: {searchResults.Data[0].DisplayName}",
                             Value = $"Last Updated: [*{string.Format("{0:MM-dd-yy HH:mm}", humanTime)}*]",
                             IsInline = true
                         });
@@ -92,6 +91,27 @@ namespace NinjaBotCore.Modules.RocketLeague
                 embed.Description = $"Please specify a user name to search for!";
             }
             await _cc.Reply(Context, embed);
+        }
+
+        [Command("rltest", RunMode = RunMode.Async)]
+        public async Task RlTest([Remainder] string playerName)
+        {
+            var player = await _rlsClient.SearchPlayerAsync(playerName);  
+            if (player.TotalResults > 0)
+            {
+                var seasonSeven = player.Data[0].RankedSeasons.FirstOrDefault(x => x.Key == RlsSeason.Seven);            
+                if (seasonSeven.Value != null)
+                {
+                    System.Console.WriteLine($"{player.Data.FirstOrDefault().DisplayName}");
+
+                    foreach (var playerRank in seasonSeven.Value)
+                    {
+                        System.Console.WriteLine($"{playerRank.Key} -> {playerRank.Value.RankPoints}");
+                    }
+                }
+            }                      
+            //string displayName = player.Data[0].DisplayName;
+            //await _cc.Reply(Context, $"{displayName}");
         }
 
         [Command("rlstats", RunMode = RunMode.Async)]
@@ -234,13 +254,13 @@ namespace NinjaBotCore.Modules.RocketLeague
                 return;
             }
             
-            var searchResults = await _rlStatsApi.SearchForPlayer(name);
-            if (searchResults.data.Count > 0)
+            var searchResults = await _rlsClient.SearchPlayerAsync(name);
+            if (searchResults.TotalResults > 0)
             {
                 try
                 {
-                    EmbedBuilder embed = await RlEmbedApi(searchResults.data[0]);
-                    await InsertStats(searchResults.data[0]);
+                    EmbedBuilder embed = await RlEmbedApi(searchResults.Data[0]);
+                    //await InsertStats(searchResults.data[0]);
                     await _cc.Reply(Context, embed);
                 }
                 catch (Exception ex)
@@ -260,14 +280,14 @@ namespace NinjaBotCore.Modules.RocketLeague
 
         public async Task GetStats(long? uniqueId)
         {
-            StringBuilder sb = new StringBuilder();            
-            var userStats = await _rlStatsApi.SearchForPlayer(uniqueId);
+            StringBuilder sb = new StringBuilder();          
+            var userStats = await _rlsClient.GetPlayerAsync(RlsPlatform.Steam, uniqueId.ToString());            
             if (userStats != null)
             {
                 try
                 {
                     EmbedBuilder embed = await RlEmbedApi(userStats);
-                    await InsertStats(userStats);
+                    //await InsertStats(userStats);
                     await _cc.Reply(Context, embed);
                 }
                 catch (Exception ex)
@@ -300,37 +320,37 @@ namespace NinjaBotCore.Modules.RocketLeague
             return;
         }
 
-        private static void FormatStatInfo(StringBuilder sb, PropertyInfo rank, SeasonStats rankInfo)
+        private static void FormatStatInfo(StringBuilder sb, RLSApi.Data.RlsPlaylistRanked rank, RLSApi.Net.Models.PlayerRank rankInfo)
         {
             string rankMoji = string.Empty;
-            int matchesPlayed = rankInfo.matchesPlayed;
-            int rankPoints = rankInfo.rankPoints;
-            string tier = RlStatsApi.Tiers.Where(t => t.tierId == rankInfo.tier).Select(t => t.tierName).FirstOrDefault();
-            if (rankInfo.tier >= 1 & rankInfo.tier < 4)
+            int? matchesPlayed = rankInfo.MatchesPlayed;
+            int? rankPoints = rankInfo.RankPoints;
+            string tier = RlStatsApi.Tiers.Where(t => t.tierId == rankInfo.Tier).Select(t => t.tierName).FirstOrDefault();
+            if (rankInfo.Tier >= 1 & rankInfo.Tier < 4)
             {
                 rankMoji = ":tangerine:";
             }
-            else if (rankInfo.tier >= 4 & rankInfo.tier < 7)
+            else if (rankInfo.Tier >= 4 & rankInfo.Tier < 7)
             {
                 rankMoji = ":full_moon:";
             }
-            else if (rankInfo.tier >= 7 & rankInfo.tier < 10)
+            else if (rankInfo.Tier >= 7 & rankInfo.Tier < 10)
             {
                 rankMoji = ":sunny:";
             }
-            else if (rankInfo.tier >= 10 & rankInfo.tier < 13)
+            else if (rankInfo.Tier >= 10 & rankInfo.Tier < 13)
             {
                 rankMoji = ":fork_knife_plate:";
             }
-            else if (rankInfo.tier >= 13 & rankInfo.tier < 16)
+            else if (rankInfo.Tier >= 13 & rankInfo.Tier < 16)
             {
                 rankMoji = ":large_blue_diamond:";
             }
-            else if (rankInfo.tier >= 16 & rankInfo.tier < 19)
+            else if (rankInfo.Tier >= 16 & rankInfo.Tier < 19)
             {
                 rankMoji = ":purple_heart:";
             }
-            else if (rankInfo.tier == 19)
+            else if (rankInfo.Tier == 19)
             {
                 rankMoji = ":eggplant:";
             }
@@ -342,35 +362,35 @@ namespace NinjaBotCore.Modules.RocketLeague
             {
                 tier = ":(";
             }
-            switch (rank.Name)
+            switch (rank)
             {
-                case "_onevone":
+                case RlsPlaylistRanked.Duel:
                     {
                         sb.AppendLine("Duel");
                         break;
                     }
-                case "_twovtwo":
+                case RlsPlaylistRanked.Doubles:
                     {
                         sb.AppendLine("Doubles");
                         break;
                     }
-                case "_solostandard":
+                case RlsPlaylistRanked.SoloStandard:
                     {
                         sb.AppendLine("Solo Standard");
                         break;
                     }
-                case "_standard":
+                case RlsPlaylistRanked.Standard:
                     {
                         sb.AppendLine("Standard");
                         break;
                     }
                 default:
                     {
-                        sb.AppendLine(rank.Name);
+                        sb.AppendLine(rank.ToString());
                         break;
                     }
             }
-            sb.AppendLine($"{rankMoji} [*{tier}(div {rankInfo.division + 1})* [**{rankPoints}**]] Matches played [**{matchesPlayed}**]");
+            sb.AppendLine($"{rankMoji} [*{tier}(div {rankInfo.Division + 1})* [**{rankPoints}**]] Matches played [**{matchesPlayed}**]");
         }
 
         public async Task<RlStat> GetRlUserInfo(bool ps)
@@ -385,73 +405,72 @@ namespace NinjaBotCore.Modules.RocketLeague
             return rlUser;
         }
 
-        private async Task<EmbedBuilder> RlEmbedApi(UserStats stats)
+        private async Task<EmbedBuilder> RlEmbedApi(RLSApi.Net.Models.Player stats)
         {
             long steamId = 0;
-            long.TryParse(stats.uniqueId, out steamId);
+            long.TryParse(stats.UniqueId, out steamId);
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
-            embed.Title = $"Stats for [{stats.displayName}]";
-            embed.ThumbnailUrl = stats.avatar;
+            embed.Title = $"Stats for [{stats.DisplayName}]";
+            embed.ThumbnailUrl = stats.Avatar;
             embed.WithColor(new Color(0, 255, 0));
             embed.WithAuthor(new EmbedAuthorBuilder
             {
                 Name = $"{Context.User.Username}",
                 IconUrl = $"{Context.User.GetAvatarUrl()}"
             });
-            var rankings = Enum.GetValues(typeof(RlRankingList));
-            var rankingsFromObject = stats.rankedSeasons._6.GetType().GetProperties();
-            foreach (var rank in rankingsFromObject)
-            {
-                var rankInfo = (SeasonStats)stats.rankedSeasons._6.GetType().GetProperty(rank.Name).GetValue(stats.rankedSeasons._6, null);
-                FormatStatInfo(sb, rank, rankInfo);
+            //var rankings = Enum.GetValues(typeof(RlRankingList));
+            var rankingsFromObject = stats.RankedSeasons.FirstOrDefault(k => k.Key == RlsSeason.Seven);
+            foreach (var rank in rankingsFromObject.Value)
+            {                                
+                FormatStatInfo(sb, rank.Key, rank.Value);
             }
             embed.AddField(new EmbedFieldBuilder
             {
-                Name = "Season 5",
+                Name = "Season 7",
                 Value = $"{sb.ToString()}",
                 IsInline = false
             });
             embed.AddField(new EmbedFieldBuilder
             {
                 Name = "Shots",
-                Value = $"{stats.stats.shots}",
+                Value = $"{stats.Stats.Shots}",
                 IsInline = true
             });
             embed.AddField(new EmbedFieldBuilder
             {
                 Name = "Goals",
-                Value = $"{stats.stats.goals}",
+                Value = $"{stats.Stats.Goals}",
                 IsInline = true
             });
             embed.AddField(new EmbedFieldBuilder
             {
                 Name = "MVPs",
-                Value = $"{stats.stats.mvps}",
+                Value = $"{stats.Stats.Mvps}",
                 IsInline = true
             });
             embed.AddField(new EmbedFieldBuilder
             {
                 Name = "Assists",
-                Value = $"{stats.stats.assists}",
+                Value = $"{stats.Stats.Assists}",
                 IsInline = true
             });
             embed.AddField(new EmbedFieldBuilder
             {
                 Name = "Saves",
-                Value = $"{stats.stats.saves}",
+                Value = $"{stats.Stats.Saves}",
                 IsInline = true
             });
             embed.AddField(new EmbedFieldBuilder
             {
                 Name = "Wins",
-                Value = $"{stats.stats.wins}",
+                Value = $"{stats.Stats.Wins}",
                 IsInline = true
             });
             embed.AddField(new EmbedFieldBuilder
             {
                 Name = "Stats Provided By:",
-                Value = $"{stats.profileUrl}",
+                Value = $"{stats.ProfileUrl}",
                 IsInline = false
             });
             return embed;
@@ -461,7 +480,7 @@ namespace NinjaBotCore.Modules.RocketLeague
         {
             long steamId = 0;
             long.TryParse(fromSteam.steamid, out steamId);
-            var stats = await _rlStatsApi.GetUserStats(steamId);
+            var stats = await _rlsClient.GetPlayerAsync(RlsPlatform.Steam, steamId.ToString());
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
             embed.Title = $"Stats for [{fromSteam.personaname}]";
@@ -471,16 +490,17 @@ namespace NinjaBotCore.Modules.RocketLeague
             {
                 Name = $"{Context.User.Username}",
                 IconUrl = $"{Context.User.GetAvatarUrl()}"
-            });
-            var rankingsFromObject = stats.rankedSeasons._6.GetType().GetProperties();
-            foreach (var rank in rankingsFromObject)
+            });            
+            var rankingsFromObject = stats.RankedSeasons.FirstOrDefault(x => x.Key == RlsSeason.Seven);
+            foreach (var rank in rankingsFromObject.Value)
             {
-                var rankInfo = (SeasonStats)stats.rankedSeasons._6.GetType().GetProperty(rank.Name).GetValue(stats.rankedSeasons._6, null);
-                FormatStatInfo(sb, rank, rankInfo);
+                //var rankInfo = (SeasonStats)rank.Value;
+                //FormatStatInfo(sb, rank, rankInfo);
             }
+            /* 
             embed.AddField(new EmbedFieldBuilder
             {
-                Name = "Season 5",
+                Name = "Season 7",
                 Value = $"{sb.ToString()}",
                 IsInline = false
             });
@@ -526,6 +546,7 @@ namespace NinjaBotCore.Modules.RocketLeague
                 Value = $"{stats.profileUrl}",
                 IsInline = false
             });
+            */
             return embed;
         }
 
@@ -793,19 +814,19 @@ namespace NinjaBotCore.Modules.RocketLeague
                 var getStat = db.RlUserStats.Where(s => s.SteamID == steamId).FirstOrDefault();
                 if (stats.rankedSeasons._6._onevone != null)
                 {
-                    statAdd.RankedDuel = stats.rankedSeasons._6._onevone.rankPoints.ToString();
+                    statAdd.RankedDuel = stats.rankedSeasons._6._onevone.RankPoints.ToString();
                 }
                 if (stats.rankedSeasons._6._twovtwo != null)
                 {
-                    statAdd.Ranked2v2 = stats.rankedSeasons._6._twovtwo.rankPoints.ToString();
+                    statAdd.Ranked2v2 = stats.rankedSeasons._6._twovtwo.RankPoints.ToString();
                 }
                 if (stats.rankedSeasons._6._solostandard != null)
                 {
-                    statAdd.RankedSolo = stats.rankedSeasons._6._solostandard.rankPoints.ToString();
+                    statAdd.RankedSolo = stats.rankedSeasons._6._solostandard.RankPoints.ToString();
                 }
                 if (stats.rankedSeasons._6._standard != null)
                 {
-                    statAdd.Ranked3v3 = stats.rankedSeasons._6._standard.rankPoints.ToString();
+                    statAdd.Ranked3v3 = stats.rankedSeasons._6._standard.RankPoints.ToString();
                 }
                 if (getStat == null)
                 {
@@ -816,19 +837,19 @@ namespace NinjaBotCore.Modules.RocketLeague
                 {
                     if (stats.rankedSeasons._6._onevone != null)
                     {
-                        getStat.RankedDuel = stats.rankedSeasons._6._onevone.rankPoints.ToString();
+                        getStat.RankedDuel = stats.rankedSeasons._6._onevone.RankPoints.ToString();
                     }
                     if (stats.rankedSeasons._6._twovtwo != null)
                     {
-                        getStat.Ranked2v2 = stats.rankedSeasons._6._twovtwo.rankPoints.ToString();
+                        getStat.Ranked2v2 = stats.rankedSeasons._6._twovtwo.RankPoints.ToString();
                     }
                     if (stats.rankedSeasons._6._solostandard != null)
                     {
-                        getStat.RankedSolo = stats.rankedSeasons._6._solostandard.rankPoints.ToString();
+                        getStat.RankedSolo = stats.rankedSeasons._6._solostandard.RankPoints.ToString();
                     }
                     if (stats.rankedSeasons._6._standard != null)
                     {
-                        getStat.Ranked3v3 = stats.rankedSeasons._6._standard.rankPoints.ToString();
+                        getStat.Ranked3v3 = stats.rankedSeasons._6._standard.RankPoints.ToString();
                     }
                     getStat.SteamID = steamId;
                 }
