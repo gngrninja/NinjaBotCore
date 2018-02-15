@@ -24,20 +24,16 @@ namespace NinjaBotCore.Modules.RocketLeague
     public class RlCommands : ModuleBase
     {
         private SteamApi _steam;
-        private RocketLeague _rl;
         private static ChannelCheck _cc;
-        private RlStatsApi _rlStatsApi;
         private string _rlStatsKey;
         private readonly IConfigurationRoot _config;
         private string _prefix;
         private RLSClient _rlsClient; 
 
-        public RlCommands(SteamApi steam, ChannelCheck cc, RocketLeague rl, RlStatsApi rlStatsApi, IConfigurationRoot config)
+        public RlCommands(SteamApi steam, ChannelCheck cc, IConfigurationRoot config)
         {          
-            _steam = steam;             
-            _rl = rl;                
-            _cc = cc;               
-            _rlStatsApi = rlStatsApi;              
+            _steam = steam;                           
+            _cc = cc;                            
             _config = config;
             _rlStatsKey = $"{_config["RlStatsApi"]}";
             _prefix = _config["prefix"];
@@ -60,7 +56,7 @@ namespace NinjaBotCore.Modules.RocketLeague
                         sb.AppendLine($"**Use the {_prefix}rlstats command with one of the following player names:**");
                         for (int i = 0; i <= searchResults.Data.Count() - 1; i++)
                         {
-                            DateTime humanTime = _rlStatsApi.UnixTimeStampToDateTimeSeconds(searchResults.Data[i].UpdatedAt);
+                            DateTime humanTime = searchResults.Data[i].UpdatedAt.UnixTimeStampToDateTimeSeconds();
                             embed.AddField(new EmbedFieldBuilder
                             {
                                 Name = $":white_small_square: {searchResults.Data[i].DisplayName}",
@@ -71,7 +67,7 @@ namespace NinjaBotCore.Modules.RocketLeague
                     }
                     else if (searchResults.Data.Count() == 1)
                     {
-                        DateTime humanTime = _rlStatsApi.UnixTimeStampToDateTimeSeconds(searchResults.Data[0].UpdatedAt);
+                        DateTime humanTime = searchResults.Data[0].UpdatedAt.UnixTimeStampToDateTimeSeconds();
                         embed.AddField(new EmbedFieldBuilder
                         {
                             Name = $":white_small_square: {searchResults.Data[0].DisplayName}",
@@ -305,21 +301,6 @@ namespace NinjaBotCore.Modules.RocketLeague
             }
         }
 
-        public async Task GetStats(string name, bool ps)
-        {
-            try
-            {
-                StringBuilder sb = new StringBuilder();
-                EmbedBuilder embed = await rlEmbed(sb, name);
-                await _cc.Reply(Context, embed);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.Message);
-            }
-            return;
-        }
-
         private static void FormatStatInfo(StringBuilder sb, RLSApi.Data.RlsPlaylistRanked rank, RLSApi.Net.Models.PlayerRank rankInfo)
         {
             string rankMoji = string.Empty;
@@ -547,171 +528,6 @@ namespace NinjaBotCore.Modules.RocketLeague
                 IsInline = false
             });
             */
-            return embed;
-        }
-
-        private async Task<EmbedBuilder> rlEmbed(StringBuilder sb, SteamModel.Player fromSteam)
-        {
-            RlUserStat getStats = null;
-            List<RocketLeagueStats> stats = null;
-            var embed = new EmbedBuilder();
-            try
-            {
-                stats = await _rl.getRLStats(fromSteam.steamid);
-                getStats = await GetStatsFromDb(fromSteam);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error getting RL Stats -> [{ex.Message}]");
-                embed.Title = $"Error getting stats for {fromSteam.personaname}!";
-                embed.Description = $"Sorry, something dun went wrong :(";
-                return embed;
-            }
-            if (stats != null)
-            {
-                await InsertStats(stats, fromSteam);
-            }
-            foreach (var stat in stats)
-            {
-                string rankMoji = ":wavy_dash:";
-                if (getStats != null)
-                {
-                    switch (stat.Title)
-                    {
-                        case "Doubles 2v2":
-                            {
-                                var doubles = getStats.Ranked2v2;
-                                if (doubles != null)
-                                {
-                                    if (int.Parse(doubles) < stat.MMR)
-                                    {
-                                        rankMoji = $":arrow_up: (up **{(stat.MMR - int.Parse(doubles)).ToString()}**)";
-                                    }
-                                    else if (int.Parse(doubles) > stat.MMR)
-                                    {
-                                        rankMoji = $":arrow_down: (down **{(int.Parse(doubles) - stat.MMR).ToString()}**)";
-                                    }
-                                }
-                                break;
-                            }
-                        case "Duel 1v1":
-                            {
-                                var duel = getStats.RankedDuel;
-                                if (duel != null)
-                                {
-                                    if (int.Parse(duel) < stat.MMR)
-                                    {
-                                        rankMoji = $":arrow_up: (up **{(stat.MMR - int.Parse(duel)).ToString()}**)";
-                                    }
-                                    else if (int.Parse(duel) > stat.MMR)
-                                    {
-                                        rankMoji = $":arrow_down: (down **{(int.Parse(duel) - stat.MMR).ToString()}**)";
-                                    }
-                                }
-                                break;
-                            }
-                        case "Solo Standard 3v3":
-                            {
-                                var standard = getStats.RankedSolo;
-                                if (standard != null)
-                                {
-                                    if (int.Parse(standard) < stat.MMR)
-                                    {
-                                        rankMoji = $":arrow_up: (up **{(stat.MMR - int.Parse(standard)).ToString()}**)";
-                                    }
-                                    else if (int.Parse(standard) > stat.MMR)
-                                    {
-                                        rankMoji = $":arrow_down: (down **{(int.Parse(standard) - stat.MMR).ToString()}**)";
-                                    }
-                                }
-                                break;
-                            }
-                        case "Standard 3v3":
-                            {
-                                var threev = getStats.Ranked3v3;
-                                if (threev != null)
-                                {
-                                    if (int.Parse(threev) < stat.MMR)
-                                    {
-                                        rankMoji = $":arrow_up: (up **{(stat.MMR - int.Parse(threev)).ToString()}**)";
-                                    }
-                                    else if (int.Parse(threev) > stat.MMR)
-                                    {
-                                        rankMoji = $":arrow_down: (down **{(int.Parse(threev) - stat.MMR).ToString()}**)";
-                                    }
-                                }
-                                break;
-                            }
-                        case "Unranked":
-                            {
-                                var unranked = getStats.Unranked;
-                                if (unranked != null)
-                                {
-                                    if (int.Parse(unranked) < stat.MMR)
-                                    {
-                                        rankMoji = $":arrow_up: (up **{(stat.MMR - int.Parse(unranked)).ToString()}**)";
-                                    }
-                                    else if (int.Parse(unranked) > stat.MMR)
-                                    {
-                                        rankMoji = $":arrow_down: (down **{(int.Parse(unranked) - stat.MMR).ToString()}**)";
-                                    }
-                                }
-                                break;
-                            }
-                    }
-                }
-                sb.AppendLine($"__{stat.Title}__");
-                //sb.AppendLine($"Games Played: **{stat.GamesPlayed}**");
-                sb.AppendLine($"Rank: **{stat.Rank}**(Div **{stat.Division}**)");
-                sb.AppendLine($"MMR: **{stat.MMR}** {rankMoji}");
-                //sb.AppendLine($"**{stat.Percentage}**");
-                sb.AppendLine($"");
-            }
-            var statsUrl = stats.Where(s => s.FromURL != null).Select(s => s.FromURL).FirstOrDefault();
-            if (statsUrl != null)
-            {
-                sb.AppendLine($"Stats from: {statsUrl}");
-            }
-            embed.WithColor(new Color(0, 71, 171));
-            embed.ThumbnailUrl = fromSteam.avatarfull;
-            //embed.ThumbnailUrl = Context.User.GetAvatarUrl();
-            embed.Title = $"__Rocket League Stats For [**{fromSteam.personaname}**]__";
-            embed.Description = sb.ToString();
-            return embed;
-        }
-
-        private async Task<EmbedBuilder> rlEmbed(StringBuilder sb, string psName)
-        {
-            List<RocketLeagueStats> stats = null;
-            try
-            {
-                stats = await _rl.getRLStats(psName, true);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error getting RL Stats -> [{ex.Message}]");
-            }
-
-            foreach (var stat in stats)
-            {
-                sb.AppendLine($"__{stat.Title}__");
-                //sb.AppendLine($"Games Played: **{stat.GamesPlayed}**");
-                sb.AppendLine($"Rank: **{stat.Rank}**(Div **{stat.Division}**)");
-                sb.AppendLine($"MMR: **{stat.MMR}**");
-                //sb.AppendLine($"**{stat.Percentage}**");
-                sb.AppendLine($"");
-            }
-            var statsUrl = stats.Where(s => s.FromURL != null).Select(s => s.FromURL).FirstOrDefault();
-            if (statsUrl != null)
-            {
-                sb.AppendLine($"Stats from: {statsUrl}");
-            }
-            var embed = new EmbedBuilder();
-            embed.WithColor(new Color(0, 71, 171));
-            embed.ThumbnailUrl = Context.User.GetAvatarUrl();
-            //embed.ThumbnailUrl = Context.User.GetAvatarUrl();
-            embed.Title = $"__Rocket League Stats For [**{psName}**]__";
-            embed.Description = sb.ToString();
             return embed;
         }
 
