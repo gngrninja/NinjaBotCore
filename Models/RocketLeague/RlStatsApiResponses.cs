@@ -89,10 +89,10 @@ namespace NinjaBotCore.Models.RocketLeague
 
     public class SeasonStats
     {
-        public int rankPoints { get; set; }
-        public int matchesPlayed { get; set; }
-        public int tier { get; set; }
-        public int division { get; set; }
+        public int? RankPoints { get; set; }
+        public int? MatchesPlayed { get; set; }
+        public int? Tier { get; set; }
+        public int? Division { get; set; }
     }
 
     public class _3

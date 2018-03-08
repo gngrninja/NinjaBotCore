@@ -58,8 +58,7 @@ namespace NinjaBotCore
                 .AddSingleton<LoggingService>()
                 .AddSingleton<WowApi>()
                 .AddSingleton<WarcraftLogs>()
-                .AddSingleton<ChannelCheck>()
-                .AddSingleton<RocketLeague>()
+                .AddSingleton<ChannelCheck>()   
                 .AddSingleton<OxfordApi>()
                 .AddSingleton<AwayCommands>()
                 .AddSingleton<RlStatsApi>()
@@ -74,7 +73,9 @@ namespace NinjaBotCore
             var serviceProvider = services.BuildServiceProvider();
                           
             //Start the bot
-            await serviceProvider.GetRequiredService<StartupService>().StartAsync();        
+            serviceProvider.GetRequiredService<DiscordSocketClient>().Log += Log;   
+            await serviceProvider.GetRequiredService<StartupService>().StartAsync(); 
+
             //Start the command handler
             serviceProvider.GetRequiredService<CommandHandler>();
             
@@ -84,22 +85,16 @@ namespace NinjaBotCore
             serviceProvider.GetRequiredService<AwayCommands>();
             serviceProvider.GetRequiredService<WowApi>();
             serviceProvider.GetRequiredService<WarcraftLogs>();
-            serviceProvider.GetRequiredService<RlStatsApi>();                        
+            serviceProvider.GetRequiredService<RlStatsApi>();
+            /* 
+            
             serviceProvider.GetRequiredService<OxfordApi>();
             serviceProvider.GetRequiredService<ChannelCheck>();
-            serviceProvider.GetRequiredService<RocketLeague>();
             serviceProvider.GetRequiredService<SteamApi>();
             serviceProvider.GetRequiredService<GiphyApi>();
             serviceProvider.GetRequiredService<WeatherApi>();
             serviceProvider.GetRequiredService<YouTubeApi>();
-
-            serviceProvider.GetRequiredService<DiscordSocketClient>().Log += Log;
-            //_client.Log += Log;            
-            //await _client.LoginAsync(TokenType.Bot, Config.Token);
-            //await _client.StartAsync();
-            //await services.GetRequiredService<CommandHandlingService>().InitializeAsync(services);
-            //await services.GetRequiredService<TagService>().InitializeAsync(services);                               
-            //Client = serviceProvider.GetService<DiscordSocketClient>();             
+            */                                   
             // Block this program until it is closed.                     
 
             await Task.Delay(-1);
