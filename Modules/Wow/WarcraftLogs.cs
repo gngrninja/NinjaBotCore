@@ -319,7 +319,7 @@ namespace NinjaBotCore.Modules.Wow
         {
             TokenSource = new CancellationTokenSource();
             var timerAction = new Action(CheckForNewLogs);
-            await WarcraftLogsTimer(timerAction, TimeSpan.FromSeconds(15), TokenSource.Token);
+            await WarcraftLogsTimer(timerAction, TimeSpan.FromSeconds(30), TokenSource.Token);
         }
 
         public async Task StopTimer()
