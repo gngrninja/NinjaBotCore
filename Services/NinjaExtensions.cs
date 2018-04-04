@@ -20,5 +20,27 @@ namespace NinjaBotCore.Services
             dtDateTime = dtDateTime.AddSeconds(unixTimeStamp).ToLocalTime();
             return dtDateTime;
         }
+
+        public static string FirstFromSplit(this string source, char delimiter)
+        {
+            var i = source.IndexOf(delimiter);
+
+            return i == -1 ? source : source.Substring(0, i);
+        }
+
+        public static string FirstFromSplit(this string source, string delimiter)
+        {
+            var i = source.IndexOf(delimiter);
+
+            return i == -1 ? source : source.Substring(0, i);
+        }
+
+        public static string OmitFirstFromSplit(this string source, string delimiter)
+        {
+            var i = source.IndexOf(delimiter) + 1;
+
+            return i == 1 ? source : source.Substring(i);
+        }
+
     }
 }
