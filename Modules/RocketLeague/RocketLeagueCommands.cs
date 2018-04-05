@@ -54,6 +54,7 @@ namespace NinjaBotCore.Modules.RocketLeague
                 rlUserName = rlUserName.Substring(rlUserName.LastIndexOf('/') + 1);
                 platform = "steam";
                 await _cc.Reply(Context,rlUserName);
+                await SetStats(rlUserName, platform);
                 return;
             }
             else 
@@ -62,6 +63,7 @@ namespace NinjaBotCore.Modules.RocketLeague
                 {
                     platform = args.FirstFromSplit(' ');
                     rlUserName = args.OmitFirstFromSplit(" ");
+                    await SetStats(rlUserName, platform);
                     await _cc.Reply(Context,$"platform: {platform} user: {rlUserName}");
                 }
                 else 
@@ -71,57 +73,58 @@ namespace NinjaBotCore.Modules.RocketLeague
             }
         }
 
-        public async Task SetStats(string name)
+        public async Task SetStats(string name, string platform)
         {
             try
-            {
+            {            
+                string channel = Context.Channel.Name;
+                string userName = Context.User.Username;
+                StringBuilder sb = new StringBuilder();
+                string rlUserName = name;
+
                 using (var db = new NinjaBotEntities())
                 {
-                    string channel = Context.Channel.Name;
-                    string userName = Context.User.Username;
-                    StringBuilder sb = new StringBuilder();
-                    string rlUserName = name;
-
-                    if (Uri.IsWellFormedUriString(rlUserName, UriKind.RelativeOrAbsolute))
+                    switch (platform)
                     {
-                        rlUserName = rlUserName.TrimEnd('/');
-                        rlUserName = rlUserName.Substring(rlUserName.LastIndexOf('/') + 1);
-                    }
-
-                    SteamModel.Player fromSteam = _steam.GetSteamPlayerInfo(rlUserName);
-                    if (string.IsNullOrEmpty(fromSteam.steamid))
-                    {
-                        sb.AppendLine($"{Context.User.Mention}, Please specify a steam username/full profile URL to link with your Discord username!");
-                        await _cc.Reply(Context, sb.ToString());
-                        return;
-                    }
-                    try
-                    {
-                        var addUser = new RlStat();
-                        var rlUser = db.RlStats.Where(r => r.DiscordUserName == userName).FirstOrDefault();
-                        if (rlUser == null)
+                        case "steam":
                         {
-                            addUser.DiscordUserName = userName;
-                            addUser.SteamID = long.Parse(fromSteam.steamid);
-                            addUser.DiscordUserID = (long)Context.User.Id;
-                            db.RlStats.Add(addUser);
+                            SteamModel.Player fromSteam = _steam.GetSteamPlayerInfo(rlUserName);
+                            if (string.IsNullOrEmpty(fromSteam.steamid))
+                            {
+                                sb.AppendLine($"{Context.User.Mention}, Please specify a steam username/full profile URL to link with your Discord username!");
+                                await _cc.Reply(Context, sb.ToString());
+                                return;
+                            }
+                            try
+                            {
+                                var addUser = new RlStat();
+                                var rlUser = db.RlStats.Where(r => r.DiscordUserName == userName).FirstOrDefault();
+                                if (rlUser == null)
+                                {
+                                    addUser.DiscordUserName = userName;
+                                    addUser.SteamID = long.Parse(fromSteam.steamid);
+                                    addUser.DiscordUserID = (long)Context.User.Id;
+                                    db.RlStats.Add(addUser);
+                                }
+                                else
+                                {
+                                    rlUser.SteamID = long.Parse(fromSteam.steamid);
+                                    rlUser.DiscordUserID = (long)Context.User.Id;
+                                    //rl.setUserName(userName, fromSteam.steamid);
+                                }
+                                db.SaveChanges();
+                                sb.AppendLine($"{Context.User.Mention}, you've associated [**{fromSteam.personaname}**] with your Discord name!");
+                                await _cc.Reply(Context, sb.ToString());
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"RL Stats: Error setting name -> {ex.Message}");
+                                sb.AppendLine($"{Context.User.Mention}, something went wrong, sorry :(");
+                                await _cc.Reply(Context, sb.ToString());
+                            }
+                            break;
                         }
-                        else
-                        {
-                            rlUser.SteamID = long.Parse(fromSteam.steamid);
-                            rlUser.DiscordUserID = (long)Context.User.Id;
-                            //rl.setUserName(userName, fromSteam.steamid);
-                        }
-                        db.SaveChanges();
-                        sb.AppendLine($"{Context.User.Mention}, you've associated [**{fromSteam.personaname}**] with your Discord name!");
-                        await _cc.Reply(Context, sb.ToString());
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"RL Stats: Error setting name -> {ex.Message}");
-                        sb.AppendLine($"{Context.User.Mention}, something went wrong, sorry :(");
-                        await _cc.Reply(Context, sb.ToString());
-                    }
+                    }                                        
                 }
             }
             catch (Exception ex)
@@ -130,4 +133,5 @@ namespace NinjaBotCore.Modules.RocketLeague
             }
         }
     }
+
 }
