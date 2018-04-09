@@ -10,5 +10,8 @@ namespace NinjaBotCore.Database
         public Nullable<long> SteamID { get; set; }
         public Nullable<long> DiscordUserID { get; set; }
         public string DiscordUserName { get; set; }
+        public string RlPlayerName { get; set; }
+        public string Platform { get; set; }
+        
     }
 }

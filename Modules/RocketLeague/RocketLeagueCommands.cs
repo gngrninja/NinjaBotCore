@@ -59,6 +59,7 @@ namespace NinjaBotCore.Modules.RocketLeague
             }
             else 
             {
+                //split up the arguments and see how many there are
                 if (args.Split(" ").Count() >= 2)
                 {
                     platform = args.FirstFromSplit(' ');
@@ -68,7 +69,7 @@ namespace NinjaBotCore.Modules.RocketLeague
                 }
                 else 
                 {
-                    await _cc.Reply(Context,$"Please enter a valid steam URL -or- use the syntax {_config["prefix"]}rlstats-set platform(steam, ps4, xbox) playername");
+                    await _cc.Reply(Context,$"Please enter a valid steam URL -or- use the syntax {_prefix}rlstats-set platform(steam, ps4, xbox) playername");
                 }
             }
         }
@@ -79,41 +80,39 @@ namespace NinjaBotCore.Modules.RocketLeague
             {            
                 string channel = Context.Channel.Name;
                 string userName = Context.User.Username;
+                ulong discordUserId = Context.User.Id;
                 StringBuilder sb = new StringBuilder();
-                string rlUserName = name;
 
                 using (var db = new NinjaBotEntities())
                 {
-                    switch (platform)
-                    {
+                    switch (platform.ToLower())
+                    {                    
                         case "steam":
                         {
-                            SteamModel.Player fromSteam = _steam.GetSteamPlayerInfo(rlUserName);
-                            if (string.IsNullOrEmpty(fromSteam.steamid))
-                            {
-                                sb.AppendLine($"{Context.User.Mention}, Please specify a steam username/full profile URL to link with your Discord username!");
-                                await _cc.Reply(Context, sb.ToString());
-                                return;
-                            }
+                            var getPlayer = await _rlsClient.GetPlayerAsync(RlsPlatform.Steam, name);
                             try
                             {
                                 var addUser = new RlStat();
-                                var rlUser = db.RlStats.Where(r => r.DiscordUserName == userName).FirstOrDefault();
+                                var rlUser = db.RlStats.Where(r => (ulong)r.DiscordUserID == discordUserId).FirstOrDefault();
                                 if (rlUser == null)
                                 {
                                     addUser.DiscordUserName = userName;
-                                    addUser.SteamID = long.Parse(fromSteam.steamid);
+                                    addUser.DiscordUserID = (long)discordUserId;                            
+                                    addUser.SteamID = long.Parse(getPlayer.UniqueId);
                                     addUser.DiscordUserID = (long)Context.User.Id;
+                                    addUser.Platform = RlsPlatform.Steam.ToString();
+                                    addUser.RlPlayerName = getPlayer.DisplayName;
                                     db.RlStats.Add(addUser);
                                 }
                                 else
                                 {
-                                    rlUser.SteamID = long.Parse(fromSteam.steamid);
-                                    rlUser.DiscordUserID = (long)Context.User.Id;
-                                    //rl.setUserName(userName, fromSteam.steamid);
+                                    rlUser.SteamID = long.Parse(getPlayer.UniqueId);
+                                    rlUser.DiscordUserID = (long)discordUserId;
+                                    rlUser.RlPlayerName = getPlayer.DisplayName;
+                                    rlUser.Platform = RlsPlatform.Steam.ToString();
                                 }
                                 db.SaveChanges();
-                                sb.AppendLine($"{Context.User.Mention}, you've associated [**{fromSteam.personaname}**] with your Discord name!");
+                                sb.AppendLine($"{Context.User.Mention}, you've associated [**{getPlayer.DisplayName}**(steam)] with your Discord name!");
                                 await _cc.Reply(Context, sb.ToString());
                             }
                             catch (Exception ex)
