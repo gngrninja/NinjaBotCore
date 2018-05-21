@@ -77,6 +77,37 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
+        public async Task<string> LogsApiRequestAsync(string url, bool isList = false)
+        {
+            string response   = string.Empty;
+            string wowLogsKey = string.Empty;            
+            string baseUrl    = "https://www.warcraftlogs.com:443/v1";
+
+            if (isList) 
+            {
+                wowLogsKey = $"api_key={_config["WarcraftLogsApi"]}";
+            }
+            else
+            {
+                wowLogsKey = $"api_key={_config["WarcraftLogsApiCmd"]}";
+            }
+            
+            url = $"{baseUrl}{url}{wowLogsKey}";
+
+            Console.WriteLine($"Calling WarcraftLogs API with URL: {url}");
+
+            using (HttpClient httpClient = new HttpClient())
+            {
+                httpClient.DefaultRequestHeaders
+                    .Accept
+                    .Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                //test = httpClient.PostAsJsonAsync<FaceRequest>(fullUrl, request).Result;             
+                response = await httpClient.GetStringAsync(url);
+            }
+
+            return response;            
+        }
+
         public string LogsApiRequest(string url, bool isList = false)
         {
             string response   = string.Empty;
@@ -106,9 +137,9 @@ namespace NinjaBotCore.Modules.Wow
             }
 
             return response;            
-        }
+        }        
 
-        public List<CharClasses> GetCharClasses()
+        public  List<CharClasses> GetCharClasses()
         {
             List<CharClasses> charClasses;
             string url = "/classes?";
@@ -118,7 +149,7 @@ namespace NinjaBotCore.Modules.Wow
             return charClasses;
         }
 
-        public List<Reports> GetReportsFromGuild(string guildName = "The benchwarmers", string realm = "Thunderlord", string region = "US", bool isList = false)
+        public async Task<List<Reports>> GetReportsFromGuild(string guildName = "The benchwarmers", string realm = "Thunderlord", string region = "US", bool isList = false)
         {
             string url = string.Empty;
             string realmSlug = string.Empty;
@@ -139,18 +170,18 @@ namespace NinjaBotCore.Modules.Wow
             url = $"/reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?";
             List<Reports> logs;
 
-            logs = JsonConvert.DeserializeObject<List<Reports>>(LogsApiRequest(url, isList));
+            logs = JsonConvert.DeserializeObject<List<Reports>>(await LogsApiRequestAsync(url, isList));
 
             return logs;
         }
 
-        public List<Reports> GetReportsFromUser(string userName)
+        public async Task<List<Reports>> GetReportsFromUser(string userName)
         {
             string url = string.Empty;
             url = $"/reports/user/{userName.Replace(" ", "%20")}?";
             List<Reports> logs;
 
-            logs = JsonConvert.DeserializeObject<List<Reports>>(LogsApiRequest(url));
+            logs = JsonConvert.DeserializeObject<List<Reports>>(await LogsApiRequestAsync(url));
 
             return logs;
         }
@@ -236,9 +267,9 @@ namespace NinjaBotCore.Modules.Wow
             return fights;
         }
 
-        public ReportTable GetReportResults(string fightID, string view = "damage-done")
+        public async Task<ReportTable> GetReportResults(string fightID, string view = "damage-done")
         {
-            List<Reports> reports = GetReportsFromGuild();
+            List<Reports> reports = await GetReportsFromGuild();
             Fights fights = GetFights(reports[0].id);
             List<Fight> bossFights = new List<Fight>();
 
@@ -257,9 +288,9 @@ namespace NinjaBotCore.Modules.Wow
             return table;
         }
 
-        public ReportTable GetReportResults(bool getLastFight, string view = "damage-done")
+        public async Task<ReportTable> GetReportResults(bool getLastFight, string view = "damage-done")
         {
-            List<Reports> reports = GetReportsFromGuild();
+            List<Reports> reports = await GetReportsFromGuild();
             Fights fights = GetFights(reports[0].id);
             List<Fight> bossFights = new List<Fight>();
 
@@ -432,7 +463,7 @@ namespace NinjaBotCore.Modules.Wow
                         {
                             if (watchGuild.MonitorLogs)
                             {
-                                var logs = GetReportsFromGuild(guild.WowGuild, guild.WowRealm.Replace("'", ""), guild.WowRegion, isList: true);
+                                var logs = await GetReportsFromGuild(guild.WowGuild, guild.WowRealm.Replace("'", ""), guild.WowRegion, isList: true);
                                 if (logs != null)
                                 {
                                     var latestLog = logs[logs.Count - 1];                                    
