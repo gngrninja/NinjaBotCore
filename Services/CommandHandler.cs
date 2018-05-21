@@ -73,7 +73,7 @@ namespace NinjaBotCore.Services
             // Execute the Command, store the result            
             var result = await _commands.ExecuteAsync(context, argPos, _provider);
 
-            await LogCommandUsage(context, result);
+            //await LogCommandUsage(context, result);
             // If the command failed, notify the user
             if (!result.IsSuccess)
             {

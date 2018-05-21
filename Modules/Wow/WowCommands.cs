@@ -967,7 +967,7 @@ namespace NinjaBotCore.Modules.Wow
             return charInfo;
         }
 
-        [Command("gearlist")]
+        [Command("gearlist", RunMode = RunMode.Async)]
         [Summary("Get a WoW character's gear list")]
         public async Task GetGearList([Remainder] string args = null)
         {
