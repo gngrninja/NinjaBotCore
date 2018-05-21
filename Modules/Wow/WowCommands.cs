@@ -66,7 +66,7 @@ namespace NinjaBotCore.Modules.Wow
                                 if (watchGuild.MonitorLogs)
                                 {
                                     //System.Console.WriteLine($"YES! Watch logs on {guild.ServerName}!");
-                                    var logs = _logsApi.GetReportsFromGuild(guild.WowGuild, guild.WowRealm.Replace("'", ""), guild.WowRegion);
+                                    var logs = await _logsApi.GetReportsFromGuild(guild.WowGuild, guild.WowRealm.Replace("'", ""), guild.WowRegion);
                                     if (logs != null)
                                     {
                                         var latestLog = logs[logs.Count - 1];
@@ -515,7 +515,7 @@ namespace NinjaBotCore.Modules.Wow
             {
                 try
                 {
-                    guildLogs = _logsApi.GetReportsFromUser(args.Split(' ')[1]);
+                    guildLogs = await _logsApi.GetReportsFromUser(args.Split(' ')[1]);
                     arrayCount = guildLogs.Count - 1;
                 }
                 catch (Exception ex)
@@ -599,7 +599,7 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 try
                 {
-                    guildLogs = _logsApi.GetReportsFromGuild(guildName, realmName, guildRegion);
+                    guildLogs = await _logsApi.GetReportsFromGuild(guildName, realmName, guildRegion);
                     arrayCount = guildLogs.Count - 1;
                 }
                 catch (Exception ex)
