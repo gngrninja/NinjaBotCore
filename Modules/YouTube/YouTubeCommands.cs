@@ -32,7 +32,7 @@ namespace NinjaBotCore.Modules.YouTube
             }
         }
         //Command that links just one video normally so it has play button
-        [Command("ysearch")]
+        [Command("ysearch", RunMode = RunMode.Async)]
         [Summary("Search YouTube for a specific keyword")]
         public async Task SearchYouTube([Remainder] string args = "")
         {
