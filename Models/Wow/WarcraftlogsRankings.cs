@@ -26,9 +26,9 @@ namespace NinjaBotCore.Models.Wow
             public long startTime { get; set; }
             public int fightID { get; set; }
             public string reportID { get; set; }
-            public string guild { get; set; }
-            public string server { get; set; }
-            public string region { get; set; }
+            public string guildName { get; set; }
+            public string serverName { get; set; }
+            public string regionName { get; set; }
             public int itemLevel { get; set; }
             public int exploit { get; set; }
             public Talent[] talents { get; set; }

@@ -42,7 +42,7 @@ namespace NinjaBotCore.Models.Wow
         public string name { get; set; }
         public bool frozen { get; set; }
         public Encounter[] encounters { get; set; }
-        public Bracket[] brackets { get; set; }
+        public Bracket brackets { get; set; }
     }
     [JsonObject]
     public class Encounter
@@ -53,8 +53,11 @@ namespace NinjaBotCore.Models.Wow
     [JsonObject]
     public class Bracket
     {
-        public int id { get; set; }
-        public string name { get; set; }
+        public int min { get; set; }
+        public float max { get; set; }
+        public float bucket { get; set; }
+        public string type { get; set; }
+        public int sub_bucket { get; set; }
     }
     [JsonObject]
     public class Fights
@@ -180,7 +183,7 @@ namespace NinjaBotCore.Models.Wow
         public string report_code { get; set; }
         public int report_fight { get; set; }
         public int ranking_id { get; set; }
-        public string guild { get; set; }
+        public string guildName { get; set; }
         public int total { get; set; }
         public string rank { get; set; }
         public float percent { get; set; }
@@ -273,7 +276,7 @@ namespace NinjaBotCore.Models.Wow
                 return name;
             }
         }
-        public string guild { get; set; }
+        public string guildName { get; set; }
         public int rank { get; set; }
         public int outOf { get; set; }
         public int rankPercentage

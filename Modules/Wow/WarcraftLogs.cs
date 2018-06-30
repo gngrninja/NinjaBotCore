@@ -427,7 +427,7 @@ namespace NinjaBotCore.Modules.Wow
         {
             TokenSource = new CancellationTokenSource();
             var timerAction = new Action(CheckForNewLogs);
-            await WarcraftLogsTimer(timerAction, TimeSpan.FromSeconds(30), TokenSource.Token);
+            await WarcraftLogsTimer(timerAction, TimeSpan.FromSeconds(90), TokenSource.Token);
         }
 
         public async Task StopTimer()
@@ -466,7 +466,7 @@ namespace NinjaBotCore.Modules.Wow
                                 var logs = await GetReportsFromGuild(guild.WowGuild, guild.WowRealm.Replace("'", ""), guild.WowRegion, isList: true);
                                 if (logs != null)
                                 {
-                                    var latestLog = logs[logs.Count - 1];                                    
+                                    var latestLog = logs[0];                                    
                                     DateTime startTime = UnixTimeStampToDateTime(latestLog.start);
                                     if (latestLog.id != watchGuild.ReportId)
                                     {

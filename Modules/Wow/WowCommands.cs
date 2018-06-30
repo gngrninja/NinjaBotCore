@@ -516,7 +516,7 @@ namespace NinjaBotCore.Modules.Wow
                 try
                 {
                     guildLogs = await _logsApi.GetReportsFromUser(args.Split(' ')[1]);
-                    arrayCount = guildLogs.Count - 1;
+                   // arrayCount = guildLogs.Count - 1;
                 }
                 catch (Exception ex)
                 {
@@ -525,7 +525,7 @@ namespace NinjaBotCore.Modules.Wow
                     await _cc.Reply(Context, sb.ToString());
                     return;
                 }
-                if (arrayCount > 0)
+                if (guildLogs.Count > 0)
                 {
                     sb.AppendLine();
                     for (int i = 0; i <= maxReturn && i <= guildLogs.Count; i++)
@@ -536,7 +536,7 @@ namespace NinjaBotCore.Modules.Wow
                         //sb.AppendLine($"\tLink: **{guildLogs[arrayCount].reportURL}**");
                         sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[arrayCount].id})");
                         sb.AppendLine();
-                        arrayCount--;
+                        arrayCount++;
                     }
                     Console.WriteLine($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
 
@@ -545,7 +545,7 @@ namespace NinjaBotCore.Modules.Wow
                     await _cc.Reply(Context, embed);
                     return;
                 }
-                else if (arrayCount == 0)
+                else if (guildLogs.Count == 0)
                 {
                     sb.AppendLine($"[__**{guildLogs[0].title}** **/** **{guildLogs[0].zoneName}**__]({guildLogs[0].reportURL})");
                     sb.AppendLine($"\t:timer: Start time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].start)}**");
@@ -600,7 +600,7 @@ namespace NinjaBotCore.Modules.Wow
                 try
                 {
                     guildLogs = await _logsApi.GetReportsFromGuild(guildName, realmName, guildRegion);
-                    arrayCount = guildLogs.Count - 1;
+                    //arrayCount = guildLogs.Count - 1;
                 }
                 catch (Exception ex)
                 {
@@ -609,7 +609,7 @@ namespace NinjaBotCore.Modules.Wow
                     await _cc.Reply(Context, sb.ToString());
                     return;
                 }
-                if (arrayCount > 0)
+                if (guildLogs.Count > 0)
                 {
                     sb.AppendLine();
                     for (int i = 0; i <= maxReturn && i <= guildLogs.Count; i++)
@@ -620,14 +620,14 @@ namespace NinjaBotCore.Modules.Wow
                         //sb.AppendLine($"\tLink: **{guildLogs[arrayCount].reportURL}**");
                         sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[arrayCount].id})");
                         sb.AppendLine();
-                        arrayCount--;
+                        arrayCount++;
                     }
                     Console.WriteLine($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
                     embed.Title = $":1234: __Logs for **{guildName}** on **{realmName}**__:1234: ";
                     embed.Description = sb.ToString();
                     await _cc.Reply(Context, embed);
                 }
-                else if (arrayCount == 0)
+                else if (guildLogs.Count == 0)
                 {
                     sb.AppendLine($"[__**{guildLogs[0].title}** **/** **{guildLogs[0].zoneName}**__]({guildLogs[0].reportURL})");
                     sb.AppendLine($"\t:timer: Start time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].start)}**");
@@ -1453,11 +1453,11 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 if (!(string.IsNullOrEmpty(guildOnly) || guildOnly.ToLower() != "guild"))
                 {
-                    l = _logsApi.GetRankingsByEncounterGuild(encounterID, realmName, guildObject.guildName, metric, difficultyID, region);
+                    l = _logsApi.GetRankingsByEncounterGuild(encounterID, realmName, guildObject.guildName, "1", metric, difficultyID, region);
                 }
                 else
                 {
-                    l = _logsApi.GetRankingsByEncounter(encounterID, realmName, metric, difficultyID, region);
+                    l = _logsApi.GetRankingsByEncounter(encounterID, realmName, "1", metric, difficultyID, region);
                 }
                 string fightNameFromEncounterID = fightList.Where(f => f.id == encounterID).Select(f => f.name).FirstOrDefault();
                 var top10 = l.rankings.OrderByDescending(a => a.total).Take(10);
@@ -1495,7 +1495,7 @@ namespace NinjaBotCore.Modules.Wow
                 foreach (var rank in top10)
                 {
                     var classInfo = WarcraftLogs.CharClasses.Where(c => c.id == rank._class).FirstOrDefault();
-                    sb.AppendLine($"**{i}** [{rank.name}](http://{region}.battle.net/wow/en/character/{rank.server.Replace(" ","-")}/{rank.name}/advanced) ilvl **{rank.itemLevel}** {classInfo.name} from *[{rank.guild}]*");
+                    sb.AppendLine($"**{i}** [{rank.name}](http://{region}.battle.net/wow/en/character/{rank.serverName.Replace(" ","-")}/{rank.name}/advanced) ilvl **{rank.itemLevel}** {classInfo.name} from *[{rank.guildName}]*");
                     sb.AppendLine($"\t{metricEmoji}[**{rank.total.ToString("###,###")}** {metric.ToLower()}]");
                     i++;
                 }
