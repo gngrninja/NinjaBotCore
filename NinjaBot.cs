@@ -61,7 +61,7 @@ namespace NinjaBotCore
                 .AddSingleton<ChannelCheck>()   
                 .AddSingleton<OxfordApi>()
                 .AddSingleton<AwayCommands>()
-                .AddSingleton<RlStatsApi>()
+                //.AddSingleton<RlStatsApi>()
                 .AddSingleton<UserInteraction>()
                 .AddSingleton<CommandHandler>()
                 .AddSingleton<StartupService>()
@@ -85,7 +85,7 @@ namespace NinjaBotCore
             serviceProvider.GetRequiredService<AwayCommands>();
             serviceProvider.GetRequiredService<WowApi>();
             serviceProvider.GetRequiredService<WarcraftLogs>();
-            serviceProvider.GetRequiredService<RlStatsApi>();
+            //serviceProvider.GetRequiredService<RlStatsApi>();
             /* 
             
             serviceProvider.GetRequiredService<OxfordApi>();
