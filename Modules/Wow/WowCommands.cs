@@ -533,14 +533,13 @@ namespace NinjaBotCore.Modules.Wow
                         sb.AppendLine($"[__**{guildLogs[arrayCount].title}** **/** **{guildLogs[arrayCount].zoneName}**__]({guildLogs[arrayCount].reportURL})");
                         sb.AppendLine($"\t:timer: Start time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].start)}**");
                         sb.AppendLine($"\t:stopwatch: End time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].end)}**");
-                        //sb.AppendLine($"\tLink: **{guildLogs[arrayCount].reportURL}**");
-                        sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[arrayCount].id})");
+                        sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[0].id}) | :sob: [WipeFest](https://www.wipefest.net/report/{guildLogs[arrayCount].id})");
                         sb.AppendLine();
                         arrayCount++;
                     }
                     Console.WriteLine($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
 
-                    embed.Title = $":1234: __Logs from **{args.Split(' ')[1]}**__:1234: ";
+                    embed.Title = $":1234:__Logs from **{args.Split(' ')[1]}**__:1234: ";
                     embed.Description = sb.ToString();
                     await _cc.Reply(Context, embed);
                     return;
@@ -550,8 +549,7 @@ namespace NinjaBotCore.Modules.Wow
                     sb.AppendLine($"[__**{guildLogs[0].title}** **/** **{guildLogs[0].zoneName}**__]({guildLogs[0].reportURL})");
                     sb.AppendLine($"\t:timer: Start time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].start)}**");
                     sb.AppendLine($"\t:stopwatch: End time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].end)}**");
-                    //sb.AppendLine($"\tLink: **{guildLogs[0].reportURL}**");
-                    sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[0].id})");
+                    sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[0].id}) | :sob: [WipeFest](https://www.wipefest.net/report/{guildLogs[arrayCount].id})");
                     sb.AppendLine();
                     Console.WriteLine($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
                     embed.Title = $":1234: __Logs for **{guildName}** on **{realmName}**__:1234: ";
@@ -617,13 +615,12 @@ namespace NinjaBotCore.Modules.Wow
                         sb.AppendLine($"[__**{guildLogs[arrayCount].title}** **/** **{guildLogs[arrayCount].zoneName}**__]({guildLogs[arrayCount].reportURL})");
                         sb.AppendLine($"\t:timer: Start time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].start)}**");
                         sb.AppendLine($"\t:stopwatch: End time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].end)}**");
-                        //sb.AppendLine($"\tLink: **{guildLogs[arrayCount].reportURL}**");
-                        sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[arrayCount].id})");
+                        sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[0].id}) | :sob: [WipeFest](https://www.wipefest.net/report/{guildLogs[arrayCount].id})");
                         sb.AppendLine();
                         arrayCount++;
                     }
                     Console.WriteLine($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
-                    embed.Title = $":1234: __Logs for **{guildName}** on **{realmName}**__:1234: ";
+                    embed.Title = $":1234:__Logs for **{guildName}** on **{realmName}**__:1234: ";
                     embed.Description = sb.ToString();
                     await _cc.Reply(Context, embed);
                 }
@@ -632,8 +629,8 @@ namespace NinjaBotCore.Modules.Wow
                     sb.AppendLine($"[__**{guildLogs[0].title}** **/** **{guildLogs[0].zoneName}**__]({guildLogs[0].reportURL})");
                     sb.AppendLine($"\t:timer: Start time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].start)}**");
                     sb.AppendLine($"\t:stopwatch: End time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].end)}**");
-                    //sb.AppendLine($"\tLink: **{guildLogs[0].reportURL}**");
-                    sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[0].id})");
+                    sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[0].id}) | :sob: [WipeFest](https://www.wipefest.net/report/{guildLogs[arrayCount].id})");
+                    sb.AppendLine($"\t");
                     sb.AppendLine();
                     Console.WriteLine($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
                     embed.Title = $":1234: __Logs for **{guildName}** on **{realmName}**__:1234: ";
