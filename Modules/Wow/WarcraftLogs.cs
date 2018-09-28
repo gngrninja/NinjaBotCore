@@ -149,7 +149,7 @@ namespace NinjaBotCore.Modules.Wow
             return charClasses;
         }
 
-        public async Task<List<Reports>> GetReportsFromGuild(string guildName = "The benchwarmers", string realm = "Thunderlord", string region = "US", bool isList = false)
+        public async Task<List<Reports>> GetReportsFromGuild(string guildName, string realm, string region, bool isList = false)
         {
             string url = string.Empty;
             string realmSlug = string.Empty;
@@ -158,6 +158,33 @@ namespace NinjaBotCore.Modules.Wow
                 case "us":
                     {
                         realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realm.ToLower())).Select(s => s.slug).FirstOrDefault();
+                        break;
+                    }
+                case "eu":
+                    {
+                        realmSlug = WowApi.RealmInfoEu.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realm.ToLower())).Select(s => s.slug).FirstOrDefault();
+                        break;
+                    }
+            }
+            System.Console.WriteLine($"SLUG: {realmSlug}");            
+            url = $"/reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?";
+            List<Reports> logs;
+
+            logs = JsonConvert.DeserializeObject<List<Reports>>(await LogsApiRequestAsync(url, isList));
+
+            return logs;
+        }
+
+        public async Task<List<Reports>> GetReportsFromGuild(string guildName, string realm, string locale, string region, bool isList = false)
+        {
+            string url = string.Empty;
+            string realmSlug = string.Empty;
+            switch (locale)
+            {
+                case "ru_RU":
+                    {
+                        WowRealm.Realm[] realms = WowApi.RealmInfoRu.realms.Where(r => r.locale.ToLower().Contains(locale.ToLower())).ToArray();
+                        realmSlug = realms.Where(r => r.name.Replace("'","").ToLower().Contains(realm.ToLower())).Select(s => s.slug).FirstOrDefault();
                         break;
                     }
                 case "eu":
@@ -267,6 +294,7 @@ namespace NinjaBotCore.Modules.Wow
             return fights;
         }
 
+        /* 
         public async Task<ReportTable> GetReportResults(string fightID, string view = "damage-done")
         {
             List<Reports> reports = await GetReportsFromGuild();
@@ -287,7 +315,8 @@ namespace NinjaBotCore.Modules.Wow
 
             return table;
         }
-
+        */
+        /* 
         public async Task<ReportTable> GetReportResults(bool getLastFight, string view = "damage-done")
         {
             List<Reports> reports = await GetReportsFromGuild();
@@ -308,6 +337,7 @@ namespace NinjaBotCore.Modules.Wow
 
             return table;
         }
+        */
 
         public WarcraftlogRankings.RankingObject GetRankingsByEncounter(int encounterID, string realmName, string metric = "dps", int difficulty = 4, string regionName = "us")
         {
@@ -463,7 +493,15 @@ namespace NinjaBotCore.Modules.Wow
                         {
                             if (watchGuild.MonitorLogs)
                             {
-                                var logs = await GetReportsFromGuild(guild.WowGuild, guild.WowRealm.Replace("'", ""), guild.WowRegion, isList: true);
+                                List<Reports> logs = null;
+                                if (string.IsNullOrEmpty(guild.Locale)) 
+                                {
+                                    logs = await GetReportsFromGuild(guildName: guild.WowGuild,realm: guild.WowRealm.Replace("'", ""), region: guild.WowRegion, isList: true);
+                                }
+                                else 
+                                {
+                                    logs = await GetReportsFromGuild(guildName: guild.WowGuild, realm: guild.WowRealm.Replace("'", ""), region: guild.WowRegion, isList: true, locale: guild.Locale);
+                                }
                                 if (logs != null)
                                 {
                                     var latestLog = logs[0];                                    

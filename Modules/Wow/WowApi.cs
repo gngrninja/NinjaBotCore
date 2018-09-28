@@ -24,6 +24,7 @@ namespace NinjaBotCore.Modules.Wow
         private static List<Achievement2> _achievements;
         private static WowRealm _realmInfo;
         private static WowRealm _realmInfoEu;
+        private static WowRealm _realmInfoRu;
         private readonly IConfigurationRoot _config;
 
         public WowApi(IConfigurationRoot config)
@@ -36,7 +37,8 @@ namespace NinjaBotCore.Modules.Wow
                 Achievements cheeves = this.GetWoWAchievements();
                 Achievements = cheeves.achievements.Select(m => m.categories).Skip(1).SelectMany(i => i).Select(a => a.achievements).SelectMany(d => d).ToList();
                 RealmInfo = this.GetRealmStatus();
-                RealmInfoEu = this.GetRealmStatus("eu");                
+                RealmInfoEu = this.GetRealmStatus("eu");   
+                RealmInfoRu = this.GetRealmStatus("ru","eu");             
             }
             catch (Exception ex)
             {
@@ -64,6 +66,17 @@ namespace NinjaBotCore.Modules.Wow
             private set
             {
                 _realmInfoEu = value;
+            }
+        }
+        public static WowRealm RealmInfoRu
+        {
+            get
+            {
+                return _realmInfoRu;
+            }
+            private set
+            {
+                _realmInfoRu = value;
             }
         }
         public static List<Achievement2> Achievements
@@ -131,6 +144,32 @@ namespace NinjaBotCore.Modules.Wow
             return response;
         }
 
+        public string GetAPIRequest(string url, string locale, string region = "us")
+        {
+            string response;
+            string key;
+            string prefix;
+
+            region = region.ToLower();
+            prefix = $"https://{region}.api.battle.net/wow";
+            key = $"&apikey={_config["WowApi"]}";
+            locale = $"&locale={locale}";
+            url = $"{prefix}{url}{locale}{key}";
+
+            Console.WriteLine($"Wow API request to {url}");
+
+            using (HttpClient httpClient = new HttpClient())
+            {
+                httpClient.DefaultRequestHeaders
+                    .Accept
+                    .Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                //test = httpClient.PostAsJsonAsync<FaceRequest>(fullUrl, request).Result;                             
+                response = httpClient.GetStringAsync(url).Result;
+            }
+
+            return response;
+        }
+
         public string GetAPIRequest(string url, bool fileDownload)
         {
             string response;
@@ -158,6 +197,14 @@ namespace NinjaBotCore.Modules.Wow
             return w;
         }
 
+        public WowRealm GetRealmStatus(string locale, string region)
+        {
+            string localeName = GetRegionFromString(locale);
+            WowRealm w = new WowRealm();
+            string url = $"/realm/status?locale={localeName}";
+            w = JsonConvert.DeserializeObject<WowRealm>(GetAPIRequest(url, locale: locale, region: region));
+            return w;
+        }
         public async Task<List<WowAuctions>> GetAuctionsByRealm(string realmName, string regionName = "us")
         {
             AuctionsModel.AuctionFile file;
@@ -342,6 +389,11 @@ namespace NinjaBotCore.Modules.Wow
                         region = "en_GB";
                         break;
                     }
+                case "ru":
+                    {
+                        region = "ru_RU";
+                        break;
+                    }
                 default:
                     {
                         region = "en_US";
@@ -425,11 +477,27 @@ namespace NinjaBotCore.Modules.Wow
         {
             string url;
             GuildMembers g;
-            string region = GetRegionFromString(regionName);
-            url = $"/guild/{realm}/{guildName}?fields=members&locale={region}";
-            if (region != "en_US")
+            string locale = GetRegionFromString(regionName);
+            url = $"/guild/{realm}/{guildName}?fields=members";
+            if (locale != "en_US")
             {
-                g = JsonConvert.DeserializeObject<GuildMembers>(GetAPIRequest(url, "eu"));
+                g = JsonConvert.DeserializeObject<GuildMembers>(GetAPIRequest(url, region: "eu", locale: locale ));
+            }
+            else
+            {
+                g = JsonConvert.DeserializeObject<GuildMembers>(GetAPIRequest(url));
+            }
+            return g;
+        }
+
+        public GuildMembers GetGuildMembers(string realm, string guildName, string locale, string regionName = "us")
+        {
+            string url;
+            GuildMembers g;
+            url = $"/guild/{realm}/{guildName}?fields=members";
+            if (locale != "en_US")
+            {
+                g = JsonConvert.DeserializeObject<GuildMembers>(GetAPIRequest(url, region: "eu", locale: locale));
             }
             else
             {

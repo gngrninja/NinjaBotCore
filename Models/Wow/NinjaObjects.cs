@@ -13,6 +13,7 @@ namespace NinjaBotCore.Models.Wow
             public string guildName { get; set; }
             public string realmName { get; set; }
             public string regionName { get; set; }
+            public string locale { get; set; }
         }
     }
 }
