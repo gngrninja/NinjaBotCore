@@ -75,12 +75,12 @@ namespace NinjaBotCore.Modules.Fun
             var embed = new EmbedBuilder();
             embed.WithColor(new Color(0, 255, 0));
             embed.ThumbnailUrl = Context.User.GetAvatarUrl();
-            var result = _oxApi.searchOxford(args);
+            var result = _oxApi.SearchOxford(args);
             OxfordResponses.OxfordDefinition definition = null;
             int limit = 2;
             if (result.metadata.total > 0)
             {
-                definition = _oxApi.defineOxford(result.results[0].id);
+                definition = _oxApi.DefineOxford(result.results[0].id);
             }
             if (definition != null)
             {
@@ -199,76 +199,20 @@ namespace NinjaBotCore.Modules.Fun
         {           
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
-            embed.Title = $"NinjaBot Help!";
+
+            embed.Title = $"NinjaBot Help!";            
             embed.ThumbnailUrl = Context.User.GetAvatarUrl();
             embed.WithColor(new Color(0, 0, 255));
-            sb.AppendLine("Here are a few commands to try:");
-            sb.AppendLine($"\t :black_small_square: WoW Commands: {_prefix}wow **|** {_prefix}armory characterName **|** {_prefix}logs **|** {_prefix}set-guild **|** {_prefix}get-guild");
-            sb.AppendLine($"\t :black_small_square: Rocket League Stats: {_prefix}rlstats");            
-            sb.AppendLine($"\t :black_small_square: Server Note Commands: {_prefix}note **|** {_prefix}set-note note goes here");
-            sb.AppendLine($"\t :black_small_square: Away System Commands: {_prefix}away (reason) **|** {_prefix}back");
-            sb.AppendLine($"\t :black_small_square: Search YouTube: {_prefix}ysearch search term");
-            sb.AppendLine($"\t :black_small_square: Define a Word: {_prefix}define word");
-            sb.AppendLine($"\t :black_small_square: Ask Ninja 8-ball a question: {_prefix}8ball question");
-            sb.AppendLine($"\t :black_small_square: Greeting Commands: {_prefix}toggle-greetings **|** {_prefix}set-join-message User join greeting **|** {_prefix}set-part-message User left message");
-            sb.AppendLine();
-            sb.AppendLine($"**For a more detailed command list, please visit:** http://gngr.ninja/bot");
-            sb.AppendLine();
-            sb.AppendLine("*Having trouble, or is something broken? Please post any issues here:* https://github.com/gngrninja/NinjaBotCore/issues");
+
+            var helpTxt = await System.IO.File.ReadAllLinesAsync("help.txt");            
+
+            foreach (var line in helpTxt)
+            {
+                sb.AppendLine(line).Replace('!',Char.Parse(_prefix));
+            }            
+
             embed.Description = sb.ToString();
             await _cc.Reply(Context, embed);
-
-            //var pages = new List<String>();
-            //var commands = _commands.Commands.ToList();
-            //int commandCount = commands.Count();
-            //StringBuilder pageStrings = new StringBuilder();
-            //string oneOffs = string.Empty;
-            //for (int i = 0; i < commandCount; i++)
-            //{
-            //    pageStrings.Clear();
-            //    int difference = commandCount - i;
-            //    if (difference >= 10)
-            //    {
-            //        int pagesAdded = 0;
-            //        do
-            //        {
-            //            string name = commands[i].Name;
-            //            string summary = commands[i].Summary;
-            //            if (string.IsNullOrEmpty(summary))
-            //            {
-            //                summary = "No summary available!";
-            //            }
-            //            pageStrings.AppendLine($"**{name}** (*{summary}*)");
-            //            i++;
-            //            pagesAdded++;
-            //        }
-            //        while (pagesAdded < 10);
-            //        i--;
-            //        pages.Add(pageStrings.ToString());
-            //    }
-            //    else
-            //    {
-            //        string name = commands[i].Name;
-            //        string summary = commands[i].Summary;
-            //        if (string.IsNullOrEmpty(summary))
-            //        {
-            //            summary = "No summary available!";
-            //        }
-            //        oneOffs += $"**{name}** (*{summary}*)\n";
-            //    }
-            //}
-            //pages.Add(oneOffs);            
-            //try
-            //{
-            //    var newList = commands.ChunkBy(10);
-            //    Console.WriteLine(newList.Count);
-            //    var message = new PaginatedMessage(pages, $"NinjaBot Command List ({commandCount} total commands)", new Color(0, 255, 0), Context.User);
-            //    await _paginator.SendPaginatedMessageAsync(Context.Channel as IMessageChannel, message);
-            //}
-            //catch (Exception ex)
-            //{
-            //    await _cc.Reply(Context, $"Unable to get you help, sorry! [{ex.Message}]");
-            //}
         }
     }
 }

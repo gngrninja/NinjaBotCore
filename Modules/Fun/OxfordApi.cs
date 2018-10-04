@@ -27,7 +27,7 @@ namespace NinjaBotCore.Modules.Fun
             _appId = _config["OxfordDictionaryApi"].Split(',')[1];
         }
 
-        private string getAPIRequest(string url, string sourceLang = "en")
+        private string GetAPIRequest(string url, string sourceLang = "en")
         {
             string response;            
             url = $"{_baseUrl}{url}";
@@ -49,14 +49,14 @@ namespace NinjaBotCore.Modules.Fun
             return response;
         }
 
-        public OxfordResponses.OxfordSearch searchOxford(string searchFor, string sourceLang = "en")
+        public OxfordResponses.OxfordSearch SearchOxford(string searchFor, string sourceLang = "en")
         {
             string url = string.Empty;
             OxfordResponses.OxfordSearch searchResults = null;
             try
             {
                 url = $"/search/{sourceLang}?q={searchFor}&prefix=false&limit=5";
-                searchResults = JsonConvert.DeserializeObject<OxfordResponses.OxfordSearch>(getAPIRequest(url));
+                searchResults = JsonConvert.DeserializeObject<OxfordResponses.OxfordSearch>(GetAPIRequest(url));
             }
             catch(Exception ex)
             {
@@ -65,14 +65,14 @@ namespace NinjaBotCore.Modules.Fun
             return searchResults;
         }
 
-        public OxfordResponses.OxfordDefinition defineOxford(string wordId, string sourceLang = "en")
+        public OxfordResponses.OxfordDefinition DefineOxford(string wordId, string sourceLang = "en")
         {
             string url = string.Empty;
             OxfordResponses.OxfordDefinition defineResults = null;
             try
             {
                 url = $"/entries/{sourceLang}/{wordId}";
-                defineResults = JsonConvert.DeserializeObject<OxfordResponses.OxfordDefinition>(getAPIRequest(url));
+                defineResults = JsonConvert.DeserializeObject<OxfordResponses.OxfordDefinition>(GetAPIRequest(url));
             }
             catch (Exception ex)
             {

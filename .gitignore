@@ -11,7 +11,12 @@
 *.db3
 *.log
 
+#Ignore scripts/txt files
+*.ps1
+*.txt
+
 #Ignore vscode folders
 /.vscode/
 config.json.save
 .DS_Store
+ninjabot.db-journal

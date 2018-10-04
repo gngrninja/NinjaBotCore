@@ -677,8 +677,7 @@ namespace NinjaBotCore.Modules.Wow
                         {
                             realmName = args.Split(',')[0].ToString().Trim();
                             guildName = args.Split(',')[1].ToString().Trim();
-                            region = "us";
-                            locale = GetLocalFromRegion(ref region);
+                            region = "us";                            
                             break;
                         }
                     case 3:
@@ -686,7 +685,6 @@ namespace NinjaBotCore.Modules.Wow
                             realmName = args.Split(',')[0].ToString().Trim();
                             guildName = args.Split(',')[1].ToString().Trim();
                             region = args.Split(',')[2].ToString().Trim().ToLower();
-                            locale = GetLocalFromRegion(ref region);
                             break;
                         }
                 }
@@ -694,12 +692,14 @@ namespace NinjaBotCore.Modules.Wow
             else
             {
                 StringBuilder sb = new StringBuilder();
-                sb.AppendLine("Please specify realm, guild, and region (defaults to US if blank, valid options are us/eu)!");
-                sb.AppendLine($"Example: {_prefix}set-guild Thunderlord, UR KEY UR CARRY, us");
-                sb.AppendLine($"Example: {_prefix}set-guild Silvermoon, rome in a day, eu");
+                sb.AppendLine("Please specify realm, guild, and locale (supported locales: us (default)/eu/ru)!");
+                sb.AppendLine($"Example: {_prefix}set-guild Destromath, NinjaBread Men");
+                sb.AppendLine($"Example: {_prefix}set-guild Silvermoon, Rome in a Day, eu");
+                sb.AppendLine($"Example: {_prefix}set-guild Ревущий фьорд, Порейдим месяц, ru");
                 await _cc.Reply(Context, sb.ToString());
                 return;
             }
+            locale = GetLocaleFromRegion(ref region);
             string discordGuildName = string.Empty;
             try
             {
@@ -1232,8 +1232,8 @@ namespace NinjaBotCore.Modules.Wow
             string guildName = guildObject.guildName;
             region = guildObject.regionName;
 
-            var fightList = WarcraftLogs.Zones.Where(z => z.id == 17).Select(z => z.encounters).FirstOrDefault();
-            raidName = WarcraftLogs.Zones.Where(z => z.id == 17).Select(z => z.name).FirstOrDefault();
+            var fightList = WarcraftLogs.Zones.Where(z => z.id == 19).Select(z => z.encounters).FirstOrDefault();
+            raidName = WarcraftLogs.Zones.Where(z => z.id == 19).Select(z => z.name).FirstOrDefault();
 
             //Get Guild Information for Discord Server (or channel for DM)
             if (Context.Channel is IDMChannel)
@@ -1465,13 +1465,29 @@ namespace NinjaBotCore.Modules.Wow
                     await _cc.Reply(Context, sb.ToString());
                     return;
                 }
+
                 if (!(string.IsNullOrEmpty(guildOnly) || guildOnly.ToLower() != "guild"))
                 {
-                    l = _logsApi.GetRankingsByEncounterGuild(encounterID, realmName, guildObject.guildName, "1", metric, difficultyID, region);
+                    if (!string.IsNullOrEmpty(guildObject.realmSlug))
+                    {
+                        l = _logsApi.GetRankingsByEncounterGuildSlug(encounterID, guildObject.realmSlug, guildObject.guildName, metric, difficultyID, region);
+                    }
+                    else
+                    {
+                        l = _logsApi.GetRankingsByEncounterGuild(encounterID, guildObject.realmName, guildObject.guildName, metric, difficultyID, region);                   
+                    }
                 }
                 else
                 {
-                    l = _logsApi.GetRankingsByEncounter(encounterID, realmName, "1", metric, difficultyID, region);
+                    if (!string.IsNullOrEmpty(guildObject.realmSlug))
+                    {
+                        l = _logsApi.GetRankingsByEncounterSlug(encounterID, guildObject.realmSlug, metric, difficultyID, region);
+                    }
+                    else
+                    {
+                        l = _logsApi.GetRankingsByEncounter(encounterID, realmName, metric, difficultyID, region);
+                    }
+
                 }
                 string fightNameFromEncounterID = fightList.Where(f => f.id == encounterID).Select(f => f.name).FirstOrDefault();
                 var top10 = l.rankings.OrderByDescending(a => a.total).Take(10);
@@ -1640,7 +1656,7 @@ namespace NinjaBotCore.Modules.Wow
                     return;
                 }
                 Console.WriteLine($"Looking up auctions for realm {realmName.ToUpper()}");
-                List<WowAuctions> auctions = await _wowApi.GetAuctionsByRealm(realmName.ToLower(), regionName);
+                List<WowAuctions> auctions = await _wowApi.GetAuctionsByRealm(realmName.ToLower(), guildObject.regionName);
                 StringBuilder sb = new StringBuilder();
                 var auctionList = GetAuctionItemIDs();
                 var embed = new EmbedBuilder();
@@ -1663,6 +1679,7 @@ namespace NinjaBotCore.Modules.Wow
                 sb.AppendLine($"Last updated: **{auctions[0].DateModified}**");
                 embed.Description = sb.ToString();
                 await _cc.Reply(Context, embed);
+                
                 using (var db = new NinjaBotEntities())
                 {
                     foreach (var item in auctionList)
@@ -1686,7 +1703,7 @@ namespace NinjaBotCore.Modules.Wow
                         }
                     }
                     await db.SaveChangesAsync();
-                }
+                }                                
             }
             catch (Exception ex)
             {
@@ -1924,39 +1941,74 @@ namespace NinjaBotCore.Modules.Wow
                     guildObject.realmName = foundGuild.WowRealm;
                     guildObject.regionName = foundGuild.WowRegion;
                     guildObject.locale = foundGuild.Locale;
+                    guildObject.realmSlug = foundGuild.LocalRealmSlug;
                 }
             }
             return guildObject;
         }
 
-        private async Task SetGuildAssociation(string wowGuildName, string realmName, string locale, string regionName = "us")
+        private async Task SetGuildAssociation(string wowGuildName, string realmName, string locale, string regionName)
         {
             try
             {
                 var guildInfo = Context.Guild;
+
                 string guildName = string.Empty;
+                string realmSlug = string.Empty;
+                string apiRegion = string.Empty;                
                 ulong guildId;
-                if (guildInfo == null)
+
+                //guild in this context is the Discord server
+                //this if statement gets the user information if it is a DM, discord server info otherwise
+                if (Context.Channel is IDMChannel)
                 {
                     guildName = Context.User.Username;
                     guildId = Context.User.Id;
-                }
-                else
+                }  
+                else 
                 {
                     guildName = guildInfo.Name;
                     guildId = guildInfo.Id;
                 }
-                if (locale.ToLower() != "en_us")
+                
+                //use locale to determine realm slug
+                switch (locale)
                 {
-                    regionName = "eu";
+                    case "ru_RU":
+                        {                            
+                            realmSlug = WowApi.RealmInfoRu.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
+                            break;
+                        }
+                    case "en_GB":
+                        {                            
+                            realmSlug = WowApi.RealmInfoEu.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
+                            break;
+                        }
+                    case "en_US":
+                        {                            
+                            realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
+                            break;
+                        }
+                    default: 
+                        {                            
+                            realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
+                            break;
+                        }
+                }
+
+                if (regionName.ToLower() == "us")
+                {
+                    apiRegion = "us";
                 }
                 else
                 {
-                    regionName = "us";
+                    apiRegion = "eu";
                 }
+
                 using (var db = new NinjaBotEntities())
                 {
                     var foundGuild = db.WowGuildAssociations.FirstOrDefault(g => g.ServerName == guildName);
+
                     if (foundGuild == null)
                     {
                         WowGuildAssociations newGuild = new WowGuildAssociations
@@ -1965,7 +2017,8 @@ namespace NinjaBotCore.Modules.Wow
                             ServerName = guildName,
                             WowGuild = wowGuildName,
                             WowRealm = realmName,
-                            WowRegion = regionName,
+                            WowRegion = apiRegion,
+                            LocalRealmSlug = realmSlug,
                             Locale = locale,
                             SetBy = Context.User.Username,
                             SetById = (long)Context.User.Id,
@@ -1978,8 +2031,9 @@ namespace NinjaBotCore.Modules.Wow
                         foundGuild.ServerId = (long)guildId;
                         foundGuild.WowGuild = wowGuildName;
                         foundGuild.WowRealm = realmName;
-                        foundGuild.WowRegion = regionName;
+                        foundGuild.WowRegion = apiRegion;
                         foundGuild.Locale = locale;
+                        foundGuild.LocalRealmSlug = realmSlug;
                         foundGuild.SetBy = Context.User.Username;
                         foundGuild.SetById = (long)Context.User.Id;
                         foundGuild.TimeSet = DateTime.Now;
@@ -1993,7 +2047,7 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
-        private static string GetLocalFromRegion(ref string regionName)
+        private static string GetLocaleFromRegion(ref string regionName)
         {
             string locale;
             switch (regionName)
@@ -2003,6 +2057,11 @@ namespace NinjaBotCore.Modules.Wow
                         locale = "en_US";
                         break;
                     }
+                case "us":
+                    {
+                        locale = "en_US";
+                        break;
+                    } 
                 case "eu":
                     {
                         locale = "en_GB";

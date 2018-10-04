@@ -71,23 +71,23 @@ namespace NinjaBotCore
                 .AddSingleton<YouTubeApi>();
 
             var serviceProvider = services.BuildServiceProvider();
-                          
-            //Start the bot
+                                      
             serviceProvider.GetRequiredService<DiscordSocketClient>().Log += Log;   
+
+            //Start the bot
             await serviceProvider.GetRequiredService<StartupService>().StartAsync(); 
 
-            //Start the command handler
+            //Load up services
             serviceProvider.GetRequiredService<CommandHandler>();
-            
-            //Instantiate services    
             serviceProvider.GetRequiredService<LoggingService>();        
             serviceProvider.GetRequiredService<UserInteraction>();              
             serviceProvider.GetRequiredService<AwayCommands>();
             serviceProvider.GetRequiredService<WowApi>();
             serviceProvider.GetRequiredService<WarcraftLogs>();
-            //serviceProvider.GetRequiredService<RlStatsApi>();
-            /* 
             
+            /*             
+            Not loading these on statup for now
+            //serviceProvider.GetRequiredService<RlStatsApi>();
             serviceProvider.GetRequiredService<OxfordApi>();
             serviceProvider.GetRequiredService<ChannelCheck>();
             serviceProvider.GetRequiredService<SteamApi>();
@@ -95,8 +95,8 @@ namespace NinjaBotCore
             serviceProvider.GetRequiredService<WeatherApi>();
             serviceProvider.GetRequiredService<YouTubeApi>();
             */                                   
-            // Block this program until it is closed.                     
-
+                                 
+            // Block this program until it is closed.
             await Task.Delay(-1);
         }
 

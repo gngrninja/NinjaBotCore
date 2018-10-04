@@ -12,6 +12,7 @@ namespace NinjaBotCore.Database
         public string WowGuild { get; set; }
         public string WowRealm { get; set; }
         public string WowRegion { get; set; }
+        public string LocalRealmSlug { get; set; }
         public string Locale { get; set; }
         public string SetBy { get; set; }
         public Nullable<long> SetById { get; set; }

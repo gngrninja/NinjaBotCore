@@ -215,9 +215,9 @@ namespace NinjaBotCore.Modules.Wow
             DateTime? latestTimeStampFromDb;
             List<WowAuctions> dbAuctions = new List<WowAuctions>();
             List<WowAuctions> returnAuction = new List<WowAuctions>();
-            string region = GetRegionFromString(regionName);
+            
+            url = $"/auction/data/{realmName}?locale={regionName}";
 
-            url = $"/auction/data/{realmName}?locale={region}";
             file = JsonConvert.DeserializeObject<AuctionsModel.AuctionFile>(GetAPIRequest(url, regionName));
             string fileURL = file.files[0].url;
             DateTime lastModified = UnixTimeStampToDateTime(file.files[0].lastModified);
