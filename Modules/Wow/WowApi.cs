@@ -153,7 +153,6 @@ namespace NinjaBotCore.Modules.Wow
             region = region.ToLower();
             prefix = $"https://{region}.api.battle.net/wow";
             key = $"&apikey={_config["WowApi"]}";
-            locale = $"&locale={locale}";
             url = $"{prefix}{url}{locale}{key}";
 
             Console.WriteLine($"Wow API request to {url}");
