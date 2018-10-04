@@ -36,9 +36,9 @@ namespace NinjaBotCore.Modules.Wow
                 Classes = this.GetWowClasses();
                 Achievements cheeves = this.GetWoWAchievements();
                 Achievements = cheeves.achievements.Select(m => m.categories).Skip(1).SelectMany(i => i).Select(a => a.achievements).SelectMany(d => d).ToList();
-                RealmInfo = this.GetRealmStatus();
+                RealmInfo = this.GetRealmStatus("us");
                 RealmInfoEu = this.GetRealmStatus("eu");   
-                RealmInfoRu = this.GetRealmStatus("ru","eu");             
+                RealmInfoRu = this.GetRealmStatus("ru_RU","eu");             
             }
             catch (Exception ex)
             {
@@ -152,7 +152,8 @@ namespace NinjaBotCore.Modules.Wow
 
             region = region.ToLower();
             prefix = $"https://{region}.api.battle.net/wow";
-            key = $"&apikey={_config["WowApi"]}";
+            key = $"&apikey={_config["WowApi"]}";       
+            locale = $"&locale={locale}";                        
             url = $"{prefix}{url}{locale}{key}";
 
             Console.WriteLine($"Wow API request to {url}");
@@ -191,8 +192,8 @@ namespace NinjaBotCore.Modules.Wow
         {
             string localeName = GetRegionFromString(locale);
             WowRealm w = new WowRealm();
-            string url = $"/realm/status?locale={localeName}";
-            w = JsonConvert.DeserializeObject<WowRealm>(GetAPIRequest(url, locale));
+            string url = $"/realm/status?";
+            w = JsonConvert.DeserializeObject<WowRealm>(GetAPIRequest(url, localeName, locale));
             return w;
         }
 
@@ -200,7 +201,7 @@ namespace NinjaBotCore.Modules.Wow
         {
             string localeName = GetRegionFromString(locale);
             WowRealm w = new WowRealm();
-            string url = $"/realm/status?locale={localeName}";
+            string url = $"/realm/status?";
             w = JsonConvert.DeserializeObject<WowRealm>(GetAPIRequest(url, locale: locale, region: region));
             return w;
         }
