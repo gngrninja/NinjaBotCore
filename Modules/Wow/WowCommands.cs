@@ -773,7 +773,14 @@ namespace NinjaBotCore.Modules.Wow
             {
                 try
                 {
-                    members = _wowApi.GetGuildMembers(guildObject.realmName, guildObject.guildName, locale: guildObject.locale, regionName: guildObject.regionName);
+                    if (!string.IsNullOrEmpty(guildObject.locale))
+                    {
+                        members = _wowApi.GetGuildMembers(guildObject.realmName, guildObject.guildName, locale: guildObject.locale, regionName: guildObject.regionName);
+                    }
+                    else
+                    {
+                        members = _wowApi.GetGuildMembers(guildObject.realmName, guildObject.guildName, regionName: guildObject.regionName);
+                    }                                        
                 }
                 catch (Exception ex)
                 {
