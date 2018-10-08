@@ -34,6 +34,13 @@ namespace NinjaBotCore.Modules.Wow
             _prefix = _config["prefix"];
         }
 
+
+        [Command("noggen", RunMode = RunMode.Async)]
+        public async Task GetNoggen()
+        {
+
+        }
+        
         [Command("Populate-Logs",RunMode = RunMode.Async)]
         [RequireOwner]
         public async Task PopulateLogs()
