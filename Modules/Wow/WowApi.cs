@@ -519,6 +519,27 @@ namespace NinjaBotCore.Modules.Wow
             return charTalents;
         }
 
+        public WowStats GetCharStats(string charName, string realmName, string locale)
+        {
+            string region = string.Empty;
+            WowStats g;
+            string url;
+
+            if (locale != "en_US")
+            {
+                region = "eu";
+            }
+            else
+            {
+                region = "us";
+            }
+
+            url = $"/character/{realmName}/{charName}?fields=statistics&locale={locale}";
+            g = JsonConvert.DeserializeObject<WowStats>(GetAPIRequest(url,region: region));
+
+            return g;
+        }
+
         public DateTime UnixTimeStampToDateTime(long unixTimeStamp)
         {
             // Unix timestamp is seconds past epoch

@@ -32,6 +32,7 @@ namespace NinjaBotCore.Database
         public virtual DbSet<LogMonitoring> LogMonitoring { get; set; }
         public virtual DbSet<Warnings> Warnings { get; set; }
         public virtual DbSet<PrefixList> PrefixList { get; set; }
+        public virtual DbSet<CharStats> CharStats { get; set; }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
