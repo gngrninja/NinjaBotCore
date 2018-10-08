@@ -34,6 +34,102 @@ namespace NinjaBotCore.Modules.Wow
             _prefix = _config["prefix"];
         }
 
+
+        [Command("noggen", RunMode = RunMode.Async)]
+        public async Task GetNoggen()
+        {
+            var embed = new EmbedBuilder();
+            StringBuilder sb = new StringBuilder();
+            string title = string.Empty;
+            GuildMembers members = null;
+            string thumbUrl = string.Empty;
+            var guildInfo = Context.Guild;
+            string discordGuildName = string.Empty;
+
+            if (guildInfo == null)
+            {
+                discordGuildName = Context.User.Username;
+                thumbUrl = Context.User.GetAvatarUrl();
+            }
+            else
+            {
+                discordGuildName = Context.Guild.Name;
+                thumbUrl = Context.Guild.IconUrl;
+            }
+
+            NinjaObjects.GuildObject guildObject = await GetGuildName();
+
+            title = $"Top Noggenfogger Consumers in **{guildObject.guildName}**";
+            embed.Title = title;
+            embed.ThumbnailUrl = thumbUrl;
+
+            if (guildObject.guildName != null || members != null)
+            {
+                try
+                {
+                    if (!string.IsNullOrEmpty(guildObject.locale))
+                    {
+                        members = _wowApi.GetGuildMembers(guildObject.realmName, guildObject.guildName, locale: guildObject.locale, regionName: guildObject.regionName);
+                    }
+                    else
+                    {
+                        members = _wowApi.GetGuildMembers(guildObject.realmName, guildObject.guildName, regionName: guildObject.regionName);
+                    }     
+
+                    var maxLevelChars = members.members.Where(m => m.character.level == 120);               
+                    List<CharStats> statsFromDb = new List<CharStats>();
+
+                    using (var db = new NinjaBotEntities())
+                    {
+                        statsFromDb = db.CharStats.Where(c => c.GuildName == guildObject.guildName).ToList();                                                                        
+                    }
+
+                    foreach (var member in maxLevelChars)
+                    {
+                        var curMemberStats = new WowStats();
+                        var match = statsFromDb.Where(s => s.CharName == member.character.name).FirstOrDefault();                                                
+                        if (match == null) 
+                        {
+                            curMemberStats = _wowApi.GetCharStats(member.character.name, member.character.realm, guildObject.locale);
+                            var elixer = curMemberStats.Statistics.SubCategories[0].SubCategories[0].Statistics.Where(s => s.Name == "Elixir consumed most").FirstOrDefault();
+                            using (var db = new NinjaBotEntities())
+                            {
+                                db.CharStats.Add(new CharStats{
+                                    CharName = member.character.name,
+                                    RealmName = member.character.realm,
+                                    GuildName = guildObject.guildName,
+                                    ElixerConsumed = elixer.Highest,
+                                    Quantity = elixer.Quantity                                    
+                                });
+                                await db.SaveChangesAsync();                                
+                            }
+                        }
+                        else
+                        {
+
+                        }
+                    }                  
+                    if (statsFromDb.Count() > 0)
+                    {
+                        var candidates = statsFromDb.OrderByDescending(o => o.Quantity).Take(10).ToList();
+                        if (candidates != null && candidates.Count() > 0)
+                        {
+                            foreach (var canditate in candidates)
+                            {
+                                sb.AppendLine($":black_medium_small_square: {canditate.CharName} -> *{canditate.Quantity}*");
+                            }                            
+                        }
+                    }
+                    embed.Description = sb.ToString();
+                    await _cc.Reply(Context, embed);
+                }                
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Get-Guild Error getting guild info: [{ex.Message}]");
+                }
+            }
+        }
+        
         [Command("Populate-Logs",RunMode = RunMode.Async)]
         [RequireOwner]
         public async Task PopulateLogs()
