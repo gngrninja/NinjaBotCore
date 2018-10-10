@@ -21,19 +21,218 @@ namespace NinjaBotCore.Modules.Wow
         private WarcraftLogs _logsApi;
         private WowApi _wowApi;
         private DiscordSocketClient _client;
+        private RaiderIOApi _rioApi;
         private readonly IConfigurationRoot _config;
         private string _prefix;
 
-        public WowCommands(WowApi api, ChannelCheck cc, WarcraftLogs logsApi, DiscordSocketClient client, IConfigurationRoot config)
+        public WowCommands(WowApi api, ChannelCheck cc, WarcraftLogs logsApi, RaiderIOApi rioApi, DiscordSocketClient client, IConfigurationRoot config)
         {
             _cc = cc;            
             _logsApi = logsApi;            
-            _wowApi = api;                                    
+            _wowApi = api;
+            _rioApi = rioApi;                                    
             _client = client;            
             _config = config;
             _prefix = _config["prefix"];
         }
 
+        [Command("rpi", RunMode = RunMode.Async)]
+        public async Task GetMythicPlus([Remainder] string args = null)
+        {
+            var sb = new StringBuilder();
+            var embed = new EmbedBuilder();
+            GuildChar charInfo = null;
+            if (string.IsNullOrEmpty(args))
+            {
+                embed.Title = $"M+ Character Info Help";
+                sb.AppendLine($"Usage examples:");
+                sb.AppendLine($":black_small_square: **{_prefix}rpi** charactername");
+                sb.AppendLine($"\t:black_small_square: Search raider.io for *charactername* (first in guild, then in the rest of WoW(US))");
+                sb.AppendLine($":black_small_square: **{_prefix}rpi** charactername realmname");
+                sb.AppendLine($"\t:black_small_square: Search raider.io for *charactername* on *realmname* WoW (US)");
+                sb.AppendLine($":black_small_square: **{_prefix}rpi** charactername realmname region(us or eu)");
+                sb.AppendLine($"\t:black_small_square: Search raider.io for *charactername* on *realmname* WoW (US or EU as specified)");
+                embed.Description = sb.ToString();
+                await _cc.Reply(Context, embed);
+                return;
+            }
+            else
+            {
+                charInfo = await GetCharFromArgs(args, Context);
+                RaiderIOModels.RioMythicPlusChar mPlusInfo = null;
+                if (charInfo.regionName != null)
+                {
+                    mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"), region: charInfo.regionName.ToLower());
+                }
+                else
+                {
+                    mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"));
+                }                
+                sb.AppendLine($"**__Raid Progression__**");
+                string normalKilled = GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Uldir.NormalBossesKilled);
+                string heroicKilled = GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Uldir.HeroicBossesKilled);
+                string mythicKilled = GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Uldir.MythicBossesKilled);
+                string totalBosses = GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Uldir.TotalBosses);                                
+                sb.AppendLine($"\t **n** [{normalKilled} / {totalBosses}] **h** [{heroicKilled} / {totalBosses}] **m** [{mythicKilled} / {totalBosses}]");
+                sb.AppendLine();
+                sb.AppendLine($"**__Best Runs__**");                
+                foreach (var run in mPlusInfo.MythicPlusBestRuns)
+                {
+                    sb.AppendLine($"\t [:white_square_button: [{run.ShortName}(**{run.MythicLevel}**)] {run.ClearTimeMs / 60000} minutes]({run.Url.AbsoluteUri})");
+                } 
+                sb.AppendLine();
+                
+                
+                sb.AppendLine($"**__M+ Rankings For Active Spec ({mPlusInfo.ActiveSpecRole})__**");
+                switch (mPlusInfo.ActiveSpecRole.ToLower())
+                {
+                    case "dps":
+                    {
+                        sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.Dps.Realm}] Region [{mPlusInfo.MythicPlusRanks.Dps.Region}] World [{mPlusInfo.MythicPlusRanks.Dps.World}]");
+                        break;
+                    }
+                    case "healer":
+                    {
+                        sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.Healer.Realm}] Region [{mPlusInfo.MythicPlusRanks.Healer.Region}] World [{mPlusInfo.MythicPlusRanks.Healer.World}]");
+                        break;
+                    }
+                    case "tank":
+                    {
+                        sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.Tank.Realm}] Region [{mPlusInfo.MythicPlusRanks.Tank.Region}] World [{mPlusInfo.MythicPlusRanks.Tank.World}]");
+                        break;
+                    }
+                }
+                sb.AppendLine();
+                sb.AppendLine($"[{mPlusInfo.Name}'s Profile]({mPlusInfo.ProfileUrl.AbsoluteUri})");                
+                embed.Title = $"Mythic+ Information For {mPlusInfo.Name} on {mPlusInfo.Realm}";
+                embed.ThumbnailUrl = $"{mPlusInfo.ThumbnailUrl.AbsoluteUri}";
+                embed.Description = sb.ToString();
+                embed.WithColor(new Color(0, 200, 150));
+                embed.Footer = new EmbedFooterBuilder{
+                    Text = $"Raider.IO Score {mPlusInfo.MythicPlusScores.All}"
+                };                            
+                await _cc.Reply(Context, embed);
+            }
+        }
+
+        [Command("guildstats", RunMode = RunMode.Async)]
+        public async Task GetRioGuildStats()
+        {
+            var embed = new EmbedBuilder();
+            var sb = new StringBuilder();
+            var guildInfo = Context.Guild;
+            
+            string title = string.Empty;            
+            string discordGuildName = string.Empty;
+            string thumbUrl = string.Empty;
+            string region = string.Empty;
+
+            if (guildInfo == null)
+            {
+                discordGuildName = Context.User.Username;
+                thumbUrl = Context.User.GetAvatarUrl();
+            }
+            else
+            {
+                discordGuildName = Context.Guild.Name;
+                thumbUrl = Context.Guild.IconUrl;
+            }
+
+            var guildObject = await GetGuildName(); 
+            var guildStats = _rioApi.GetRioGuildInfo(guildName: guildObject.guildName, realmName: guildObject.realmSlug, region: guildObject.regionName);
+                        
+            string normalKilled = GetNumberEmojiFromString((int)guildStats.RaidProgression.Uldir.NormalBossesKilled);
+            string heroicKilled = GetNumberEmojiFromString((int)guildStats.RaidProgression.Uldir.HeroicBossesKilled);
+            string mythicKilled = GetNumberEmojiFromString((int)guildStats.RaidProgression.Uldir.MythicBossesKilled);
+            string totalBosses = GetNumberEmojiFromString((int)guildStats.RaidProgression.Uldir.TotalBosses);
+            
+            title = $"{guildObject.guildName} on {guildObject.realmName}'s Raider.IO Stats";
+
+            sb.AppendLine("**__Raid Progression:__**");
+            sb.AppendLine($"\t **n** [{normalKilled} / {totalBosses}]");
+            sb.AppendLine($"\t **h** [{heroicKilled} / {totalBosses}]");
+            sb.AppendLine($"\t **m** [{mythicKilled} / {totalBosses}]");
+            sb.AppendLine();
+            sb.AppendLine("**__Raid Rankings:__**");
+            sb.AppendLine($"\t **n** [ realm [**{guildStats.RaidRankings.Uldir.Normal.Realm}**] world [**{guildStats.RaidRankings.Uldir.Normal.World}**] region [**{guildStats.RaidRankings.Uldir.Normal.Region}**] ]");            
+            sb.AppendLine($"\t **h** [ realm [**{guildStats.RaidRankings.Uldir.Heroic.Realm}**] world [**{guildStats.RaidRankings.Uldir.Heroic.World}**] region [**{guildStats.RaidRankings.Uldir.Heroic.Region}**] ]");
+            sb.AppendLine($"\t **m** [ realm [**{guildStats.RaidRankings.Uldir.Mythic.Realm}**] world [**{guildStats.RaidRankings.Uldir.Mythic.World}**] region [**{guildStats.RaidRankings.Uldir.Mythic.Region}**] ]");
+            sb.AppendLine();
+            sb.AppendLine($"[{guildObject.guildName} Profile]({guildStats.ProfileUrl.AbsoluteUri})");
+
+            embed.Title = title;
+            embed.ThumbnailUrl = thumbUrl;
+            embed.WithColor(new Color(0, 0, 255));
+            embed.Description = sb.ToString();
+
+            await _cc.Reply(Context, embed);                        
+        }
+
+        [Command("affixes", RunMode = RunMode.Async)]
+        public async Task GetAffixes()
+        {
+            var embed = new EmbedBuilder();
+            var sb = new StringBuilder();
+            var guildInfo = Context.Guild;
+            
+            string title = string.Empty;            
+            string discordGuildName = string.Empty;
+            string thumbUrl = string.Empty;
+            string region = string.Empty;
+
+            if (guildInfo == null)
+            {
+                discordGuildName = Context.User.Username;
+                thumbUrl = Context.User.GetAvatarUrl();
+            }
+            else
+            {
+                discordGuildName = Context.Guild.Name;
+                thumbUrl = Context.Guild.IconUrl;
+            }
+
+            var guildObject = await GetGuildName(); 
+            RaiderIOModels.Affix affixes = null;
+            
+            switch (guildObject.regionName.ToLower())
+            {
+                case "us":
+                {
+                    region = "us";
+                    break;
+                }
+                case "eu":
+                {
+                    region = "eu";
+                    break;
+                }
+                default:
+                {
+                    region = "us";
+                    break;
+                }
+            }
+
+            affixes = _rioApi.GetCurrentAffix(region: region);
+
+            title = $"Current M+ Affixes ({region})";
+           
+            embed.Title = title;
+            embed.ThumbnailUrl = thumbUrl;
+            embed.WithColor(new Color(0, 255, 0));
+                   
+            foreach (var detail in affixes.AffixDetails)
+            {
+                sb.AppendLine($"[{detail.Name}]({detail.WowheadUrl})");
+                sb.AppendLine($"\t*{detail.Description}*");
+                sb.AppendLine();
+            }
+
+            sb.AppendLine($"[Leaderboard]({affixes.LeaderboardUrl.AbsoluteUri})");            
+            embed.Description = sb.ToString();
+
+            await _cc.Reply(Context, embed);                        
+        }
 
         [Command("noggen", RunMode = RunMode.Async)]
         public async Task GetNoggen()
@@ -2291,6 +2490,90 @@ namespace NinjaBotCore.Modules.Wow
                 encounterID = zone.encounters.Where(e => e.name.ToLower() == encounterName.ToLower()).FirstOrDefault().id;
             }
             return encounterID;
+        }
+
+        private string GetNumberEmojiFromString(int number)
+        {
+            string numberEmoji = string.Empty;
+            switch (number)
+            {
+                case 1:
+                {
+                    numberEmoji = ":one:";
+                    break;
+                }
+                case 2:
+                {
+                    numberEmoji = ":two:";
+                    break;
+                }
+                case 3:
+                {
+                    numberEmoji = ":three:";
+                    break;
+                }
+                case 4:
+                {
+                    numberEmoji = ":four:";
+                    break;
+                }
+                case 5:
+                {
+                    numberEmoji = ":five:";
+                    break;
+                }
+                case 6:
+                {
+                    numberEmoji = ":six:";
+                    break;
+                }
+                case 7:
+                {
+                    numberEmoji = ":seven:";
+                    break;
+                }
+                case 8:
+                {
+                    numberEmoji = ":eight:";
+                    break;
+                }
+                case 9:
+                {
+                    numberEmoji = ":nine:";
+                    break;
+                }
+                case 10:
+                {
+                    numberEmoji = ":one::zero:";
+                    break;
+                }
+                case 11:
+                {
+                    numberEmoji = ":one::one:";
+                    break;
+                }
+                case 12:
+                {
+                    numberEmoji = ":one::two:";
+                    break;
+                }
+                case 13:
+                {
+                    numberEmoji = ":one::three:";
+                    break;
+                }
+                case 14:
+                {
+                    numberEmoji = ":one::four:";
+                    break;
+                }
+                default:
+                {
+                    numberEmoji = ":zero:";
+                    break;
+                }                                                                                                                                                                                
+            }
+            return numberEmoji;
         }
     }
 }

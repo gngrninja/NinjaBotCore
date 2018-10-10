@@ -68,8 +68,9 @@ namespace NinjaBotCore
                 .AddSingleton<SteamApi>()        
                 .AddSingleton<GiphyApi>()    
                 .AddSingleton<WeatherApi>()
+                .AddSingleton<RaiderIOApi>()
                 .AddSingleton<YouTubeApi>();
-
+                
             var serviceProvider = services.BuildServiceProvider();
                                       
             serviceProvider.GetRequiredService<DiscordSocketClient>().Log += Log;   
@@ -84,6 +85,7 @@ namespace NinjaBotCore
             serviceProvider.GetRequiredService<AwayCommands>();
             serviceProvider.GetRequiredService<WowApi>();
             serviceProvider.GetRequiredService<WarcraftLogs>();
+            serviceProvider.GetRequiredService<RaiderIOApi>();
             
             /*             
             Not loading these on statup for now
