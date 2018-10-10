@@ -36,7 +36,6 @@ namespace NinjaBotCore.Modules.Wow
             _prefix = _config["prefix"];
         }
 
-
         [Command("rpi", RunMode = RunMode.Async)]
         public async Task GetMythicPlus([Remainder] string args = null)
         {
@@ -79,11 +78,11 @@ namespace NinjaBotCore.Modules.Wow
                 sb.AppendLine($"**__Best Runs__**");                
                 foreach (var run in mPlusInfo.MythicPlusBestRuns)
                 {
-                    sb.AppendLine($"\t :white_square_button: [{run.ShortName}(**{run.MythicLevel}**)] {run.ClearTimeMs / 60000} minutes");
+                    sb.AppendLine($"\t [:white_square_button: [{run.ShortName}(**{run.MythicLevel}**)] {run.ClearTimeMs / 60000} minutes]({run.Url.AbsoluteUri})");
                 } 
                 sb.AppendLine();
                 
-
+                
                 sb.AppendLine($"**__M+ Rankings For Active Spec ({mPlusInfo.ActiveSpecRole})__**");
                 switch (mPlusInfo.ActiveSpecRole.ToLower())
                 {
@@ -160,7 +159,7 @@ namespace NinjaBotCore.Modules.Wow
             sb.AppendLine($"\t **m** [ realm [**{guildStats.RaidRankings.Uldir.Mythic.Realm}**] world [**{guildStats.RaidRankings.Uldir.Mythic.World}**] region [**{guildStats.RaidRankings.Uldir.Mythic.Region}**] ]");
             sb.AppendLine();
             sb.AppendLine($"[{guildObject.guildName} Profile]({guildStats.ProfileUrl.AbsoluteUri})");
-            
+
             embed.Title = title;
             embed.ThumbnailUrl = thumbUrl;
             embed.WithColor(new Color(0, 0, 255));
