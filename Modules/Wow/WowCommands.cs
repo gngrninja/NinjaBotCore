@@ -36,6 +36,12 @@ namespace NinjaBotCore.Modules.Wow
             _prefix = _config["prefix"];
         }
 
+        [Command("shunt", RunMode = RunMode.Async)]
+        public async Task ShowShunt()
+        {
+            await Context.Channel.SendFileAsync("shunt.gif");
+        }
+
         [Command("rpi", RunMode = RunMode.Async)]
         public async Task GetMythicPlus([Remainder] string args = null)
         {
