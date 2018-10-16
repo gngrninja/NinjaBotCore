@@ -137,8 +137,7 @@ namespace NinjaBotCore.Modules.Wow
                         break;
                     }
                 }
-                sb.AppendLine();
-                sb.AppendLine($"[{mPlusInfo.Name}'s Profile]");                
+                sb.AppendLine();          
                 embed.Title = $"Mythic+ Information For {mPlusInfo.Name} on {mPlusInfo.Realm}";
                 embed.AddField("Raider.IO",$"[{mPlusInfo.Name}]({mPlusInfo.ProfileUrl.AbsoluteUri})", true);
                 embed.AddField("WoW Armory",$"[{mPlusInfo.Name}]({armoryInfo.armoryURL})", true);
