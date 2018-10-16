@@ -64,31 +64,60 @@ namespace NinjaBotCore.Modules.Wow
             }
             else
             {
-                charInfo = await GetCharFromArgs(args, Context);
                 RaiderIOModels.RioMythicPlusChar mPlusInfo = null;
-                if (charInfo.regionName != null)
+                charInfo = await GetCharFromArgs(args, Context);
+                Character armoryInfo = null;
+                string realmSlug = string.Empty;
+                string region = string.Empty;
+                if (!(string.IsNullOrEmpty(charInfo.regionName)))
                 {
-                    mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"), region: charInfo.regionName.ToLower());
+                    mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"));
+                    armoryInfo = _wowApi.GetCharInfo(charInfo.charName, charInfo.realmName, charInfo.regionName);
                 }
                 else
                 {
-                    mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"));
+                    mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"), region: charInfo.regionName.ToLower());
+                    armoryInfo = _wowApi.GetCharInfo(charInfo.charName, charInfo.realmName);
                 }                
+                switch (charInfo.locale.Substring(3).ToLower())
+                {
+                    case "us":
+                        {
+                            region = "us";
+                            realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.Replace("'","").ToLower().Contains(charInfo.realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
+                            break;
+                        }
+                    case "ru":
+                        {                 
+                            region = "ru";   
+                            realmSlug = WowApi.RealmInfoRu.realms.Where(r => r.name.Replace("'","").ToLower().Contains(charInfo.realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
+                            break;
+                        }
+                    case "gb":
+                        {
+                            region = "eu";
+                            realmSlug = WowApi.RealmInfoEu.realms.Where(r => r.name.Replace("'","").ToLower().Contains(charInfo.realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
+                            break;
+                        }
+                    default:
+                        {
+                            realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.Replace("'","").ToLower().Contains(charInfo.realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
+                            break;
+                        }
+                }               
                 sb.AppendLine($"**__Raid Progression__**");
                 string normalKilled = GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Uldir.NormalBossesKilled);
                 string heroicKilled = GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Uldir.HeroicBossesKilled);
                 string mythicKilled = GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Uldir.MythicBossesKilled);
                 string totalBosses = GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Uldir.TotalBosses);                                
-                sb.AppendLine($"\t **n** [{normalKilled} / {totalBosses}] **h** [{heroicKilled} / {totalBosses}] **m** [{mythicKilled} / {totalBosses}]");
+                sb.AppendLine($"\t **normal** [{normalKilled} / {totalBosses}] **heroic** [{heroicKilled} / {totalBosses}] **mythic** [{mythicKilled} / {totalBosses}]");
                 sb.AppendLine();
                 sb.AppendLine($"**__Best Runs__**");                
                 foreach (var run in mPlusInfo.MythicPlusBestRuns)
                 {
                     sb.AppendLine($"\t [:white_square_button: [{run.ShortName}(**{run.MythicLevel}**)] {run.ClearTimeMs / 60000} minutes]({run.Url.AbsoluteUri})");
                 } 
-                sb.AppendLine();
-                
-                
+                sb.AppendLine();                                
                 sb.AppendLine($"**__M+ Rankings For Active Spec ({mPlusInfo.ActiveSpecRole})__**");
                 switch (mPlusInfo.ActiveSpecRole.ToLower())
                 {
@@ -109,13 +138,16 @@ namespace NinjaBotCore.Modules.Wow
                     }
                 }
                 sb.AppendLine();
-                sb.AppendLine($"[{mPlusInfo.Name}'s Profile]({mPlusInfo.ProfileUrl.AbsoluteUri})");                
+                sb.AppendLine($"[{mPlusInfo.Name}'s Profile]");                
                 embed.Title = $"Mythic+ Information For {mPlusInfo.Name} on {mPlusInfo.Realm}";
+                embed.AddField("Raider.IO",$"[{mPlusInfo.Name}]({mPlusInfo.ProfileUrl.AbsoluteUri})", true);
+                embed.AddField("WoW Armory",$"[{mPlusInfo.Name}]({armoryInfo.armoryURL})", true);
+                embed.AddField("Warcraftlogs",$"[{mPlusInfo.Name}](https://www.warcraftlogs.com/character/{region}/{realmSlug}/{mPlusInfo.Name})", true);
                 embed.ThumbnailUrl = $"{mPlusInfo.ThumbnailUrl.AbsoluteUri}";
                 embed.Description = sb.ToString();
                 embed.WithColor(new Color(0, 200, 150));
                 embed.Footer = new EmbedFooterBuilder{
-                    Text = $"Raider.IO Score {mPlusInfo.MythicPlusScores.All}"
+                    Text = $"Raider.IO Score {mPlusInfo.MythicPlusScores.All} ilvl {armoryInfo.items.averageItemLevel}({armoryInfo.items.averageItemLevelEquipped} equipped)"
                 };                            
                 await _cc.Reply(Context, embed);
             }
@@ -155,14 +187,14 @@ namespace NinjaBotCore.Modules.Wow
             title = $"{guildObject.guildName} on {guildObject.realmName}'s Raider.IO Stats";
 
             sb.AppendLine("**__Raid Progression:__**");
-            sb.AppendLine($"\t **n** [{normalKilled} / {totalBosses}]");
-            sb.AppendLine($"\t **h** [{heroicKilled} / {totalBosses}]");
-            sb.AppendLine($"\t **m** [{mythicKilled} / {totalBosses}]");
+            sb.AppendLine($"\t **normal** [{normalKilled} / {totalBosses}]");
+            sb.AppendLine($"\t **heroic** [{heroicKilled} / {totalBosses}]");
+            sb.AppendLine($"\t **mythic** [{mythicKilled} / {totalBosses}]");
             sb.AppendLine();
             sb.AppendLine("**__Raid Rankings:__**");
-            sb.AppendLine($"\t **n** [ realm [**{guildStats.RaidRankings.Uldir.Normal.Realm}**] world [**{guildStats.RaidRankings.Uldir.Normal.World}**] region [**{guildStats.RaidRankings.Uldir.Normal.Region}**] ]");            
-            sb.AppendLine($"\t **h** [ realm [**{guildStats.RaidRankings.Uldir.Heroic.Realm}**] world [**{guildStats.RaidRankings.Uldir.Heroic.World}**] region [**{guildStats.RaidRankings.Uldir.Heroic.Region}**] ]");
-            sb.AppendLine($"\t **m** [ realm [**{guildStats.RaidRankings.Uldir.Mythic.Realm}**] world [**{guildStats.RaidRankings.Uldir.Mythic.World}**] region [**{guildStats.RaidRankings.Uldir.Mythic.Region}**] ]");
+            sb.AppendLine($"\t **normal** [ realm [**{guildStats.RaidRankings.Uldir.Normal.Realm}**] world [**{guildStats.RaidRankings.Uldir.Normal.World}**] region [**{guildStats.RaidRankings.Uldir.Normal.Region}**] ]");            
+            sb.AppendLine($"\t **heroic** [ realm [**{guildStats.RaidRankings.Uldir.Heroic.Realm}**] world [**{guildStats.RaidRankings.Uldir.Heroic.World}**] region [**{guildStats.RaidRankings.Uldir.Heroic.Region}**] ]");
+            sb.AppendLine($"\t **mythic** [ realm [**{guildStats.RaidRankings.Uldir.Mythic.Realm}**] world [**{guildStats.RaidRankings.Uldir.Mythic.World}**] region [**{guildStats.RaidRankings.Uldir.Mythic.Region}**] ]");
             sb.AppendLine();
             sb.AppendLine($"[{guildObject.guildName} Profile]({guildStats.ProfileUrl.AbsoluteUri})");
 
@@ -226,10 +258,78 @@ namespace NinjaBotCore.Modules.Wow
             embed.Title = title;
             embed.ThumbnailUrl = thumbUrl;
             embed.WithColor(new Color(0, 255, 0));
-                   
+            string affixLevel = string.Empty;
             foreach (var detail in affixes.AffixDetails)
             {
-                sb.AppendLine($"[{detail.Name}]({detail.WowheadUrl})");
+                switch (detail.Name.ToLower())
+                {
+                    case "fortified":
+                    {
+                        affixLevel = "2";
+                        break;
+                    }
+                    case "tyrannical":
+                    {
+                        affixLevel = "2";
+                        break;
+                    }
+                    case "teeming":
+                    {
+                        affixLevel = "4";
+                        break;
+                    }   
+                    case "raging":
+                    {
+                        affixLevel = "4";
+                        break;
+                    } 
+                    case "bursting":
+                    {
+                        affixLevel = "4";
+                        break;
+                    } 
+                    case "sanguine":
+                    {
+                        affixLevel = "4";
+                        break;
+                    } 
+                    case "necrotic":
+                    {
+                        affixLevel = "7";
+                        break;
+                    }      
+                    case "skittish":
+                    {
+                        affixLevel = "7";
+                        break;
+                    }     
+                    case "volcanic":
+                    {
+                        affixLevel = "7";
+                        break;
+                    } 
+                    case "explosive":
+                    {
+                        affixLevel = "7";
+                        break;
+                    }                                                                           
+                    case "quaking":
+                    {
+                        affixLevel = "7";
+                        break;
+                    }    
+                    case "grievous":
+                    {
+                        affixLevel = "7";
+                        break;
+                    }
+                    case "infested":
+                    {
+                        affixLevel = "10";
+                        break;
+                    }                                             
+                }
+                sb.AppendLine($"({affixLevel})[{detail.Name}]({detail.WowheadUrl})");
                 sb.AppendLine($"\t*{detail.Description}*");
                 sb.AppendLine();
             }
@@ -1286,6 +1386,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             charInfo.charName = charName;
             charInfo.realmName = realmName;
+            charInfo.locale = guildObject.locale;
             return charInfo;
         }
 
