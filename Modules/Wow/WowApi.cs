@@ -152,8 +152,17 @@ namespace NinjaBotCore.Modules.Wow
 
             region = region.ToLower();
             prefix = $"https://{region}.api.battle.net/wow";
-            key = $"&apikey={_config["WowApi"]}";       
-            locale = $"&locale={locale}";                        
+            key = $"&apikey={_config["WowApi"]}"; 
+
+            if (!url.Contains('='))
+            {
+                locale = $"locale={locale}";
+            }      
+            else 
+            {
+                locale = $"&locale={locale}";
+            }         
+
             url = $"{prefix}{url}{locale}{key}";
 
             Console.WriteLine($"Wow API request to {url}");
@@ -199,10 +208,21 @@ namespace NinjaBotCore.Modules.Wow
 
         public WowRealm GetRealmStatus(string locale, string region)
         {
-            string localeName = GetRegionFromString(locale);
+
+            string localeName = string.Empty;
+            
+            if (locale.Length == 5)
+            {
+                localeName = GetRegionFromString(locale.Substring(3).ToLower());
+            }
+            else if (locale.Length == 2)
+            {
+                localeName = GetRegionFromString(locale);
+            }
+            
             WowRealm w = new WowRealm();
             string url = $"/realm/status?";
-            w = JsonConvert.DeserializeObject<WowRealm>(GetAPIRequest(url, locale: locale, region: region));
+            w = JsonConvert.DeserializeObject<WowRealm>(GetAPIRequest(url, locale: localeName, region: region));
             return w;
         }
         public async Task<List<WowAuctions>> GetAuctionsByRealm(string realmName, string regionName = "us")

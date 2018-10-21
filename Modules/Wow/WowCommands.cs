@@ -71,12 +71,12 @@ namespace NinjaBotCore.Modules.Wow
                 string region = string.Empty;
                 if (!(string.IsNullOrEmpty(charInfo.regionName)))
                 {
-                    mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"));
+                    mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"), region: charInfo.regionName.ToLower());
                     armoryInfo = _wowApi.GetCharInfo(charInfo.charName, charInfo.realmName, charInfo.regionName);
                 }
                 else
                 {
-                    mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"), region: charInfo.regionName.ToLower());
+                    mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"));
                     armoryInfo = _wowApi.GetCharInfo(charInfo.charName, charInfo.realmName);
                 }                
                 switch (charInfo.locale.Substring(3).ToLower())
@@ -1009,7 +1009,7 @@ namespace NinjaBotCore.Modules.Wow
                     }
                     else
                     {
-                        guildLogs = await _logsApi.GetReportsFromGuild(guildName: guildName, realm: realmName, region: guildRegion, locale: locale);
+                        guildLogs = await _logsApi.GetReportsFromGuild(guildName: guildName, realm: realmName, region: guildRegion, locale: locale, realmSlug: guildObject.realmSlug);
                     }
                     //arrayCount = guildLogs.Count - 1;
                 }
@@ -1126,6 +1126,7 @@ namespace NinjaBotCore.Modules.Wow
                 {
                     guildName = members.name;
                     realmName = members.realm;
+                    await _cc.Reply(Context, "Looking up realm realm information, hang tight!");
                     await SetGuildAssociation(guildName, realmName, locale: locale, regionName: region);
                     await GetGuild();
                 }
@@ -2378,31 +2379,6 @@ namespace NinjaBotCore.Modules.Wow
                     guildName = guildInfo.Name;
                     guildId = guildInfo.Id;
                 }
-                
-                //use locale to determine realm slug
-                switch (locale)
-                {
-                    case "ru_RU":
-                        {                            
-                            realmSlug = WowApi.RealmInfoRu.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
-                            break;
-                        }
-                    case "en_GB":
-                        {                            
-                            realmSlug = WowApi.RealmInfoEu.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
-                            break;
-                        }
-                    case "en_US":
-                        {                            
-                            realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
-                            break;
-                        }
-                    default: 
-                        {                            
-                            realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
-                            break;
-                        }
-                }
 
                 if (regionName.ToLower() == "us")
                 {
@@ -2413,6 +2389,41 @@ namespace NinjaBotCore.Modules.Wow
                     apiRegion = "eu";
                 }
 
+                //use locale to determine realm slug
+                for (int i = 0; i<500; i++)
+                {
+                    System.Console.WriteLine("Attempting to find slug!");
+                    var slugs = _wowApi.GetRealmStatus(locale: locale, region: apiRegion);                        
+                    switch (locale)
+                    {
+                        case "ru_RU":
+                            {                                                        
+                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
+                                break;
+                            }
+                        case "en_GB":
+                            {                            
+                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
+                                break;
+                            }
+                        case "en_US":
+                            {                            
+                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
+                                break;
+                            }
+                        default: 
+                            {                            
+                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
+                                break;
+                            }
+                    }
+                    if (!string.IsNullOrEmpty(realmSlug))
+                    {
+                        System.Console.WriteLine($"Found slug {realmSlug}!");
+                        break;
+                    }
+                }
+            
                 using (var db = new NinjaBotEntities())
                 {
                     var foundGuild = db.WowGuildAssociations.FirstOrDefault(g => g.ServerName == guildName);
@@ -2476,8 +2487,7 @@ namespace NinjaBotCore.Modules.Wow
                         break;
                     }
                 case "gb":
-                    {
-                     
+                    {                     
                         locale = "en_GB";
                         break;
                     }
