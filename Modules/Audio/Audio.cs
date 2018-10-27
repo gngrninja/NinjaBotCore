@@ -44,5 +44,14 @@ namespace NinjaBotCore.Modules.Audio
         {
             await _service.SendAudioAsync(Context.Guild, Context.Channel, song);
         }
+
+        [RequireOwner]
+        [Command("snekpete")]
+        public async Task PlayHi([Remainder] string song)
+        {
+            await _service.JoinAudio(Context.Guild, (Context.User as IVoiceState).VoiceChannel);
+            await _service.SendAudioAsync(Context.Guild, Context.Channel, song);
+            await _service.LeaveAudio(Context.Guild);
+        }
     }
 }
