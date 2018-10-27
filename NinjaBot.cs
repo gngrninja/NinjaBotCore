@@ -69,7 +69,8 @@ namespace NinjaBotCore
                 .AddSingleton<GiphyApi>()    
                 .AddSingleton<WeatherApi>()
                 .AddSingleton<RaiderIOApi>()
-                .AddSingleton<YouTubeApi>();
+                .AddSingleton<YouTubeApi>()
+                .AddSingleton<AudioService>();
                 
             var serviceProvider = services.BuildServiceProvider();
                                       

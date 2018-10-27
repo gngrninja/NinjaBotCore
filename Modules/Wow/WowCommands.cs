@@ -340,7 +340,8 @@ namespace NinjaBotCore.Modules.Wow
         }
 
         [Command("noggen", RunMode = RunMode.Async)]
-        public async Task GetNoggen()
+        [RequireOwner]
+        public async Task GetNoggen([Remainder] string args)
         {
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
@@ -371,6 +372,30 @@ namespace NinjaBotCore.Modules.Wow
             {
                 try
                 {
+                    if (args == "clear")
+                    {
+                        List<CharStats> statsFromDb = new List<CharStats>();
+
+                        using (var db = new NinjaBotEntities())
+                        {
+                            statsFromDb = db.CharStats.Where(c => c.GuildName == guildObject.guildName).ToList();                                                                        
+                        }
+                        if (statsFromDb != null)
+                        {
+                            using (var db = new NinjaBotEntities())
+                            {
+                                var people = db.CharStats.Where(c => c.GuildName == guildObject.guildName).ToList();
+                                foreach (var person in people)
+                                {
+                                    db.CharStats.Remove(person);
+                                }                                
+                                await db.SaveChangesAsync();
+                            }                            
+                        }
+                    }
+                    else 
+                    {
+
                     if (!string.IsNullOrEmpty(guildObject.locale))
                     {
                         members = _wowApi.GetGuildMembers(guildObject.realmName, guildObject.guildName, locale: guildObject.locale, regionName: guildObject.regionName);
@@ -426,6 +451,7 @@ namespace NinjaBotCore.Modules.Wow
                     }
                     embed.Description = sb.ToString();
                     await _cc.Reply(Context, embed);
+                    }                   
                 }                
                 catch (Exception ex)
                 {

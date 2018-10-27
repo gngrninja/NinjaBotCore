@@ -20,3 +20,9 @@
 config.json.save
 .DS_Store
 ninjabot.db-journal
+
+
+#Ignore misc files
+*.dll
+*.exe
+*.mp3
