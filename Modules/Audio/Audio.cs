@@ -21,6 +21,7 @@ namespace NinjaBotCore.Modules.Audio
 
         // You *MUST* mark these commands with 'RunMode.Async'
         // otherwise the bot will not respond until the Task times out.
+        [RequireOwner]
         [Command("join", RunMode = RunMode.Async)]
         public async Task JoinCmd()
         {
@@ -30,12 +31,14 @@ namespace NinjaBotCore.Modules.Audio
         // Remember to add preconditions to your commands,
         // this is merely the minimal amount necessary.
         // Adding more commands of your own is also encouraged.
+        [RequireOwner]
         [Command("leave", RunMode = RunMode.Async)]
         public async Task LeaveCmd()
         {
             await _service.LeaveAudio(Context.Guild);
         }
         
+        [RequireOwner]
         [Command("play", RunMode = RunMode.Async)]
         public async Task PlayCmd([Remainder] string song)
         {
