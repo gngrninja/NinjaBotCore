@@ -7,7 +7,7 @@
 
 NinjaBot is a Discord bot written in C#. 
 
-The majority of the commands are currently World of Wacraft and Rocket League related.
+The majority of the commands are currently World of Warcraft and Rocket League related.
 There are also some server administration commands.
 
 For a list of current commands, and help using the bot, see: https://www.gngrninja.com/bot
