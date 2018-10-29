@@ -110,6 +110,7 @@ If you're having trouble using any of the WoW commands, the first thing to try i
 If that doesn't help, check out the following resources below:
 
 [Discord Chat](https://discord.gg/MgvJuaV)
+
 [NinjaBot Website](https://www.gngrninja.com/bot)
 
 Feel free to open an issue here for any bugs or problems you come across!
