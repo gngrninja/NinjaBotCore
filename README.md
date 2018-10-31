@@ -40,6 +40,8 @@ Here are some examples of using the command:
 !set-guild Ревущий фьорд, Порейдим месяц, ru
 ```
 
+![example](https://raw.githubusercontent.com/gngrninja/NinjaBotCore/Dev/media/set-guild.PNG)
+
 ## WoW Commands
 
 ### [Warcraftlogs](https://www.warcraftlogs.com) Auto Log Poster
@@ -49,7 +51,11 @@ To use the auto log poster, use this command in the channel you want them automa
 !watch-logs
 ```
 
-You can use the same exact command to disable the auto log posting, and then use it again to enable it (again, in the channel you want them posted to).
+![example](https://raw.githubusercontent.com/gngrninja/NinjaBotCore/Dev/media/watch-en.PNG)
+
+You can use the same exact command to disable the auto log posting, and then use it again to enable it (in the channel you want them posted to).
+
+![example](https://raw.githubusercontent.com/gngrninja/NinjaBotCore/Dev/media/watch-dis.PNG)
 
 ### [Warcraftlogs](https://www.warcraftlogs.com) Last Three Logs
 
