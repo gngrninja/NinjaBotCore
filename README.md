@@ -81,6 +81,8 @@ Try to find character (first in guild, then best guess)
 !rpi characterName
 ```
 
+![example](https://raw.githubusercontent.com/gngrninja/NinjaBotCore/Dev/media/rpi.PNG)
+
 Long form version to try to find someone not in the same region
 ```
 !rpi characterName realmName region(us or eu)
@@ -91,6 +93,8 @@ Long form version to try to find someone not in the same region
 ```
 !guildstats
 ```
+
+![example](https://raw.githubusercontent.com/gngrninja/NinjaBotCore/Dev/media/guildstats.PNG)
 
 ### Armory lookup (soon to be rolled into rpi where it counts)
 
