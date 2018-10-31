@@ -7,7 +7,7 @@ NinjaBot is a Discord bot written in C#.
 
 It's primary focus is to help out guilds in World of Warcraft.
 
-This project has been an awesome way for me to learn C#, and feel free to toss in a pull request if there's a better way to do something!
+This project has been an awesome way for me to learn C#, feel free to toss in a pull request if there's a better way to do something!
 
 ## Getting Started
 
