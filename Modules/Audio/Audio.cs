@@ -55,7 +55,7 @@ namespace NinjaBotCore.Modules.Audio
         }
 
         [RequireOwner]
-        [Command("shunt")]
+        [Command("oom")]
         public async Task PlayShunt()
         {
             await _service.JoinAudio(Context.Guild, (Context.User as IVoiceState).VoiceChannel);
