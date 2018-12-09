@@ -24,16 +24,19 @@ namespace NinjaBotCore.Modules.Wow
         private static List<CharClasses> _charClasses;
         private readonly IConfigurationRoot _config;
         private DiscordSocketClient _client;
+        private readonly WclApiRequestor _api;
 
-        public WarcraftLogs(IConfigurationRoot config, DiscordSocketClient client)
+        public WarcraftLogs(IConfigurationRoot config, DiscordSocketClient client, bool throttle = true)
         {
             _client = client;
             _config = config;
+            
             try 
             {
-                Zones = this.GetZones();
-                CharClasses = this.GetCharClasses();
-                this.StartTimer();
+                _api = throttle ? new ApiRequesterThrottle(_config["WarcraftLogsApi"]) : new WclApiRequestor(_config["WarcraftLogsApi"]);
+                CharClasses = this.GetCharClasses().Result;
+                Zones = this.GetZones().Result;
+                //this.StartTimer();
             }
             catch (Exception ex)
             {
@@ -82,7 +85,7 @@ namespace NinjaBotCore.Modules.Wow
             string response   = string.Empty;
             string wowLogsKey = string.Empty;            
             string baseUrl    = "https://www.warcraftlogs.com:443/v1";
-
+            
             if (isList) 
             {
                 wowLogsKey = $"api_key={_config["WarcraftLogsApi"]}";
@@ -139,14 +142,9 @@ namespace NinjaBotCore.Modules.Wow
             return response;            
         }        
 
-        public  List<CharClasses> GetCharClasses()
+        public async Task<List<CharClasses>> GetCharClasses()
         {
-            List<CharClasses> charClasses;
-            string url = "/classes?";
-
-            charClasses = JsonConvert.DeserializeObject<List<CharClasses>>(LogsApiRequest(url));
-
-            return charClasses;
+            return await _api.Get<List<CharClasses>>($"classes?api_key={_config["WarcraftLogsApi"]}");
         }
 
         public async Task<List<Reports>> GetReportsFromGuild(string guildName, string realm, string region, bool isList = false)
@@ -167,12 +165,10 @@ namespace NinjaBotCore.Modules.Wow
                     }
             }
             System.Console.WriteLine($"SLUG: {realmSlug}");            
-            url = $"/reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?";
-            List<Reports> logs;
+            url = $"reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?api_key={_config["WarcraftLogsApi"]}";
 
-            logs = JsonConvert.DeserializeObject<List<Reports>>(await LogsApiRequestAsync(url, isList));
+            return await _api.Get<List<Reports>>(url);
 
-            return logs;
         }
 
         public async Task<List<Reports>> GetReportsFromGuild(string guildName, string realm, string locale, string region, bool isList = false)
@@ -197,34 +193,25 @@ namespace NinjaBotCore.Modules.Wow
                         break;
                     }
             }            
-            url = $"/reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?";
-            List<Reports> logs;
+            url = $"reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?api_key={_config["WarcraftLogsApi"]}";
+         
 
-            logs = JsonConvert.DeserializeObject<List<Reports>>(await LogsApiRequestAsync(url, isList));
-
-            return logs;
+            return await _api.Get<List<Reports>>(url);
         }
 
         public async Task<List<Reports>> GetReportsFromGuild(string guildName, string realm, string locale, string region, string realmSlug , bool isList = false)
         {
             string url = string.Empty;         
-            url = $"/reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?";
-            List<Reports> logs;
+            url = $"reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?api_key={_config["WarcraftLogsApi"]}";
 
-            logs = JsonConvert.DeserializeObject<List<Reports>>(await LogsApiRequestAsync(url, isList));
-
-            return logs;
+            return await _api.Get<List<Reports>>(url);
         }
 
         public async Task<List<Reports>> GetReportsFromUser(string userName)
         {
             string url = string.Empty;
-            url = $"/reports/user/{userName.Replace(" ", "%20")}?";
-            List<Reports> logs;
-
-            logs = JsonConvert.DeserializeObject<List<Reports>>(await LogsApiRequestAsync(url));
-
-            return logs;
+            url = $"/reports/user/{userName.Replace(" ", "%20")}?api_key={_config["WarcraftLogsApi"]}";
+            return await _api.Get<List<Reports>>(url);
         }
 
         public List<CharParses> GetParsesFromCharacterName(string charName, string realm, string region = "us")
@@ -286,15 +273,13 @@ namespace NinjaBotCore.Modules.Wow
             return charRankings;
         }
 
-        public List<Zones> GetZones()
+        public async Task<List<Zones>> GetZones()
         {
             string url = string.Empty;
-            url = "/zones?";
-            List<Zones> zones;
+            url = $"zones?api_key={_config["WarcraftLogsApi"]}";
+         
 
-            zones = JsonConvert.DeserializeObject<List<Zones>>(LogsApiRequest(url));
-
-            return zones;
+            return await _api.Get<List<Zones>>(url);
         }
 
         public Fights GetFights(string code)
