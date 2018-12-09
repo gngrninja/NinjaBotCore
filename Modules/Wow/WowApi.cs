@@ -18,7 +18,7 @@ namespace NinjaBotCore.Modules.Wow
 {
     public class WowApi
     {
-
+        private static string _token;
         private static WowClasses _classes;
         private static Race _race;
         private static List<Achievement2> _achievements;
@@ -32,13 +32,14 @@ namespace NinjaBotCore.Modules.Wow
             try
             {
                 _config = config;
+                _token = GetWoWToken(username: _config["WoWClient"], password: _config["WoWSecret"]);
                 Races = this.GetRaces();
                 Classes = this.GetWowClasses();
                 Achievements cheeves = this.GetWoWAchievements();
                 Achievements = cheeves.achievements.Select(m => m.categories).Skip(1).SelectMany(i => i).Select(a => a.achievements).SelectMany(d => d).ToList();
                 RealmInfo = this.GetRealmStatus("us");
-                RealmInfoEu = this.GetRealmStatus("eu");   
-                RealmInfoRu = this.GetRealmStatus("ru_RU","eu");             
+                RealmInfoEu = this.GetRealmStatus("eu");  
+                RealmInfoRu = this.GetRealmStatus("ru_RU","eu");
             }
             catch (Exception ex)
             {
@@ -126,8 +127,9 @@ namespace NinjaBotCore.Modules.Wow
             string prefix;
 
             region = region.ToLower();
-            prefix = $"https://{region}.api.battle.net/wow";
-            key = $"&apikey={_config["WowApi"]}";
+
+            prefix = $"https://{region}.api.blizzard.com/wow";
+            key = $"&access_token={_token}";
             url = $"{prefix}{url}{key}";
 
             Console.WriteLine($"Wow API request to {url}");
@@ -149,10 +151,10 @@ namespace NinjaBotCore.Modules.Wow
             string response;
             string key;
             string prefix;
-
+            //httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "Your Oauth token")
             region = region.ToLower();
-            prefix = $"https://{region}.api.battle.net/wow";
-            key = $"&apikey={_config["WowApi"]}"; 
+            prefix = $"https://{region}.api.blizzard.com/wow";
+            key = $"&access_token={_token}"; 
 
             if (!url.Contains('='))
             {
@@ -197,6 +199,23 @@ namespace NinjaBotCore.Modules.Wow
             return response;
         }
 
+        public static string GetWoWToken(string username, string password) {
+            string token = string.Empty;
+            HttpClient client = new HttpClient();
+            //httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "Your Oauth token");            
+            var content = new FormUrlEncodedContent(new[]
+            {
+                new KeyValuePair<string, string>("grant_type", "client_credentials"),
+                new KeyValuePair<string, string>("client_id", username),
+                new KeyValuePair<string, string>("client_secret", password)
+            });
+            var result =  client.PostAsync("https://us.battle.net/oauth/token", content);
+            var contentString =  result.Result.Content.ReadAsStringAsync();
+            ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString.Result);
+            token = response.AccessToken;
+            return token;
+        }
+
         public WowRealm GetRealmStatus(string locale = "us")
         {
             string localeName = GetRegionFromString(locale);
@@ -208,7 +227,6 @@ namespace NinjaBotCore.Modules.Wow
 
         public WowRealm GetRealmStatus(string locale, string region)
         {
-
             string localeName = string.Empty;
             
             if (locale.Length == 5)
