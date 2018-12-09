@@ -719,10 +719,9 @@ namespace NinjaBotCore.Modules.Wow
 
         public async Task StartTimer()
         {
-            //43200
             TokenSource = new CancellationTokenSource();
             var timerAction = new Action(RenewTokenLocal);
-            await WoWTokenTimer(timerAction, TimeSpan.FromSeconds(90), TokenSource.Token);
+            await WoWTokenTimer(timerAction, TimeSpan.FromSeconds(43200), TokenSource.Token);
         }
 
         public async Task StopTimer()

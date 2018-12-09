@@ -33,12 +33,12 @@ namespace NinjaBotCore.Modules.Wow
             {
                 Zones = this.GetZones();
                 CharClasses = this.GetCharClasses();
+                this.StartTimer();
             }
             catch (Exception ex)
             {
                 System.Console.WriteLine($"Error performing class setup for WCL: {ex.Message}");
             }
-            
         }
 
         public static List<Zones> Zones
