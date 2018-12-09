@@ -13,6 +13,7 @@ using NinjaBotCore.Database;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using Microsoft.Extensions.Configuration;
+using System.Threading;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -26,13 +27,15 @@ namespace NinjaBotCore.Modules.Wow
         private static WowRealm _realmInfoEu;
         private static WowRealm _realmInfoRu;
         private readonly IConfigurationRoot _config;
+        private static CancellationTokenSource _tokenSource;
 
         public WowApi(IConfigurationRoot config)
         {
             try
             {
                 _config = config;
-                _token = GetWoWToken(username: _config["WoWClient"], password: _config["WoWSecret"]);
+                this.StartTimer();
+                //_token = GetWoWToken(username: _config["WoWClient"], password: _config["WoWSecret"]);
                 Races = this.GetRaces();
                 Classes = this.GetWowClasses();
                 Achievements cheeves = this.GetWoWAchievements();
@@ -40,6 +43,7 @@ namespace NinjaBotCore.Modules.Wow
                 RealmInfo = this.GetRealmStatus("us");
                 RealmInfoEu = this.GetRealmStatus("eu");  
                 RealmInfoRu = this.GetRealmStatus("ru_RU","eu");
+                
             }
             catch (Exception ex)
             {
@@ -116,6 +120,18 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
+        public static CancellationTokenSource TokenSource
+        {
+            get
+            {
+                return _tokenSource;
+            }
+            set
+            {
+                _tokenSource = value;
+            }
+        }
+
         public WowClasses wowclasses;
 
         //public TalentList wowtalents;
@@ -177,7 +193,7 @@ namespace NinjaBotCore.Modules.Wow
                 //test = httpClient.PostAsJsonAsync<FaceRequest>(fullUrl, request).Result;                             
                 response = httpClient.GetStringAsync(url).Result;
             }
-
+        
             return response;
         }
 
@@ -195,7 +211,7 @@ namespace NinjaBotCore.Modules.Wow
                     .Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = httpClient.GetStringAsync(url).Result;
             }
-
+            
             return response;
         }
 
@@ -684,6 +700,40 @@ namespace NinjaBotCore.Modules.Wow
                 chars = null;
             }
             return chars;
+        }
+        public async Task WoWTokenTimer(Action action, TimeSpan interval, CancellationToken token)
+        {
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    action();
+                    await Task.Delay(interval, token);
+                }
+            }
+            catch (TaskCanceledException ex)
+            {
+
+            }
+        }
+
+        public async Task StartTimer()
+        {
+            //43200
+            TokenSource = new CancellationTokenSource();
+            var timerAction = new Action(RenewTokenLocal);
+            await WoWTokenTimer(timerAction, TimeSpan.FromSeconds(90), TokenSource.Token);
+        }
+
+        public async Task StopTimer()
+        {
+            TokenSource.Cancel();
+        }
+
+        private void RenewTokenLocal()
+        {
+            System.Console.WriteLine("Renewing token!");
+            _token = GetWoWToken(username: _config["WoWClient"], password: _config["WoWSecret"]);
         }
     }
 }
