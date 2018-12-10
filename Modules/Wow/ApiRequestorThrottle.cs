@@ -7,10 +7,6 @@ using System.Threading.Tasks;
 
 namespace NinjaBotCore.Modules.Wow
 {
-    /// <summary>
-    ///     Used to send throttled HTTP requests to https://api.rocketleaguestats.com.
-    ///     Automatically detects your rate limit configuration from the headers.
-    /// </summary>
     internal class ApiRequesterThrottle : WclApiRequestor
     {
         private readonly Semaphore _queue;
