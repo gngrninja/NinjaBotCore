@@ -34,8 +34,8 @@ namespace NinjaBotCore.Modules.Wow
             
             try 
             {
-                _api = throttle ? new ApiRequesterThrottle(_config["WarcraftLogsApi"]) : new WclApiRequestor(_config["WarcraftLogsApi"]);
-                _apiCmd = throttle ? new ApiRequesterThrottle(_config["WarcraftLogsApiCmd"]) : new WclApiRequestor(_config["WarcraftLogsApiCmd"]);
+                _api = throttle ? new ApiRequestorThrottle(_config["WarcraftLogsApi"]) : new WclApiRequestor(_config["WarcraftLogsApi"]);
+                _apiCmd = throttle ? new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"]) : new WclApiRequestor(_config["WarcraftLogsApiCmd"]);
                 CharClasses = this.GetCharClasses().Result;
                 Zones = this.GetZones().Result;
                 this.StartTimer();

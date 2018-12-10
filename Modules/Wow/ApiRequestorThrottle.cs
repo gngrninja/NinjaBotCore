@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace NinjaBotCore.Modules.Wow
 {
-    internal class ApiRequesterThrottle : WclApiRequestor
+    internal class ApiRequestorThrottle : WclApiRequestor
     {
         private readonly Semaphore _queue;
 
@@ -15,7 +15,7 @@ namespace NinjaBotCore.Modules.Wow
 
         private DateTime _rateLimitResetRemaining;
 
-        public ApiRequesterThrottle(string apiKey) : base(apiKey)
+        public ApiRequestorThrottle(string apiKey) : base(apiKey)
         {
             _queue = new Semaphore(1, 1);
             _rateLimitRemaining = 1;
