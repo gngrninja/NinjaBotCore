@@ -38,7 +38,7 @@ namespace NinjaBotCore.Modules.Wow
                 _apiCmd = throttle ? new ApiRequesterThrottle(_config["WarcraftLogsApiCmd"]) : new WclApiRequestor(_config["WarcraftLogsApiCmd"]);
                 CharClasses = this.GetCharClasses().Result;
                 Zones = this.GetZones().Result;
-                //this.StartTimer();
+                this.StartTimer();
             }
             catch (Exception ex)
             {
@@ -94,7 +94,7 @@ namespace NinjaBotCore.Modules.Wow
             return await _api.Get<List<Zones>>(url);
         }
 
-        public async Task<List<Reports>> GetReportsFromGuild(string guildName, string realm, string region, bool isList = false)
+        public async Task<List<Reports>> GetReportsFromGuild(string guildName, string realm, string region, bool isList = false, bool flip = false)
         {
             string url = string.Empty;
             string realmSlug = string.Empty;
@@ -113,10 +113,17 @@ namespace NinjaBotCore.Modules.Wow
             }
             //System.Console.WriteLine($"SLUG: {realmSlug}");            
             url = $"reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?";
-            return await _api.Get<List<Reports>>(url);
+            if (flip) 
+            {
+                return await _api.Get<List<Reports>>(url);
+            }
+            else
+            {
+                return await _apiCmd.Get<List<Reports>>(url);
+            } 
         }
 
-        public async Task<List<Reports>> GetReportsFromGuild(string guildName, string realm, string locale, string region, bool isList = false)
+        public async Task<List<Reports>> GetReportsFromGuild(string guildName, string realm, string locale, string region, bool isList = false, bool flip = false)
         {
             string url = string.Empty;
             string realmSlug = string.Empty;
@@ -139,14 +146,28 @@ namespace NinjaBotCore.Modules.Wow
                     }
             }            
             url = $"reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?";
-            return await _api.Get<List<Reports>>(url);
+            if (flip) 
+            {
+                return await _api.Get<List<Reports>>(url);
+            }
+            else
+            {
+                return await _apiCmd.Get<List<Reports>>(url);
+            } 
         }
 
-        public async Task<List<Reports>> GetReportsFromGuild(string guildName, string realm, string locale, string region, string realmSlug , bool isList = false)
+        public async Task<List<Reports>> GetReportsFromGuild(string guildName, string realm, string locale, string region, string realmSlug , bool isList = false, bool flip = false)
         {
             string url = string.Empty;         
             url = $"reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?";
-            return await _api.Get<List<Reports>>(url);
+            if (flip) 
+            {
+                return await _api.Get<List<Reports>>(url);
+            }
+            else
+            {
+                return await _apiCmd.Get<List<Reports>>(url);
+            } 
         }
 
         public async Task<List<Reports>> GetReportsFromUser(string userName)
@@ -355,7 +376,7 @@ namespace NinjaBotCore.Modules.Wow
         {
             TokenSource = new CancellationTokenSource();
             var timerAction = new Action(CheckForNewLogs);
-            await WarcraftLogsTimer(timerAction, TimeSpan.FromSeconds(300), TokenSource.Token);
+            await WarcraftLogsTimer(timerAction, TimeSpan.FromSeconds(250), TokenSource.Token);
         }
 
         public async Task StopTimer()
@@ -367,6 +388,7 @@ namespace NinjaBotCore.Modules.Wow
         {
             List<WowGuildAssociations> guildList = null;
             List<LogMonitoring> logWatchList = null;
+            bool flip = true;
             try
             {
 
@@ -395,18 +417,27 @@ namespace NinjaBotCore.Modules.Wow
                                 if (!string.IsNullOrEmpty(guild.LocalRealmSlug)) 
                                 {
 
-                                    logs = await GetReportsFromGuild(guildName: guild.WowGuild, locale: guild.Locale, realm: guild.WowRealm.Replace("'", ""), realmSlug: guild.LocalRealmSlug, region: guild.WowRegion, isList: true);
+                                    logs = await GetReportsFromGuild(guildName: guild.WowGuild, locale: guild.Locale, realm: guild.WowRealm.Replace("'", ""), realmSlug: guild.LocalRealmSlug, region: guild.WowRegion, isList: true, flip: flip);
 
                                 }
                                 else if (!string.IsNullOrEmpty(guild.Locale)) 
                                 {          
                                                                         
-                                    logs = await GetReportsFromGuild(guildName: guild.WowGuild, realm: guild.WowRealm.Replace("'", ""), region: guild.WowRegion, isList: true, locale: guild.Locale);
+                                    logs = await GetReportsFromGuild(guildName: guild.WowGuild, realm: guild.WowRealm.Replace("'", ""), region: guild.WowRegion, isList: true, locale: guild.Locale, flip: flip);
 
                                 } else {
 
-                                    logs = await GetReportsFromGuild(guildName: guild.WowGuild,realm: guild.WowRealm.Replace("'", ""), region: guild.WowRegion, isList: true);
+                                    logs = await GetReportsFromGuild(guildName: guild.WowGuild,realm: guild.WowRealm.Replace("'", ""), region: guild.WowRegion, isList: true, flip: flip);
 
+                                }
+                                System.Console.WriteLine(flip);
+                                if (flip)
+                                {
+                                    flip = false;
+                                }
+                                else 
+                                {
+                                    flip = true;
                                 }
                                 if (logs != null)
                                 {
