@@ -404,6 +404,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             if (guildList != null)
             {
+                System.Console.WriteLine("Starting WCL Auto Posting...");
                 foreach (var guild in guildList)
                 {                    
                     try
@@ -477,6 +478,7 @@ namespace NinjaBotCore.Modules.Wow
                         System.Console.WriteLine($"Error checking for logs [{guild.WowGuild}]:[{guild.WowRealm}]:[{guild.WowRealm}]! -> [{ex.Message}]");
                     }
                 }
+                System.Console.WriteLine("Finished WCL Auto Posting...");
             }
         }
     }

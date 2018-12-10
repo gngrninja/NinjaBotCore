@@ -36,7 +36,7 @@ namespace NinjaBotCore.Modules.Wow
 
         public async Task<T> Get<T>(string relativeUrl)
         {
-            System.Console.WriteLine($"{relativeUrl}api_key={_apiKey}");
+            //System.Console.WriteLine($"{relativeUrl}api_key={_apiKey}");
             using (var request = new HttpRequestMessage(HttpMethod.Get, $"{relativeUrl}api_key={_apiKey}"))
             using (var response = await SendAsync(request))
             {
