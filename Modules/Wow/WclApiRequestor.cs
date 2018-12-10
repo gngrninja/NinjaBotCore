@@ -20,6 +20,7 @@ namespace NinjaBotCore.Modules.Wow
     public class WclApiRequestor : IDisposable
     {
         private readonly HttpClient _client;
+        private readonly string _apiKey;
 
         public WclApiRequestor(string apiKey)
         {
@@ -30,13 +31,13 @@ namespace NinjaBotCore.Modules.Wow
             _client.DefaultRequestHeaders
                     .Accept
                     .Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            _apiKey = apiKey;
         }
 
         public async Task<T> Get<T>(string relativeUrl)
         {
-            
-            System.Console.WriteLine($"{relativeUrl}");
-            using (var request = new HttpRequestMessage(HttpMethod.Get, relativeUrl))
+            System.Console.WriteLine($"{relativeUrl}api_key={_apiKey}");
+            using (var request = new HttpRequestMessage(HttpMethod.Get, $"{relativeUrl}api_key={_apiKey}"))
             using (var response = await SendAsync(request))
             {
                 var result = await response.Content.ReadAsStringAsync();

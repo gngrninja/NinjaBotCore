@@ -25,6 +25,7 @@ namespace NinjaBotCore.Modules.Wow
         private readonly IConfigurationRoot _config;
         private DiscordSocketClient _client;
         private readonly WclApiRequestor _api;
+        private readonly WclApiRequestor _apiCmd;
 
         public WarcraftLogs(IConfigurationRoot config, DiscordSocketClient client, bool throttle = true)
         {
@@ -34,6 +35,7 @@ namespace NinjaBotCore.Modules.Wow
             try 
             {
                 _api = throttle ? new ApiRequesterThrottle(_config["WarcraftLogsApi"]) : new WclApiRequestor(_config["WarcraftLogsApi"]);
+                _apiCmd = throttle ? new ApiRequesterThrottle(_config["WarcraftLogsApiCmd"]) : new WclApiRequestor(_config["WarcraftLogsApiCmd"]);
                 CharClasses = this.GetCharClasses().Result;
                 Zones = this.GetZones().Result;
                 //this.StartTimer();
@@ -80,71 +82,16 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
-        public async Task<string> LogsApiRequestAsync(string url, bool isList = false)
-        {
-            string response   = string.Empty;
-            string wowLogsKey = string.Empty;            
-            string baseUrl    = "https://www.warcraftlogs.com:443/v1";
-            
-            if (isList) 
-            {
-                wowLogsKey = $"api_key={_config["WarcraftLogsApi"]}";
-            }
-            else
-            {
-                wowLogsKey = $"api_key={_config["WarcraftLogsApiCmd"]}";
-            }
-            
-            url = $"{baseUrl}{url}{wowLogsKey}";
-
-            Console.WriteLine($"Calling WarcraftLogs API with URL: {url}");
-
-            using (HttpClient httpClient = new HttpClient())
-            {
-                httpClient.DefaultRequestHeaders
-                    .Accept
-                    .Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                //test = httpClient.PostAsJsonAsync<FaceRequest>(fullUrl, request).Result;             
-                response = await httpClient.GetStringAsync(url);
-            }
-
-            return response;            
-        }
-
-        public string LogsApiRequest(string url, bool isList = false)
-        {
-            string response   = string.Empty;
-            string wowLogsKey = string.Empty;            
-            string baseUrl    = "https://www.warcraftlogs.com:443/v1";
-
-            if (isList) 
-            {
-                wowLogsKey = $"api_key={_config["WarcraftLogsApi"]}";
-            }
-            else
-            {
-                wowLogsKey = $"api_key={_config["WarcraftLogsApiCmd"]}";
-            }
-            
-            url = $"{baseUrl}{url}{wowLogsKey}";
-
-            Console.WriteLine($"Calling WarcraftLogs API with URL: {url}");
-
-            using (HttpClient httpClient = new HttpClient())
-            {
-                httpClient.DefaultRequestHeaders
-                    .Accept
-                    .Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                //test = httpClient.PostAsJsonAsync<FaceRequest>(fullUrl, request).Result;             
-                response = httpClient.GetStringAsync(url).Result;
-            }
-
-            return response;            
-        }        
-
         public async Task<List<CharClasses>> GetCharClasses()
         {
-            return await _api.Get<List<CharClasses>>($"classes?api_key={_config["WarcraftLogsApi"]}");
+            return await _api.Get<List<CharClasses>>("classes?");
+        }
+
+        public async Task<List<Zones>> GetZones()
+        {
+            string url = string.Empty;
+            url = $"zones?";
+            return await _api.Get<List<Zones>>(url);
         }
 
         public async Task<List<Reports>> GetReportsFromGuild(string guildName, string realm, string region, bool isList = false)
@@ -164,11 +111,9 @@ namespace NinjaBotCore.Modules.Wow
                         break;
                     }
             }
-            System.Console.WriteLine($"SLUG: {realmSlug}");            
-            url = $"reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?api_key={_config["WarcraftLogsApi"]}";
-
+            //System.Console.WriteLine($"SLUG: {realmSlug}");            
+            url = $"reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?";
             return await _api.Get<List<Reports>>(url);
-
         }
 
         public async Task<List<Reports>> GetReportsFromGuild(string guildName, string realm, string locale, string region, bool isList = false)
@@ -193,54 +138,40 @@ namespace NinjaBotCore.Modules.Wow
                         break;
                     }
             }            
-            url = $"reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?api_key={_config["WarcraftLogsApi"]}";
-         
-
+            url = $"reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?";
             return await _api.Get<List<Reports>>(url);
         }
 
         public async Task<List<Reports>> GetReportsFromGuild(string guildName, string realm, string locale, string region, string realmSlug , bool isList = false)
         {
             string url = string.Empty;         
-            url = $"reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?api_key={_config["WarcraftLogsApi"]}";
-
+            url = $"reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?";
             return await _api.Get<List<Reports>>(url);
         }
 
         public async Task<List<Reports>> GetReportsFromUser(string userName)
         {
             string url = string.Empty;
-            url = $"/reports/user/{userName.Replace(" ", "%20")}?api_key={_config["WarcraftLogsApi"]}";
+            url = $"reports/user/{userName.Replace(" ", "%20")}?";
             return await _api.Get<List<Reports>>(url);
         }
 
-        public List<CharParses> GetParsesFromCharacterName(string charName, string realm, string region = "us")
+        public async Task<List<CharParses>> GetParsesFromCharacterName(string charName, string realm, string region = "us")
         {
-            List<CharParses> parse;
             string url = string.Empty;
-            //https://www.warcraftlogs.com:443/v1/parses/character/oceanbreeze/thunderlord/US?zone=10&api_key=06cd4398efb2643988e1bb0e1387419a
-            url = $"/parses/character/{charName}/{realm}/{region}?";
-
-            parse = JsonConvert.DeserializeObject<List<CharParses>>(LogsApiRequest(url));
-
-            return parse;
+            url = $"parses/character/{charName}/{realm}/{region}?";
+            return await _apiCmd.Get<List<CharParses>>(url);
         }
 
-        public List<LogCharRankings> GetRankingFromCharName(string charName, string realm, string region = "us")
+        public async Task<List<LogCharRankings>> GetRankingFromCharName(string charName, string realm, string region = "us")
         {
-            List<LogCharRankings> charRankings;
             string url = string.Empty;
-
-            url = $"/rankings/character/{charName}/{realm}/{region}?";
-
-            charRankings = JsonConvert.DeserializeObject<List<LogCharRankings>>(LogsApiRequest(url));
-
-            return charRankings;
+            url = $"rankings/character/{charName}/{realm}/{region}?";
+            return await _apiCmd.Get<List<LogCharRankings>>(url);
         }
 
-        public List<LogCharRankings> GetRankingFromCharName(string charName, string realm, string zone, string region = "us")
+        public async Task<List<LogCharRankings>> GetRankingFromCharName(string charName, string realm, string zone, string region = "us")
         {
-            List<LogCharRankings> charRankings;
             string url = string.Empty;
             int zoneID = 0;
             string findString = string.Empty;
@@ -268,34 +199,19 @@ namespace NinjaBotCore.Modules.Wow
                     }
             }
             zoneID = Zones.Where(z => z.name == findString).Select(z => z.id).FirstOrDefault();
-            url = $"/rankings/character/{charName}/{realm}/{region}?zone={zoneID}&";
-            charRankings = JsonConvert.DeserializeObject<List<LogCharRankings>>(LogsApiRequest(url));
-            return charRankings;
+            url = $"rankings/character/{charName}/{realm}/{region}?zone={zoneID}&";
+            return await _apiCmd.Get<List<LogCharRankings>>(url);
         }
 
-        public async Task<List<Zones>> GetZones()
+        public async Task<Fights> GetFights(string code)
         {
             string url = string.Empty;
-            url = $"zones?api_key={_config["WarcraftLogsApi"]}";
-         
-
-            return await _api.Get<List<Zones>>(url);
+            url = $"report/fights/{code}?";
+            return await _apiCmd.Get<Fights>(url);
         }
 
-        public Fights GetFights(string code)
+        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounter(int encounterID, string realmName, string metric = "dps", int difficulty = 4, string regionName = "us")
         {
-            string url = string.Empty;
-            Fights fights;
-            url = $"/report/fights/{code}?";
-
-            fights = JsonConvert.DeserializeObject<Fights>(LogsApiRequest(url));
-
-            return fights;
-        }
-
-        public WarcraftlogRankings.RankingObject GetRankingsByEncounter(int encounterID, string realmName, string metric = "dps", int difficulty = 4, string regionName = "us")
-        {
-            WarcraftlogRankings.RankingObject l = new WarcraftlogRankings.RankingObject();
             string realmSlug = string.Empty;
             switch (regionName.ToLower())
             {
@@ -310,38 +226,33 @@ namespace NinjaBotCore.Modules.Wow
                         break;
                     }
             }                        
-            string url = $"/rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&limit=1000&";
-            l = JsonConvert.DeserializeObject<WarcraftlogRankings.RankingObject>(LogsApiRequest(url));
-            return l;
+            string url = $"rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&limit=1000&";
+            return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
 
-        public WarcraftlogRankings.RankingObject GetRankingsByEncounter(int encounterID, string realmName, string partition, string realmSlug, string metric = "dps", int difficulty = 4, string regionName = "us")
+        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounter(int encounterID, string realmName, string partition, string realmSlug, string metric = "dps", int difficulty = 4, string regionName = "us")
         {               
             WarcraftlogRankings.RankingObject l = new WarcraftlogRankings.RankingObject();
-            string url = $"/rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&limit=1000&partition={partition}&";
-            l = JsonConvert.DeserializeObject<WarcraftlogRankings.RankingObject>(LogsApiRequest(url));
-            return l;
+            string url = $"rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&limit=1000&partition={partition}&";
+            return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
 
-        public WarcraftlogRankings.RankingObject GetRankingsByEncounterSlug(int encounterID, string realmSlug, string metric = "dps", int difficulty = 4, string regionName = "us")
+        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounterSlug(int encounterID, string realmSlug, string metric = "dps", int difficulty = 4, string regionName = "us")
         {
             WarcraftlogRankings.RankingObject l = new WarcraftlogRankings.RankingObject();                   
-            string url = $"/rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&limit=1000&";
-            l = JsonConvert.DeserializeObject<WarcraftlogRankings.RankingObject>(LogsApiRequest(url));
-            return l;
+            string url = $"rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&limit=1000&";
+            return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
+            
         }
 
-        public WarcraftlogRankings.RankingObject GetRankingsByEncounterSlug(int encounterID, string realmSlug, string partition, string metric = "dps", int difficulty = 4, string regionName = "us")
-        {
-            WarcraftlogRankings.RankingObject l = new WarcraftlogRankings.RankingObject();                   
-            string url = $"/rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&limit=1000&partition={partition}&";
-            l = JsonConvert.DeserializeObject<WarcraftlogRankings.RankingObject>(LogsApiRequest(url));
-            return l;
+        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounterSlug(int encounterID, string realmSlug, string partition, string metric = "dps", int difficulty = 4, string regionName = "us")
+        {                 
+            string url = $"rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&limit=1000&partition={partition}&";
+            return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
 
-        public WarcraftlogRankings.RankingObject GetRankingsByEncounterGuild(int encounterID, string realmName, string guildName, string partition, string metric = "dps", int difficulty = 4, string regionName = "us")
+        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounterGuild(int encounterID, string realmName, string guildName, string partition, string metric = "dps", int difficulty = 4, string regionName = "us")
         {
-            WarcraftlogRankings.RankingObject l = new WarcraftlogRankings.RankingObject();
             guildName = guildName.Replace(" ", "%20");
             string realmSlug = string.Empty;
             switch (regionName.ToLower())
@@ -357,14 +268,12 @@ namespace NinjaBotCore.Modules.Wow
                         break;
                     }
             }
-            string url = $"/rankings/encounter/{encounterID}?guild={guildName}&server={realmSlug}&region={regionName}&metric={metric}&difficulty={difficulty}&limit=1000&partition={partition}&";
-            l = JsonConvert.DeserializeObject<WarcraftlogRankings.RankingObject>(LogsApiRequest(url));
-            return l;
+            string url = $"rankings/encounter/{encounterID}?guild={guildName}&server={realmSlug}&region={regionName}&metric={metric}&difficulty={difficulty}&limit=1000&partition={partition}&";
+            return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
 
-        public WarcraftlogRankings.RankingObject GetRankingsByEncounterGuild(int encounterID, string realmName, string guildName, string metric = "dps", int difficulty = 4, string regionName = "us")
+        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounterGuild(int encounterID, string realmName, string guildName, string metric = "dps", int difficulty = 4, string regionName = "us")
         {
-            WarcraftlogRankings.RankingObject l = new WarcraftlogRankings.RankingObject();
             guildName = guildName.Replace(" ", "%20");
             string realmSlug = string.Empty;
             switch (regionName.ToLower())
@@ -380,30 +289,25 @@ namespace NinjaBotCore.Modules.Wow
                         break;
                     }
             }
-            string url = $"/rankings/encounter/{encounterID}?guild={guildName}&server={realmSlug}&region={regionName}&metric={metric}&difficulty={difficulty}&limit=1000&";
-            l = JsonConvert.DeserializeObject<WarcraftlogRankings.RankingObject>(LogsApiRequest(url));
-            return l;
+            string url = $"rankings/encounter/{encounterID}?guild={guildName}&server={realmSlug}&region={regionName}&metric={metric}&difficulty={difficulty}&limit=1000&";
+            return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
 
-        public WarcraftlogRankings.RankingObject GetRankingsByEncounterGuildSlug(int encounterID, string realmSlug, string guildName, string metric = "dps", int difficulty = 4, string regionName = "us")
+        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounterGuildSlug(int encounterID, string realmSlug, string guildName, string metric = "dps", int difficulty = 4, string regionName = "us")
         {
-            WarcraftlogRankings.RankingObject l = new WarcraftlogRankings.RankingObject();
             guildName = guildName.Replace(" ", "%20");
-            string url = $"/rankings/encounter/{encounterID}?guild={guildName}&server={realmSlug}&region={regionName}&metric={metric}&difficulty={difficulty}&limit=1000&";
-            l = JsonConvert.DeserializeObject<WarcraftlogRankings.RankingObject>(LogsApiRequest(url));
-            return l;
+            string url = $"rankings/encounter/{encounterID}?guild={guildName}&server={realmSlug}&region={regionName}&metric={metric}&difficulty={difficulty}&limit=1000&";
+            return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
 
-        public WarcraftlogRankings.RankingObject GetRankingsByEncounterGuildSlug(int encounterID, string realmSlug, string partition, string guildName, string metric = "dps", int difficulty = 4, string regionName = "us")
+        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounterGuildSlug(int encounterID, string realmSlug, string partition, string guildName, string metric = "dps", int difficulty = 4, string regionName = "us")
         {
-            WarcraftlogRankings.RankingObject l = new WarcraftlogRankings.RankingObject();
             guildName = guildName.Replace(" ", "%20");
-            string url = $"/rankings/encounter/{encounterID}?guild={guildName}&server={realmSlug}&region={regionName}&metric={metric}&difficulty={difficulty}&limit=1000&partition={partition}&";
-            l = JsonConvert.DeserializeObject<WarcraftlogRankings.RankingObject>(LogsApiRequest(url));
-            return l;
+            string url = $"rankings/encounter/{encounterID}?guild={guildName}&server={realmSlug}&region={regionName}&metric={metric}&difficulty={difficulty}&limit=1000&partition={partition}&";
+            return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
         
-        public WarcraftlogRankings.RankingObject GetRankingsByEncounter(int encounterID, string realmName, string partition, string metric = "dps", int difficulty = 4, string regionName = "us")
+        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounter(int encounterID, string realmName, string partition, string metric = "dps", int difficulty = 4, string regionName = "us")
         {
             string realmSlug = string.Empty;
             switch (regionName.ToLower())
@@ -419,10 +323,8 @@ namespace NinjaBotCore.Modules.Wow
                         break;
                     }
             }            
-            WarcraftlogRankings.RankingObject l = new WarcraftlogRankings.RankingObject();
-            string url = $"/rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&limit=1000&partition={partition}&";
-            l = JsonConvert.DeserializeObject<WarcraftlogRankings.RankingObject>(LogsApiRequest(url));
-            return l;
+            string url = $"rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&limit=1000&partition={partition}&";
+            return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
 
         public DateTime UnixTimeStampToDateTime(long unixTimeStamp)
@@ -453,7 +355,7 @@ namespace NinjaBotCore.Modules.Wow
         {
             TokenSource = new CancellationTokenSource();
             var timerAction = new Action(CheckForNewLogs);
-            await WarcraftLogsTimer(timerAction, TimeSpan.FromSeconds(90), TokenSource.Token);
+            await WarcraftLogsTimer(timerAction, TimeSpan.FromSeconds(300), TokenSource.Token);
         }
 
         public async Task StopTimer()
