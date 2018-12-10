@@ -376,7 +376,7 @@ namespace NinjaBotCore.Modules.Wow
         {
             TokenSource = new CancellationTokenSource();
             var timerAction = new Action(CheckForNewLogs);
-            await WarcraftLogsTimer(timerAction, TimeSpan.FromSeconds(250), TokenSource.Token);
+            await WarcraftLogsTimer(timerAction, TimeSpan.FromSeconds(240), TokenSource.Token);
         }
 
         public async Task StopTimer()
@@ -430,7 +430,7 @@ namespace NinjaBotCore.Modules.Wow
                                     logs = await GetReportsFromGuild(guildName: guild.WowGuild,realm: guild.WowRealm.Replace("'", ""), region: guild.WowRegion, isList: true, flip: flip);
 
                                 }
-                                System.Console.WriteLine(flip);
+                                //System.Console.WriteLine(flip);
                                 if (flip)
                                 {
                                     flip = false;
