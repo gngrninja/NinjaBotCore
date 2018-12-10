@@ -1905,22 +1905,22 @@ namespace NinjaBotCore.Modules.Wow
                 {
                     if (!string.IsNullOrEmpty(guildObject.realmSlug))
                     {
-                        l = _logsApi.GetRankingsByEncounterGuildSlug(encounterID, guildObject.realmSlug, guildObject.guildName, metric, difficultyID, region);
+                        l = await _logsApi.GetRankingsByEncounterGuildSlug(encounterID, guildObject.realmSlug, guildObject.guildName, metric, difficultyID, region);
                     }
                     else
                     {
-                        l = _logsApi.GetRankingsByEncounterGuild(encounterID, guildObject.realmName, guildObject.guildName, metric, difficultyID, region);                   
+                        l = await _logsApi.GetRankingsByEncounterGuild(encounterID, guildObject.realmName, guildObject.guildName, metric, difficultyID, region);                   
                     }
                 }
                 else
                 {
                     if (!string.IsNullOrEmpty(guildObject.realmSlug))
                     {
-                        l = _logsApi.GetRankingsByEncounterSlug(encounterID, guildObject.realmSlug, metric, difficultyID, region);
+                        l = await _logsApi.GetRankingsByEncounterSlug(encounterID, guildObject.realmSlug, metric, difficultyID, region);
                     }
                     else
                     {
-                        l = _logsApi.GetRankingsByEncounter(encounterID, realmName, metric, difficultyID, region);
+                        l = await _logsApi.GetRankingsByEncounter(encounterID, realmName, metric, difficultyID, region);
                     }
 
                 }
