@@ -22,6 +22,10 @@ using NinjaBotCore.Modules.Giphy;
 using NinjaBotCore.Modules.Weather;
 using NinjaBotCore.Modules.YouTube;
 using Microsoft.EntityFrameworkCore;
+using Serilog;
+using Serilog.Sinks.File;
+using Serilog.Sinks.SystemConsole;
+using Microsoft;
 
 namespace NinjaBotCore
 {
@@ -33,7 +37,12 @@ namespace NinjaBotCore
         private IConfigurationRoot _config;
 
         public async Task StartAsync()
-        {            
+        {    
+            Log.Logger = new LoggerConfiguration()
+                .WriteTo.File("logs/njabot.log")
+                .WriteTo.Console()
+                .CreateLogger();  
+
             //Create the configuration
             var _builder = new ConfigurationBuilder()
                 .SetBasePath(AppContext.BaseDirectory)
@@ -54,14 +63,12 @@ namespace NinjaBotCore
                     LogLevel = LogSeverity.Verbose,
                     CaseSensitiveCommands = false, 
                     ThrowOnError = false 
-                }))
-                .AddSingleton<LoggingService>()
+                }))         
                 .AddSingleton<WowApi>()
                 .AddSingleton<WarcraftLogs>()
                 .AddSingleton<ChannelCheck>()   
                 .AddSingleton<OxfordApi>()
                 .AddSingleton<AwayCommands>()
-                //.AddSingleton<RlStatsApi>()
                 .AddSingleton<UserInteraction>()
                 .AddSingleton<CommandHandler>()
                 .AddSingleton<StartupService>()
@@ -72,21 +79,30 @@ namespace NinjaBotCore
                 .AddSingleton<YouTubeApi>()
                 .AddSingleton<AudioService>();
                 
-            var serviceProvider = services.BuildServiceProvider();
-                                      
-            serviceProvider.GetRequiredService<DiscordSocketClient>().Log += Log;   
+                
+            ConfigureServices(services);    
+            var serviceProvider = services.BuildServiceProvider();                                     
+
+            //var loggerForService = serviceProvider.GetRequiredService<ILogger<LoggingService>>();
+            //var logService = new LoggingService(loggerForService);
+            //serviceProvider.GetRequiredService<DiscordSocketClient>().Log += logService.OnLogAsync;
+            //serviceProvider.GetRequiredService<CommandService>().Log       += logService.OnLogAsync;
 
             //Start the bot
             await serviceProvider.GetRequiredService<StartupService>().StartAsync(); 
 
             //Load up services
-            serviceProvider.GetRequiredService<CommandHandler>();
-            serviceProvider.GetRequiredService<LoggingService>();        
+
+            serviceProvider.GetRequiredService<CommandHandler>();                 
             serviceProvider.GetRequiredService<UserInteraction>();              
             serviceProvider.GetRequiredService<AwayCommands>();
             serviceProvider.GetRequiredService<WowApi>();
             serviceProvider.GetRequiredService<WarcraftLogs>();
             serviceProvider.GetRequiredService<RaiderIOApi>();
+
+            
+            
+            
             
             /*             
             Not loading these on statup for now
@@ -99,14 +115,16 @@ namespace NinjaBotCore
             serviceProvider.GetRequiredService<YouTubeApi>();
             */                                   
                                  
+            //Logging
+
             // Block this program until it is closed.
             await Task.Delay(-1);
         }
 
-        private Task Log(LogMessage msg)
+        private static void ConfigureServices(IServiceCollection services)
         {
-            Console.WriteLine(msg.ToString());
-            return Task.CompletedTask;
+            services.AddLogging(configure => configure.AddSerilog());
         }
+
     }
 }
