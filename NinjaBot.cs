@@ -83,10 +83,10 @@ namespace NinjaBotCore
             ConfigureServices(services);    
             var serviceProvider = services.BuildServiceProvider();                                     
 
-            //var loggerForService = serviceProvider.GetRequiredService<ILogger<LoggingService>>();
-            //var logService = new LoggingService(loggerForService);
-            //serviceProvider.GetRequiredService<DiscordSocketClient>().Log += logService.OnLogAsync;
-            //serviceProvider.GetRequiredService<CommandService>().Log       += logService.OnLogAsync;
+            var loggerForService = serviceProvider.GetRequiredService<ILogger<LoggingService>>();
+            var logService = new LoggingService(loggerForService);
+            serviceProvider.GetRequiredService<DiscordSocketClient>().Log += logService.OnLogAsync;
+            serviceProvider.GetRequiredService<CommandService>().Log       += logService.OnLogAsync;
 
             //Start the bot
             await serviceProvider.GetRequiredService<StartupService>().StartAsync(); 
@@ -100,10 +100,6 @@ namespace NinjaBotCore
             serviceProvider.GetRequiredService<WarcraftLogs>();
             serviceProvider.GetRequiredService<RaiderIOApi>();
 
-            
-            
-            
-            
             /*             
             Not loading these on statup for now
             //serviceProvider.GetRequiredService<RlStatsApi>();
