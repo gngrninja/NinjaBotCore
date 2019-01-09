@@ -77,41 +77,28 @@ namespace NinjaBotCore
                 .AddSingleton<WeatherApi>()
                 .AddSingleton<RaiderIOApi>()
                 .AddSingleton<YouTubeApi>()
-                .AddSingleton<AudioService>();
-                
-                
+                .AddSingleton<AudioService>()
+                .AddSingleton<LoggingService>();
+
+            //Add logging                    
             ConfigureServices(services);    
+
+            //Build services
             var serviceProvider = services.BuildServiceProvider();                                     
 
-            var loggerForService = serviceProvider.GetRequiredService<ILogger<LoggingService>>();
-            var logService = new LoggingService(loggerForService);
-            serviceProvider.GetRequiredService<DiscordSocketClient>().Log += logService.OnLogAsync;
-            serviceProvider.GetRequiredService<CommandService>().Log       += logService.OnLogAsync;
-
+            //Instantiate logger/tie-in logging
+            serviceProvider.GetRequiredService<LoggingService>();
+            
             //Start the bot
             await serviceProvider.GetRequiredService<StartupService>().StartAsync(); 
 
             //Load up services
-
             serviceProvider.GetRequiredService<CommandHandler>();                 
             serviceProvider.GetRequiredService<UserInteraction>();              
             serviceProvider.GetRequiredService<AwayCommands>();
             serviceProvider.GetRequiredService<WowApi>();
             serviceProvider.GetRequiredService<WarcraftLogs>();
-            serviceProvider.GetRequiredService<RaiderIOApi>();
-
-            /*             
-            Not loading these on statup for now
-            //serviceProvider.GetRequiredService<RlStatsApi>();
-            serviceProvider.GetRequiredService<OxfordApi>();
-            serviceProvider.GetRequiredService<ChannelCheck>();
-            serviceProvider.GetRequiredService<SteamApi>();
-            serviceProvider.GetRequiredService<GiphyApi>();
-            serviceProvider.GetRequiredService<WeatherApi>();
-            serviceProvider.GetRequiredService<YouTubeApi>();
-            */                                   
-                                 
-            //Logging
+            serviceProvider.GetRequiredService<RaiderIOApi>();                                
 
             // Block this program until it is closed.
             await Task.Delay(-1);

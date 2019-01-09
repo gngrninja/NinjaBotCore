@@ -11,10 +11,17 @@ namespace NinjaBotCore.Services
     public class LoggingService
     {
         private readonly ILogger _logger;
+        private readonly DiscordSocketClient _discord;
+        private readonly CommandService _commands;
         
-        public LoggingService(ILogger logger)
+        public LoggingService(ILogger<LoggingService> logger, DiscordSocketClient discord, CommandService commands)
         {            
+            _discord  = discord;
+            _commands = commands;
             _logger   = logger;
+            
+            _discord.Log += OnLogAsync;
+            _commands.Log += OnLogAsync;
         }
         
         public Task OnLogAsync(LogMessage msg)

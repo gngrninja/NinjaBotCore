@@ -11,7 +11,9 @@ namespace NinjaBotCore.Models.Wow
     {
         public class RankingObject
         {
-            public int total { get; set; }
+            public int page { get; set; }
+            public bool hasMorePages { get; set; }
+            public int count { get; set; }
             public Ranking[] rankings { get; set; }
         }
 

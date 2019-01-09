@@ -10,6 +10,7 @@ using System.Collections.Generic;
 using NinjaBotCore.Database;
 using Discord;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace NinjaBotCore.Services
 {
@@ -19,14 +20,16 @@ namespace NinjaBotCore.Services
         private DiscordSocketClient _client;
         private readonly IServiceProvider _provider;
         private readonly IConfigurationRoot _config;
+        private readonly ILogger _logger;
 
-        public CommandHandler(IServiceProvider provider, IConfigurationRoot config)
+        public CommandHandler(IServiceProvider provider, IConfigurationRoot config, ILogger<CommandHandler> logger)
         {
             _config = config;
             _provider = provider;
             _client = _provider.GetService<DiscordSocketClient>();
             _commands = _provider.GetService<CommandService>();
             _client.MessageReceived += HandleCommand;            
+            _logger = logger;
         }
 
         public async Task HandleCommand(SocketMessage parameterMessage)
@@ -73,7 +76,7 @@ namespace NinjaBotCore.Services
             // Execute the Command, store the result            
             var result = await _commands.ExecuteAsync(context, argPos, _provider);
 
-            //await LogCommandUsage(context, result);
+            await LogCommandUsage(context, result);
             // If the command failed, notify the user
             if (!result.IsSuccess)
             {
@@ -95,38 +98,41 @@ namespace NinjaBotCore.Services
 
             return prefix;
         }
-        private static async Task LogCommandUsage(SocketCommandContext context, IResult result)
+
+        private async Task LogCommandUsage(SocketCommandContext context, IResult result)
         {
-            var request = new Request();
             if (context.Channel is IGuildChannel)
             {
-                request.ServerID = (long)context.Guild.Id;
-                request.ServerName = context.Guild.Name;
-                System.Console.WriteLine($"+[{System.DateTime.Now.ToString("t")}] User: {context.User.Username} Guild: {context.Guild.Name} -> {context.Message.Content}");
+                var logTxt = $"User: [{context.User.Username}] Discord Server: [{context.Guild.Name}] -> [{context.Message.Content}]";
+                _logger.LogInformation(logTxt);
             }
             else
             {
-                System.Console.WriteLine($"+[{System.DateTime.Now.ToString("t")}] User: {context.User.Username} -> {context.Message.Content}");
+                var logTxt = $"User: [{context.User.Username}] -> [{context.Message.Content}]";
+                _logger.LogInformation(logTxt);
             }
-            request.ChannelId = (long)context.Channel.Id;
-            request.ChannelName = context.Channel.Name;
-            request.UserId = (long)context.User.Id;
-            request.Command = context.Message.Content;
-            request.UserName = context.User.Username;
-            request.Success = true;
-            request.RequestTime = DateTime.Now;
-
+  
+            /*
             string commandIssued = string.Empty;
             if (!result.IsSuccess)
             {
                 request.Success = false;
                 request.FailureReason = result.ErrorReason;
             }
+                      request.ChannelId = (long)context.Channel.Id;
+            request.ChannelName = context.Channel.Name;
+            request.UserId = (long)context.User.Id;
+            request.Command = context.Message.Content;
+            request.UserName = context.User.Username;
+            request.Success = true;
+            request.RequestTime = DateTime.Now;
             using (var db = new NinjaBotEntities())
             {
+                
                 db.Requests.Add(request);
                 await db.SaveChangesAsync();
             }
+             */
         }
     }
 }

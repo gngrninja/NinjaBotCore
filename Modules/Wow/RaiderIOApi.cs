@@ -13,6 +13,7 @@ using NinjaBotCore.Database;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -20,17 +21,19 @@ namespace NinjaBotCore.Modules.Wow
     {
 
         private readonly IConfigurationRoot _config;
+        private readonly ILogger _logger;
 
-        public RaiderIOApi(IConfigurationRoot config)
+        public RaiderIOApi(IConfigurationRoot config, ILogger<RaiderIOApi> logger)
         {
             try
             {
+                _logger = logger;
                 _config = config;
           
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error creating RaiderIO class -> [{ex.Message}]");
+                _logger.LogError($"Error creating RaiderIO class -> [{ex.Message}]");
             }
         }
 
@@ -43,7 +46,7 @@ namespace NinjaBotCore.Modules.Wow
             prefix = $"https://raider.io/api/v1";
             url = $"{prefix}{url}?region={region}&locale={locale}";
 
-            Console.WriteLine($"RaiderIO API request to {url}");
+            _logger.LogInformation($"RaiderIO API request to {url}");
 
             using (HttpClient httpClient = new HttpClient())
             {
@@ -65,7 +68,7 @@ namespace NinjaBotCore.Modules.Wow
             prefix = $"https://raider.io/api/v1";
             url = $"{prefix}{url}?region={region}";
 
-            Console.WriteLine($"RaiderIO API request to {url}");
+            _logger.LogInformation($"RaiderIO API request to {url}");
 
             using (HttpClient httpClient = new HttpClient())
             {
@@ -87,7 +90,7 @@ namespace NinjaBotCore.Modules.Wow
             prefix = $"https://raider.io/api/v1";
             url = $"{prefix}{url}";
 
-            Console.WriteLine($"RaiderIO API request to {url}");
+            _logger.LogInformation($"RaiderIO API request to {url}");
 
             using (HttpClient httpClient = new HttpClient())
             {

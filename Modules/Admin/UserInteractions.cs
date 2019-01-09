@@ -10,6 +10,7 @@ using Discord.Commands;
 using Discord.WebSocket;
 using NinjaBotCore.Database;
 using NinjaBotCore.Services;
+using Microsoft.Extensions.Logging;
 
 namespace NinjaBotCore.Modules.Admin
 {
@@ -18,15 +19,17 @@ namespace NinjaBotCore.Modules.Admin
         private DiscordSocketClient _client;
         private readonly IServiceProvider _provider;
         private ChannelCheck _cc;
+        private readonly ILogger _logger;
 
-        public UserInteraction(IServiceProvider provider)
+        public UserInteraction(IServiceProvider provider, ILogger<UserInteraction> logger)
         {
+            _logger = logger;
             _provider = provider;
             _client = _provider.GetService<DiscordSocketClient>();
             _cc = _provider.GetService<ChannelCheck>();
             _client.UserJoined += HandleGreeting;
             _client.UserLeft += HandleParting;
-            Console.WriteLine($"UserInteractions loaded");
+            _logger.LogInformation($"UserInteractions loaded");
         }
 
         private async Task HandleGreeting(SocketGuildUser user)
