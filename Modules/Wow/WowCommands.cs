@@ -12,6 +12,8 @@ using Discord.WebSocket;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
 using NinjaBotCore.Services;
+using Microsoft.Extensions.Logging;
+
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -24,9 +26,11 @@ namespace NinjaBotCore.Modules.Wow
         private RaiderIOApi _rioApi;
         private readonly IConfigurationRoot _config;
         private string _prefix;
+        private readonly ILogger _logger;
 
-        public WowCommands(WowApi api, ChannelCheck cc, WarcraftLogs logsApi, RaiderIOApi rioApi, DiscordSocketClient client, IConfigurationRoot config)
+        public WowCommands(WowApi api, ChannelCheck cc, WarcraftLogs logsApi, RaiderIOApi rioApi, DiscordSocketClient client, IConfigurationRoot config, ILogger<WowCommands> logger)
         {
+            _logger = logger;
             _cc = cc;            
             _logsApi = logsApi;            
             _wowApi = api;
@@ -455,7 +459,7 @@ namespace NinjaBotCore.Modules.Wow
                 }                
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Get-Guild Error getting guild info: [{ex.Message}]");
+                    _logger.LogError($"Get-Guild Error getting guild info: [{ex.Message}]");
                 }
             }
         }
@@ -478,7 +482,7 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 catch (Exception ex)
                 {
-                    System.Console.WriteLine($"Error getting guild/logwatch list -> [{ex.Message}]");
+                    _logger.LogError($"Error getting guild/logwatch list -> [{ex.Message}]");
                 }
                 if (guildList != null)
                 {
@@ -491,7 +495,7 @@ namespace NinjaBotCore.Modules.Wow
                             {
                                 if (watchGuild.MonitorLogs)
                                 {
-                                    //System.Console.WriteLine($"YES! Watch logs on {guild.ServerName}!");
+                                    //System._logger.LogInformation($"YES! Watch logs on {guild.ServerName}!");
                                     var logs = await _logsApi.GetReportsFromGuild(guildName: guild.WowGuild, realm: guild.WowRealm.Replace("'", ""), region: guild.WowRegion);
                                     if (logs != null)
                                     {
@@ -505,7 +509,7 @@ namespace NinjaBotCore.Modules.Wow
                                                 latestForGuild.ReportId = latestLog.id;
                                                 await db.SaveChangesAsync();
                                             }
-                                            //System.Console.WriteLine($"Updated [{watchGuild.ServerName}] -> [{latestLog.id}] [{latestLog.owner}]!");
+                                            //System._logger.LogInformation($"Updated [{watchGuild.ServerName}] -> [{latestLog.id}] [{latestLog.owner}]!");
                                         }
                                     }
                                 }
@@ -513,7 +517,7 @@ namespace NinjaBotCore.Modules.Wow
                         }
                         catch (Exception ex)
                         {
-                            System.Console.WriteLine($"Error checking for logs! -> [{ex.Message}]");
+                            _logger.LogError($"Error checking for logs! -> [{ex.Message}]");
                         }
                     }
                 }
@@ -630,7 +634,7 @@ namespace NinjaBotCore.Modules.Wow
                         }
                         catch (Exception ex)
                         {
-                            System.Console.WriteLine($"{ex.Message}");
+                            _logger.LogError($"{ex.Message}");
                         }
                     }
                     else
@@ -711,7 +715,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                System.Console.WriteLine($"Error listing channels: [{ex.Message}]");
+                _logger.LogError($"Error listing channels: [{ex.Message}]");
                 await _cc.Reply(Context, $"Sorry, {Context.User.Username}, something went wrong :(");
             }
         }
@@ -899,7 +903,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Armory Info Error -> [{ex.Message}]");
+                _logger.LogError($"Armory Info Error -> [{ex.Message}]");
                 await _cc.Reply(Context, $"Unable to find **{charName}**");
                 return;
             }
@@ -953,7 +957,7 @@ namespace NinjaBotCore.Modules.Wow
                 catch (Exception ex)
                 {
                     sb.AppendLine($"Unable to find logs from **{args.Split(' ')[1]}**");
-                    Console.WriteLine($"Erorr getting logs from user -> [{ex.Message}]");
+                    _logger.LogError($"Erorr getting logs from user -> [{ex.Message}]");
                     await _cc.Reply(Context, sb.ToString());
                     return;
                 }
@@ -969,7 +973,7 @@ namespace NinjaBotCore.Modules.Wow
                         sb.AppendLine();
                         arrayCount++;
                     }
-                    Console.WriteLine($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
+                    _logger.LogInformation($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
 
                     embed.Title = $":1234:__Logs from **{args.Split(' ')[1]}**__:1234: ";
                     embed.Description = sb.ToString();
@@ -983,7 +987,7 @@ namespace NinjaBotCore.Modules.Wow
                     sb.AppendLine($"\t:stopwatch: End time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].end)}**");
                     sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[0].id}) | :sob: [WipeFest](https://www.wipefest.net/report/{guildLogs[arrayCount].id})");
                     sb.AppendLine();
-                    Console.WriteLine($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
+                    _logger.LogInformation($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
                     embed.Title = $":1234: __Logs for **{guildName}** on **{realmName}**__:1234: ";
                     embed.Description = sb.ToString();
                     await _cc.Reply(Context, embed);
@@ -1042,7 +1046,7 @@ namespace NinjaBotCore.Modules.Wow
                 catch (Exception ex)
                 {
                     sb.AppendLine($"Unable to find logs for **{guildName}** on **{realmName}**");
-                    Console.WriteLine($"{ex.Message}");
+                    _logger.LogError($"{ex.Message}");
                     await _cc.Reply(Context, sb.ToString());
                     return;
                 }
@@ -1058,7 +1062,7 @@ namespace NinjaBotCore.Modules.Wow
                         sb.AppendLine();
                         arrayCount++;
                     }
-                    Console.WriteLine($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
+                    _logger.LogInformation($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
                     embed.Title = $":1234:__Logs for **{guildName}** on **{realmName}**__:1234: ";
                     embed.Description = sb.ToString();
                     await _cc.Reply(Context, embed);
@@ -1071,7 +1075,7 @@ namespace NinjaBotCore.Modules.Wow
                     sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[0].id}) | :sob: [WipeFest](https://www.wipefest.net/report/{guildLogs[arrayCount].id})");
                     sb.AppendLine($"\t");
                     sb.AppendLine();
-                    Console.WriteLine($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
+                    _logger.LogInformation($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
                     embed.Title = $":1234: __Logs for **{guildName}** on **{realmName}**__:1234: ";
                     embed.Description = sb.ToString();
                     await _cc.Reply(Context, embed);
@@ -1145,7 +1149,7 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error getting guild info -> [{ex.Message}]");
+                    _logger.LogError($"Error getting guild info -> [{ex.Message}]");
                 }
 
                 if (members != null)
@@ -1163,7 +1167,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Set-Guild error: {ex.Message}");
+                _logger.LogError($"Set-Guild error: {ex.Message}");
             }
         }
 
@@ -1211,7 +1215,7 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Get-Guild Error getting guild info: [{ex.Message}]");
+                    _logger.LogError($"Get-Guild Error getting guild info: [{ex.Message}]");
                 }
                 string guildName = string.Empty;
                 string guildRealm = string.Empty;
@@ -1379,7 +1383,7 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error looking up character: {ex.Message}");
+                    _logger.LogError($"Error looking up character: {ex.Message}");
                 }
                 if (guildObject.guildName != null && guildObject.realmName != null)
                 {
@@ -1639,7 +1643,7 @@ namespace NinjaBotCore.Modules.Wow
             {
                 sb.AppendLine("Error getting gear list, sorry!");
                 embed.Description = sb.ToString();
-                System.Console.WriteLine($"Error getting gear list for {ex.Message}");
+                _logger.LogError($"Error getting gear list for {ex.Message}");
             }
             await _cc.Reply(Context, embed);
         }
@@ -1727,8 +1731,14 @@ namespace NinjaBotCore.Modules.Wow
                     }
                     return;
                 }
+
+                await _cc.Reply(Context, "Looking up Top 10 information, hang tight...");
+
+                //set default difficulty
                 difficulty = "heroic";
-                int argCount = args.Split(',').Count();
+
+                //handle args
+                int argCount = args.Split(',').Count();                
                 string[] splitArgs = args.Split(',');
                 switch (argCount)
                 {
@@ -1741,8 +1751,8 @@ namespace NinjaBotCore.Modules.Wow
                     //Name + metric
                     case 2:
                         {
-                            fightName = splitArgs[0].Trim();
-                            metric = splitArgs[1].Trim();
+                            fightName = splitArgs[0].Trim();                            
+                            guildOnly = splitArgs[1].Trim();
                             break;
                         }
                     //Name + metric + guild/all
@@ -1892,6 +1902,7 @@ namespace NinjaBotCore.Modules.Wow
                         }
                 }
                 //End metric set
+
                 if (string.IsNullOrEmpty(fightName))
                 {
                     sb.AppendLine($"{Context.User.Username}, please specify a fight name/number!");
@@ -1901,31 +1912,95 @@ namespace NinjaBotCore.Modules.Wow
                     return;
                 }
 
+                IEnumerable<WarcraftlogRankings.Ranking> top10 = null;
+                var guildOnlyList = new List<WarcraftlogRankings.RankingObject>();
+
+                //Guild logic
                 if (!(string.IsNullOrEmpty(guildOnly) || guildOnly.ToLower() != "guild"))
                 {
-                    if (!string.IsNullOrEmpty(guildObject.realmSlug))
+                    bool proceed = true;                    
+                    int page = 1;
+                    while (proceed)
                     {
-                        l = await _logsApi.GetRankingsByEncounterGuildSlug(encounterID, guildObject.realmSlug, guildObject.guildName, metric, difficultyID, region);
-                    }
-                    else
-                    {
-                        l = await _logsApi.GetRankingsByEncounterGuild(encounterID, guildObject.realmName, guildObject.guildName, metric, difficultyID, region);                   
-                    }
+                        try 
+                        {
+                            if (!string.IsNullOrEmpty(guildObject.realmSlug))
+                            {
+                                l = await _logsApi.GetRankingsByEncounterGuildSlug(
+                                        encounterID: encounterID,
+                                        realmSlug:   guildObject.realmSlug, 
+                                        guildName:   guildObject.guildName,
+                                        page:        page.ToString(),
+                                        metric:      metric, 
+                                        difficulty:  difficultyID, 
+                                        regionName:  region
+                                    );                   
+                            }
+                            else
+                            {
+                                l = await _logsApi.GetRankingsByEncounterGuild(
+                                        encounterID: encounterID, 
+                                        realmName:   guildObject.realmName, 
+                                        guildName:   guildObject.guildName, 
+                                        page:        page.ToString(),
+                                        metric:      metric, 
+                                        difficulty:  difficultyID, 
+                                        regionName:  region                                    
+                                    );                                          
+                            }  
+                            _logger.LogInformation($"Adding page {page}!");
+                        
+                            if (l != null)
+                            {
+                                guildOnlyList.Add(l);
+                                page++;
+                            }
+                            else
+                            {
+                                proceed = false;
+                            }                                                                        
+                            if (!l.hasMorePages || page >= 25)
+                            {
+                                proceed = false;
+                            }                                                                                               
+                        }   
+                        catch (Exception ex)
+                        {
+                            _logger.LogError($"Error getting top 10 data -> [{ex.Message}]"); 
+                            proceed = false;      
+                        }
+
+                        top10 = guildOnlyList.SelectMany(p => p.rankings).Where(r => r.guildName == guildObject.guildName).OrderByDescending(o => o.total).Take(10);                        
+                    }                      
                 }
-                else
+                else //else for non-guild (all realm top 10)
                 {
                     if (!string.IsNullOrEmpty(guildObject.realmSlug))
                     {
-                        l = await _logsApi.GetRankingsByEncounterSlug(encounterID, guildObject.realmSlug, metric, difficultyID, region);
+                        l = await _logsApi.GetRankingsByEncounterSlug(
+                                encounterID: encounterID, 
+                                realmSlug: guildObject.realmSlug, 
+                                metric: metric,
+                                difficulty: difficultyID, 
+                                regionName: region
+                            );
                     }
                     else
                     {
-                        l = await _logsApi.GetRankingsByEncounter(encounterID, realmName, metric, difficultyID, region);
+                        l = await _logsApi.GetRankingsByEncounter(
+                                encounterID: encounterID, 
+                                realmName: realmName, 
+                                metric: metric, 
+                                difficulty: difficultyID, 
+                                regionName: region
+                            );
                     }
 
+                   top10 = l.rankings.OrderByDescending(a => a.total).Take(10);                        
+
                 }
-                string fightNameFromEncounterID = fightList.Where(f => f.id == encounterID).Select(f => f.name).FirstOrDefault();
-                var top10 = l.rankings.OrderByDescending(a => a.total).Take(10);
+
+                //Setup the results for the embed
                 string difficultyName = string.Empty;
                 switch (difficultyID)
                 {
@@ -1955,25 +2030,38 @@ namespace NinjaBotCore.Modules.Wow
                             break;
                         }
                 }
+
+                string fightNameFromEncounterID = fightList.Where(f => f.id == encounterID).Select(f => f.name).FirstOrDefault();
+
+                //Build embed
                 embed.Title = $"__Top 10 for fight [**{fightNameFromEncounterID}** (Metric [**{metric.ToUpper()}**] Difficulty [**{difficultyName}**]) Realm [**{guildObject.realmName}**]]__";
+
                 int i = 1;
-                foreach (var rank in top10)
+                if (top10 != null)
                 {
-                    var classInfo = WarcraftLogs.CharClasses.Where(c => c.id == rank._class).FirstOrDefault();
-                    sb.AppendLine($"**{i}** [{rank.name}](http://{region}.battle.net/wow/en/character/{rank.serverName.Replace(" ","-")}/{rank.name}/advanced) ilvl **{rank.itemLevel}** {classInfo.name} from *[{rank.guildName}]*");
-                    sb.AppendLine($"\t{metricEmoji}[**{rank.total.ToString("###,###")}** {metric.ToLower()}]");
-                    i++;
+                    foreach (var rank in top10)
+                    {
+                        var classInfo = WarcraftLogs.CharClasses.Where(c => c.id == rank._class).FirstOrDefault();
+                        sb.AppendLine($"**{i}** [{rank.name}](http://{region}.battle.net/wow/en/character/{rank.serverName.Replace(" ","-")}/{rank.name}/advanced) ilvl **{rank.itemLevel}** {classInfo.name} from *[{rank.guildName}]*");
+                        sb.AppendLine($"\t{metricEmoji}[**{rank.total.ToString("###,###")}** {metric.ToLower()}]");
+                        i++;
+                    }
+                    sb.AppendLine($"Data gathered from **https://www.warcraftlogs.com**");
+                    embed.Description = sb.ToString();
+                    embed.ThumbnailUrl = thumbUrl;
                 }
-                sb.AppendLine($"Data gathered from **https://www.warcraftlogs.com**");
-                embed.Description = sb.ToString();
-                embed.ThumbnailUrl = thumbUrl;
+                else
+                {
+                    sb.AppendLine($"Error getting top 10 for {guildObject.guildName}!");
+                    _logger.LogError($"Variable top10 was null for {guildObject.guildName} on {guildObject.realmSlug} [{guildObject.regionName}]");
+                }
                 try
                 {
                     await _cc.Reply(Context, embed);
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine(ex.Message);
+                    _logger.LogError(ex.Message);
                 }
             }
         }
@@ -2090,7 +2178,7 @@ namespace NinjaBotCore.Modules.Wow
                     await _cc.Reply(Context, $"Unable to find realm \nTry {_prefix}wow auctions realmName");
                     return;
                 }
-                Console.WriteLine($"Looking up auctions for realm {realmName.ToUpper()}");
+                _logger.LogInformation($"Looking up auctions for realm {realmName.ToUpper()}");
                 List<WowAuctions> auctions = await _wowApi.GetAuctionsByRealm(realmName.ToLower(), guildObject.regionName);
                 StringBuilder sb = new StringBuilder();
                 var auctionList = GetAuctionItemIDs();
@@ -2118,8 +2206,7 @@ namespace NinjaBotCore.Modules.Wow
                 using (var db = new NinjaBotEntities())
                 {
                     foreach (var item in auctionList)
-                    {
-                        Console.WriteLine(item.ItemID);
+                    {                        
                         var items = auctions.Where(auc => auc.AuctionItemId == item.ItemID).ToList();
                         long lowestPrice = GetLowestBuyoutPrice(items.Where(r => r.AuctionBuyout != 0));
                         long highestPrice = GetHighestBuyoutPrice(items.Where(r => r.AuctionBuyout != 0));
@@ -2142,7 +2229,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Auction error: [{ex.Message}]");
+                _logger.LogError($"Auction error: [{ex.Message}]");
                 await _cc.Reply(Context, "Error getting auctions :(");
             }
         }
@@ -2180,7 +2267,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (DivideByZeroException ex)
             {
-                Console.WriteLine($"Get Lowest Buyout Error -> [{ex.Message}]");
+                _logger.LogError($"Get Lowest Buyout Error -> [{ex.Message}]");
             }
             return lowestBuyoutPrice;
         }
@@ -2200,7 +2287,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (DivideByZeroException ex)
             {
-                Console.WriteLine($"Get Highest Buyout Error -> [{ex.Message}]");
+                _logger.LogError($"Get Highest Buyout Error -> [{ex.Message}]");
             }
             return highestBuyoutPrice;
         }
@@ -2220,7 +2307,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (DivideByZeroException ex)
             {
-                Console.WriteLine($"Get Average Buyout Error -> [{ex.Message}]");
+                _logger.LogError($"Get Average Buyout Error -> [{ex.Message}]");
             }
             return averageBuyoutPrice;
         }
@@ -2330,7 +2417,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"{ex.Message} {ex.InnerException} {ex.Data}{ex.Source}{ex.StackTrace}");
+                _logger.LogError($"{ex.Message} {ex.InnerException} {ex.Data}{ex.Source}{ex.StackTrace}");
                 StringBuilder sb = new StringBuilder();
                 var embed = new EmbedBuilder();
                 embed.WithColor(new Color(255, 0, 0));
@@ -2355,11 +2442,11 @@ namespace NinjaBotCore.Modules.Wow
                 {
                     guildObject = await GetGuildAssociation(Context.Guild.Name);
                 }
-                Console.WriteLine($"getGuildName: {Context.Channel.Name} : {guildObject.guildName} -> {guildObject.realmName}");
+                _logger.LogInformation($"getGuildName: {Context.Channel.Name} : {guildObject.guildName} -> {guildObject.realmName}");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"getGuildName: {ex.Message}");
+                _logger.LogError($"getGuildName: {ex.Message}");
             }
             return guildObject;
         }
@@ -2418,7 +2505,7 @@ namespace NinjaBotCore.Modules.Wow
                 //use locale to determine realm slug
                 for (int i = 0; i<500; i++)
                 {
-                    System.Console.WriteLine("Attempting to find slug!");
+                    _logger.LogInformation("Attempting to find slug!");
                     var slugs = _wowApi.GetRealmStatus(locale: locale, region: apiRegion);                        
                     switch (locale)
                     {
@@ -2445,7 +2532,7 @@ namespace NinjaBotCore.Modules.Wow
                     }
                     if (!string.IsNullOrEmpty(realmSlug))
                     {
-                        System.Console.WriteLine($"Found slug {realmSlug}!");
+                        _logger.LogInformation($"Found slug {realmSlug}!");
                         break;
                     }
                 }
@@ -2488,7 +2575,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error setting guild association for {Context.Guild.Name} to {wowGuildName}-{realmName} [{ex.Message}]");
+                _logger.LogError($"Error setting guild association for {Context.Guild.Name} to {wowGuildName}-{realmName} [{ex.Message}]");
             }
         }
 

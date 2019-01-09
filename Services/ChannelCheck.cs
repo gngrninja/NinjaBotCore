@@ -64,7 +64,6 @@ namespace NinjaBotCore.Services
             using (var db = new NinjaBotEntities())
             {
                 outputChannel = db.ChannelOutputs.FirstOrDefault(o => o.ServerId == (long)guildId);
-
             }
             if (outputChannel == null)
             {
@@ -126,7 +125,6 @@ namespace NinjaBotCore.Services
 
         public async Task SetDoneEmoji(ICommandContext context)
         {
-            Console.WriteLine($"Setting done emoji");
             ChannelPermissions botPerms = await GetBotPerms(context);
             if (botPerms.ManageMessages)
             {

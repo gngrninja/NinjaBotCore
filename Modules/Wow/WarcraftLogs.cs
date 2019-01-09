@@ -14,6 +14,7 @@ using Discord;
 using Discord.Net;
 using Discord.WebSocket;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -26,9 +27,11 @@ namespace NinjaBotCore.Modules.Wow
         private DiscordSocketClient _client;
         private readonly WclApiRequestor _api;
         private readonly WclApiRequestor _apiCmd;
+        private readonly ILogger _logger;
 
-        public WarcraftLogs(IConfigurationRoot config, DiscordSocketClient client, bool throttle = true)
+        public WarcraftLogs(IConfigurationRoot config, ILogger<WarcraftLogs> logger, DiscordSocketClient client, bool throttle = true)
         {
+            _logger = logger;
             _client = client;
             _config = config;
             
@@ -42,7 +45,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                System.Console.WriteLine($"Error performing class setup for WCL: {ex.Message}");
+                _logger.LogError($"Error performing class setup for WCL: {ex.Message}");
             }
         }
 
@@ -110,8 +113,7 @@ namespace NinjaBotCore.Modules.Wow
                         realmSlug = WowApi.RealmInfoEu.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realm.ToLower())).Select(s => s.slug).FirstOrDefault();
                         break;
                     }
-            }
-            //System.Console.WriteLine($"SLUG: {realmSlug}");            
+            }               
             url = $"reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?";
             if (flip) 
             {
@@ -231,7 +233,7 @@ namespace NinjaBotCore.Modules.Wow
             return await _apiCmd.Get<Fights>(url);
         }
 
-        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounter(int encounterID, string realmName, string metric = "dps", int difficulty = 4, string regionName = "us")
+        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounter(int encounterID, string realmName, string page = "1", string metric = "dps", int difficulty = 4, string regionName = "us")
         {
             string realmSlug = string.Empty;
             switch (regionName.ToLower())
@@ -247,32 +249,32 @@ namespace NinjaBotCore.Modules.Wow
                         break;
                     }
             }                        
-            string url = $"rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&limit=1000&";
+            string url = $"rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&page={page}&";
             return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
 
-        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounter(int encounterID, string realmName, string partition, string realmSlug, string metric = "dps", int difficulty = 4, string regionName = "us")
+        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounter(int encounterID, string realmName, string partition, string realmSlug, string page = "1",string metric = "dps", int difficulty = 4, string regionName = "us")
         {               
             WarcraftlogRankings.RankingObject l = new WarcraftlogRankings.RankingObject();
-            string url = $"rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&limit=1000&partition={partition}&";
+            string url = $"rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&page={page}&partition={partition}&";
             return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
 
-        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounterSlug(int encounterID, string realmSlug, string metric = "dps", int difficulty = 4, string regionName = "us")
+        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounterSlug(int encounterID, string realmSlug, string page = "1", string metric = "dps", int difficulty = 4, string regionName = "us")
         {
             WarcraftlogRankings.RankingObject l = new WarcraftlogRankings.RankingObject();                   
-            string url = $"rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&limit=1000&";
+            string url = $"rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&page={page}&";
             return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
             
         }
 
-        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounterSlug(int encounterID, string realmSlug, string partition, string metric = "dps", int difficulty = 4, string regionName = "us")
+        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounterSlug(int encounterID, string realmSlug, string partition, string page = "1" ,string metric = "dps", int difficulty = 4, string regionName = "us")
         {                 
-            string url = $"rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&limit=1000&partition={partition}&";
+            string url = $"rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&page={page}&partition={partition}&";
             return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
 
-        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounterGuild(int encounterID, string realmName, string guildName, string partition, string metric = "dps", int difficulty = 4, string regionName = "us")
+        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounterGuild(int encounterID, string realmName, string guildName, string partition, string page = "1", string metric = "dps", int difficulty = 4, string regionName = "us")
         {
             guildName = guildName.Replace(" ", "%20");
             string realmSlug = string.Empty;
@@ -289,11 +291,11 @@ namespace NinjaBotCore.Modules.Wow
                         break;
                     }
             }
-            string url = $"rankings/encounter/{encounterID}?guild={guildName}&server={realmSlug}&region={regionName}&metric={metric}&difficulty={difficulty}&limit=1000&partition={partition}&";
+            string url = $"rankings/encounter/{encounterID}?guild={guildName}&server={realmSlug}&region={regionName}&metric={metric}&difficulty={difficulty}&page={page}&partition={partition}&";
             return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
 
-        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounterGuild(int encounterID, string realmName, string guildName, string metric = "dps", int difficulty = 4, string regionName = "us")
+        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounterGuild(int encounterID, string realmName, string guildName, string page = "1",string metric = "dps", int difficulty = 4, string regionName = "us")
         {
             guildName = guildName.Replace(" ", "%20");
             string realmSlug = string.Empty;
@@ -310,25 +312,25 @@ namespace NinjaBotCore.Modules.Wow
                         break;
                     }
             }
-            string url = $"rankings/encounter/{encounterID}?guild={guildName}&server={realmSlug}&region={regionName}&metric={metric}&difficulty={difficulty}&limit=1000&";
+            string url = $"rankings/encounter/{encounterID}?guild={guildName}&server={realmSlug}&region={regionName}&metric={metric}&difficulty={difficulty}&page={page}&";
             return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
 
-        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounterGuildSlug(int encounterID, string realmSlug, string guildName, string metric = "dps", int difficulty = 4, string regionName = "us")
+        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounterGuildSlug(int encounterID, string realmSlug, string guildName, string page = "1", string metric = "dps", int difficulty = 4, string regionName = "us")
         {
             guildName = guildName.Replace(" ", "%20");
-            string url = $"rankings/encounter/{encounterID}?guild={guildName}&server={realmSlug}&region={regionName}&metric={metric}&difficulty={difficulty}&limit=1000&";
+            string url = $"rankings/encounter/{encounterID}?guild={guildName}&server={realmSlug}&region={regionName}&metric={metric}&difficulty={difficulty}&page={page}&";
             return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
 
-        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounterGuildSlug(int encounterID, string realmSlug, string partition, string guildName, string metric = "dps", int difficulty = 4, string regionName = "us")
+        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounterGuildSlug(int encounterID, string realmSlug, string partition, string guildName, string page = "1", string metric = "dps", int difficulty = 4, string regionName = "us")
         {
             guildName = guildName.Replace(" ", "%20");
-            string url = $"rankings/encounter/{encounterID}?guild={guildName}&server={realmSlug}&region={regionName}&metric={metric}&difficulty={difficulty}&limit=1000&partition={partition}&";
+            string url = $"rankings/encounter/{encounterID}?guild={guildName}&server={realmSlug}&region={regionName}&metric={metric}&difficulty={difficulty}&page={page}&partition={partition}&";
             return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
         
-        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounter(int encounterID, string realmName, string partition, string metric = "dps", int difficulty = 4, string regionName = "us")
+        public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounter(int encounterID, string realmName, string partition, string page = "1", string metric = "dps", int difficulty = 4, string regionName = "us")
         {
             string realmSlug = string.Empty;
             switch (regionName.ToLower())
@@ -344,7 +346,7 @@ namespace NinjaBotCore.Modules.Wow
                         break;
                     }
             }            
-            string url = $"rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&limit=1000&partition={partition}&";
+            string url = $"rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&page={page}&partition={partition}&";
             return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
 
@@ -400,11 +402,11 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                System.Console.WriteLine($"Error getting guild/logwatch list -> [{ex.Message}]");
+                _logger.LogInformation($"Error getting guild/logwatch list -> [{ex.Message}]");
             }
             if (guildList != null)
             {
-                System.Console.WriteLine("Starting WCL Auto Posting...");
+                _logger.LogInformation("Starting WCL Auto Posting...");
                 foreach (var guild in guildList)
                 {                    
                     try
@@ -430,8 +432,7 @@ namespace NinjaBotCore.Modules.Wow
 
                                     logs = await GetReportsFromGuild(guildName: guild.WowGuild,realm: guild.WowRealm.Replace("'", ""), region: guild.WowRegion, isList: true, flip: flip);
 
-                                }
-                                //System.Console.WriteLine(flip);
+                                }                                
                                 if (flip)
                                 {
                                     flip = false;
@@ -475,10 +476,10 @@ namespace NinjaBotCore.Modules.Wow
                     }
                     catch (Exception ex)
                     {
-                        System.Console.WriteLine($"Error checking for logs [{guild.WowGuild}]:[{guild.WowRealm}]:[{guild.WowRealm}]! -> [{ex.Message}]");
+                        _logger.LogError($"Error checking for logs [{guild.WowGuild}]:[{guild.WowRealm}]:[{guild.WowRealm}]! -> [{ex.Message}]");
                     }
                 }
-                System.Console.WriteLine("Finished WCL Auto Posting...");
+                _logger.LogInformation("Finished WCL Auto Posting...");
             }
         }
     }

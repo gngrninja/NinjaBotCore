@@ -8,6 +8,7 @@ using Discord;
 using Discord.WebSocket;
 using NinjaBotCore.Database;
 using NinjaBotCore.Services;
+using Microsoft.Extensions.Logging;
 
 namespace NinjaBotCore.Modules.Away
 {
@@ -16,13 +17,15 @@ namespace NinjaBotCore.Modules.Away
         private static bool _isLinked = false;
         private static ChannelCheck _cc = null;
         private static DiscordSocketClient _client;
+        private readonly ILogger _logger;
         //Work on way to do this when bot starts
-        public AwayCommands(DiscordSocketClient client)
+        public AwayCommands(DiscordSocketClient client, ILogger<AwayCommands> logger)
         {
+            _logger = logger;
             if (!_isLinked)
             {
                 client.MessageReceived += AwayMentionFinder;
-                Console.WriteLine($"Hooked into message received for away commands.");
+                _logger.LogInformation($"Hooked into message received for away commands.");
             }
             _isLinked = true;
             if (_cc == null)
@@ -97,7 +100,7 @@ namespace NinjaBotCore.Modules.Away
             {
                 StringBuilder sb = new StringBuilder();
                 sb.AppendLine("Something went wrong setting you away :(");
-                Console.WriteLine($"Away command error {ex.Message}");
+                _logger.LogError($"Away command error {ex.Message}");
                 await _cc.Reply(Context, sb.ToString());
             }
         }
@@ -170,7 +173,7 @@ namespace NinjaBotCore.Modules.Away
             {
                 StringBuilder sb = new StringBuilder();
                 sb.AppendLine("Something went wrong marking you as back :(");
-                Console.WriteLine($"Back command error {ex.Message}");
+                _logger.LogError($"Back command error {ex.Message}");
                 await _cc.Reply(Context, sb.ToString());
             }
         }
@@ -182,7 +185,7 @@ namespace NinjaBotCore.Modules.Away
             await SetBack(forced: true, forceUser: user);
         }
 
-        private static async Task AwayMentionFinder(SocketMessage messageDetails)
+        private async Task AwayMentionFinder(SocketMessage messageDetails)
         {
             if (messageDetails.Channel is IDMChannel)
             {
@@ -212,7 +215,7 @@ namespace NinjaBotCore.Modules.Away
                             }
                         }
 
-                        Console.WriteLine($"Mentioned user {userMentioned.Username} -> {awayUser.UserName} -> {awayUser.Status}");
+                        _logger.LogInformation($"Mentioned user {userMentioned.Username} -> {awayUser.UserName} -> {awayUser.Status}");
                         if ((bool)awayUser.Status)
                         {
                             if (userMentioned.Username == (awayUser.UserName))

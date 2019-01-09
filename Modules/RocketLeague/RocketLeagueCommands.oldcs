@@ -15,9 +15,7 @@ using NinjaBotCore.Models.RocketLeague;
 using NinjaBotCore.Modules.RocketLeague;
 using Microsoft.Extensions.Configuration;
 using NinjaBotCore.Services;
-using RLSApi;
-using RLSApi.Data;
-using RLSApi.Net.Requests;
+
 using static NinjaBotCore.Services.NinjaExtensions;
 
 namespace NinjaBotCore.Modules.RocketLeague

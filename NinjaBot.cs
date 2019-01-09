@@ -22,6 +22,10 @@ using NinjaBotCore.Modules.Giphy;
 using NinjaBotCore.Modules.Weather;
 using NinjaBotCore.Modules.YouTube;
 using Microsoft.EntityFrameworkCore;
+using Serilog;
+using Serilog.Sinks.File;
+using Serilog.Sinks.SystemConsole;
+using Microsoft;
 
 namespace NinjaBotCore
 {
@@ -33,7 +37,12 @@ namespace NinjaBotCore
         private IConfigurationRoot _config;
 
         public async Task StartAsync()
-        {            
+        {    
+            Log.Logger = new LoggerConfiguration()
+                .WriteTo.File("logs/njabot.log")
+                .WriteTo.Console()
+                .CreateLogger();  
+
             //Create the configuration
             var _builder = new ConfigurationBuilder()
                 .SetBasePath(AppContext.BaseDirectory)
@@ -54,14 +63,12 @@ namespace NinjaBotCore
                     LogLevel = LogSeverity.Verbose,
                     CaseSensitiveCommands = false, 
                     ThrowOnError = false 
-                }))
-                .AddSingleton<LoggingService>()
+                }))         
                 .AddSingleton<WowApi>()
                 .AddSingleton<WarcraftLogs>()
                 .AddSingleton<ChannelCheck>()   
                 .AddSingleton<OxfordApi>()
                 .AddSingleton<AwayCommands>()
-                //.AddSingleton<RlStatsApi>()
                 .AddSingleton<UserInteraction>()
                 .AddSingleton<CommandHandler>()
                 .AddSingleton<StartupService>()
@@ -70,43 +77,37 @@ namespace NinjaBotCore
                 .AddSingleton<WeatherApi>()
                 .AddSingleton<RaiderIOApi>()
                 .AddSingleton<YouTubeApi>()
-                .AddSingleton<AudioService>();
-                
-            var serviceProvider = services.BuildServiceProvider();
-                                      
-            serviceProvider.GetRequiredService<DiscordSocketClient>().Log += Log;   
+                .AddSingleton<AudioService>()
+                .AddSingleton<LoggingService>();
 
+            //Add logging                    
+            ConfigureServices(services);    
+
+            //Build services
+            var serviceProvider = services.BuildServiceProvider();                                     
+
+            //Instantiate logger/tie-in logging
+            serviceProvider.GetRequiredService<LoggingService>();
+            
             //Start the bot
             await serviceProvider.GetRequiredService<StartupService>().StartAsync(); 
 
             //Load up services
-            serviceProvider.GetRequiredService<CommandHandler>();
-            serviceProvider.GetRequiredService<LoggingService>();        
+            serviceProvider.GetRequiredService<CommandHandler>();                 
             serviceProvider.GetRequiredService<UserInteraction>();              
             serviceProvider.GetRequiredService<AwayCommands>();
             serviceProvider.GetRequiredService<WowApi>();
             serviceProvider.GetRequiredService<WarcraftLogs>();
-            serviceProvider.GetRequiredService<RaiderIOApi>();
-            
-            /*             
-            Not loading these on statup for now
-            //serviceProvider.GetRequiredService<RlStatsApi>();
-            serviceProvider.GetRequiredService<OxfordApi>();
-            serviceProvider.GetRequiredService<ChannelCheck>();
-            serviceProvider.GetRequiredService<SteamApi>();
-            serviceProvider.GetRequiredService<GiphyApi>();
-            serviceProvider.GetRequiredService<WeatherApi>();
-            serviceProvider.GetRequiredService<YouTubeApi>();
-            */                                   
-                                 
+            serviceProvider.GetRequiredService<RaiderIOApi>();                                
+
             // Block this program until it is closed.
             await Task.Delay(-1);
         }
 
-        private Task Log(LogMessage msg)
+        private static void ConfigureServices(IServiceCollection services)
         {
-            Console.WriteLine(msg.ToString());
-            return Task.CompletedTask;
+            services.AddLogging(configure => configure.AddSerilog());
         }
+
     }
 }

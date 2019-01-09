@@ -14,6 +14,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using Microsoft.Extensions.Configuration;
 using System.Threading;
+using Microsoft.Extensions.Logging;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -28,12 +29,14 @@ namespace NinjaBotCore.Modules.Wow
         private static WowRealm _realmInfoRu;
         private readonly IConfigurationRoot _config;
         private static CancellationTokenSource _tokenSource;
+        private readonly ILogger _logger;
 
-        public WowApi(IConfigurationRoot config)
+        public WowApi(IConfigurationRoot config, ILogger<WowApi> logger)
         {
             try
             {
                 _config = config;
+                _logger = logger;
                 this.StartTimer();
                 //_token = GetWoWToken(username: _config["WoWClient"], password: _config["WoWSecret"]);
                 Races = this.GetRaces();
@@ -47,7 +50,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error creating WowApi class -> [{ex.Message}]");
+                _logger.LogError($"Error creating WowApi class -> [{ex.Message}]");
             }
         }
 
@@ -148,7 +151,7 @@ namespace NinjaBotCore.Modules.Wow
             key = $"&access_token={_token}";
             url = $"{prefix}{url}{key}";
 
-            Console.WriteLine($"Wow API request to {url}");
+            _logger.LogInformation($"Wow API request to {url}");
 
             using (HttpClient httpClient = new HttpClient())
             {
@@ -183,7 +186,7 @@ namespace NinjaBotCore.Modules.Wow
 
             url = $"{prefix}{url}{locale}{key}";
 
-            Console.WriteLine($"Wow API request to {url}");
+            _logger.LogInformation($"Wow API request to {url}");
 
             using (HttpClient httpClient = new HttpClient())
             {
@@ -202,7 +205,7 @@ namespace NinjaBotCore.Modules.Wow
             string response;
             url = $"{url}";
 
-            Console.WriteLine($"Wow API request to {url}");
+            _logger.LogInformation($"Wow API request to {url}");
 
             using (HttpClient httpClient = new HttpClient())
             {
@@ -326,7 +329,7 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine(ex.Message);
+                    _logger.LogError(ex.Message);
                 }
                 if (dbAuctions.Count > 0)
                 {
@@ -358,7 +361,7 @@ namespace NinjaBotCore.Modules.Wow
                                     DateModified = lastModified
                                 });
                             }
-                            Console.WriteLine("New Auctions... Saving changes to DB");
+                            _logger.LogInformation("New Auctions... Saving changes to DB");
                         }
                     }
                 }
@@ -384,7 +387,7 @@ namespace NinjaBotCore.Modules.Wow
                             DateModified = lastModified
                         });
                     }
-                    Console.WriteLine("Saving changes to DB");
+                    _logger.LogInformation("Saving changes to DB");
                 }
                 await db.SaveChangesAsync();
                 //db.Database.Connection.Close();
@@ -617,16 +620,14 @@ namespace NinjaBotCore.Modules.Wow
             GuildChar guildInfo = new GuildChar();
             Regex myRegex = new Regex($@"{findName.ToLower()}");
             guildName = guildName.Replace(" ", "%20");
-            Console.WriteLine(guildName);
             try
             {
                 members = GetGuildMembers(realmName, guildName, regionName);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"{ex.Message}");
+                _logger.LogError($"{ex.Message}");
             }
-            Console.WriteLine("Get char from guild");
             foreach (Member member in members.members)
             {
                 string curMember = string.Empty;
@@ -696,7 +697,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"WoW Char Search Error: {ex.Message}");
+                _logger.LogError($"WoW Char Search Error: {ex.Message}");
                 chars = null;
             }
             return chars;
@@ -731,7 +732,7 @@ namespace NinjaBotCore.Modules.Wow
 
         private void RenewTokenLocal()
         {
-            System.Console.WriteLine("Renewing token!");
+            _logger.LogInformation("Renewing token!");
             _token = GetWoWToken(username: _config["WoWClient"], password: _config["WoWSecret"]);
         }
     }
