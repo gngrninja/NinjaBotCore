@@ -28,6 +28,7 @@ namespace NinjaBotCore.Modules.Wow
         private readonly WclApiRequestor _api;
         private readonly WclApiRequestor _apiCmd;
         private readonly ILogger _logger;
+        private static CurrentRaidTier _currentRaidTier;
 
         public WarcraftLogs(IConfigurationRoot config, ILogger<WarcraftLogs> logger, DiscordSocketClient client, bool throttle = true)
         {
@@ -41,6 +42,7 @@ namespace NinjaBotCore.Modules.Wow
                 _apiCmd = throttle ? new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"]) : new WclApiRequestor(_config["WarcraftLogsApiCmd"]);
                 CharClasses = this.GetCharClasses().Result;
                 Zones = this.GetZones().Result;
+                _currentRaidTier = this.SetCurrentTier();
                 this.StartTimer();
             }
             catch (Exception ex)
@@ -82,6 +84,18 @@ namespace NinjaBotCore.Modules.Wow
             private set
             {
                 _charClasses = value;
+            }
+        }
+
+        public static CurrentRaidTier CurrentRaidTier
+        {
+            get
+            {
+                return _currentRaidTier;
+            } 
+            set 
+            {   
+                _currentRaidTier = value;
             }
         }
 
@@ -481,6 +495,21 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 _logger.LogInformation("Finished WCL Auto Posting...");
             }
+
+        }
+        
+        private CurrentRaidTier SetCurrentTier()
+        {
+            var currentTier = new CurrentRaidTier();
+            using (var db = new NinjaBotEntities())
+            {
+                var tierFromDb = db.CurrentRaidTier.FirstOrDefault();
+                if (tierFromDb != null)
+                {
+                    currentTier = tierFromDb;
+                }
+            }
+            return currentTier;
         }
     }
 }

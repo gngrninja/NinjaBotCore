@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace NinjaBotCore.Models.Wow
 {
-    class NinjaObjects
+    public class NinjaObjects
     {
         public class GuildObject
         {

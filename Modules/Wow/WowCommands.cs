@@ -27,17 +27,28 @@ namespace NinjaBotCore.Modules.Wow
         private readonly IConfigurationRoot _config;
         private string _prefix;
         private readonly ILogger _logger;
+        private WowUtilities _wowUtils;
 
-        public WowCommands(WowApi api, ChannelCheck cc, WarcraftLogs logsApi, RaiderIOApi rioApi, DiscordSocketClient client, IConfigurationRoot config, ILogger<WowCommands> logger)
+        public WowCommands(
+                WowApi api, 
+                ChannelCheck cc, 
+                WarcraftLogs logsApi, 
+                RaiderIOApi rioApi, 
+                DiscordSocketClient client, 
+                IConfigurationRoot config, 
+                WowUtilities wowUtilities,
+                ILogger<WowCommands> logger
+            )
         {
-            _logger = logger;
-            _cc = cc;            
-            _logsApi = logsApi;            
-            _wowApi = api;
-            _rioApi = rioApi;                                    
-            _client = client;            
-            _config = config;
-            _prefix = _config["prefix"];
+            _logger   = logger;
+            _cc       = cc;            
+            _logsApi  = logsApi;            
+            _wowApi   = api;
+            _rioApi   = rioApi;                                    
+            _client   = client;            
+            _config   = config;
+            _prefix   = _config["prefix"];
+            _wowUtils = wowUtilities;
         }
 
         [Command("shunt", RunMode = RunMode.Async)]
@@ -69,7 +80,7 @@ namespace NinjaBotCore.Modules.Wow
             else
             {
                 RaiderIOModels.RioMythicPlusChar mPlusInfo = null;
-                charInfo = await GetCharFromArgs(args, Context);
+                charInfo = await _wowUtils.GetCharFromArgs(args, Context);
                 Character armoryInfo = null;
                 string realmSlug = string.Empty;
                 string region = string.Empty;
@@ -110,10 +121,10 @@ namespace NinjaBotCore.Modules.Wow
                         }
                 }               
                 sb.AppendLine($"**__Raid Progression__**");
-                string normalKilled = GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Uldir.NormalBossesKilled);
-                string heroicKilled = GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Uldir.HeroicBossesKilled);
-                string mythicKilled = GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Uldir.MythicBossesKilled);
-                string totalBosses = GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Uldir.TotalBosses);                                
+                string normalKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Uldir.NormalBossesKilled);
+                string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Uldir.HeroicBossesKilled);
+                string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Uldir.MythicBossesKilled);
+                string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Uldir.TotalBosses);                                
                 sb.AppendLine($"\t **normal** [{normalKilled} / {totalBosses}] **heroic** [{heroicKilled} / {totalBosses}] **mythic** [{mythicKilled} / {totalBosses}]");
                 sb.AppendLine();
                 sb.AppendLine($"**__Best Runs__**");                
@@ -179,13 +190,13 @@ namespace NinjaBotCore.Modules.Wow
                 thumbUrl = Context.Guild.IconUrl;
             }
 
-            var guildObject = await GetGuildName(); 
+            var guildObject = await _wowUtils.GetGuildName(Context); 
             var guildStats = _rioApi.GetRioGuildInfo(guildName: guildObject.guildName, realmName: guildObject.realmSlug, region: guildObject.regionName);
                         
-            string normalKilled = GetNumberEmojiFromString((int)guildStats.RaidProgression.Uldir.NormalBossesKilled);
-            string heroicKilled = GetNumberEmojiFromString((int)guildStats.RaidProgression.Uldir.HeroicBossesKilled);
-            string mythicKilled = GetNumberEmojiFromString((int)guildStats.RaidProgression.Uldir.MythicBossesKilled);
-            string totalBosses = GetNumberEmojiFromString((int)guildStats.RaidProgression.Uldir.TotalBosses);
+            string normalKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Uldir.NormalBossesKilled);
+            string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Uldir.HeroicBossesKilled);
+            string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Uldir.MythicBossesKilled);
+            string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Uldir.TotalBosses);
             
             title = $"{guildObject.guildName} on {guildObject.realmName}'s Raider.IO Stats";
 
@@ -232,7 +243,7 @@ namespace NinjaBotCore.Modules.Wow
                 thumbUrl = Context.Guild.IconUrl;
             }
 
-            var guildObject = await GetGuildName(); 
+            var guildObject = await _wowUtils.GetGuildName(Context); 
             RaiderIOModels.Affix affixes = null;
             
             switch (guildObject.regionName.ToLower())
@@ -342,188 +353,7 @@ namespace NinjaBotCore.Modules.Wow
 
             await _cc.Reply(Context, embed);                        
         }
-
-        [Command("noggen", RunMode = RunMode.Async)]
-        [RequireOwner]
-        public async Task GetNoggen([Remainder] string args)
-        {
-            var embed = new EmbedBuilder();
-            StringBuilder sb = new StringBuilder();
-            string title = string.Empty;
-            GuildMembers members = null;
-            string thumbUrl = string.Empty;
-            var guildInfo = Context.Guild;
-            string discordGuildName = string.Empty;
-
-            if (guildInfo == null)
-            {
-                discordGuildName = Context.User.Username;
-                thumbUrl = Context.User.GetAvatarUrl();
-            }
-            else
-            {
-                discordGuildName = Context.Guild.Name;
-                thumbUrl = Context.Guild.IconUrl;
-            }
-
-            NinjaObjects.GuildObject guildObject = await GetGuildName();
-
-            title = $"Top Noggenfogger Consumers in **{guildObject.guildName}**";
-            embed.Title = title;
-            embed.ThumbnailUrl = thumbUrl;
-
-            if (guildObject.guildName != null || members != null)
-            {
-                try
-                {
-                    if (args == "clear")
-                    {
-                        List<CharStats> statsFromDb = new List<CharStats>();
-
-                        using (var db = new NinjaBotEntities())
-                        {
-                            statsFromDb = db.CharStats.Where(c => c.GuildName == guildObject.guildName).ToList();                                                                        
-                        }
-                        if (statsFromDb != null)
-                        {
-                            using (var db = new NinjaBotEntities())
-                            {
-                                var people = db.CharStats.Where(c => c.GuildName == guildObject.guildName).ToList();
-                                foreach (var person in people)
-                                {
-                                    db.CharStats.Remove(person);
-                                }                                
-                                await db.SaveChangesAsync();
-                            }                            
-                        }
-                    }
-                    else 
-                    {
-
-                    if (!string.IsNullOrEmpty(guildObject.locale))
-                    {
-                        members = _wowApi.GetGuildMembers(guildObject.realmName, guildObject.guildName, locale: guildObject.locale, regionName: guildObject.regionName);
-                    }
-                    else
-                    {
-                        members = _wowApi.GetGuildMembers(guildObject.realmName, guildObject.guildName, regionName: guildObject.regionName);
-                    }     
-
-                    var maxLevelChars = members.members.Where(m => m.character.level == 120);               
-                    List<CharStats> statsFromDb = new List<CharStats>();
-
-                    using (var db = new NinjaBotEntities())
-                    {
-                        statsFromDb = db.CharStats.Where(c => c.GuildName == guildObject.guildName).ToList();                                                                        
-                    }
-
-                    foreach (var member in maxLevelChars)
-                    {
-                        var curMemberStats = new WowStats();
-                        var match = statsFromDb.Where(s => s.CharName == member.character.name).FirstOrDefault();                                                
-                        if (match == null) 
-                        {
-                            curMemberStats = _wowApi.GetCharStats(member.character.name, member.character.realm, guildObject.locale);
-                            var elixer = curMemberStats.Statistics.SubCategories[0].SubCategories[0].Statistics.Where(s => s.Name == "Elixir consumed most").FirstOrDefault();
-                            using (var db = new NinjaBotEntities())
-                            {
-                                db.CharStats.Add(new CharStats{
-                                    CharName = member.character.name,
-                                    RealmName = member.character.realm,
-                                    GuildName = guildObject.guildName,
-                                    ElixerConsumed = elixer.Highest,
-                                    Quantity = elixer.Quantity                                    
-                                });
-                                await db.SaveChangesAsync();                                
-                            }
-                        }
-                        else
-                        {
-
-                        }
-                    }                  
-                    if (statsFromDb.Count() > 0)
-                    {
-                        var candidates = statsFromDb.OrderByDescending(o => o.Quantity).Take(10).ToList();
-                        if (candidates != null && candidates.Count() > 0)
-                        {
-                            foreach (var canditate in candidates)
-                            {
-                                sb.AppendLine($":black_medium_small_square: {canditate.CharName} -> *{canditate.Quantity}*");
-                            }                            
-                        }
-                    }
-                    embed.Description = sb.ToString();
-                    await _cc.Reply(Context, embed);
-                    }                   
-                }                
-                catch (Exception ex)
-                {
-                    _logger.LogError($"Get-Guild Error getting guild info: [{ex.Message}]");
-                }
-            }
-        }
-        
-        [Command("Populate-Logs",RunMode = RunMode.Async)]
-        [RequireOwner]
-        public async Task PopulateLogs()
-        {
-            {
-                List<WowGuildAssociations> guildList = null;
-                List<LogMonitoring> logWatchList = null;
-                try
-                {
-
-                    using (var db = new NinjaBotEntities())
-                    {
-                        guildList = db.WowGuildAssociations.ToList();
-                        logWatchList = db.LogMonitoring.ToList();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError($"Error getting guild/logwatch list -> [{ex.Message}]");
-                }
-                if (guildList != null)
-                {
-                    foreach (var guild in guildList)
-                    {
-                        try
-                        {
-                            var watchGuild = logWatchList.Where(w => w.ServerId == guild.ServerId).FirstOrDefault();
-                            if (watchGuild != null)
-                            {
-                                if (watchGuild.MonitorLogs)
-                                {
-                                    //System._logger.LogInformation($"YES! Watch logs on {guild.ServerName}!");
-                                    var logs = await _logsApi.GetReportsFromGuild(guildName: guild.WowGuild, realm: guild.WowRealm.Replace("'", ""), region: guild.WowRegion);
-                                    if (logs != null)
-                                    {
-                                        var latestLog = logs[logs.Count - 1];
-                                        DateTime startTime = _wowApi.UnixTimeStampToDateTime(latestLog.start);
-                                        {
-                                            using (var db = new NinjaBotEntities())
-                                            {
-                                                var latestForGuild = db.LogMonitoring.Where(l => l.ServerId == guild.ServerId).FirstOrDefault();
-                                                latestForGuild.LatestLog = startTime;
-                                                latestForGuild.ReportId = latestLog.id;
-                                                await db.SaveChangesAsync();
-                                            }
-                                            //System._logger.LogInformation($"Updated [{watchGuild.ServerName}] -> [{latestLog.id}] [{latestLog.owner}]!");
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError($"Error checking for logs! -> [{ex.Message}]");
-                        }
-                    }
-                }
-            }
-        }
-
+                        
         [Command("watch-logs", RunMode = RunMode.Async)]
         [Summary("Toggle automatic log watching from Warcraft logs")]
         public async Task ToggleLogWatchCommand()
@@ -587,104 +417,7 @@ namespace NinjaBotCore.Modules.Wow
             embed.Description = sb.ToString();
             await _cc.Reply(Context, embed);
         }
-
-        [Command("remove-achievement", RunMode = RunMode.Async)]
-        [Alias("ra")]
-        [RequireOwner]
-        public async Task RemoveAchieve(long id)
-        {
-            using (var db = new NinjaBotEntities())
-            {
-                var foundCheeve = db.FindWowCheeves.Where(c => c.AchId == id).FirstOrDefault();
-                if (foundCheeve != null)
-                {
-                    db.Remove(foundCheeve);
-                    await db.SaveChangesAsync();
-                    await _cc.Reply(Context, $"Removed achievement id {id} from the database!");
-                }
-                else
-                {
-                    await _cc.Reply(Context, $"Sorry, unable to find achievement ID {id} in the database!");
-                }
-            }
-        }
-
-        [Command("add-achievement", RunMode = RunMode.Async)]
-        [Alias("adda")]
-        [RequireOwner]
-        public async Task AddAchieve(long id, int cat)
-        {
-            using (var db = new NinjaBotEntities())
-            {
-                var foundCheeve = db.FindWowCheeves.Where(c => c.AchId == id);
-                if (foundCheeve != null)
-                {
-                    var category = db.AchCategories.Where(c => c.CatId == cat).FirstOrDefault();
-                    if (category != null)
-                    {
-                        try
-                        {
-                            db.FindWowCheeves.Add(new FindWowCheeve
-                            {
-                                AchId = id,
-                                AchCategory = category
-                            });
-                            await db.SaveChangesAsync();
-                            await _cc.Reply(Context, $"Added achievement ID {id} with category {category.CatName} to the database!");
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError($"{ex.Message}");
-                        }
-                    }
-                    else
-                    {
-                        await _cc.Reply(Context, $"Unable to find category with ID {cat} in the database!");
-                    }
-
-                }
-                else
-                {
-                    await _cc.Reply(Context, $"Sorry, achievement {id} already exists in the database!");
-                }
-            }
-        }
-
-        [Command("list-achievements", RunMode = RunMode.Async)]
-        [Alias("la")]
-        [RequireOwner]
-        public async Task ListCheeves()
-        {
-            StringBuilder sb = new StringBuilder();
-            List<FindWowCheeve> cheeves = new List<FindWowCheeve>();
-            using (var db = new NinjaBotEntities())
-            {
-                cheeves = db.FindWowCheeves.ToList();
-            }
-            if (cheeves.Count > 0)
-            {
-                foreach (var cheeve in cheeves)
-                {
-                    sb.AppendLine($"{cheeve.AchId}");
-                }
-            }
-            await _cc.Reply(Context, sb.ToString());
-        }
-
-        [Command("tu", RunMode = RunMode.Async)]
-        [RequireOwner]
-        public async Task StartTimer()
-        {
-            await _logsApi.StartTimer();
-        }
-
-        [Command("td", RunMode = RunMode.Async)]
-        [RequireOwner]
-        public async Task StopTimer()
-        {
-            await _logsApi.StopTimer();
-        }
-
+       
         [Command("wowdiscord", RunMode = RunMode.Async)]
         [Summary("List out the class discord channels")]
         public async Task ListWowDiscordServers()
@@ -724,7 +457,7 @@ namespace NinjaBotCore.Modules.Wow
         [Summary("Check a character for the Keystone Master achievement")]
         public async Task CheckKsm([Remainder]string args = null)
         {
-            var charInfo = await GetCharFromArgs(args, Context);
+            var charInfo = await _wowUtils.GetCharFromArgs(args, Context);
             var sb = new StringBuilder();
             var embed = new EmbedBuilder();
             bool ksm = false;
@@ -801,7 +534,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             else
             {
-                charInfo = await GetCharFromArgs(args, Context);
+                charInfo = await _wowUtils.GetCharFromArgs(args, Context);
             }
             try
             {
@@ -816,13 +549,13 @@ namespace NinjaBotCore.Modules.Wow
                 {
                     armoryInfo = _wowApi.GetCharInfo(charName, realmName);
                 }
-                string powerMessage = GetPowerMessage(armoryInfo);
+                string powerMessage = _wowUtils.GetPowerMessage(armoryInfo);
                 if (!string.IsNullOrEmpty(powerMessage))
                 {
                     sb.AppendLine(powerMessage);
                 }
 
-                string foundAchievements = FindAchievements(armoryInfo);
+                string foundAchievements = _wowUtils.FindAchievements(armoryInfo);
                 if (!string.IsNullOrEmpty(foundAchievements))
                 {
                     sb.AppendLine($"__Notable achievements:__");
@@ -926,7 +659,7 @@ namespace NinjaBotCore.Modules.Wow
             var guildInfo = Context.Guild;
             var embed = new EmbedBuilder();
 
-            guildObject = await GetGuildName();
+            guildObject = await _wowUtils.GetGuildName(Context);
             guildName = guildObject.guildName;
             realmName = guildObject.realmName.Replace("'", string.Empty);
             guildRegion = guildObject.regionName;
@@ -1129,7 +862,7 @@ namespace NinjaBotCore.Modules.Wow
                 await _cc.Reply(Context, sb.ToString());
                 return;
             }
-            locale = GetLocaleFromRegion(ref region);
+            locale = _wowUtils.GetLocaleFromRegion(ref region);
             string discordGuildName = string.Empty;
             try
             {
@@ -1157,7 +890,7 @@ namespace NinjaBotCore.Modules.Wow
                     guildName = members.name;
                     realmName = members.realm;
                     await _cc.Reply(Context, "Looking up realm realm information, hang tight!");
-                    await SetGuildAssociation(guildName, realmName, locale: locale, regionName: region);
+                    await _wowUtils.SetGuildAssociation(guildName, realmName, locale: locale, regionName: region, context: Context);
                     await GetGuild();
                 }
                 else
@@ -1194,7 +927,7 @@ namespace NinjaBotCore.Modules.Wow
                 thumbUrl = Context.Guild.IconUrl;
             }
 
-            NinjaObjects.GuildObject guildObject = await GetGuildName();
+            NinjaObjects.GuildObject guildObject = await _wowUtils.GetGuildName(Context);
 
             title = $"Guild association for **{discordGuildName}**";
 
@@ -1281,19 +1014,19 @@ namespace NinjaBotCore.Modules.Wow
                     {
                         case "rankings":
                             {
-                                await GetWowRankings(commandArgs);
+                                await _wowUtils.GetWowRankings(Context, commandArgs);
                                 commandProcessed = true;
                                 break;
                             }
                         case "auctions":
                             {
-                                await GetAuctionItems(commandArgs);
+                                await _wowUtils.GetAuctionItems(commandArgs, Context);
                                 commandProcessed = true;
                                 break;
                             }
                         case "search":
                             {
-                                await SearchWowChars(commandArgs);
+                                await _wowUtils.SearchWowChars(commandArgs, Context);
                                 commandProcessed = true;
                                 break;
                             }
@@ -1317,109 +1050,7 @@ namespace NinjaBotCore.Modules.Wow
                 await _cc.Reply(Context, embed);
             }
         }
-
-        private async Task<GuildChar> GetCharFromArgs(string args, ICommandContext context)
-        {
-            string regionPattern = "^[a-z]{2}$";
-            string charName = string.Empty;
-            string realmName = string.Empty;
-            string foundRegion = string.Empty;
-            Regex matchPattern = new Regex($@"{regionPattern}");
-            GuildChar guildie = null;
-            List<FoundChar> chars;
-            NinjaObjects.GuildObject guildObject = new NinjaObjects.GuildObject();
-            GuildChar charInfo = new GuildChar
-            {
-                realmName = string.Empty,
-                charName = string.Empty
-            };
-            int argNumber = args.Split(' ').Count();
-            switch (argNumber)
-            {
-                case 1:
-                    {
-                        charName = args.Split(' ')[0].Trim();
-                        break;
-                    }
-                case 2:
-                    {
-                        charName = args.Split(' ')[0].Trim();
-                        realmName = args.Split(' ')[1].Trim();
-                        break;
-                    }
-            }
-            if (argNumber > 2)
-            {
-                charName = args.Split(' ')[0].Replace("'", string.Empty).Trim();
-                realmName = string.Empty;
-                int i = 0;
-                do
-                {
-                    i++;
-                    MatchCollection match = matchPattern.Matches(args.Split(' ')[i].ToLower());
-                    if (match.Count > 0)
-                    {
-                        foundRegion = match[0].Value;
-                        break;
-                    }
-                    if (i == argNumber - 1)
-                    {
-                        realmName += $"{args.Split(' ')[i]}".Replace("\"", "");
-                    }
-                    else
-                    {
-                        realmName += $"{args.Split(' ')[i]} ".Replace("\"", "");
-                    }
-                }
-                while (i <= argNumber - 2);
-                realmName = realmName.Trim();
-            }
-            if (string.IsNullOrEmpty(realmName))
-            {
-                //See if they're a guildie first
-                try
-                {
-                    guildObject = await GetGuildName();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError($"Error looking up character: {ex.Message}");
-                }
-                if (guildObject.guildName != null && guildObject.realmName != null)
-                {
-                    guildie = _wowApi.GetCharFromGuild(charName, guildObject.realmName, guildObject.guildName, guildObject.regionName);
-                    if (string.IsNullOrEmpty(guildie.charName))
-                    {
-                        guildie = null;
-                    }
-                }
-                //Check to see if the character is in the guild
-                if (guildie != null)
-                {
-                    charName = guildie.charName;
-                    realmName = guildie.realmName;
-                    charInfo.regionName = guildie.regionName;
-                }
-                else
-                {
-                    chars = _wowApi.SearchArmory(charName);
-                    if (chars != null)
-                    {
-                        charName = chars[0].charName;
-                        realmName = chars[0].realmName;
-                    }
-                }
-            }
-            if (!string.IsNullOrEmpty(foundRegion))
-            {
-                charInfo.regionName = foundRegion;
-            }
-            charInfo.charName = charName;
-            charInfo.realmName = realmName;
-            charInfo.locale = guildObject.locale;
-            return charInfo;
-        }
-
+        
         [Command("gearlist", RunMode = RunMode.Async)]
         [Summary("Get a WoW character's gear list")]
         public async Task GetGearList([Remainder] string args = null)
@@ -1463,7 +1094,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             try
             {
-                var charInfo = await GetCharFromArgs(args, Context);
+                var charInfo = await _wowUtils.GetCharFromArgs(args, Context);
                 Character armoryInfo = new Character();
                 if (!string.IsNullOrEmpty(charInfo.charName) && !string.IsNullOrEmpty(charInfo.realmName))
                 {
@@ -1666,13 +1297,16 @@ namespace NinjaBotCore.Modules.Wow
             string region = "us";
 
             //Attempt to get guild info
-            NinjaObjects.GuildObject guildObject = await GetGuildName();
+            NinjaObjects.GuildObject guildObject = await _wowUtils.GetGuildName(Context);
             string realmName = guildObject.realmName.Replace("'", string.Empty);
             string guildName = guildObject.guildName;
             region = guildObject.regionName;
 
-            var fightList = WarcraftLogs.Zones.Where(z => z.id == 19).Select(z => z.encounters).FirstOrDefault();
-            raidName = WarcraftLogs.Zones.Where(z => z.id == 19).Select(z => z.name).FirstOrDefault();
+            var fightList = WarcraftLogs.Zones.Where(z => z.id == WarcraftLogs.CurrentRaidTier.WclZoneId)
+                                                .Select(z => z.encounters)
+                                                .FirstOrDefault();
+
+            raidName = WarcraftLogs.CurrentRaidTier.RaidName;
 
             //Get Guild Information for Discord Server (or channel for DM)
             if (Context.Channel is IDMChannel)
@@ -1870,7 +1504,7 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 else
                 {
-                    encounterID = GetEncounterID(fightName);
+                    encounterID = _wowUtils.GetEncounterID(fightName);
                 }
                 //End fight logic               
                 //Begin metric set
@@ -1934,6 +1568,7 @@ namespace NinjaBotCore.Modules.Wow
                                         metric:      metric, 
                                         difficulty:  difficultyID, 
                                         regionName:  region
+                                        //partition: WarcraftLogs.CurrentRaidTier.Partition.ToString()
                                     );                   
                             }
                             else
@@ -1945,7 +1580,8 @@ namespace NinjaBotCore.Modules.Wow
                                         page:        page.ToString(),
                                         metric:      metric, 
                                         difficulty:  difficultyID, 
-                                        regionName:  region                                    
+                                        regionName:  region
+                                        //partition: WarcraftLogs.CurrentRaidTier.Partition.ToString()                                   
                                     );                                          
                             }  
                             _logger.LogInformation($"Adding page {page}!");
@@ -1983,6 +1619,7 @@ namespace NinjaBotCore.Modules.Wow
                                 metric: metric,
                                 difficulty: difficultyID, 
                                 regionName: region
+                                //partition: WarcraftLogs.CurrentRaidTier.Partition.ToString()
                             );
                     }
                     else
@@ -1993,6 +1630,7 @@ namespace NinjaBotCore.Modules.Wow
                                 metric: metric, 
                                 difficulty: difficultyID, 
                                 regionName: region
+                                //partition: WarcraftLogs.CurrentRaidTier.Partition.ToString()
                             );
                     }
 
@@ -2072,7 +1710,7 @@ namespace NinjaBotCore.Modules.Wow
         {
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
-            var guildInfo = await GetGuildName();
+            var guildInfo = await _wowUtils.GetGuildName(Context);
             string region = string.Empty;
             string findMe = string.Empty;
             findMe = args;
@@ -2118,691 +1756,6 @@ namespace NinjaBotCore.Modules.Wow
             }
             embed.Description = sb.ToString();
             await _cc.Reply(Context, embed);
-        }
-
-        private async Task SearchWowChars(string args)
-        {
-            if (args.Split(' ').Count() > 1)
-            {
-                await _cc.Reply(Context, $"Please specify only a character name for the search!");
-                return;
-            }
-            StringBuilder sb = new StringBuilder();
-            string charName = args;
-            List<FoundChar> found = _wowApi.SearchArmory(charName);
-            var embed = new EmbedBuilder();
-            embed.Title = $"__WoW Armory Search Results For: **{charName}**__";
-
-            foreach (FoundChar searchFound in found)
-            {
-                sb.AppendLine($":black_small_square: **{searchFound.charName}** (**{searchFound.level}**) *{searchFound.realmName}*");
-            }
-            embed.WithColor(new Color(255, 0, 0));
-            embed.Description = sb.ToString();
-            await _cc.Reply(Context, embed);
-        }
-
-        private async Task GetAuctionItems(string args)
-        {
-            try
-            {
-                NinjaObjects.GuildObject guildObject = new NinjaObjects.GuildObject();
-                string realmName = string.Empty;
-                string regionName = "us";
-                if (string.IsNullOrEmpty(args))
-                {
-                    guildObject = await GetGuildName();
-                    realmName = guildObject.realmName;
-                    regionName = guildObject.regionName;
-                }
-                else
-                {
-                    int i = 0;
-                    do
-                    {
-                        if (i == args.Split(' ').Count() - 1)
-                        {
-                            realmName += $"{args.Split(' ')[i]}".Replace("\"", "");
-                        }
-                        else
-                        {
-                            realmName += $"{args.Split(' ')[i]} ".Replace("\"", "");
-                        }
-                        i++;
-                    }
-                    while (i <= args.Split(' ').Count() - 1);
-                    realmName = realmName.Trim();
-                }
-                if (string.IsNullOrEmpty(realmName))
-                {
-                    await _cc.Reply(Context, $"Unable to find realm \nTry {_prefix}wow auctions realmName");
-                    return;
-                }
-                _logger.LogInformation($"Looking up auctions for realm {realmName.ToUpper()}");
-                List<WowAuctions> auctions = await _wowApi.GetAuctionsByRealm(realmName.ToLower(), guildObject.regionName);
-                StringBuilder sb = new StringBuilder();
-                var auctionList = GetAuctionItemIDs();
-                var embed = new EmbedBuilder();
-                embed.WithColor(new Color(0, 255, 0));
-                embed.Title = $":scales:Auction prices on **{realmName.ToUpper()}**";
-                foreach (var item in auctionList)
-                {
-                    var auction = auctions.Where(auc => auc.AuctionItemId == item.ItemID).ToList();
-                    long lowestPrice = GetLowestBuyoutPrice(auction.Where(r => r.AuctionBuyout != 0));
-                    if (auction.Count() != 0)
-                    {
-                        sb.AppendLine($":black_small_square:__**{item.Name}**__ / Found **{auction.Count()}** / Lowest price **{ lowestPrice / 10000}g**");
-                    }
-                    else
-                    {
-                        sb.AppendLine($":black_small_square:__**{item.Name}**__ / None found :(");
-                    }
-                }
-                sb.AppendLine();
-                sb.AppendLine($"Last updated: **{auctions[0].DateModified}**");
-                embed.Description = sb.ToString();
-                await _cc.Reply(Context, embed);
-                
-                using (var db = new NinjaBotEntities())
-                {
-                    foreach (var item in auctionList)
-                    {                        
-                        var items = auctions.Where(auc => auc.AuctionItemId == item.ItemID).ToList();
-                        long lowestPrice = GetLowestBuyoutPrice(items.Where(r => r.AuctionBuyout != 0));
-                        long highestPrice = GetHighestBuyoutPrice(items.Where(r => r.AuctionBuyout != 0));
-                        long averagePrice = GetAveragePrice(items.Where(r => r.AuctionBuyout != 0));
-                        if (items.Count() > 0)
-                        {
-                            db.WowAuctionPrices.Add(new WowAuctionPrice
-                            {
-                                AuctionItemId = (long)items[0].AuctionItemId,
-                                AuctionRealm = items[0].RealmSlug,
-                                AvgPrice = averagePrice,
-                                MinPrice = lowestPrice,
-                                MaxPrice = highestPrice,
-                                Seen = items.Count()
-                            });
-                        }
-                    }
-                    await db.SaveChangesAsync();
-                }                                
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Auction error: [{ex.Message}]");
-                await _cc.Reply(Context, "Error getting auctions :(");
-            }
-        }
-
-        private List<AuctionList> GetAuctionItemIDs()
-        {
-            List<AuctionList> auctionItems = new List<AuctionList>();
-            using (var db = new NinjaBotEntities())
-            {
-                var auctionItemList = db.AuctionItemMappings.ToList();
-                foreach (var item in auctionItemList)
-                {
-                    auctionItems.Add(new AuctionList
-                    {
-                        ItemID = (int)item.ItemId,
-                        Name = item.Name
-                    });
-                }
-            }
-            return auctionItems;
-        }
-
-        private long GetLowestBuyoutPrice(IEnumerable<WowAuctions> auctions)
-        {
-            long lowestBuyoutPrice = long.MaxValue;
-            try
-            {
-                foreach (var item in auctions)
-                {
-                    if ((item.AuctionBuyout / item.AuctionQuantity) < lowestBuyoutPrice)
-                    {
-                        lowestBuyoutPrice = Math.Min(lowestBuyoutPrice, ((long)item.AuctionBuyout / (long)item.AuctionQuantity));
-                    }
-                }
-            }
-            catch (DivideByZeroException ex)
-            {
-                _logger.LogError($"Get Lowest Buyout Error -> [{ex.Message}]");
-            }
-            return lowestBuyoutPrice;
-        }
-
-        private long GetHighestBuyoutPrice(IEnumerable<WowAuctions> auctions)
-        {
-            long highestBuyoutPrice = long.MinValue;
-            try
-            {
-                foreach (var item in auctions)
-                {
-                    if ((item.AuctionBuyout / item.AuctionQuantity) > highestBuyoutPrice)
-                    {
-                        highestBuyoutPrice = Math.Max(highestBuyoutPrice, ((long)item.AuctionBuyout / (long)item.AuctionQuantity));
-                    }
-                }
-            }
-            catch (DivideByZeroException ex)
-            {
-                _logger.LogError($"Get Highest Buyout Error -> [{ex.Message}]");
-            }
-            return highestBuyoutPrice;
-        }
-
-        private long GetAveragePrice(IEnumerable<WowAuctions> auctions)
-        {
-            long averageBuyoutPrice = 0;
-            long? total = 0;
-            int totalAuctions = auctions.Count();
-            try
-            {
-                foreach (var item in auctions)
-                {
-                    total += item.AuctionBuyout / (long)item.AuctionQuantity;
-                }
-                averageBuyoutPrice = (long)total / totalAuctions;
-            }
-            catch (DivideByZeroException ex)
-            {
-                _logger.LogError($"Get Average Buyout Error -> [{ex.Message}]");
-            }
-            return averageBuyoutPrice;
-        }
-
-        private async Task GetWowRankings(string args = "")
-        {
-            NinjaObjects.GuildObject guildObject = new NinjaObjects.GuildObject();
-            string guildName = string.Empty;
-            string realmName = string.Empty;
-            string regionName = "us";
-            if (string.IsNullOrEmpty(args))
-            {
-                guildObject = await GetGuildName();
-                guildName = guildObject.guildName;
-                realmName = guildObject.realmName;
-                regionName = guildObject.regionName;
-            }
-            else
-            {
-                if (args.Contains(','))
-                {
-                    switch (args.Split(',').Count())
-                    {
-                        case 2:
-                            {
-                                realmName = args.Split(',')[0].ToString().Trim();
-                                guildName = args.Split(',')[1].ToString().Trim();
-                                break;
-                            }
-                        case 3:
-                            {
-                                realmName = args.Split(',')[0].ToString().Trim();
-                                guildName = args.Split(',')[1].ToString().Trim();
-                                regionName = args.Split(',')[2].ToString().Trim();
-                                break;
-                            }
-                    }
-
-
-                }
-                else
-                {
-                    StringBuilder sb = new StringBuilder();
-                    var embed = new EmbedBuilder();
-                    embed.WithColor(new Color(255, 0, 0));
-                    embed.Title = $"Unable to find a guild/realm association!\nTry {_prefix}wow rankings Realm Name, Guild Name";
-                    sb.AppendLine($"Command syntax: {_prefix}wow rankings realm name, guild name");
-                    sb.AppendLine($"Command example: {_prefix}wow rankings azgalor, carebears");
-                    embed.Description = sb.ToString();
-                    await _cc.Reply(Context, embed);
-                    return;
-                }
-            }
-            if (string.IsNullOrEmpty(guildName) || string.IsNullOrEmpty(realmName))
-            {
-                StringBuilder sb = new StringBuilder();
-                var embed = new EmbedBuilder();
-                embed.WithColor(new Color(255, 0, 0));
-                embed.Title = $"Unable to find a guild/realm association!\nTry {_prefix}wow rankings Realm Name, Guild Name";
-                sb.AppendLine($"Command syntax: {_prefix}wow rankings realm name, guild name");
-                sb.AppendLine($"Command example: {_prefix}wow rankings azgalor, carebears");
-                embed.Description = sb.ToString();
-                await _cc.Reply(Context, embed);
-                return;
-            }
-            try
-            {
-                var guildMembers = _wowApi.GetGuildMembers(realmName, guildName, regionName);
-                int memberCount = 0;
-                if (guildMembers != null)
-                {
-                    guildName = guildMembers.name;
-                    realmName = guildMembers.realm;
-                    memberCount = guildMembers.members.Count();
-                }
-                var wowProgressApi = new WowProgress();
-                StringBuilder sb = new StringBuilder();
-                var embed = new EmbedBuilder();
-                embed.WithColor(new Color(255, 255, 0));
-                var ranking = wowProgressApi.GetGuildRank(guildName, realmName, regionName);
-                var realmObject = wowProgressApi.GetRealmObject(realmName, wowProgressApi._links, regionName);
-                var topGuilds = realmObject.OrderBy(r => r.realm_rank).Take(3);
-                var guild = realmObject.Where(r => r.name.ToLower() == guildName.ToLower()).FirstOrDefault();
-                int guildRank = guild.realm_rank;
-                var surroundingGuilds = realmObject.Where(r => r.realm_rank > (guild.realm_rank - 2) && r.realm_rank < (guild.realm_rank + 2));
-
-                embed.Title = $"__:straight_ruler:Guild ranking for **{guildName}** [**{memberCount}** members] (Score: **{ranking.score}**):straight_ruler:__";
-                sb.AppendLine($"Realm rank: **{ranking.realm_rank}** **|** World rank: **{ranking.world_rank}** **|** Area rank: **{ranking.area_rank}**");
-                sb.AppendLine();
-                sb.AppendLine($"__Where **{guildName}** fits in on **{realmName}**__");
-                foreach (var singleGuild in surroundingGuilds)
-                {
-                    sb.AppendLine($"\t(**{singleGuild.realm_rank}**) **{singleGuild.name}** **|** World rank: **{singleGuild.world_rank}**");
-                }
-                sb.AppendLine();
-                sb.AppendLine($"__:top:Top 3 guilds on **{realmName}**:top:__");
-                foreach (var topGuild in topGuilds)
-                {
-                    sb.AppendLine($"\t(**{topGuild.realm_rank}**) **{topGuild.name}** **|** World Rank: **{topGuild.world_rank}**");
-                }
-                sb.AppendLine();
-                sb.AppendLine("Ranking data gathered via **WoWProgress.com**");
-                embed.WithUrl($"{guild.url}");
-                embed.Description = sb.ToString();
-
-                await _cc.Reply(Context, embed);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"{ex.Message} {ex.InnerException} {ex.Data}{ex.Source}{ex.StackTrace}");
-                StringBuilder sb = new StringBuilder();
-                var embed = new EmbedBuilder();
-                embed.WithColor(new Color(255, 0, 0));
-                embed.Title = $":frowning: Sorry, {Context.User.Username}, something went wrong! Perhaps check the guild's home realm.:frowning: ";
-                sb.AppendLine($"Command syntax: {_prefix}wow rankings realm name, guild name");
-                sb.AppendLine($"Command example: {_prefix}wow rankings azgalor, carebears");
-                embed.Description = sb.ToString();
-                await _cc.Reply(Context, embed);
-            }
-        }
-
-        private async Task<NinjaObjects.GuildObject> GetGuildName()
-        {
-            NinjaObjects.GuildObject guildObject = new NinjaObjects.GuildObject();
-            try
-            {
-                if (Context.Channel is IDMChannel)
-                {
-                    guildObject = await GetGuildAssociation(Context.User.Username);
-                }
-                else if (Context.Channel is IGuildChannel)
-                {
-                    guildObject = await GetGuildAssociation(Context.Guild.Name);
-                }
-                _logger.LogInformation($"getGuildName: {Context.Channel.Name} : {guildObject.guildName} -> {guildObject.realmName}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"getGuildName: {ex.Message}");
-            }
-            return guildObject;
-        }
-
-        private async Task<NinjaObjects.GuildObject> GetGuildAssociation(string discordGuildName)
-        {
-            NinjaObjects.GuildObject guildObject = new NinjaObjects.GuildObject();
-            using (var db = new NinjaBotEntities())
-            {
-                var foundGuild = db.WowGuildAssociations.FirstOrDefault(g => g.ServerName == discordGuildName);
-                if (foundGuild != null)
-                {
-                    guildObject.guildName = foundGuild.WowGuild;
-                    guildObject.realmName = foundGuild.WowRealm;
-                    guildObject.regionName = foundGuild.WowRegion;
-                    guildObject.locale = foundGuild.Locale;
-                    guildObject.realmSlug = foundGuild.LocalRealmSlug;
-                }
-            }
-            return guildObject;
-        }
-
-        private async Task SetGuildAssociation(string wowGuildName, string realmName, string locale, string regionName)
-        {
-            try
-            {
-                var guildInfo = Context.Guild;
-
-                string guildName = string.Empty;
-                string realmSlug = string.Empty;
-                string apiRegion = string.Empty;                
-                ulong guildId;
-
-                //guild in this context is the Discord server
-                //this if statement gets the user information if it is a DM, discord server info otherwise
-                if (Context.Channel is IDMChannel)
-                {
-                    guildName = Context.User.Username;
-                    guildId = Context.User.Id;
-                }  
-                else 
-                {
-                    guildName = guildInfo.Name;
-                    guildId = guildInfo.Id;
-                }
-
-                if (regionName.ToLower() == "us")
-                {
-                    apiRegion = "us";
-                }
-                else
-                {
-                    apiRegion = "eu";
-                }
-
-                //use locale to determine realm slug
-                for (int i = 0; i<500; i++)
-                {
-                    _logger.LogInformation("Attempting to find slug!");
-                    var slugs = _wowApi.GetRealmStatus(locale: locale, region: apiRegion);                        
-                    switch (locale)
-                    {
-                        case "ru_RU":
-                            {                                                        
-                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
-                                break;
-                            }
-                        case "en_GB":
-                            {                            
-                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
-                                break;
-                            }
-                        case "en_US":
-                            {                            
-                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
-                                break;
-                            }
-                        default: 
-                            {                            
-                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
-                                break;
-                            }
-                    }
-                    if (!string.IsNullOrEmpty(realmSlug))
-                    {
-                        _logger.LogInformation($"Found slug {realmSlug}!");
-                        break;
-                    }
-                }
-            
-                using (var db = new NinjaBotEntities())
-                {
-                    var foundGuild = db.WowGuildAssociations.FirstOrDefault(g => g.ServerName == guildName);
-
-                    if (foundGuild == null)
-                    {
-                        WowGuildAssociations newGuild = new WowGuildAssociations
-                        {
-                            ServerId = (long)guildId,
-                            ServerName = guildName,
-                            WowGuild = wowGuildName,
-                            WowRealm = realmName,
-                            WowRegion = apiRegion,
-                            LocalRealmSlug = realmSlug,
-                            Locale = locale,
-                            SetBy = Context.User.Username,
-                            SetById = (long)Context.User.Id,
-                            TimeSet = DateTime.Now
-                        };
-                        db.WowGuildAssociations.Add(newGuild);
-                    }
-                    else
-                    {
-                        foundGuild.ServerId = (long)guildId;
-                        foundGuild.WowGuild = wowGuildName;
-                        foundGuild.WowRealm = realmName;
-                        foundGuild.WowRegion = apiRegion;
-                        foundGuild.Locale = locale;
-                        foundGuild.LocalRealmSlug = realmSlug;
-                        foundGuild.SetBy = Context.User.Username;
-                        foundGuild.SetById = (long)Context.User.Id;
-                        foundGuild.TimeSet = DateTime.Now;
-                    }
-                    await db.SaveChangesAsync();
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Error setting guild association for {Context.Guild.Name} to {wowGuildName}-{realmName} [{ex.Message}]");
-            }
-        }
-
-        private static string GetLocaleFromRegion(ref string regionName)
-        {
-            string locale;
-            switch (regionName)
-            {
-                case "na":
-                    {
-                        locale = "en_US";
-                        break;
-                    }
-                case "us":
-                    {
-                        locale = "en_US";
-                        break;
-                    } 
-                case "eu":
-                    {
-                        locale = "en_GB";
-                        break;
-                    }
-                case "gb":
-                    {                     
-                        locale = "en_GB";
-                        break;
-                    }
-                case "uk":
-                    {
-                        
-                        locale = "en_GB";
-                        break;
-                    }
-                case "ru":
-                    {
-                        locale = "ru_RU";
-                        break;
-                    }
-                default:
-                    {
-                        locale = "en_US";
-                        break;
-                    }
-            }
-            return locale;
-        }
-
-        private string FindAchievements(Character armoryInfo)
-        {
-            StringBuilder cheevMessage = new StringBuilder();
-            List<FindWowCheeve> findCheeves = null;
-            var completedCheeves = armoryInfo.achievements.achievementsCompleted;
-            using (var db = new NinjaBotEntities())
-            {
-                findCheeves = db.FindWowCheeves.ToList();
-            }
-            if (findCheeves != null)
-            {
-                foreach (int achievement in completedCheeves)
-                {
-                    var findMe = findCheeves.Where(f => f.AchId == achievement).FirstOrDefault();
-                    if (findMe != null)
-                    {
-                        var matchedCheeve = WowApi.Achievements.Where(c => c.id == findMe.AchId).FirstOrDefault();
-                        if (matchedCheeve != null)
-                        {
-                            cheevMessage.AppendLine($":white_check_mark: {matchedCheeve.title}");
-                        }
-                    }
-                }
-            }
-            return cheevMessage.ToString();
-        }
-
-        private string GetPowerMessage(Character armoryInfo)
-        {
-            StringBuilder sb = new StringBuilder();
-            string powerMessage = string.Empty;
-            switch (armoryInfo.stats.powerType)
-            {
-                case "mana":
-                    {
-                        powerMessage = $":large_blue_circle:[**{String.Format("{0:#,##0}", armoryInfo.stats.power)}**]";
-                        break;
-                    }
-
-                case "energy":
-                    {
-                        powerMessage = $":yellow_heart:[**{String.Format("{0:#,##0}", armoryInfo.stats.power)}**]";
-                        break;
-                    }
-                case "focus":
-                    {
-                        powerMessage = $":evergreen_tree:[**{String.Format("{0:#,##0}", armoryInfo.stats.power)}]**";
-                        break;
-                    }
-                case "rage":
-                    {
-                        powerMessage = $":rage:[**{String.Format("{0:#,##0}", armoryInfo.stats.power)}**]";
-                        break;
-                    }
-                case "chi":
-                    {
-                        powerMessage = $":comet:[**{String.Format("{0:#,##0}", armoryInfo.stats.power)}**]";
-                        break;
-                    }
-                case "runic-power":
-                    {
-                        powerMessage = $":red_circle:[**{String.Format("{0:#,##0}", armoryInfo.stats.power)}**]";
-                        break;
-                    }
-                case "pain":
-                    {
-                        powerMessage = $":purple_heart:[**{String.Format("{0:#,##0}", armoryInfo.stats.power)}**]";
-                        break;
-                    }
-            }
-            sb.AppendLine($":100:__Statistics__:100:");
-            sb.AppendLine($":green_heart:[**{String.Format("{0:#,##0}", armoryInfo.stats.health)}**] / {powerMessage}");
-            sb.AppendLine($" Haste **{armoryInfo.stats.hasteRating}**(**{String.Format("{0:0.00}", armoryInfo.stats.haste)}%**) / Crit **{armoryInfo.stats.critRating}**(**{String.Format("{0:0.00}", armoryInfo.stats.crit)}**%)");
-            sb.AppendLine($" Mastery **{armoryInfo.stats.masteryRating}**(**{String.Format("{0:0.00}", armoryInfo.stats.mastery)}**%) / Versatility: **{armoryInfo.stats.versatility}**");
-            sb.AppendLine($" Stamina **{armoryInfo.stats.sta}** / Intellect **{armoryInfo.stats._int}** / Strength **{armoryInfo.stats.str}** / Agility **{armoryInfo.stats.agi}** / Armor **{armoryInfo.stats.armor}**");
-            sb.AppendLine($" Avoidance **{armoryInfo.stats.avoidanceRating}** / Block **{String.Format("{0:0.00}", armoryInfo.stats.block)}**% / Dodge **{String.Format("{0:0.00}", armoryInfo.stats.dodge)}**%/ Parry **{armoryInfo.stats.parryRating}**(**{String.Format("{0:0.00}", armoryInfo.stats.parry)}**%)");
-            sb.AppendLine();
-            sb.AppendLine($":heavy_division_sign:__Average Item Level__: **{armoryInfo.items.averageItemLevel}** / Equipped: **{armoryInfo.items.averageItemLevelEquipped}**");
-            sb.AppendLine($":arrow_down_small:__Lowest Item Level__: **{armoryInfo.lowestItemLevel.itemName}** / **{armoryInfo.lowestItemLevel.itemLevel}**");
-            sb.AppendLine($":arrow_up_small:__Highest Item Level__: **{armoryInfo.highestItemLevel.itemName}** / **{armoryInfo.highestItemLevel.itemLevel}**");
-            sb.AppendLine($":point_right:__Achievement Points__: **{armoryInfo.achievementPoints}**");
-            sb.AppendLine();
-
-            return sb.ToString();
-        }
-
-        private int GetEncounterID(string encounterName, string zoneName = "The Nighthold")
-        {
-            int encounterID = 0;
-            var zone = WarcraftLogs.Zones.Where(z => z.name.ToLower() == zoneName.ToLower()).FirstOrDefault();
-            if (zone != null)
-            {
-                encounterID = zone.encounters.Where(e => e.name.ToLower() == encounterName.ToLower()).FirstOrDefault().id;
-            }
-            return encounterID;
-        }
-
-        private string GetNumberEmojiFromString(int number)
-        {
-            string numberEmoji = string.Empty;
-            switch (number)
-            {
-                case 1:
-                {
-                    numberEmoji = ":one:";
-                    break;
-                }
-                case 2:
-                {
-                    numberEmoji = ":two:";
-                    break;
-                }
-                case 3:
-                {
-                    numberEmoji = ":three:";
-                    break;
-                }
-                case 4:
-                {
-                    numberEmoji = ":four:";
-                    break;
-                }
-                case 5:
-                {
-                    numberEmoji = ":five:";
-                    break;
-                }
-                case 6:
-                {
-                    numberEmoji = ":six:";
-                    break;
-                }
-                case 7:
-                {
-                    numberEmoji = ":seven:";
-                    break;
-                }
-                case 8:
-                {
-                    numberEmoji = ":eight:";
-                    break;
-                }
-                case 9:
-                {
-                    numberEmoji = ":nine:";
-                    break;
-                }
-                case 10:
-                {
-                    numberEmoji = ":one::zero:";
-                    break;
-                }
-                case 11:
-                {
-                    numberEmoji = ":one::one:";
-                    break;
-                }
-                case 12:
-                {
-                    numberEmoji = ":one::two:";
-                    break;
-                }
-                case 13:
-                {
-                    numberEmoji = ":one::three:";
-                    break;
-                }
-                case 14:
-                {
-                    numberEmoji = ":one::four:";
-                    break;
-                }
-                default:
-                {
-                    numberEmoji = ":zero:";
-                    break;
-                }                                                                                                                                                                                
-            }
-            return numberEmoji;
-        }
+        }        
     }
 }

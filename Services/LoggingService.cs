@@ -54,7 +54,12 @@ namespace NinjaBotCore.Services
                 {
                     _logger.LogDebug(logText);
                     break;
-                }                                                            
+                }  
+                case "Error":
+                {
+                    _logger.LogError(logText);
+                    break;
+                }                                                          
             }
             return Task.CompletedTask;  
         }

@@ -65,6 +65,7 @@ namespace NinjaBotCore
                     ThrowOnError = false 
                 }))         
                 .AddSingleton<WowApi>()
+                .AddSingleton<WowUtilities>()
                 .AddSingleton<WarcraftLogs>()
                 .AddSingleton<ChannelCheck>()   
                 .AddSingleton<OxfordApi>()
@@ -98,7 +99,8 @@ namespace NinjaBotCore
             serviceProvider.GetRequiredService<AwayCommands>();
             serviceProvider.GetRequiredService<WowApi>();
             serviceProvider.GetRequiredService<WarcraftLogs>();
-            serviceProvider.GetRequiredService<RaiderIOApi>();                                
+            serviceProvider.GetRequiredService<RaiderIOApi>(); 
+            serviceProvider.GetRequiredService<WowUtilities>();                               
 
             // Block this program until it is closed.
             await Task.Delay(-1);
