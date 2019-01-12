@@ -11,7 +11,7 @@ This project has been an awesome way for me to learn C#, feel free to toss in a 
 
 ## Getting Started
 
-The first thing you'll need to do is [invite the bot to your server](https://discordapp.com/oauth2/authorize?client_id=238495040446398467&scope=bot&permissions=19520). 
+The first thing you'll need to do is [invite the bot to your server](https://discordapp.com/oauth2/authorize?client_id=238495040446398467&scope=bot&permissions=298048). 
 It will need permissions to read and post messages at the very minimum. 
 
 More information on the bot and getting started [here](https://www.gngrninja.com/bot).
