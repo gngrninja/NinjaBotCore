@@ -39,7 +39,7 @@ namespace NinjaBotCore
         public async Task StartAsync()
         {    
             Log.Logger = new LoggerConfiguration()
-                .WriteTo.File("logs/njabot.log")
+                .WriteTo.File("logs/njabot.log", rollingInterval: RollingInterval.Day)
                 .WriteTo.Console()
                 .CreateLogger();  
 
