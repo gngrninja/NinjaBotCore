@@ -54,14 +54,13 @@ namespace NinjaBotCore.Modules.Admin
                 if (string.IsNullOrEmpty(shouldGreet.Greeting))
                 {
                     sb.AppendLine($"Welcome them! :hugging:");
-                    sb.AppendLine($"(or not, :shrug:)");
-                    embed.Description = sb.ToString();
+                    sb.AppendLine($"(or not, :shrug:)");    
                 }
                 else
                 {
                     sb.AppendLine($"{shouldGreet.Greeting}");
-                    embed.Description = sb.ToString();
                 }
+                embed.Description = sb.ToString();
                 embed.ThumbnailUrl = user.GetAvatarUrl();
                 embed.WithColor(new Color(0, 255, 0));
                 await messageChannel.SendMessageAsync("", false, embed);
@@ -91,13 +90,12 @@ namespace NinjaBotCore.Modules.Admin
                     if (string.IsNullOrEmpty(shouldGreet.PartingMessage))
                     {
                         sb.AppendLine($"Fine, be that way! :wave:");
-                        embed.Description = sb.ToString();
                     }
                     else
                     {
                         sb.AppendLine($"{shouldGreet.PartingMessage}");
-                        embed.Description = shouldGreet.PartingMessage;
                     }
+                    embed.Description = sb.ToString();
                     embed.ThumbnailUrl = user.GetAvatarUrl();
                     embed.WithColor(new Color(255, 0, 0));
                     await messageChannel.SendMessageAsync("", false, embed);
