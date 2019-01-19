@@ -50,6 +50,7 @@ namespace NinjaBotCore.Modules.Admin
                 }     
                 var embed = new EmbedBuilder();
                 embed.Title = $"[{user.Username}] has joined [**{user.Guild.Name}**]!";
+                sb.AppendLine($"{user.Mention}");
                 if (string.IsNullOrEmpty(shouldGreet.Greeting))
                 {
                     sb.AppendLine($"Welcome them! :hugging:");
@@ -58,7 +59,8 @@ namespace NinjaBotCore.Modules.Admin
                 }
                 else
                 {
-                    embed.Description = shouldGreet.Greeting;
+                    sb.AppendLine($"{shouldGreet.Greeting}");
+                    embed.Description = sb.ToString();
                 }
                 embed.ThumbnailUrl = user.GetAvatarUrl();
                 embed.WithColor(new Color(0, 255, 0));
@@ -69,6 +71,7 @@ namespace NinjaBotCore.Modules.Admin
         private async Task HandleParting(SocketGuildUser user)
         {
             ServerGreeting shouldGreet = GetGreeting(user);
+            var sb = new StringBuilder();
             if (shouldGreet != null && shouldGreet.GreetUsers == true)
             {
                 ISocketMessageChannel messageChannel = null;
@@ -84,12 +87,15 @@ namespace NinjaBotCore.Modules.Admin
                 {
                     var embed = new EmbedBuilder();
                     embed.Title = $"[{user.Username}] has left [**{user.Guild.Name}**]!";
+                    sb.AppendLine($"{user.Mention}");
                     if (string.IsNullOrEmpty(shouldGreet.PartingMessage))
                     {
-                        embed.Description = $"Fine, be that way! :wave:";
+                        sb.AppendLine($"Fine, be that way! :wave:");
+                        embed.Description = sb.ToString();
                     }
                     else
                     {
+                        sb.AppendLine($"{shouldGreet.PartingMessage}");
                         embed.Description = shouldGreet.PartingMessage;
                     }
                     embed.ThumbnailUrl = user.GetAvatarUrl();

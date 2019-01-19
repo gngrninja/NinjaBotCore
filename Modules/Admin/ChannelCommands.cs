@@ -7,16 +7,19 @@ using Discord;
 using Discord.Net;
 using Discord.Commands;
 using NinjaBotCore.Services;
+using Microsoft.Extensions.Logging;
 
 namespace NinjaBotCore.Modules.Admin
 {
     public class SetChanCommands : ModuleBase
     {
         private ChannelCheck _cc;        
+        private readonly ILogger _logger;
 
-        public SetChanCommands(ChannelCheck cc)
+        public SetChanCommands(ChannelCheck cc, ILogger<SetChanCommands> logger)
         {
-            _cc = cc;
+            _cc     = cc;
+            _logger = logger;
         }
 
         [Command("set-channel")]
@@ -47,7 +50,7 @@ namespace NinjaBotCore.Modules.Admin
             {
                 await ReplyAsync("Something went wrong :(");
 
-                Console.WriteLine($"Error while setting reply to channel {ex.Message} {ex.Source} {ex.InnerException}");
+                _logger.LogError($"Error while setting reply to channel {ex.Message} {ex.Source} {ex.InnerException}");
 
                 await ReplyAsync(sb.ToString());
             }

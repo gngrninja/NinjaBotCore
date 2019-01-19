@@ -40,7 +40,7 @@ namespace NinjaBotCore
         {    
             Log.Logger = new LoggerConfiguration()
                 .WriteTo.File("logs/njabot.log", rollingInterval: RollingInterval.Day)
-                .WriteTo.Console()
+                .WriteTo.Console()      
                 .CreateLogger();  
 
             //Create the configuration
