@@ -1757,5 +1757,46 @@ namespace NinjaBotCore.Modules.Wow
             embed.Description = sb.ToString();
             await _cc.Reply(Context, embed);
         }        
+
+        [Command("raidvids",RunMode = RunMode.Async)]
+        [Summary("Get list of current raid videos")]
+        public async Task GetRaidVids()
+        {
+            var vids = new List<WowResources>();
+            var embed = new EmbedBuilder();
+            var sb = new StringBuilder();
+
+            embed.WithColor(0,255,0);
+            embed.WithFooter(new EmbedFooterBuilder{
+                Text = $"Good luck and have fun!"
+            });
+            embed.ThumbnailUrl = "https://vignette.wikia.nocookie.net/wowwiki/images/1/17/Jainaunit.JPG/revision/latest?cb=20080826081813";
+            var fightList = WarcraftLogs.Zones.Where(z => z.id == WarcraftLogs.CurrentRaidTier.WclZoneId)
+                .Select(z => z.encounters)
+                .FirstOrDefault();                
+            embed.Title = $"Raid Videos for {WarcraftLogs.CurrentRaidTier.RaidName}";
+            using (var db = new NinjaBotEntities())
+            {
+                vids = db.WowResources.Where(r => r.ResourceDescription == "raidvid").ToList();
+            }
+            if (vids != null)
+            {
+                foreach (var vid in vids)
+                {
+                    embed.AddField(new EmbedFieldBuilder
+                    {
+                        Name = $"{vid.ClassName}",
+                        Value = $"{vid.Resource}",
+                        IsInline = true
+                    });
+                }
+            }
+            else
+            {
+
+            }
+            embed.Description = sb.ToString();
+            await _cc.Reply(Context,embed);
+        }
     }
 }

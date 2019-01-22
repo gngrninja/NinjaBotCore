@@ -87,7 +87,7 @@ namespace NinjaBotCore.Services
             if (!string.IsNullOrEmpty(replyChannel.ChannelName))
             {
                 var messageChannel = await context.Client.GetChannelAsync((ulong)replyChannel.ChannelId) as ISocketMessageChannel;
-                await messageChannel.SendMessageAsync("", false, embed);
+                await messageChannel.SendMessageAsync("", false, embed);                
             }
             else
             {
