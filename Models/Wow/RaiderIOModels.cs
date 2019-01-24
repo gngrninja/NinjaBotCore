@@ -80,6 +80,9 @@ namespace NinjaBotCore.Models.Wow
 
             [JsonProperty("uldir")]
             public RaidProgressionAntorusTheBurningThrone Uldir { get; set; }
+
+            [JsonProperty("battle-of-dazaralor")]
+            public RaidProgressionAntorusTheBurningThrone BattleOfDazaralor { get; set; }
         }
 
         public partial class RaidProgressionAntorusTheBurningThrone
@@ -119,6 +122,9 @@ namespace NinjaBotCore.Models.Wow
 
             [JsonProperty("uldir")]
             public RaidRankingsAntorusTheBurningThrone Uldir { get; set; }
+
+            [JsonProperty("battle-of-dazaralor")]
+            public RaidRankingsAntorusTheBurningThrone BattleOfDazaralor { get; set; }
         }
 
         public partial class RaidRankingsAntorusTheBurningThrone
