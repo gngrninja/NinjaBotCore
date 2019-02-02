@@ -341,7 +341,12 @@ namespace NinjaBotCore.Modules.Wow
                     {
                         affixLevel = "10";
                         break;
-                    }                                             
+                    }    
+                    case "reaping":
+                    {
+                        affixLevel = "10";
+                        break;
+                    }                                         
                 }
                 sb.AppendLine($"({affixLevel})[{detail.Name}]({detail.WowheadUrl})");
                 sb.AppendLine($"\t*{detail.Description}*");
