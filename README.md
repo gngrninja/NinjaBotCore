@@ -104,6 +104,7 @@ Long form version to try to find someone not in the same region
 
 ### Gearlist
 
+List out a character's gear, including heart of azeroth level. Links to the Wowhead page for the gear.
 ```
 !gearlist characterName
 ```

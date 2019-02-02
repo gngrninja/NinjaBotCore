@@ -83,6 +83,7 @@ namespace NinjaBotCore.Models.Wow
         public object[] artifactTraits { get; set; }
         public object[] relics { get; set; }
         public Appearance1 appearance { get; set; }
+        public AzeriteItem azeriteItem { get; set; }
     }
 
     public class Tooltipparams1
@@ -122,6 +123,14 @@ namespace NinjaBotCore.Models.Wow
         public Appearance2 appearance { get; set; }
     }
 
+    public class AzeriteItem
+    {
+        public int azeriteExperience { get; set ; }
+        public int azeriteExperienceRemaining { get; set; }
+        public int azeriteLevel { get; set; }
+
+    }
+    
     public class Tooltipparams2
     {
         public int timewalkerLevel { get; set; }

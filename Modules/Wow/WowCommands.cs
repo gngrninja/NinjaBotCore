@@ -520,6 +520,7 @@ namespace NinjaBotCore.Modules.Wow
             string cheevMessage = string.Empty;
             string userName = string.Empty;
             string errorMessage = string.Empty;
+
             GuildChar charInfo = null;
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
@@ -1133,10 +1134,13 @@ namespace NinjaBotCore.Modules.Wow
                     }
                     if (armoryInfo.items.neck != null)
                     {
+                        var neckString = new StringBuilder();
+                        neckString.AppendLine($"[{armoryInfo.items.neck.name}](http://www.wowhead.com/item={armoryInfo.items.neck.id})");
+                        neckString.AppendLine($"**Level** -> [**{armoryInfo.items.neck.azeriteItem.azeriteLevel}**]");
                         embed.Fields.Add(new EmbedFieldBuilder
                         {
                             Name = $"Neck ({armoryInfo.items.neck.itemLevel})",
-                            Value = $"[{armoryInfo.items.neck.name}](http://www.wowhead.com/item={armoryInfo.items.neck.id})",
+                            Value = neckString.ToString(),
                             IsInline = true
                         });
                     }
