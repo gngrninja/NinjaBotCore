@@ -113,10 +113,10 @@ namespace NinjaBotCore.Modules.Wow
 
         [Command("noggen", RunMode = RunMode.Async)]
         [RequireOwner]
-        public async Task GetNoggen([Remainder] string args)
+        public async Task GetNoggen([Remainder] string args = null)
         {
             var embed = new EmbedBuilder();
-            StringBuilder sb = new StringBuilder();
+            var sb = new StringBuilder();
             string title = string.Empty;
             GuildMembers members = null;
             string thumbUrl = string.Empty;
@@ -134,7 +134,7 @@ namespace NinjaBotCore.Modules.Wow
                 thumbUrl = Context.Guild.IconUrl;
             }
 
-            NinjaObjects.GuildObject guildObject = await _wowUtils.GetGuildName(Context);
+            var guildObject = await _wowUtils.GetGuildName(Context);
 
             title = $"Top Noggenfogger Consumers in **{guildObject.guildName}**";
             embed.Title = title;
@@ -167,7 +167,6 @@ namespace NinjaBotCore.Modules.Wow
                     }
                     else 
                     {
-
                     if (!string.IsNullOrEmpty(guildObject.locale))
                     {
                         members = _wowApi.GetGuildMembers(guildObject.realmName, guildObject.guildName, locale: guildObject.locale, regionName: guildObject.regionName);
@@ -188,8 +187,10 @@ namespace NinjaBotCore.Modules.Wow
                     foreach (var member in maxLevelChars)
                     {
                         var curMemberStats = new WowStats();
-                        var match = statsFromDb.Where(s => s.CharName == member.character.name).FirstOrDefault();                                                
-                        if (match == null) 
+                        var match = statsFromDb.Where(s => s.CharName == member.character.name).FirstOrDefault(); 
+                        var matchTime = match.LastModified;  
+                                                                     
+                        if (match == null | matchTime.Day != DateTime.Now.Second) 
                         {
                             curMemberStats = _wowApi.GetCharStats(member.character.name, member.character.realm, guildObject.locale);
                             var elixer = curMemberStats.Statistics.SubCategories[0].SubCategories[0].Statistics.Where(s => s.Name == "Elixir consumed most").FirstOrDefault();
@@ -200,7 +201,8 @@ namespace NinjaBotCore.Modules.Wow
                                     RealmName = member.character.realm,
                                     GuildName = guildObject.guildName,
                                     ElixerConsumed = elixer.Highest,
-                                    Quantity = elixer.Quantity                                    
+                                    Quantity = elixer.Quantity,
+                                    LastModified = DateTime.Now                                    
                                 });
                                 await db.SaveChangesAsync();                                
                             }
@@ -208,6 +210,13 @@ namespace NinjaBotCore.Modules.Wow
                         else
                         {
 
+                        }
+                    }
+                    if (statsFromDb.Count() == 0)
+                    {
+                        using (var db = new NinjaBotEntities())
+                        {
+                            statsFromDb = db.CharStats.Where(c => c.GuildName == guildObject.guildName).ToList();                                                                        
                         }
                     }                  
                     if (statsFromDb.Count() > 0)

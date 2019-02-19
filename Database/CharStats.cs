@@ -10,9 +10,8 @@ namespace NinjaBotCore.Database
         public string CharName { get; set; }
         public string GuildName { get; set; }
         public string RealmName { get; set; }
-        public long LastModified { get; set; }
+        public DateTime LastModified { get; set; }
         public string ElixerConsumed { get; set; }
         public long Quantity { get; set; }
-
     }
 }
