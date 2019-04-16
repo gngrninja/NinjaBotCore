@@ -119,13 +119,23 @@ namespace NinjaBotCore.Modules.Wow
                             realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.Replace("'","").ToLower().Contains(charInfo.realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
                             break;
                         }
-                }               
+                }   
+
+                string normalKilledbod = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.BattleOfDazaralor.NormalBossesKilled);
+                string heroicKilledbod = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.BattleOfDazaralor.HeroicBossesKilled);
+                string mythicKilledbod = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.BattleOfDazaralor.MythicBossesKilled);
+                string totalBossesbod  = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.BattleOfDazaralor.TotalBosses); 
+                string normalKilledcos = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.CrucibleOfStorms.NormalBossesKilled);
+                string heroicKilledcos = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.CrucibleOfStorms.HeroicBossesKilled);
+                string mythicKilledcos = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.CrucibleOfStorms.MythicBossesKilled);
+                string totalBossescos  = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.CrucibleOfStorms.TotalBosses);                             
                 sb.AppendLine($"**__Raid Progression__**");
-                string normalKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.BattleOfDazaralor.NormalBossesKilled);
-                string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.BattleOfDazaralor.HeroicBossesKilled);
-                string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.BattleOfDazaralor.MythicBossesKilled);
-                string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.BattleOfDazaralor.TotalBosses);                                
-                sb.AppendLine($"\t **normal** [{normalKilled} / {totalBosses}] **heroic** [{heroicKilled} / {totalBosses}] **mythic** [{mythicKilled} / {totalBosses}]");
+                sb.AppendLine();
+                sb.AppendLine($"BoD");                               
+                sb.AppendLine($"\t **normal** [{normalKilledbod} / {totalBossesbod}] **heroic** [{heroicKilledbod} / {totalBossesbod}] **mythic** [{mythicKilledbod} / {totalBossesbod}]");
+                sb.AppendLine();
+                sb.AppendLine($"CoS");                               
+                sb.AppendLine($"\t **normal** [{normalKilledcos} / {totalBossescos}] **heroic** [{heroicKilledcos} / {totalBossescos}] **mythic** [{mythicKilledcos} / {totalBossescos}]");
                 sb.AppendLine();
                 sb.AppendLine($"**__Best Runs__**");                
                 foreach (var run in mPlusInfo.MythicPlusBestRuns)
@@ -193,17 +203,17 @@ namespace NinjaBotCore.Modules.Wow
             var guildObject = await _wowUtils.GetGuildName(Context); 
             var guildStats = _rioApi.GetRioGuildInfo(guildName: guildObject.guildName, realmName: guildObject.realmSlug, region: guildObject.regionName);
                         
-            string normalKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.BattleOfDazaralor.NormalBossesKilled);
-            string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.BattleOfDazaralor.HeroicBossesKilled);
-            string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.BattleOfDazaralor.MythicBossesKilled);
-            string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.BattleOfDazaralor.TotalBosses);
+            string normalKilledbod = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.BattleOfDazaralor.NormalBossesKilled);
+            string heroicKilledbod = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.BattleOfDazaralor.HeroicBossesKilled);
+            string mythicKilledbod = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.BattleOfDazaralor.MythicBossesKilled);
+            string totalBossesbod  = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.BattleOfDazaralor.TotalBosses);
             
             title = $"{guildObject.guildName} on {guildObject.realmName}'s Raider.IO Stats";
 
             sb.AppendLine("**__Raid Progression:__**");
-            sb.AppendLine($"\t **normal** [{normalKilled} / {totalBosses}]");
-            sb.AppendLine($"\t **heroic** [{heroicKilled} / {totalBosses}]");
-            sb.AppendLine($"\t **mythic** [{mythicKilled} / {totalBosses}]");
+            sb.AppendLine($"\t **normal** [{normalKilledbod} / {totalBossesbod}]");
+            sb.AppendLine($"\t **heroic** [{heroicKilledbod} / {totalBossesbod}]");
+            sb.AppendLine($"\t **mythic** [{mythicKilledbod} / {totalBossesbod}]");
             sb.AppendLine();
             sb.AppendLine("**__Raid Rankings:__**");
             sb.AppendLine($"\t **normal** [ realm [**{guildStats.RaidRankings.BattleOfDazaralor.Normal.Realm}**] world [**{guildStats.RaidRankings.BattleOfDazaralor.Normal.World}**] region [**{guildStats.RaidRankings.BattleOfDazaralor.Normal.Region}**] ]");            
