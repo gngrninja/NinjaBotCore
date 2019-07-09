@@ -121,22 +121,16 @@ namespace NinjaBotCore.Modules.Wow
                         }
                 }   
 
-                string normalKilledbod = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.BattleOfDazaralor.NormalBossesKilled);
-                string heroicKilledbod = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.BattleOfDazaralor.HeroicBossesKilled);
-                string mythicKilledbod = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.BattleOfDazaralor.MythicBossesKilled);
-                string totalBossesbod  = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.BattleOfDazaralor.TotalBosses); 
-                string normalKilledcos = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.CrucibleOfStorms.NormalBossesKilled);
-                string heroicKilledcos = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.CrucibleOfStorms.HeroicBossesKilled);
-                string mythicKilledcos = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.CrucibleOfStorms.MythicBossesKilled);
-                string totalBossescos  = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.CrucibleOfStorms.TotalBosses);                             
+                string normalKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.TheEternalPalace.NormalBossesKilled);
+                string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.TheEternalPalace.HeroicBossesKilled);
+                string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.TheEternalPalace.MythicBossesKilled);
+                string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.TheEternalPalace.TotalBosses); 
+                           
                 sb.AppendLine($"**__Raid Progression__**");
                 sb.AppendLine();
-                sb.AppendLine($"BoD");                               
-                sb.AppendLine($"\t **normal** [{normalKilledbod} / {totalBossesbod}] **heroic** [{heroicKilledbod} / {totalBossesbod}] **mythic** [{mythicKilledbod} / {totalBossesbod}]");
-                sb.AppendLine();
-                sb.AppendLine($"CoS");                               
-                sb.AppendLine($"\t **normal** [{normalKilledcos} / {totalBossescos}] **heroic** [{heroicKilledcos} / {totalBossescos}] **mythic** [{mythicKilledcos} / {totalBossescos}]");
-                sb.AppendLine();
+                sb.AppendLine($"TEP");                               
+                sb.AppendLine($"\t **normal** [{normalKilled} / {totalBosses}] **heroic** [{heroicKilled} / {totalBosses}] **mythic** [{mythicKilled} / {totalBosses}]");
+                sb.AppendLine();               
                 sb.AppendLine($"**__Best Runs__**");                
                 foreach (var run in mPlusInfo.MythicPlusBestRuns)
                 {
@@ -203,22 +197,22 @@ namespace NinjaBotCore.Modules.Wow
             var guildObject = await _wowUtils.GetGuildName(Context); 
             var guildStats = _rioApi.GetRioGuildInfo(guildName: guildObject.guildName, realmName: guildObject.realmSlug, region: guildObject.regionName);
                         
-            string normalKilledbod = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.BattleOfDazaralor.NormalBossesKilled);
-            string heroicKilledbod = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.BattleOfDazaralor.HeroicBossesKilled);
-            string mythicKilledbod = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.BattleOfDazaralor.MythicBossesKilled);
-            string totalBossesbod  = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.BattleOfDazaralor.TotalBosses);
+            string normalKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.TheEternalPalace.NormalBossesKilled);
+            string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.TheEternalPalace.HeroicBossesKilled);
+            string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.TheEternalPalace.MythicBossesKilled);
+            string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.TheEternalPalace.TotalBosses);
             
             title = $"{guildObject.guildName} on {guildObject.realmName}'s Raider.IO Stats";
 
             sb.AppendLine("**__Raid Progression:__**");
-            sb.AppendLine($"\t **normal** [{normalKilledbod} / {totalBossesbod}]");
-            sb.AppendLine($"\t **heroic** [{heroicKilledbod} / {totalBossesbod}]");
-            sb.AppendLine($"\t **mythic** [{mythicKilledbod} / {totalBossesbod}]");
+            sb.AppendLine($"\t **normal** [{normalKilled} / {totalBosses}]");
+            sb.AppendLine($"\t **heroic** [{heroicKilled} / {totalBosses}]");
+            sb.AppendLine($"\t **mythic** [{mythicKilled} / {totalBosses}]");
             sb.AppendLine();
             sb.AppendLine("**__Raid Rankings:__**");
-            sb.AppendLine($"\t **normal** [ realm [**{guildStats.RaidRankings.BattleOfDazaralor.Normal.Realm}**] world [**{guildStats.RaidRankings.BattleOfDazaralor.Normal.World}**] region [**{guildStats.RaidRankings.BattleOfDazaralor.Normal.Region}**] ]");            
-            sb.AppendLine($"\t **heroic** [ realm [**{guildStats.RaidRankings.BattleOfDazaralor.Heroic.Realm}**] world [**{guildStats.RaidRankings.BattleOfDazaralor.Heroic.World}**] region [**{guildStats.RaidRankings.BattleOfDazaralor.Heroic.Region}**] ]");
-            sb.AppendLine($"\t **mythic** [ realm [**{guildStats.RaidRankings.BattleOfDazaralor.Mythic.Realm}**] world [**{guildStats.RaidRankings.BattleOfDazaralor.Mythic.World}**] region [**{guildStats.RaidRankings.BattleOfDazaralor.Mythic.Region}**] ]");
+            sb.AppendLine($"\t **normal** [ realm [**{guildStats.RaidRankings.TheEternalPalace.Normal.Realm}**] world [**{guildStats.RaidRankings.TheEternalPalace.Normal.World}**] region [**{guildStats.RaidRankings.TheEternalPalace.Normal.Region}**] ]");            
+            sb.AppendLine($"\t **heroic** [ realm [**{guildStats.RaidRankings.TheEternalPalace.Heroic.Realm}**] world [**{guildStats.RaidRankings.TheEternalPalace.Heroic.World}**] region [**{guildStats.RaidRankings.TheEternalPalace.Heroic.Region}**] ]");
+            sb.AppendLine($"\t **mythic** [ realm [**{guildStats.RaidRankings.TheEternalPalace.Mythic.Realm}**] world [**{guildStats.RaidRankings.TheEternalPalace.Mythic.World}**] region [**{guildStats.RaidRankings.TheEternalPalace.Mythic.Region}**] ]");
             sb.AppendLine();
             sb.AppendLine($"[{guildObject.guildName} Profile]({guildStats.ProfileUrl.AbsoluteUri})");
 

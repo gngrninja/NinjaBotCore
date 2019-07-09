@@ -33,7 +33,7 @@ namespace NinjaBotCore
     {
         private DiscordSocketClient _client;
         private CommandHandler _handler;        
-        public static DiscordSocketClient Client;
+        public static DiscordSocketClient Client;        
         private IConfigurationRoot _config;
 
         public async Task StartAsync()
@@ -100,8 +100,7 @@ namespace NinjaBotCore
             serviceProvider.GetRequiredService<WowApi>();
             serviceProvider.GetRequiredService<WarcraftLogs>();
             serviceProvider.GetRequiredService<RaiderIOApi>(); 
-            serviceProvider.GetRequiredService<WowUtilities>();                               
-
+            serviceProvider.GetRequiredService<WowUtilities>();                                           
             // Block this program until it is closed.
             await Task.Delay(-1);
         }
