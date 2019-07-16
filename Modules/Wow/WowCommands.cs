@@ -346,7 +346,7 @@ namespace NinjaBotCore.Modules.Wow
                         affixLevel = "10";
                         break;
                     }    
-                    case "reaping":
+                    case "beguiling":
                     {
                         affixLevel = "10";
                         break;
