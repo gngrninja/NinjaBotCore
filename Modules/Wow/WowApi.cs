@@ -7,8 +7,7 @@ using System.Net;
 using Newtonsoft.Json;
 using System.Text.RegularExpressions;
 using HtmlAgilityPack;
-using NinjaBotCore.Models.Wow;
-using System.IO;
+using NinjaBotCore.Models.Wow;using System.IO;
 using NinjaBotCore.Database;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -37,20 +36,27 @@ namespace NinjaBotCore.Modules.Wow
             {
                 _config = config;
                 _logger = logger;
-                this.StartTimer();                
-                Races = this.GetRaces();
-                Classes = this.GetWowClasses();
-                Achievements cheeves = this.GetWoWAchievements();
-                Achievements = cheeves.achievements.Select(m => m.categories).Skip(1).SelectMany(i => i).Select(a => a.achievements).SelectMany(d => d).ToList();
-                RealmInfo = this.GetRealmStatus("us");
-                RealmInfoEu = this.GetRealmStatus("eu");  
-                RealmInfoRu = this.GetRealmStatus("ru_RU","eu");
-                
+                this.StartTimer();
+                if (!string.IsNullOrEmpty(_token))
+                {
+                    GetWowData();
+                }                
             }
             catch (Exception ex)
             {
                 _logger.LogError($"Error creating WowApi class -> [{ex.Message}]");
             }
+        }
+
+        private void GetWowData()
+        {
+            Races = this.GetRaces();
+            Classes = this.GetWowClasses();
+            Achievements cheeves = this.GetWoWAchievements();
+            Achievements = cheeves.achievements.Select(m => m.categories).Skip(1).SelectMany(i => i).Select(a => a.achievements).SelectMany(d => d).ToList();
+            RealmInfo = this.GetRealmStatus("us");
+            RealmInfoEu = this.GetRealmStatus("eu");
+            RealmInfoRu = this.GetRealmStatus("ru_RU", "eu");
         }
 
         public static WowRealm RealmInfo
