@@ -232,7 +232,11 @@ namespace NinjaBotCore.Modules.Wow
                 System.Console.WriteLine("before post");
                 var result =  client.PostAsync("https://us.battle.net/oauth/token", content);
                 System.Console.WriteLine("after post");
-                var contentString = await result.Result.Content.ReadAsStringAsync();
+                var ms = new MemoryStream();
+                await result.Result.Content.CopyToAsync(ms);
+                ms.Seek(0, SeekOrigin.Begin);
+                var sr = new StreamReader(ms);
+                var contentString = sr.ReadToEnd();
                 System.Console.WriteLine("read as string");
                 ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString);
                 System.Console.WriteLine("json conversion");
