@@ -239,12 +239,12 @@ namespace NinjaBotCore.Modules.Wow
                     new KeyValuePair<string, string>("client_id", username),
                     new KeyValuePair<string, string>("client_secret", password)
                 });                
-                var result =  await _client.PostAsync("https://us.battle.net/oauth/token", content);    
+                var result =  await _client.PostAsync("https://us.battle.net/oauth/token", content).ConfigureAwait(false);    
                 if (result != null)
                 {
                     System.Console.WriteLine("not null!");
                 }                                           
-                var contentString = await result.Content.ReadAsStringAsync();                
+                var contentString = await result.Content.ReadAsStringAsync().ConfigureAwait(false);                
                 ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString);                
                 token = response.AccessToken;                                                                                                                  
             }
