@@ -43,7 +43,7 @@ namespace NinjaBotCore.Modules.Wow
                 CharClasses = this.GetCharClasses().Result;
                 Zones = this.GetZones().Result;
                 _currentRaidTier = this.SetCurrentTier();
-                this.StartTimer();
+                //this.StartTimer();
             }
             catch (Exception ex)
             {
