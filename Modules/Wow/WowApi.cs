@@ -222,7 +222,10 @@ namespace NinjaBotCore.Modules.Wow
             //httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "Your Oauth token");            
             try
             {
-                HttpClient client = new HttpClient();
+                var handler = new HttpClientHandler();
+                handler.ServerCertificateCustomValidationCallback  = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+                var client = new HttpClient(handler);
+                //HttpClient client = new HttpClient();
                 var content = new FormUrlEncodedContent(new[]
                 {
                     new KeyValuePair<string, string>("grant_type", "client_credentials"),
