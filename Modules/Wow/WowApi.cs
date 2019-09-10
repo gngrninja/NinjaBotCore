@@ -228,22 +228,11 @@ namespace NinjaBotCore.Modules.Wow
                     new KeyValuePair<string, string>("grant_type", "client_credentials"),
                     new KeyValuePair<string, string>("client_id", username),
                     new KeyValuePair<string, string>("client_secret", password)
-                });
-                System.Console.WriteLine("before post");
-                var result =  await client.PostAsync("https://us.battle.net/oauth/token", content);                
-                System.Console.WriteLine($"after post {result.Content.Headers}");
-                /* 
-                var ms = new MemoryStream();
-                await result.Result.Content.CopyToAsync(ms);
-                ms.Seek(0, SeekOrigin.Begin);
-                var sr = new StreamReader(ms);
-               
-                */
-                 var contentString = await result.Content.ReadAsStringAsync();
-                System.Console.WriteLine("read as string");
-                ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString);
-                System.Console.WriteLine("json conversion");
-                token = response.AccessToken;
+                });                
+                var result =  await client.PostAsync("https://us.battle.net/oauth/token", content);                                               
+                var contentString = await result.Content.ReadAsStringAsync();                
+                ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString);                
+                token = response.AccessToken;                
                 System.Console.WriteLine(token);
             }
             catch (Exception ex)
@@ -751,7 +740,7 @@ namespace NinjaBotCore.Modules.Wow
         private async void RenewTokenLocal()
         {
             _logger.LogInformation("Renewing token!");
-            _token = await GetWoWToken(username: _config["WoWClient"], password: _config["WoWSecret"]);            
+            _token = GetWoWToken(username: _config["WoWClient"], password: _config["WoWSecret"]).Result;            
         }
     }
 }
