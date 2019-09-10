@@ -234,6 +234,7 @@ namespace NinjaBotCore.Modules.Wow
                 var result =  client.PostAsync("https://us.battle.net/oauth/token", content);
                 System.Console.WriteLine("after post");
                 var contentString =  result.Result.Content.ReadAsStringAsync();
+                System.Console.WriteLine("read as string");
                 ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString.Result);
                 System.Console.WriteLine("json conversion");
                 token = response.AccessToken;
