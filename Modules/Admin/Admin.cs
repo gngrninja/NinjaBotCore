@@ -693,6 +693,13 @@ namespace NinjaBotCore.Modules.Admin
             }
         }
 
+        [Command("numservers")]
+        [RequireOwner]
+        public async Task GetNumGuilds()
+        {
+            var numGuilds = await Context.Client.GetGuildsAsync();
+            await ReplyAsync($"I am connected to {numGuilds.Count()} guilds!");
+        }
         private async void AddWarning(ICommandContext context, IGuildUser userWarned)
         {
             using (var db = new NinjaBotEntities())
