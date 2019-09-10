@@ -232,7 +232,7 @@ namespace NinjaBotCore.Modules.Wow
             //httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "Your Oauth token");            
             try
             {             
-
+                System.Console.WriteLine($"[{username}] [{password}]");
                 var content = new FormUrlEncodedContent(new[]
                 {
                     new KeyValuePair<string, string>("grant_type", "client_credentials"),
