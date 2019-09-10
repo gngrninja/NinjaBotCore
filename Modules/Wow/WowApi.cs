@@ -232,6 +232,7 @@ namespace NinjaBotCore.Modules.Wow
             var contentString =  result.Result.Content.ReadAsStringAsync();
             ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString.Result);
             token = response.AccessToken;
+            System.Console.WriteLine($"Token: {token}");
             return token;
         }
 
