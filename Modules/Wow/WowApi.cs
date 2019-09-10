@@ -37,8 +37,7 @@ namespace NinjaBotCore.Modules.Wow
             {
                 _config = config;
                 _logger = logger;
-                this.StartTimer();
-                _token = GetWoWToken(username: _config["WoWClient"], password: _config["WoWSecret"]);
+                this.StartTimer();                
                 Races = this.GetRaces();
                 Classes = this.GetWowClasses();
                 Achievements cheeves = this.GetWoWAchievements();
@@ -218,7 +217,7 @@ namespace NinjaBotCore.Modules.Wow
             return response;
         }
 
-        public static string GetWoWToken(string username, string password) {            
+        public async Task<string> GetWoWToken(string username, string password) {            
             string token = string.Empty;            
             //httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "Your Oauth token");            
             try
@@ -233,9 +232,9 @@ namespace NinjaBotCore.Modules.Wow
                 System.Console.WriteLine("before post");
                 var result =  client.PostAsync("https://us.battle.net/oauth/token", content);
                 System.Console.WriteLine("after post");
-                var contentString =  result.Result.Content.ReadAsStringAsync();
+                var contentString = await result.Result.Content.ReadAsStringAsync();
                 System.Console.WriteLine("read as string");
-                ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString.Result);
+                ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString);
                 System.Console.WriteLine("json conversion");
                 token = response.AccessToken;
                 System.Console.WriteLine(token);
@@ -742,10 +741,10 @@ namespace NinjaBotCore.Modules.Wow
             TokenSource.Cancel();
         }
 
-        private void RenewTokenLocal()
+        private async void RenewTokenLocal()
         {
             _logger.LogInformation("Renewing token!");
-            _token = GetWoWToken(username: _config["WoWClient"], password: _config["WoWSecret"]);
+            _token = await GetWoWToken(username: _config["WoWClient"], password: _config["WoWSecret"]);            
         }
     }
 }
