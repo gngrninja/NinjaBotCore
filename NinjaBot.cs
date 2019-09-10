@@ -64,6 +64,7 @@ namespace NinjaBotCore
                     CaseSensitiveCommands = false, 
                     ThrowOnError = false 
                 }))         
+                .AddHttpClient()
                 .AddSingleton<WowApi>()
                 .AddSingleton<WowUtilities>()
                 .AddSingleton<WarcraftLogs>()
@@ -77,7 +78,7 @@ namespace NinjaBotCore
                 .AddSingleton<GiphyApi>()    
                 .AddSingleton<WeatherApi>()
                 .AddSingleton<RaiderIOApi>()
-                .AddSingleton<YouTubeApi>()
+                .AddSingleton<YouTubeApi>()                
                 .AddSingleton<AudioService>()
                 .AddSingleton<LoggingService>();
 

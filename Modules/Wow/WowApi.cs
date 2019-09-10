@@ -14,6 +14,7 @@ using System.Net.Http.Headers;
 using Microsoft.Extensions.Configuration;
 using System.Threading;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -29,11 +30,13 @@ namespace NinjaBotCore.Modules.Wow
         private readonly IConfigurationRoot _config;
         private static CancellationTokenSource _tokenSource;
         private readonly ILogger _logger;
+        private HttpClient _client;
 
-        public WowApi(IConfigurationRoot config, ILogger<WowApi> logger)
+        public WowApi(IConfigurationRoot config, ILogger<WowApi> logger, IServiceProvider services)
         {
             try
             {
+                _client = services.GetService<IHttpClientFactory>().CreateClient();
                 _config = config;
                 _logger = logger;
                 this.StartTimer();
@@ -229,23 +232,21 @@ namespace NinjaBotCore.Modules.Wow
             //httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "Your Oauth token");            
             try
             {             
-                using (var client = new HttpClient())
+
+                var content = new FormUrlEncodedContent(new[]
                 {
-                    var content = new FormUrlEncodedContent(new[]
-                    {
-                        new KeyValuePair<string, string>("grant_type", "client_credentials"),
-                        new KeyValuePair<string, string>("client_id", username),
-                        new KeyValuePair<string, string>("client_secret", password)
-                    });                
-                    var result =  await client.PostAsync("https://us.battle.net/oauth/token", content);    
-                    if (result != null)
-                    {
-                        System.Console.WriteLine("not null!");
-                    }                                           
-                    var contentString = await result.Content.ReadAsStringAsync();                
-                    ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString);                
-                    token = response.AccessToken;                
-                }                                                                                   
+                    new KeyValuePair<string, string>("grant_type", "client_credentials"),
+                    new KeyValuePair<string, string>("client_id", username),
+                    new KeyValuePair<string, string>("client_secret", password)
+                });                
+                var result =  await _client.PostAsync("https://us.battle.net/oauth/token", content);    
+                if (result != null)
+                {
+                    System.Console.WriteLine("not null!");
+                }                                           
+                var contentString = await result.Content.ReadAsStringAsync();                
+                ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString);                
+                token = response.AccessToken;                                                                                                                  
             }
             catch (Exception ex)
             {
