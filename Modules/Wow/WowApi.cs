@@ -219,6 +219,7 @@ namespace NinjaBotCore.Modules.Wow
         }
 
         public static string GetWoWToken(string username, string password) {
+            System.Console.WriteLine("here");
             string token = string.Empty;
             HttpClient client = new HttpClient();
             //httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "Your Oauth token");            
