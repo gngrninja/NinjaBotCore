@@ -31,9 +31,9 @@ namespace NinjaBotCore
 {
     public class NinjaBot
     {
-        private DiscordSocketClient _client;
+        private DiscordShardedClient _client;
         private CommandHandler _handler;        
-        public static DiscordSocketClient Client;        
+        public static DiscordShardedClient Client;        
         private IConfigurationRoot _config;
 
         public async Task StartAsync()
