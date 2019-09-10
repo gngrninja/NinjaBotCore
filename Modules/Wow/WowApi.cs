@@ -38,7 +38,7 @@ namespace NinjaBotCore.Modules.Wow
                 _config = config;
                 _logger = logger;
                 this.StartTimer();
-                //_token = GetWoWToken(username: _config["WoWClient"], password: _config["WoWSecret"]);
+                _token = GetWoWToken(username: _config["WoWClient"], password: _config["WoWSecret"]);
                 Races = this.GetRaces();
                 Classes = this.GetWowClasses();
                 Achievements cheeves = this.GetWoWAchievements();
