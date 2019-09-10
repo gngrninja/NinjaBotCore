@@ -230,8 +230,8 @@ namespace NinjaBotCore.Modules.Wow
                     new KeyValuePair<string, string>("client_secret", password)
                 });
                 System.Console.WriteLine("before post");
-                var result =  client.PostAsync("https://us.battle.net/oauth/token", content);                
-                System.Console.WriteLine($"after post {result.Result.Content.Headers}");
+                var result =  await client.PostAsync("https://us.battle.net/oauth/token", content);                
+                System.Console.WriteLine($"after post {result.Content.Headers}");
                 /* 
                 var ms = new MemoryStream();
                 await result.Result.Content.CopyToAsync(ms);
@@ -239,7 +239,7 @@ namespace NinjaBotCore.Modules.Wow
                 var sr = new StreamReader(ms);
                
                 */
-                 var contentString = await result.Result.Content.ReadAsStringAsync();
+                 var contentString = await result.Content.ReadAsStringAsync();
                 System.Console.WriteLine("read as string");
                 ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString);
                 System.Console.WriteLine("json conversion");
