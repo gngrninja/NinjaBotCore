@@ -237,7 +237,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                System.Console.WriteLine($"Error while getting token: [{ex.Message}]!");
+                System.Console.WriteLine($"Error while getting token: [{ex.InnerException.Message}]!");
             }            
             return token;
         }
