@@ -50,7 +50,7 @@ namespace NinjaBotCore
             _config = _builder.Build();
             
             var services = new ServiceCollection()
-                .AddSingleton(new DiscordSocketClient(new DiscordSocketConfig
+                .AddSingleton(new DiscordShardedClient(new DiscordSocketConfig
                 {
                     //LogLevel = LogSeverity.Debug,
                     LogLevel = LogSeverity.Verbose, 
@@ -90,8 +90,7 @@ namespace NinjaBotCore
             //Instantiate logger/tie-in logging
             serviceProvider.GetRequiredService<LoggingService>();
             
-            //Start the bot
-            await serviceProvider.GetRequiredService<StartupService>().StartAsync(); 
+
 
             //Load up services
             serviceProvider.GetRequiredService<WowApi>();
@@ -101,6 +100,9 @@ namespace NinjaBotCore
             serviceProvider.GetRequiredService<WarcraftLogs>();
             serviceProvider.GetRequiredService<RaiderIOApi>(); 
             serviceProvider.GetRequiredService<WowUtilities>();    
+
+            //Start the bot
+            await serviceProvider.GetRequiredService<StartupService>().StartAsync(); 
                                                    
             // Block this program until it is closed.
             await Task.Delay(-1);

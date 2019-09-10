@@ -17,7 +17,7 @@ namespace NinjaBotCore.Services
     public class CommandHandler
     {
         private CommandService _commands;
-        private DiscordSocketClient _client;
+        private DiscordShardedClient _client;
         private readonly IServiceProvider _provider;
         private readonly IConfigurationRoot _config;
         private readonly ILogger _logger;
@@ -26,7 +26,7 @@ namespace NinjaBotCore.Services
         {
             _config = config;
             _provider = provider;
-            _client = _provider.GetService<DiscordSocketClient>();
+            _client = _provider.GetService<DiscordShardedClient>();
             _commands = _provider.GetService<CommandService>();
             _client.MessageReceived += HandleCommand;            
             _logger = logger;
@@ -43,7 +43,7 @@ namespace NinjaBotCore.Services
             
 
             // Create a Command Context
-            var context = new SocketCommandContext(_client, message);
+            var context = new ShardedCommandContext(_client, message);
 
             char prefix = Char.Parse(_config["prefix"]);
 

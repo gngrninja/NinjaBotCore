@@ -10,11 +10,11 @@ namespace NinjaBotCore.Services
 {
     public class StartupService
     {
-        private readonly DiscordSocketClient _discord;
+        private readonly DiscordShardedClient _discord;
         private readonly CommandService _commands;
         private readonly IConfigurationRoot _config;
 
-        public StartupService(DiscordSocketClient discord, CommandService commands, IConfigurationRoot config)
+        public StartupService(DiscordShardedClient discord, CommandService commands, IConfigurationRoot config)
         {
             _config = config;
             _discord = discord;

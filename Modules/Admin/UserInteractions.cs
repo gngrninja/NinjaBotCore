@@ -16,7 +16,7 @@ namespace NinjaBotCore.Modules.Admin
 {
     public class UserInteraction
     {
-        private DiscordSocketClient _client;
+        private DiscordShardedClient _client;
         private readonly IServiceProvider _provider;
         private ChannelCheck _cc;
         private readonly ILogger _logger;
@@ -25,7 +25,7 @@ namespace NinjaBotCore.Modules.Admin
         {
             _logger = logger;
             _provider = provider;
-            _client = _provider.GetService<DiscordSocketClient>();
+            _client = _provider.GetService<DiscordShardedClient>();
             _cc = _provider.GetService<ChannelCheck>();
             _client.UserJoined += HandleGreeting;
             _client.UserLeft += HandleParting;

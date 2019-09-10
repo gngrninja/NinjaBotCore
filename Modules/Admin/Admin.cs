@@ -16,12 +16,12 @@ namespace NinjaBotCore.Modules.Admin
     public class Admin : ModuleBase
     {
 
-        private static DiscordSocketClient _client;
+        private static DiscordShardedClient _client;
         private static ChannelCheck _cc;
         private readonly IConfigurationRoot _config;
         private string _prefix;
 
-        public Admin(DiscordSocketClient client, ChannelCheck cc, IConfigurationRoot config)
+        public Admin(DiscordShardedClient client, ChannelCheck cc, IConfigurationRoot config)
         {            
             _client = client;            
             _cc = cc;

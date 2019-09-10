@@ -22,7 +22,7 @@ namespace NinjaBotCore.Modules.Wow
         public ChannelCheck _cc;
         public WarcraftLogs _logsApi;
         public WowApi _wowApi;
-        public DiscordSocketClient _client;
+        public DiscordShardedClient _client;
         public RaiderIOApi _rioApi;
         public readonly IConfigurationRoot _config;
         public string _prefix;
@@ -33,7 +33,7 @@ namespace NinjaBotCore.Modules.Wow
                 ChannelCheck cc, 
                 WarcraftLogs logsApi, 
                 RaiderIOApi rioApi, 
-                DiscordSocketClient client, 
+                DiscordShardedClient client, 
                 IConfigurationRoot config, 
                 ILogger<WowUtilities> logger
             )

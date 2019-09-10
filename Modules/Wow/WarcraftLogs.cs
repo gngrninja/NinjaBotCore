@@ -24,13 +24,13 @@ namespace NinjaBotCore.Modules.Wow
         private static List<Zones> _zones;
         private static List<CharClasses> _charClasses;
         private readonly IConfigurationRoot _config;
-        private DiscordSocketClient _client;
+        private DiscordShardedClient _client;
         private readonly WclApiRequestor _api;
         private readonly WclApiRequestor _apiCmd;
         private readonly ILogger _logger;
         private static CurrentRaidTier _currentRaidTier;
 
-        public WarcraftLogs(IConfigurationRoot config, ILogger<WarcraftLogs> logger, DiscordSocketClient client, bool throttle = true)
+        public WarcraftLogs(IConfigurationRoot config, ILogger<WarcraftLogs> logger, DiscordShardedClient client, bool throttle = true)
         {
             _logger = logger;
             _client = client;

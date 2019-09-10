@@ -16,10 +16,10 @@ namespace NinjaBotCore.Modules.Away
     {
         private static bool _isLinked = false;
         private static ChannelCheck _cc = null;
-        private static DiscordSocketClient _client;
+        private static DiscordShardedClient _client;
         private readonly ILogger _logger;
         //Work on way to do this when bot starts
-        public AwayCommands(DiscordSocketClient client, ILogger<AwayCommands> logger)
+        public AwayCommands(DiscordShardedClient client, ILogger<AwayCommands> logger)
         {
             _logger = logger;
             if (!_isLinked)
@@ -223,7 +223,7 @@ namespace NinjaBotCore.Modules.Away
                                 SocketGuild guild = (message.Channel as SocketGuildChannel)?.Guild;                                
                                 CommandContext context = new CommandContext(_client, message);
                                 //SocketGuild guildInfo = messageDetails.Discord.GetGuild(context.Guild.Id);
-                                //var client = context.Client as DiscordSocketClient;
+                                //var client = context.Client as DiscordShardedClient;
                                 EmbedBuilder embed = new EmbedBuilder();
                                 embed.WithColor(new Color(0, 71, 171));
 

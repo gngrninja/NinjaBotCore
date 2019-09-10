@@ -17,12 +17,12 @@ namespace NinjaBotCore.Modules.Fun
     {
         private static ChannelCheck _cc = null;
         private static OxfordApi _oxApi = null;        
-        private DiscordSocketClient _client;
+        private DiscordShardedClient _client;
         private CommandService _commands;
         private readonly IConfigurationRoot _config;
         private string _prefix;
 
-        public FunCommands(DiscordSocketClient client, CommandService commands, ChannelCheck cc, OxfordApi oxApi, IConfigurationRoot config)
+        public FunCommands(DiscordShardedClient client, CommandService commands, ChannelCheck cc, OxfordApi oxApi, IConfigurationRoot config)
         {
             try
             {            
