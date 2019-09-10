@@ -218,22 +218,27 @@ namespace NinjaBotCore.Modules.Wow
             return response;
         }
 
-        public static string GetWoWToken(string username, string password) {
-            System.Console.WriteLine("here");
-            string token = string.Empty;
-            HttpClient client = new HttpClient();
+        public static string GetWoWToken(string username, string password) {            
+            string token = string.Empty;            
             //httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "Your Oauth token");            
-            var content = new FormUrlEncodedContent(new[]
+            try
             {
-                new KeyValuePair<string, string>("grant_type", "client_credentials"),
-                new KeyValuePair<string, string>("client_id", username),
-                new KeyValuePair<string, string>("client_secret", password)
-            });
-            var result =  client.PostAsync("https://us.battle.net/oauth/token", content);
-            var contentString =  result.Result.Content.ReadAsStringAsync();
-            ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString.Result);
-            token = response.AccessToken;
-            System.Console.WriteLine($"Token: {token}");
+                HttpClient client = new HttpClient();
+                var content = new FormUrlEncodedContent(new[]
+                {
+                    new KeyValuePair<string, string>("grant_type", "client_credentials"),
+                    new KeyValuePair<string, string>("client_id", username),
+                    new KeyValuePair<string, string>("client_secret", password)
+                });
+                var result =  client.PostAsync("https://us.battle.net/oauth/token", content);
+                var contentString =  result.Result.Content.ReadAsStringAsync();
+                ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString.Result);
+                token = response.AccessToken;
+            }
+            catch (Exception ex)
+            {
+                System.Console.WriteLine($"Error while getting token: [{ex.Message}]!");
+            }            
             return token;
         }
 
