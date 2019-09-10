@@ -235,7 +235,9 @@ namespace NinjaBotCore.Modules.Wow
                 System.Console.WriteLine("after post");
                 var contentString =  result.Result.Content.ReadAsStringAsync();
                 ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString.Result);
+                System.Console.WriteLine("json conversion");
                 token = response.AccessToken;
+                System.Console.WriteLine(token);
             }
             catch (Exception ex)
             {
