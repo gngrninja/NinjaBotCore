@@ -93,6 +93,9 @@ namespace NinjaBotCore
             
 
 
+            //Start the bot
+            await serviceProvider.GetRequiredService<StartupService>().StartAsync(); 
+            
             //Load up services
             serviceProvider.GetRequiredService<WowApi>();
             serviceProvider.GetRequiredService<CommandHandler>();                 
@@ -102,8 +105,7 @@ namespace NinjaBotCore
             serviceProvider.GetRequiredService<RaiderIOApi>(); 
             serviceProvider.GetRequiredService<WowUtilities>();    
 
-            //Start the bot
-            await serviceProvider.GetRequiredService<StartupService>().StartAsync(); 
+
                                                    
             // Block this program until it is closed.
             await Task.Delay(-1);
