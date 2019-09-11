@@ -228,8 +228,7 @@ namespace NinjaBotCore.Modules.Wow
 
         public async Task<string> GetWoWToken(string username, string password) 
         {            
-            string token = string.Empty;            
-            //httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "Your Oauth token");            
+            string token = string.Empty;                        
             try
             {             
                 System.Console.WriteLine($"[{username}] [{password}]");
@@ -239,11 +238,7 @@ namespace NinjaBotCore.Modules.Wow
                     new KeyValuePair<string, string>("client_id", username),
                     new KeyValuePair<string, string>("client_secret", password)
                 });                
-                var result =  await _client.PostAsync("https://us.battle.net/oauth/token", content).ConfigureAwait(false);    
-                if (result != null)
-                {
-                    System.Console.WriteLine("not null!");
-                }                                           
+                var result =  await _client.PostAsync("https://us.battle.net/oauth/token", content).ConfigureAwait(false);                                            
                 var contentString = await result.Content.ReadAsStringAsync().ConfigureAwait(false);                
                 ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString);                
                 token = response.AccessToken;                                                                                                                  

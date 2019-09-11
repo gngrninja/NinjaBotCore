@@ -103,7 +103,7 @@ namespace NinjaBotCore
             serviceProvider.GetRequiredService<WowUtilities>();    
 
             //Start the bot
-            //await serviceProvider.GetRequiredService<StartupService>().StartAsync(); 
+            await serviceProvider.GetRequiredService<StartupService>().StartAsync(); 
                                                    
             // Block this program until it is closed.
             await Task.Delay(-1);

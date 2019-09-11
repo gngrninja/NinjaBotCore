@@ -571,77 +571,22 @@ namespace NinjaBotCore.Modules.Wow
                     sb.AppendLine($"__Notable achievements:__");
                     sb.AppendLine(foundAchievements);
                 }
+    
+                sb.AppendLine($"[{charName}'s Armory Page]({armoryInfo.armoryURL})");
 
-                sb.AppendLine($"Armory URL: {armoryInfo.armoryURL}");
-                sb.AppendLine($"Last Modified: **{_wowApi.UnixTimeStampToDateTime(armoryInfo.lastModified)}**");
-
+                embed.WithFooter(
+                    new EmbedFooterBuilder{
+                        Text = $"Last Modified: [{_wowApi.UnixTimeStampToDateTime(armoryInfo.lastModified)}]"
+                });                
+                sb.AppendLine();
+                sb.AppendLine($"Try the **{_prefix}rpi** command to get a character's Raider IO information!");                
+                sb.AppendLine();
                 embed.Description = sb.ToString();
                 embed.ThumbnailUrl = armoryInfo.thumbnailURL;
                 embed.Title = $"__Armory information for (**{charName}**) on **{realmName}** (Level {armoryInfo.level} {armoryInfo.genderName} {armoryInfo.raceName} {armoryInfo.className} ({armoryInfo.mainSpec}))__";
 
-                switch (armoryInfo.className.ToLower())
-                {
-                    case "monk":
-                        {
-                            embed.WithColor(new Color(0, 255, 0));
-                            break;
-                        }
-                    case "druid":
-                        {
-                            embed.WithColor(new Color(214, 122, 2));
-                            break;
-                        }
-                    case "death knight":
-                        {
-                            embed.WithColor(new Color(255, 0, 0));
-                            break;
-                        }
-                    case "demon hunter":
-                        {
-                            embed.WithColor(new Color(140, 0, 126));
-                            break;
-                        }
-                    case "hunter":
-                        {
-                            embed.WithColor(new Color(0, 255, 0));
-                            break;
-                        }
-                    case "mage":
-                        {
-                            embed.WithColor(new Color(0, 250, 255));
-                            break;
-                        }
-                    case "paladin":
-                        {
-                            embed.WithColor(new Color(255, 0, 220));
-                            break;
-                        }
-                    case "priest":
-                        {
-                            embed.WithColor(new Color(255, 255, 255));
-                            break;
-                        }
-                    case "rogue":
-                        {
-                            embed.WithColor(new Color(255, 255, 2));
-                            break;
-                        }
-                    case "shaman":
-                        {
-                            embed.WithColor(new Color(0, 0, 255));
-                            break;
-                        }
-                    case "warlock":
-                        {
-                            embed.WithColor(new Color(72, 0, 168));
-                            break;
-                        }
-                    case "warrior":
-                        {
-                            embed.WithColor(new Color(119, 55, 0));
-                            break;
-                        }
-                }
+                embed.WithColor(GetEmbedColorFromClass(armoryInfo.className.ToLower()));
+
                 await _cc.Reply(Context, embed);
             }
             catch (Exception ex)
@@ -650,6 +595,75 @@ namespace NinjaBotCore.Modules.Wow
                 await _cc.Reply(Context, $"Unable to find **{charName}**");
                 return;
             }
+        }
+
+        private Color GetEmbedColorFromClass(string className)
+        {
+            var color = new Color(0, 0, 255);
+            switch (className)
+            {
+                case "monk":
+                    {
+                        color = new Color(0, 255, 0);
+                        break;
+                    }
+                case "druid":
+                    {
+                        color = new Color(214, 122, 2);
+                        break;
+                    }
+                case "death knight":
+                    {
+                        color=new Color(255, 0, 0);
+                        break;
+                    }
+                case "demon hunter":
+                    {
+                        color = new Color(140, 0, 126);
+                        break;
+                    }
+                case "hunter":
+                    {
+                        color = new Color(0, 255, 0);
+                        break;
+                    }
+                case "mage":
+                    {
+                        color = new Color(0, 250, 255);
+                        break;
+                    }
+                case "paladin":
+                    {
+                        color = new Color(255, 0, 220);
+                        break;
+                    }
+                case "priest":
+                    {
+                        color = new Color(255, 255, 255);
+                        break;
+                    }
+                case "rogue":
+                    {
+                        color = new Color(255, 255, 2);
+                        break;
+                    }
+                case "shaman":
+                    {
+                        color = new Color(0, 0, 255);
+                        break;
+                    }
+                case "warlock":
+                    {
+                        color = new Color(72, 0, 168);
+                        break;
+                    }
+                case "warrior":
+                    {
+                        color = new Color(119, 55, 0);
+                        break;
+                    }
+            }
+            return color;
         }
 
         [Command("logs", RunMode = RunMode.Async)]

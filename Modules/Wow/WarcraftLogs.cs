@@ -43,7 +43,7 @@ namespace NinjaBotCore.Modules.Wow
                 CharClasses = this.GetCharClasses().Result;
                 Zones = this.GetZones().Result;
                 _currentRaidTier = this.SetCurrentTier();
-                //this.StartTimer();
+                this.StartTimer();
             }
             catch (Exception ex)
             {
@@ -471,6 +471,7 @@ namespace NinjaBotCore.Modules.Wow
                                         ISocketMessageChannel channel = _client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
                                         if (channel != null)
                                         {
+                                            _logger.LogInformation($"Posting log for [{guild.WowGuild}] on [{guild.WowRealm}] for server [{guild.ServerName}]");
                                             var embed = new EmbedBuilder();
                                             embed.Title = $"New log found for [{guild.WowGuild}]!";
                                             StringBuilder sb = new StringBuilder();
@@ -490,7 +491,7 @@ namespace NinjaBotCore.Modules.Wow
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError($"Error checking for logs [{guild.WowGuild}]:[{guild.WowRealm}]:[{guild.WowRealm}]! -> [{ex.Message}]");
+                        //_logger.LogError($"Error checking for logs [{guild.WowGuild}]:[{guild.WowRealm}]:[{guild.WowRealm}]! -> [{ex.Message}]");
                     }
                 }
                 _logger.LogInformation("Finished WCL Auto Posting...");
