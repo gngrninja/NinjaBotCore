@@ -7,4 +7,4 @@ before_build:
 platform: Any CPU
 # build Configuration, i.e. Debug, Release, etc.
 configuration: Debug
-#
+
