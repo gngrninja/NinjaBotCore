@@ -160,15 +160,10 @@ namespace NinjaBotCore.Modules.Wow
             url = $"{prefix}{url}{key}";
 
             _logger.LogInformation($"Wow API request to {url}");
-
-            using (HttpClient httpClient = new HttpClient())
-            {
-                httpClient.DefaultRequestHeaders
-                    .Accept
-                    .Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                //test = httpClient.PostAsJsonAsync<FaceRequest>(fullUrl, request).Result;                             
-                response = httpClient.GetStringAsync(url).Result;
-            }
+            _client.DefaultRequestHeaders
+                .Accept
+                .Add(new MediaTypeWithQualityHeaderValue("application/json"));                                             
+            response = _client.GetStringAsync(url).Result;
 
             return response;
         }
@@ -196,15 +191,11 @@ namespace NinjaBotCore.Modules.Wow
 
             _logger.LogInformation($"Wow API request to {url}");
 
-            using (HttpClient httpClient = new HttpClient())
-            {
-                httpClient.DefaultRequestHeaders
+            _client.DefaultRequestHeaders
                     .Accept
-                    .Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                //test = httpClient.PostAsJsonAsync<FaceRequest>(fullUrl, request).Result;                             
-                response = httpClient.GetStringAsync(url).Result;
-            }
-        
+                    .Add(new MediaTypeWithQualityHeaderValue("application/json"));                
+            response = _client.GetStringAsync(url).Result;                    
+
             return response;
         }
 
@@ -215,14 +206,12 @@ namespace NinjaBotCore.Modules.Wow
 
             _logger.LogInformation($"Wow API request to {url}");
 
-            using (HttpClient httpClient = new HttpClient())
-            {
-                httpClient.DefaultRequestHeaders
-                    .Accept
-                    .Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                response = httpClient.GetStringAsync(url).Result;
-            }
-            
+
+            _client.DefaultRequestHeaders
+                .Accept
+                .Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = _client.GetStringAsync(url).Result;
+                        
             return response;
         }
 
@@ -230,8 +219,7 @@ namespace NinjaBotCore.Modules.Wow
         {            
             string token = string.Empty;                        
             try
-            {             
-                System.Console.WriteLine($"[{username}] [{password}]");
+            {                             
                 var content = new FormUrlEncodedContent(new[]
                 {
                     new KeyValuePair<string, string>("grant_type", "client_credentials"),
@@ -280,6 +268,7 @@ namespace NinjaBotCore.Modules.Wow
             w = JsonConvert.DeserializeObject<WowRealm>(GetAPIRequest(url, locale: localeName, region: region));
             return w;
         }
+        
         public async Task<List<WowAuctions>> GetAuctionsByRealm(string realmName, string regionName = "us")
         {
             AuctionsModel.AuctionFile file;
@@ -720,6 +709,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             return chars;
         }
+        
         public async Task WoWTokenTimer(Action action, TimeSpan interval, CancellationToken token)
         {
             try

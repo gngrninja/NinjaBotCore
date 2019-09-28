@@ -21,20 +21,19 @@ namespace NinjaBotCore.Modules.Admin
         private ChannelCheck _cc;
         private readonly ILogger _logger;
 
-        public UserInteraction(IServiceProvider provider, ILogger<UserInteraction> logger)
+        public UserInteraction(IServiceProvider provider)
         {
-            _logger = logger;
             _provider = provider;
-            _client = _provider.GetService<DiscordShardedClient>();
-            _cc = _provider.GetService<ChannelCheck>();
+            _logger = _provider.GetRequiredService<ILogger<UserInteraction>>();            
+            _client = _provider.GetRequiredService<DiscordShardedClient>();
+            _cc = _provider.GetRequiredService<ChannelCheck>();
             _client.UserJoined += HandleGreeting;
             _client.UserLeft += HandleParting;
             _logger.LogInformation($"UserInteractions loaded");
         }
 
         private async Task HandleGreeting(SocketGuildUser user)
-        {
-            //Maybe new ver of reply in ChannelCheck class? 
+        {             
             ServerGreeting shouldGreet = GetGreeting(user);
             if (shouldGreet != null && shouldGreet.GreetUsers == true)
             {
@@ -49,6 +48,13 @@ namespace NinjaBotCore.Modules.Admin
                     messageChannel = user.Guild.DefaultChannel as ISocketMessageChannel;
                 }     
                 var embed = new EmbedBuilder();
+                embed.WithAuthor(
+                    new EmbedAuthorBuilder
+                    {
+                        Name    = user.Guild.Name,
+                        IconUrl = user.Guild.IconUrl 
+                    }
+                );
                 embed.Title = $"[{user.Username}] has joined [**{user.Guild.Name}**]!";
                 sb.AppendLine($"{user.Mention}");
                 if (string.IsNullOrEmpty(shouldGreet.Greeting))
@@ -69,10 +75,9 @@ namespace NinjaBotCore.Modules.Admin
 
         private async Task HandleParting(SocketGuildUser user)
         {
-            ServerGreeting shouldGreet = GetGreeting(user);
-            var sb = new StringBuilder();
+            ServerGreeting shouldGreet = GetGreeting(user);            
             if (shouldGreet != null && shouldGreet.GreetUsers == true)
-            {
+            {                
                 ISocketMessageChannel messageChannel = null;
                 if (shouldGreet.GreetingChannelId != 0)
                 {
@@ -84,7 +89,15 @@ namespace NinjaBotCore.Modules.Admin
                 }                
                 if (messageChannel != null)
                 {
+                    var sb = new StringBuilder();
                     var embed = new EmbedBuilder();
+                    embed.WithAuthor(
+                        new EmbedAuthorBuilder
+                        {
+                            Name    = user.Guild.Name,
+                            IconUrl = user.Guild.IconUrl 
+                        }
+                    );                    
                     embed.Title = $"[{user.Username}] has left [**{user.Guild.Name}**]!";
                     sb.AppendLine($"{user.Mention}");
                     if (string.IsNullOrEmpty(shouldGreet.PartingMessage))
