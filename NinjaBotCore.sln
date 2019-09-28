@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.26124.0
 MinimumVisualStudioVersion = 15.0.26124.0
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NinjaBotCore", "src\NinjaBotCore.csproj", "{DCF134BC-FBBC-483A-9592-0F0BA40C089D}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NinjaBotCore", "src\NinjaBotCore.csproj", "{89385036-B0FC-400A-92EB-78E40343052D}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -18,17 +18,17 @@ Global
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{DCF134BC-FBBC-483A-9592-0F0BA40C089D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{DCF134BC-FBBC-483A-9592-0F0BA40C089D}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{DCF134BC-FBBC-483A-9592-0F0BA40C089D}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{DCF134BC-FBBC-483A-9592-0F0BA40C089D}.Debug|x64.Build.0 = Debug|Any CPU
-		{DCF134BC-FBBC-483A-9592-0F0BA40C089D}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{DCF134BC-FBBC-483A-9592-0F0BA40C089D}.Debug|x86.Build.0 = Debug|Any CPU
-		{DCF134BC-FBBC-483A-9592-0F0BA40C089D}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{DCF134BC-FBBC-483A-9592-0F0BA40C089D}.Release|Any CPU.Build.0 = Release|Any CPU
-		{DCF134BC-FBBC-483A-9592-0F0BA40C089D}.Release|x64.ActiveCfg = Release|Any CPU
-		{DCF134BC-FBBC-483A-9592-0F0BA40C089D}.Release|x64.Build.0 = Release|Any CPU
-		{DCF134BC-FBBC-483A-9592-0F0BA40C089D}.Release|x86.ActiveCfg = Release|Any CPU
-		{DCF134BC-FBBC-483A-9592-0F0BA40C089D}.Release|x86.Build.0 = Release|Any CPU
+		{89385036-B0FC-400A-92EB-78E40343052D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{89385036-B0FC-400A-92EB-78E40343052D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{89385036-B0FC-400A-92EB-78E40343052D}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{89385036-B0FC-400A-92EB-78E40343052D}.Debug|x64.Build.0 = Debug|Any CPU
+		{89385036-B0FC-400A-92EB-78E40343052D}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{89385036-B0FC-400A-92EB-78E40343052D}.Debug|x86.Build.0 = Debug|Any CPU
+		{89385036-B0FC-400A-92EB-78E40343052D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{89385036-B0FC-400A-92EB-78E40343052D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{89385036-B0FC-400A-92EB-78E40343052D}.Release|x64.ActiveCfg = Release|Any CPU
+		{89385036-B0FC-400A-92EB-78E40343052D}.Release|x64.Build.0 = Release|Any CPU
+		{89385036-B0FC-400A-92EB-78E40343052D}.Release|x86.ActiveCfg = Release|Any CPU
+		{89385036-B0FC-400A-92EB-78E40343052D}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
