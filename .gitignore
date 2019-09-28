@@ -4,7 +4,10 @@
 #Ignore build folders
 /bin/
 /obj/
-/Migrations/
+obj/
+bin/
+*/Migrations/
+/Migrations
 
 #Ignore db/log files
 *.db
