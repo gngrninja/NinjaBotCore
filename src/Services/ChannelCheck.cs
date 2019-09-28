@@ -24,7 +24,7 @@ namespace NinjaBotCore.Services
         //}
         public async Task SetGuildBotChannelAsync(ulong channelId, string channelName, ulong userId, string userName, string guildName, ulong guildId)
         {
-            await Task.Run(() =>
+            await Task.Run(async () =>
             {
                 using (var db = new NinjaBotEntities())
                 {
@@ -53,7 +53,7 @@ namespace NinjaBotCore.Services
                         currentChannel.SetByName = userName;
                         currentChannel.SetTime = DateTime.Now;
                     }
-                    db.SaveChangesAsync();
+                    await db.SaveChangesAsync();
                 }
             });
         }
@@ -61,6 +61,7 @@ namespace NinjaBotCore.Services
         public ChannelOutput GetGuildBotChannel(ulong guildId)
         {
             ChannelOutput outputChannel = new ChannelOutput();
+               
             using (var db = new NinjaBotEntities())
             {
                 outputChannel = db.ChannelOutputs.FirstOrDefault(o => o.ServerId == (long)guildId);
@@ -68,54 +69,61 @@ namespace NinjaBotCore.Services
             if (outputChannel == null)
             {
                 outputChannel = new ChannelOutput();
-            }
+            }                
+
             return outputChannel;
         }
 
         public async Task Reply(ICommandContext context, EmbedBuilder embed)
         {
-            ChannelOutput replyChannel;
-            var guildInfo = context.Guild;
-            if (guildInfo == null)
+            await Task.Run(async() =>
             {
-                replyChannel = new ChannelOutput();
-            }
-            else
-            {
-                replyChannel = GetGuildBotChannel(context.Guild.Id);
-            }
-            if (!string.IsNullOrEmpty(replyChannel.ChannelName))
-            {
-                var messageChannel = await context.Client.GetChannelAsync((ulong)replyChannel.ChannelId) as ISocketMessageChannel;
-                await messageChannel.SendMessageAsync("", false, embed);                
-            }
-            else
-            {
-                await context.Channel.SendMessageAsync("", false, embed);
-            }
+                ChannelOutput replyChannel;
+                var guildInfo = context.Guild;
+                if (guildInfo == null)
+                {
+                    replyChannel = new ChannelOutput();
+                }
+                else
+                {
+                    replyChannel = GetGuildBotChannel(context.Guild.Id);
+                }
+                if (!string.IsNullOrEmpty(replyChannel.ChannelName))
+                {
+                    var messageChannel = await context.Client.GetChannelAsync((ulong)replyChannel.ChannelId) as ISocketMessageChannel;
+                    await messageChannel.SendMessageAsync("", false, embed);
+                }
+                else
+                {
+                    await context.Channel.SendMessageAsync("", false, embed);
+                }
+            });            
         }
 
         public async Task Reply(ICommandContext context, string message)
         {
-            ChannelOutput replyChannel;
-            var guildInfo = context.Guild;
-            if (guildInfo == null)
+            await Task.Run(async () =>
             {
-                replyChannel = new ChannelOutput();
-            }
-            else
-            {
-                replyChannel = GetGuildBotChannel(context.Guild.Id);
-            }
-            if (!string.IsNullOrEmpty(replyChannel.ChannelName))
-            {
-                var messageChannel = await context.Client.GetChannelAsync((ulong)replyChannel.ChannelId) as ISocketMessageChannel;
-                await messageChannel.SendMessageAsync(message);
-            }
-            else
-            {
-                await context.Channel.SendMessageAsync(message);
-            }
+                ChannelOutput replyChannel;
+                var guildInfo = context.Guild;
+                if (guildInfo == null)
+                {
+                    replyChannel = new ChannelOutput();
+                }
+                else
+                {
+                    replyChannel = GetGuildBotChannel(context.Guild.Id);
+                }
+                if (!string.IsNullOrEmpty(replyChannel.ChannelName))
+                {
+                    var messageChannel = await context.Client.GetChannelAsync((ulong)replyChannel.ChannelId) as ISocketMessageChannel;
+                    await messageChannel.SendMessageAsync(message);
+                }
+                else
+                {
+                    await context.Channel.SendMessageAsync(message);
+                }
+            });            
         }
 
         public async Task SetLoadingEmoji(ICommandContext context)

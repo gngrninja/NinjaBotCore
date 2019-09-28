@@ -3,11 +3,11 @@
 
 #Ignore build folders
 /bin/
-/obj/
-obj/
 bin/
-*/Migrations/
-/Migrations
+obj/
+/obj/
+Migrations/
+/Migrations/
 
 #Ignore db/log files
 *.db
@@ -21,6 +21,7 @@ bin/
 #Ignore vscode folders
 /.vscode/
 /.vs/
+
 config.json.save
 .DS_Store
 ninjabot.db-journal
