@@ -25,8 +25,8 @@ namespace NinjaBotCore.Modules.Admin
         {
             _logger = logger;
             _provider = provider;
-            _client = _provider.GetService<DiscordShardedClient>();
-            _cc = _provider.GetService<ChannelCheck>();
+            _client = _provider.GetRequiredService<DiscordShardedClient>();
+            _cc = _provider.GetRequiredService<ChannelCheck>();
             _client.UserJoined += HandleGreeting;
             _client.UserLeft += HandleParting;
             _logger.LogInformation($"UserInteractions loaded");
@@ -34,37 +34,40 @@ namespace NinjaBotCore.Modules.Admin
 
         private async Task HandleGreeting(SocketGuildUser user)
         {
-            //Maybe new ver of reply in ChannelCheck class? 
-            ServerGreeting shouldGreet = GetGreeting(user);
-            if (shouldGreet != null && shouldGreet.GreetUsers == true)
+            await Task.Run(async () =>
             {
-                StringBuilder sb = new StringBuilder();
-                ISocketMessageChannel messageChannel = null;
-                if (shouldGreet.GreetingChannelId != 0)
+                //Maybe new ver of reply in ChannelCheck class? 
+                ServerGreeting shouldGreet = GetGreeting(user);
+                if (shouldGreet != null && shouldGreet.GreetUsers == true)
                 {
-                    messageChannel = user.Guild.GetChannel((ulong)shouldGreet.GreetingChannelId) as ISocketMessageChannel;
+                    StringBuilder sb = new StringBuilder();
+                    ISocketMessageChannel messageChannel = null;
+                    if (shouldGreet.GreetingChannelId != 0)
+                    {
+                        messageChannel = user.Guild.GetChannel((ulong)shouldGreet.GreetingChannelId) as ISocketMessageChannel;
+                    }
+                    else
+                    {
+                        messageChannel = user.Guild.DefaultChannel as ISocketMessageChannel;
+                    }
+                    var embed = new EmbedBuilder();
+                    embed.Title = $"[{user.Username}] has joined [**{user.Guild.Name}**]!";
+                    sb.AppendLine($"{user.Mention}");
+                    if (string.IsNullOrEmpty(shouldGreet.Greeting))
+                    {
+                        sb.AppendLine($"Welcome them! :hugging:");
+                        sb.AppendLine($"(or not, :shrug:)");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"{shouldGreet.Greeting}");
+                    }
+                    embed.Description = sb.ToString();
+                    embed.ThumbnailUrl = user.GetAvatarUrl();
+                    embed.WithColor(new Color(0, 255, 0));
+                    await messageChannel.SendMessageAsync("", false, embed);
                 }
-                else 
-                {
-                    messageChannel = user.Guild.DefaultChannel as ISocketMessageChannel;
-                }     
-                var embed = new EmbedBuilder();
-                embed.Title = $"[{user.Username}] has joined [**{user.Guild.Name}**]!";
-                sb.AppendLine($"{user.Mention}");
-                if (string.IsNullOrEmpty(shouldGreet.Greeting))
-                {
-                    sb.AppendLine($"Welcome them! :hugging:");
-                    sb.AppendLine($"(or not, :shrug:)");    
-                }
-                else
-                {
-                    sb.AppendLine($"{shouldGreet.Greeting}");
-                }
-                embed.Description = sb.ToString();
-                embed.ThumbnailUrl = user.GetAvatarUrl();
-                embed.WithColor(new Color(0, 255, 0));
-                await messageChannel.SendMessageAsync("", false, embed);
-            }
+            });
         }
 
         private async Task HandleParting(SocketGuildUser user)
