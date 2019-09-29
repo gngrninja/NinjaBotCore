@@ -187,59 +187,51 @@ namespace NinjaBotCore.Modules.Away
 
         private async Task AwayMentionFinder(SocketMessage messageDetails)
         {
-            if (messageDetails.Channel is IDMChannel)
+            await Task.Run(async () =>
             {
-                //do stuff
-            }
-            else if (messageDetails.Channel is IGuildChannel)
-            {
-                //do other stuff
-            }
-            var message = messageDetails as SocketUserMessage;
-            if (!messageDetails.Author.IsBot)
-            {
-                var userMentioned = messageDetails.MentionedUsers.FirstOrDefault();
-                if (userMentioned != null)
+                var message = messageDetails as SocketUserMessage;
+                if (!messageDetails.Author.IsBot)
                 {
-                    var awayData = new AwayData();
-                    var awayUser = awayData.getAwayUser(userMentioned.Username);
-                    if (awayUser != null)
+                    var userMentioned = messageDetails.MentionedUsers.FirstOrDefault();
+                    if (userMentioned != null)
                     {
-                        string awayDuration = string.Empty;
-                        if (awayUser.TimeAway.HasValue)
+                        var awayData = new AwayData();
+                        var awayUser = awayData.getAwayUser(userMentioned.Username);
+                        if (awayUser != null)
                         {
-                            var awayTime = DateTime.Now - awayUser.TimeAway;
-                            if (awayTime.HasValue)
+                            string awayDuration = string.Empty;
+                            if (awayUser.TimeAway.HasValue)
                             {
-                                awayDuration = $"**{awayTime.Value.Days}** days, **{awayTime.Value.Hours}** hours, **{awayTime.Value.Minutes}** minutes, and **{awayTime.Value.Seconds}** seconds";
-                            }
-                        }
-
-                        _logger.LogInformation($"Mentioned user {userMentioned.Username} -> {awayUser.UserName} -> {awayUser.Status}");
-                        if ((bool)awayUser.Status)
-                        {
-                            if (userMentioned.Username == (awayUser.UserName))
-                            {
-                                SocketGuild guild = (message.Channel as SocketGuildChannel)?.Guild;                                
-                                CommandContext context = new CommandContext(_client, message);
-                                //SocketGuild guildInfo = messageDetails.Discord.GetGuild(context.Guild.Id);
-                                //var client = context.Client as DiscordShardedClient;
-                                EmbedBuilder embed = new EmbedBuilder();
-                                embed.WithColor(new Color(0, 71, 171));
-
-                                if (!string.IsNullOrWhiteSpace(guild.IconUrl))
+                                var awayTime = DateTime.Now - awayUser.TimeAway;
+                                if (awayTime.HasValue)
                                 {
-                                    embed.ThumbnailUrl = userMentioned.GetAvatarUrl();
+                                    awayDuration = $"**{awayTime.Value.Days}** days, **{awayTime.Value.Hours}** hours, **{awayTime.Value.Minutes}** minutes, and **{awayTime.Value.Seconds}** seconds";
                                 }
+                            }
 
-                                embed.Title = $":clock: {awayUser.UserName} is away! :clock:";
-                                embed.Description = $"Since: **{awayUser.TimeAway}\n**Duration: {awayDuration}\nMessage: {awayUser.Message}";
-                                await messageDetails.Channel.SendMessageAsync("", false, embed);
+                            _logger.LogInformation($"Mentioned user {userMentioned.Username} -> {awayUser.UserName} -> {awayUser.Status}");
+                            if ((bool)awayUser.Status)
+                            {
+                                if (userMentioned.Username == (awayUser.UserName))
+                                {
+                                    SocketGuild guild = (message.Channel as SocketGuildChannel)?.Guild;
+                                    EmbedBuilder embed = new EmbedBuilder();
+                                    embed.WithColor(new Color(0, 71, 171));
+
+                                    if (!string.IsNullOrWhiteSpace(guild.IconUrl))
+                                    {
+                                        embed.ThumbnailUrl = userMentioned.GetAvatarUrl();
+                                    }
+
+                                    embed.Title = $":clock: {awayUser.UserName} is away! :clock:";
+                                    embed.Description = $"Since: **{awayUser.TimeAway}\n**Duration: {awayDuration}\nMessage: {awayUser.Message}";
+                                    await messageDetails.Channel.SendMessageAsync("", false, embed.Build());
+                                }
                             }
                         }
                     }
                 }
-            }
+            });
         }
     }
 }

@@ -18,18 +18,18 @@ namespace NinjaBotCore.Services
     {
         private CommandService _commands;
         private DiscordShardedClient _client;
-        private readonly IServiceProvider _provider;
         private readonly IConfigurationRoot _config;
         private readonly ILogger _logger;
+        private readonly IServiceProvider _services;
 
-        public CommandHandler(IServiceProvider provider, IConfigurationRoot config, ILogger<CommandHandler> logger)
+        public CommandHandler(IServiceProvider services)
         {
-            _config = config;
-            _provider = provider;
-            _client = _provider.GetService<DiscordShardedClient>();
-            _commands = _provider.GetService<CommandService>();
+            _services = services;
+            _config = services.GetRequiredService<IConfigurationRoot>();
+            _client = services.GetRequiredService<DiscordShardedClient>();
+            _commands = services.GetRequiredService<CommandService>();
             _client.MessageReceived += HandleCommand;            
-            _logger = logger;
+            _logger = services.GetRequiredService<ILogger<CommandHandler>>();
         }
 
         public async Task HandleCommand(SocketMessage parameterMessage)
@@ -74,7 +74,7 @@ namespace NinjaBotCore.Services
             }
 
             // Execute the Command, store the result            
-            var result = await _commands.ExecuteAsync(context, argPos, _provider);
+            var result = await _commands.ExecuteAsync(context, argPos, _services);
 
             await LogCommandUsage(context, result);
             // If the command failed, notify the user
@@ -101,16 +101,19 @@ namespace NinjaBotCore.Services
 
         private async Task LogCommandUsage(SocketCommandContext context, IResult result)
         {
-            if (context.Channel is IGuildChannel)
+            await Task.Run(async () =>
             {
-                var logTxt = $"User: [{context.User.Username}] Discord Server: [{context.Guild.Name}] -> [{context.Message.Content}]";
-                _logger.LogInformation(logTxt);
-            }
-            else
-            {
-                var logTxt = $"User: [{context.User.Username}] -> [{context.Message.Content}]";
-                _logger.LogInformation(logTxt);
-            }
+                if (context.Channel is IGuildChannel)
+                {
+                    var logTxt = $"User: [{context.User.Username}] Discord Server: [{context.Guild.Name}] -> [{context.Message.Content}]";
+                    _logger.LogInformation(logTxt);
+                }
+                else
+                {
+                    var logTxt = $"User: [{context.User.Username}] -> [{context.Message.Content}]";
+                    _logger.LogInformation(logTxt);
+                }
+            });
   
             /*
             string commandIssued = string.Empty;

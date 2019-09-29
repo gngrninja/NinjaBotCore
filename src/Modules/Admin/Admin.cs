@@ -86,7 +86,7 @@ namespace NinjaBotCore.Modules.Admin
                     embed.Title = "NinjaBot Announcement";
                     embed.Description = message;
                     embed.ThumbnailUrl = Context.User.GetAvatarUrl();
-                    await messageChannel.SendMessageAsync("", false, embed);
+                    await messageChannel.SendMessageAsync("", false, embed.Build());
                     System.Threading.Thread.Sleep(5000);
                 }
             }
@@ -581,8 +581,8 @@ namespace NinjaBotCore.Modules.Admin
             {
                 numberOfMessages = 25;
             }
-            var messagesToDelete = await Context.Channel.GetMessagesAsync(numberOfMessages).Flatten();
-            await Context.Channel.DeleteMessagesAsync(messagesToDelete);
+            var messagesToDelete = await Context.Channel.GetMessagesAsync(numberOfMessages).FlattenAsync();
+            await (Context.Channel as ITextChannel).DeleteMessagesAsync(messagesToDelete);        
         }
 
         [Command("set-note", RunMode = RunMode.Async)]

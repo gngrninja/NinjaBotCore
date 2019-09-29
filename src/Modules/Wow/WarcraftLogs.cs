@@ -482,7 +482,7 @@ namespace NinjaBotCore.Modules.Wow
                                             sb.AppendLine();
                                             embed.Description = sb.ToString();
                                             embed.WithColor(new Color(0, 0, 255));
-                                            await channel.SendMessageAsync("", false, embed);
+                                            await channel.SendMessageAsync("", false, embed.Build());
                                         }
                                     }
                                 }

@@ -75,7 +75,7 @@ namespace NinjaBotCore.Services
         }
 
         public async Task Reply(ICommandContext context, EmbedBuilder embed)
-        {
+        { 
             await Task.Run(async() =>
             {
                 ChannelOutput replyChannel;
@@ -91,11 +91,11 @@ namespace NinjaBotCore.Services
                 if (!string.IsNullOrEmpty(replyChannel.ChannelName))
                 {
                     var messageChannel = await context.Client.GetChannelAsync((ulong)replyChannel.ChannelId) as ISocketMessageChannel;
-                    await messageChannel.SendMessageAsync("", false, embed);
+                    await messageChannel.SendMessageAsync("", false, embed.Build());
                 }
                 else
                 {
-                    await context.Channel.SendMessageAsync("", false, embed);
+                    await context.Channel.SendMessageAsync("", false, embed.Build());
                 }
             });            
         }

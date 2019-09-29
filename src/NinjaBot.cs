@@ -90,8 +90,6 @@ namespace NinjaBotCore
 
             //Instantiate logger/tie-in logging
             serviceProvider.GetRequiredService<LoggingService>();
-            
-
 
             //Start the bot
             await serviceProvider.GetRequiredService<StartupService>().StartAsync();
@@ -103,10 +101,8 @@ namespace NinjaBotCore
             serviceProvider.GetRequiredService<AwayCommands>();            
             serviceProvider.GetRequiredService<WarcraftLogs>();
             serviceProvider.GetRequiredService<RaiderIOApi>(); 
-            serviceProvider.GetRequiredService<WowUtilities>();    
-
-
-                                                   
+            serviceProvider.GetRequiredService<WowUtilities>();
+            
             // Block this program until it is closed.
             await Task.Delay(-1);
         }
