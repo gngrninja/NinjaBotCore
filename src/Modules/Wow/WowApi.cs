@@ -423,7 +423,8 @@ namespace NinjaBotCore.Modules.Wow
             c.insetURL = insetUrl;
             string profilePicUrl = $"http://render-{regionName}.worldofwarcraft.com/character/{c.thumbnail.Replace("-avatar", "-profilemain")}";
             c.profilePicURL = profilePicUrl;
-            string armoryUrl = $"http://{regionName}.battle.net/wow/en/character/{c.realm}/{c.name}/advanced";
+                        
+            string armoryUrl = $"https://worldofwarcraft.com/{region}/character/{regionName}/{c.realm.Replace(" ","-")}/{c.name}";
             c.armoryURL = armoryUrl;
             return c;
         }

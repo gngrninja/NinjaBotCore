@@ -146,7 +146,10 @@ namespace NinjaBotCore.Modules.Wow
             }
             charInfo.charName = charName;
             charInfo.realmName = realmName;
-            charInfo.locale = guildObject.locale;
+            if (!string.IsNullOrEmpty(guildObject.locale))
+            {
+                charInfo.locale = guildObject.locale;
+            }       
             return charInfo;
         }
 

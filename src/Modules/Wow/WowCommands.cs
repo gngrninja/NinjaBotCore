@@ -93,8 +93,17 @@ namespace NinjaBotCore.Modules.Wow
                 {
                     mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"));
                     armoryInfo = _wowApi.GetCharInfo(charInfo.charName, charInfo.realmName);
-                }                
-                switch (charInfo.locale.Substring(3).ToLower())
+                }      
+                var locale = string.Empty;
+                if (!string.IsNullOrEmpty(charInfo.locale))
+                {
+                    locale = charInfo.locale.Substring(3).ToLower();
+                }          
+                else if (!string.IsNullOrEmpty(charInfo.regionName))
+                {
+                    locale = charInfo.regionName;
+                }
+                switch (locale.ToLower())
                 {
                     case "us":
                         {
