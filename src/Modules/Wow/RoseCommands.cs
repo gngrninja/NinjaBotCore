@@ -452,3 +452,4 @@ namespace NinjaBotCore.Modules.Wow
         }
     }
 }
+
