@@ -34,6 +34,7 @@ namespace NinjaBotCore.Database
         public virtual DbSet<PrefixList> PrefixList { get; set; }
         public virtual DbSet<CharStats> CharStats { get; set; }
         public virtual DbSet<CurrentRaidTier> CurrentRaidTier { get; set; }
+        public virtual DbSet<WowMChar> WowMChar { get; set; }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
