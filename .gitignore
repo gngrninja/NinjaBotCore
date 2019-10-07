@@ -10,7 +10,7 @@ Migrations/
 /Migrations/
 
 #Ignore db/log files
-*.db
+*.db*
 *.db3
 *.log
 
