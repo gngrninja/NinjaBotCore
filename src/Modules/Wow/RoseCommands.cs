@@ -375,7 +375,7 @@ namespace NinjaBotCore.Modules.Wow
                 WowMChar findMe = null;
                 using (var db = new NinjaBotEntities())
                 {
-                    findMe = db.WowMChar.Where(d => d.ServerId == (long)Context.Guild.Id && d.CharName.ToLower().Contains(charName)).FirstOrDefault();
+                    findMe = db.WowMChar.Where(d => d.ServerId == (long)Context.Guild.Id && d.CharName.ToLower().Contains(charName.ToLower())).FirstOrDefault();
                     if (findMe != null)
                     {
                         var fb = new StringBuilder();
