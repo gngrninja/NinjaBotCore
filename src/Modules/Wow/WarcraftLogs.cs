@@ -29,6 +29,8 @@ namespace NinjaBotCore.Modules.Wow
         private readonly WclApiRequestor _apiCmd;
         private readonly ILogger _logger;
         private static CurrentRaidTier _currentRaidTier;
+        private readonly WclClassicApiRequestor _apiClassic;
+        private readonly WclClassicApiRequestor _apiClassicCmd;
 
         public WarcraftLogs(IConfigurationRoot config, ILogger<WarcraftLogs> logger, DiscordShardedClient client, bool throttle = true)
         {
@@ -40,6 +42,8 @@ namespace NinjaBotCore.Modules.Wow
             {
                 _api = throttle ? new ApiRequestorThrottle(_config["WarcraftLogsApi"]) : new WclApiRequestor(_config["WarcraftLogsApi"]);
                 _apiCmd = throttle ? new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"]) : new WclApiRequestor(_config["WarcraftLogsApiCmd"]);
+                _apiClassic = throttle ? new ApiRequestorThrottleClassic(_config["WarcraftLogsApi"]) : new WclClassicApiRequestor(_config["WarcraftLogsApi"]);
+                _apiClassicCmd = throttle ? new ApiRequestorThrottleClassic(_config["WarcraftLogsApiCmd"]) : new WclClassicApiRequestor(_config["WarcraftLogsApiCmd"]);                
                 CharClasses = this.GetCharClasses().Result;
                 Zones = this.GetZones().Result;
                 _currentRaidTier = this.SetCurrentTier();
@@ -109,6 +113,20 @@ namespace NinjaBotCore.Modules.Wow
             string url = string.Empty;
             url = $"zones?";
             return await _api.Get<List<Zones>>(url);
+        }
+
+        public async Task<List<Reports>> GetReportsFromGuildClassic(string guildName, string realm, string region, bool isList = false, bool flip = false)
+        {
+            string url = string.Empty;           
+            url = $"reports/guild/{guildName.Replace(" ", "%20")}/{realm}/{region.ToLower()}?";
+            if (flip) 
+            {
+                return await _apiClassic.Get<List<Reports>>(url);
+            }
+            else
+            {
+                return await _apiClassicCmd.Get<List<Reports>>(url);
+            } 
         }
 
         public async Task<List<Reports>> GetReportsFromGuild(string guildName, string realm, string region, bool isList = false, bool flip = false)
