@@ -22,12 +22,14 @@ namespace NinjaBotCore.Modules.Wow
         private readonly HttpClient _client;
         private readonly string _apiKey;
         private string apiKey;
+        private string _baseUrl;
 
-        public WclApiRequestor(string apiKey)
-        {
+        public WclApiRequestor(string apiKey, string baseUrl)
+        {          
+            _baseUrl = baseUrl;  
             _client = new HttpClient
             {
-                BaseAddress = new Uri("https://www.warcraftlogs.com:443/v1/"),
+                BaseAddress = new Uri(_baseUrl),
             };
             _client.DefaultRequestHeaders
                     .Accept
@@ -36,7 +38,7 @@ namespace NinjaBotCore.Modules.Wow
         }
 
         public async Task<T> Get<T>(string relativeUrl)
-        {
+        {            
             using (var request = new HttpRequestMessage(HttpMethod.Get, $"{relativeUrl}api_key={_apiKey}"))
             using (var response = await SendAsync(request))
             {
@@ -61,7 +63,9 @@ namespace NinjaBotCore.Modules.Wow
                 if (string.IsNullOrEmpty(errorMessage))
                 {
                     throw new Exception("No message!");
-                } else {
+                } 
+                else 
+                {
                     throw new Exception($"{errorMessage}");
                 }
 

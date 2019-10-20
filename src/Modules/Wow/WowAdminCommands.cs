@@ -92,8 +92,8 @@ namespace NinjaBotCore.Modules.Wow
                                             using (var db = new NinjaBotEntities())
                                             {
                                                 var latestForGuild = db.LogMonitoring.Where(l => l.ServerId == guild.ServerId).FirstOrDefault();
-                                                latestForGuild.LatestLog = startTime;
-                                                latestForGuild.ReportId = latestLog.id;
+                                                latestForGuild.LatestLogRetail = startTime;
+                                                latestForGuild.RetailReportId = latestLog.id;
                                                 await db.SaveChangesAsync();
                                             }
                                             //System._logger.LogInformation($"Updated [{watchGuild.ServerName}] -> [{latestLog.id}] [{latestLog.owner}]!");
