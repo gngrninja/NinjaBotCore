@@ -36,8 +36,7 @@ namespace NinjaBotCore.Modules.Wow
         {
             _logger = logger;
             _client = client;
-            _config = config;
-            
+            _config = config;            
             try 
             {
                 _api = throttle ? new ApiRequestorThrottle(_config["WarcraftLogsApi"], baseUrl: "https://www.warcraftlogs.com:443/v1/") : new WclApiRequestor(_config["WarcraftLogsApi"], baseUrl: "https://www.warcraftlogs.com:443/v1/");
@@ -47,6 +46,7 @@ namespace NinjaBotCore.Modules.Wow
                 CharClasses = this.GetCharClasses().Result;
                 Zones = this.GetZones().Result;
                 _currentRaidTier = this.SetCurrentTier();
+                this.MigrateOldReports();
                 this.StartTimer();
             }
             catch (Exception ex)
@@ -390,19 +390,18 @@ namespace NinjaBotCore.Modules.Wow
             return dtDateTime;
         }
 
-        public async Task WarcraftLogsTimer(Action action, TimeSpan interval, CancellationToken token)
+        public async Task WarcraftLogsTimer(Action action, CancellationToken token)
         {
             try
             {
                 while (!token.IsCancellationRequested)
                 {
-                    action();
-                    await Task.Delay(interval, token);
+                    action();   
+                    await Task.Delay(TimeSpan.FromSeconds(1800),token);                                     
                 }
             }
             catch (TaskCanceledException ex)
-            {
-
+            {                            
             }
         }
 
@@ -410,7 +409,7 @@ namespace NinjaBotCore.Modules.Wow
         {
             TokenSource = new CancellationTokenSource();
             var timerAction = new Action(CheckForNewLogs);
-            await WarcraftLogsTimer(timerAction, TimeSpan.FromSeconds(240), TokenSource.Token);
+            await WarcraftLogsTimer(timerAction, TokenSource.Token);
         }
 
         public async Task StopTimer()
@@ -420,38 +419,48 @@ namespace NinjaBotCore.Modules.Wow
 
         async void CheckForNewLogs()
         {
-            List<WowGuildAssociations> guildList = null;
-            List<LogMonitoring> logWatchList = null;
-            List<WowClassicGuild> cGuildList = null;            
-            bool flip = true;
-            try
+            var _ = Task.Run(async () =>
             {
-
-                using (var db = new NinjaBotEntities())
+                try
                 {
-                    guildList = db.WowGuildAssociations.ToList();
-                    logWatchList = db.LogMonitoring.ToList();
-                    cGuildList = db.WowClassicGuild.ToList();
+                    List<WowGuildAssociations> guildList = null;
+                    List<LogMonitoring> logWatchList = null;
+                    List<WowClassicGuild> cGuildList = null;            
+                    bool flip = true;
+                    try
+                    {
+                        using (var db = new NinjaBotEntities())
+                        {
+                            guildList = db.WowGuildAssociations.ToList();
+                            logWatchList = db.LogMonitoring.ToList();
+                            cGuildList = db.WowClassicGuild.ToList();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogInformation($"Error getting guild/logwatch list -> [{ex.Message}]");
+                    }
+                    if (guildList != null)
+                    {
+                        _logger.LogInformation("Starting WCL Auto Posting...");
+                        foreach (var guild in guildList)
+                        {
+                            await PerformLogCheck(logWatchList, flip, guild);
+                        }
+                        foreach (var guild in cGuildList)
+                        {
+                            await PerformLogCheck(logWatchList, flip, guild);
+                        }
+                        _logger.LogInformation("Finished WCL Auto Posting...");
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogInformation($"Error getting guild/logwatch list -> [{ex.Message}]");
-            }
-            if (guildList != null)
-            {
-                _logger.LogInformation("Starting WCL Auto Posting...");
-                foreach (var guild in guildList)
+                finally
                 {
-                    await PerformLogCheck(logWatchList, flip, guild);
+                    await this.StopTimer();
+                    Thread.Sleep(TimeSpan.FromSeconds(10));
+                    await this.StartTimer();
                 }
-                foreach (var guild in cGuildList)
-                {
-                    await PerformLogCheck(logWatchList, flip, guild);
-                }
-                _logger.LogInformation("Finished WCL Auto Posting...");
-            }
-
+            });                       
         }
 
         private async Task PerformLogCheck(List<LogMonitoring> logWatchList, bool flip, WowGuildAssociations guild)
@@ -490,7 +499,7 @@ namespace NinjaBotCore.Modules.Wow
                         {
                             flip = true;
                         }
-                        if (logs != null)
+                        if (logs != null && logs.Count > 0)
                         {
                             var latestLog = logs[0];
                             DateTime startTime = UnixTimeStampToDateTime(latestLog.start);
@@ -526,7 +535,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                //_logger.LogError($"Error checking for logs [{guild.WowGuild}]:[{guild.WowRealm}]:[{guild.WowRealm}]! -> [{ex.Message}]");
+                _logger.LogError($"Error checking for logs [{guild.WowGuild}]:[{guild.WowRealm}]:[{guild.WowRealm}]! -> [{ex.Message}]");
             }            
         }
 
@@ -573,8 +582,9 @@ namespace NinjaBotCore.Modules.Wow
                                     StringBuilder sb = new StringBuilder();
                                     sb.AppendLine($"[__**{latestLog.title}** **/** **{latestLog.zoneName}**__]({latestLog.reportURL})");
                                     sb.AppendLine($"\t:timer: Start time: **{UnixTimeStampToDateTime(latestLog.start)}**");
+                                    sb.AppendLine($"\t:pencil2: Created by [**{latestLog.owner}**]");                                    
                                     //sb.AppendLine($"\tLink: ***");
-                                    sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{latestLog.id}) | :sob: [WipeFest](https://www.wipefest.net/report/{latestLog.id}) ");
+                                    //sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{latestLog.id}) | :sob: [WipeFest](https://www.wipefest.net/report/{latestLog.id}) ");
                                     sb.AppendLine();
                                     embed.Description = sb.ToString();
                                     embed.WithColor(new Color(0, 0, 255));
@@ -604,5 +614,31 @@ namespace NinjaBotCore.Modules.Wow
             }
             return currentTier;
         }
+
+        private void MigrateOldReports()
+        {
+            List<LogMonitoring> logWatchList = null;         
+            try
+            {
+                using (var db = new NinjaBotEntities())
+                {
+                    logWatchList = db.LogMonitoring.ToList();
+                    foreach (var entry in logWatchList.Where(r => !string.IsNullOrEmpty(r.ReportId)))
+                    {
+                        var oldReportId = entry.ReportId;
+                        var oldLatestDate = entry.LatestLog;
+                        entry.LatestLogRetail = oldLatestDate;
+                        entry.RetailReportId = oldReportId;  
+                        entry.ReportId = string.Empty;
+                        System.Console.WriteLine($"Updating [{entry.ServerName}]...");    
+                        db.SaveChanges();                                
+                    }                                        
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error getting log watch list -> [{ex.Message}]");
+            }
+        }        
     }
 }
