@@ -59,7 +59,8 @@ namespace NinjaBotCore
                     LogLevel = LogSeverity.Verbose,
                     CaseSensitiveCommands = false, 
                     ThrowOnError = false 
-                }))                        
+                }))  
+                .AddHttpClient()                      
                 .AddSingleton<WowApi>()                                                
                 .AddSingleton<WowUtilities>()
                 .AddSingleton<WarcraftLogs>()
@@ -75,10 +76,7 @@ namespace NinjaBotCore
                 .AddSingleton<RaiderIOApi>()
                 .AddSingleton<YouTubeApi>()                
                 .AddSingleton<AudioService>()
-                .AddSingleton<LoggingService>();   
-                
-                //Add http client     
-                services.AddHttpClient(); 
+                .AddSingleton<LoggingService>();                   
 
             //Add logging                    
             ConfigureServices(services);    
