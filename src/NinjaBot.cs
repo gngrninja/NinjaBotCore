@@ -39,11 +39,6 @@ namespace NinjaBotCore
 
         public async Task StartAsync()
         {    
-            Log.Logger = new LoggerConfiguration()
-                .WriteTo.File("logs/njabot.log", rollingInterval: RollingInterval.Day)
-                .WriteTo.Console()      
-                .CreateLogger();  
-
             //Create the configuration
             var _builder = new ConfigurationBuilder()
                 .SetBasePath(AppContext.BaseDirectory)
@@ -65,7 +60,7 @@ namespace NinjaBotCore
                     CaseSensitiveCommands = false, 
                     ThrowOnError = false 
                 }))                        
-                //.AddSingleton<WowApi>()                                                
+                .AddSingleton<WowApi>()                                                
                 .AddSingleton<WowUtilities>()
                 .AddSingleton<WarcraftLogs>()
                 .AddSingleton<ChannelCheck>()   
@@ -81,13 +76,9 @@ namespace NinjaBotCore
                 .AddSingleton<YouTubeApi>()                
                 .AddSingleton<AudioService>()
                 .AddSingleton<LoggingService>();   
-
-                //Add http clients             
-                //services.AddHttpClient<IWowApi, WowApi>(); 
-                //services.AddHttpClient();
                 
-                //services.AddHttpClient<IWclApiRequestor, WclApiRequestor>();
-                //services.AddHttpClient<IApiRequestorThrottle, ApiRequestorThrottle>();
+                //Add http client     
+                services.AddHttpClient(); 
 
             //Add logging                    
             ConfigureServices(services);    
@@ -98,19 +89,17 @@ namespace NinjaBotCore
             //Instantiate logger/tie-in logging
             serviceProvider.GetRequiredService<LoggingService>();
 
-
+            //Start the bot
+            await serviceProvider.GetRequiredService<StartupService>().StartAsync();
 
             //Load up services
             serviceProvider.GetRequiredService<CommandHandler>();
             serviceProvider.GetRequiredService<UserInteraction>();            
             serviceProvider.GetRequiredService<AwayCommands>();            
-            //serviceProvider.GetRequiredService<WarcraftLogs>();
+            serviceProvider.GetRequiredService<WarcraftLogs>();
             serviceProvider.GetRequiredService<RaiderIOApi>(); 
-            serviceProvider.GetRequiredService<WowUtilities>();
-            
-            //Start the bot
-            await serviceProvider.GetRequiredService<StartupService>().StartAsync();
-
+            serviceProvider.GetRequiredService<WowUtilities>();            
+                        
             // Block this program until it is closed.
             await Task.Delay(-1);
         }
@@ -118,7 +107,50 @@ namespace NinjaBotCore
         private static void ConfigureServices(IServiceCollection services)
         {
             services.AddLogging(configure => configure.AddSerilog());
-        }
 
+            var logLevel = Environment.GetEnvironmentVariable("NJA_LOG_LEVEL");
+            var level = Serilog.Events.LogEventLevel.Error;
+            if (!string.IsNullOrEmpty(logLevel))
+            {
+                switch (logLevel.ToLower())
+                {
+                    case "error":
+                    {
+                        level = Serilog.Events.LogEventLevel.Error;
+                        break;
+                    }
+                    case "info":
+                    {
+                        level = Serilog.Events.LogEventLevel.Information;
+                        break;
+                    }
+                    case "debug":
+                    {
+                        level = Serilog.Events.LogEventLevel.Debug;
+                        break;
+                    }
+                    case "crit":
+                    {
+                        level = Serilog.Events.LogEventLevel.Fatal;
+                        break;
+                    }
+                    case "warn":
+                    {
+                        level = Serilog.Events.LogEventLevel.Warning;
+                        break;
+                    }
+                    case "trace":
+                    {
+                        level = Serilog.Events.LogEventLevel.Debug;
+                        break;
+                    }
+                }
+            }                                 
+            Log.Logger = new LoggerConfiguration()
+                    .WriteTo.File("logs/njabot.log", rollingInterval: RollingInterval.Day)
+                    .WriteTo.Console()             
+                    .MinimumLevel.Is(level)                                                                          
+                    .CreateLogger();  
+        }
     }
 }

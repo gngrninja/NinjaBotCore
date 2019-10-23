@@ -29,23 +29,15 @@ namespace NinjaBotCore.Modules.Wow
         public string _prefix;
         public readonly ILogger _logger;
         
-        public WowUtilities(
-                IServiceProvider services, 
-                ChannelCheck cc, 
-                WarcraftLogs logsApi, 
-                RaiderIOApi rioApi, 
-                DiscordShardedClient client, 
-                IConfigurationRoot config, 
-                ILogger<WowUtilities> logger
-            )
+        public WowUtilities(IServiceProvider services)
         {
-            _logger = logger;
-            _cc = cc;            
-            _logsApi = logsApi;            
-            _wowApi = services.GetRequiredService<IWowApi>() as WowApi;
-            _rioApi = rioApi;                                    
-            _client = client;            
-            _config = config;
+            _logger = services.GetRequiredService<ILogger<WowUtilities>>();
+            _cc = services.GetRequiredService<ChannelCheck>();
+            _logsApi = services.GetRequiredService<WarcraftLogs>();            
+            _wowApi = services.GetRequiredService<WowApi>();
+            _rioApi = services.GetRequiredService<RaiderIOApi>();
+            _client = services.GetRequiredService<DiscordShardedClient>();            
+            _config = services.GetRequiredService<IConfigurationRoot>();
             _prefix = _config["prefix"];
         }
 

@@ -30,26 +30,16 @@ namespace NinjaBotCore.Modules.Wow
         private readonly ILogger _logger;
         private WowUtilities _wowUtils;
 
-        public WowCommands(
-                IServiceProvider services,
-                ChannelCheck cc, 
-                WarcraftLogs logsApi, 
-                RaiderIOApi rioApi, 
-                DiscordShardedClient client, 
-                IConfigurationRoot config, 
-                WowUtilities wowUtilities,
-                ILogger<WowCommands> logger
-            )
+        public WowCommands(IServiceProvider services)
         {
-            _logger   = logger;
-            _cc       = cc;            
-            _logsApi  = logsApi;            
-            _wowApi = services.GetRequiredService<IWowApi>() as WowApi;
-            _rioApi   = rioApi;                                    
-            _client   = client;            
-            _config   = config;
-            _prefix   = _config["prefix"];
-            _wowUtils = wowUtilities;
+            _logger = services.GetRequiredService<ILogger<WowCommands>>();
+            _cc = services.GetRequiredService<ChannelCheck>();
+            _logsApi = services.GetRequiredService<WarcraftLogs>();            
+            _wowApi = services.GetRequiredService<WowApi>();
+            _rioApi = services.GetRequiredService<RaiderIOApi>();
+            _client = services.GetRequiredService<DiscordShardedClient>();            
+            _config = services.GetRequiredService<IConfigurationRoot>();
+            _wowUtils = services.GetRequiredService<WowUtilities>();
         }
 
         [Command("shunt", RunMode = RunMode.Async)]

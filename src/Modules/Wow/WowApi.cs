@@ -34,11 +34,11 @@ namespace NinjaBotCore.Modules.Wow
         private readonly ILogger _logger;
         private HttpClient _client;
 
-        public WowApi(IServiceProvider services, HttpClient client) 
+        public WowApi(IServiceProvider services) 
         {
             try
             {                
-                _client = client;
+                _client = services.GetRequiredService<IHttpClientFactory>().CreateClient();
                 _config = services.GetRequiredService<IConfigurationRoot>();
                 _logger = services.GetRequiredService<ILogger<WowApi>>();
                 this.StartTimer();

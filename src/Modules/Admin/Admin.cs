@@ -10,6 +10,8 @@ using NinjaBotCore.Database;
 using System.Collections.Generic;
 using Microsoft.Extensions.Configuration;
 using NinjaBotCore.Services;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace NinjaBotCore.Modules.Admin
 {
@@ -20,15 +22,17 @@ namespace NinjaBotCore.Modules.Admin
         private static ChannelCheck _cc;
         private readonly IConfigurationRoot _config;
         private string _prefix;
+        private readonly ILogger<Admin> _logger;
 
-        public Admin(DiscordShardedClient client, ChannelCheck cc, IConfigurationRoot config)
+        public Admin(IServiceProvider services)
         {            
-            _client = client;            
-            _cc = cc;
-            _config = config;            
+            _client = services.GetRequiredService<DiscordShardedClient>();
+            _cc = services.GetRequiredService<ChannelCheck>();
+            _config = services.GetRequiredService<IConfigurationRoot>();            
             _prefix = _config["prefix"];
+            _logger = services.GetRequiredService<ILogger<Admin>>();
             
-            Console.WriteLine($"Admin module loaded");
+            _logger.LogInformation("Admin module loaded!");
         }
 
         [Command("change-prefix",RunMode = RunMode.Async)]
