@@ -26,6 +26,7 @@ using Serilog;
 using Serilog.Sinks.File;
 using Serilog.Sinks.SystemConsole;
 using Microsoft;
+using NinjaBotCore.Common;
 
 namespace NinjaBotCore
 {
@@ -64,8 +65,7 @@ namespace NinjaBotCore
                     CaseSensitiveCommands = false, 
                     ThrowOnError = false 
                 }))         
-                .AddHttpClient()
-                .AddSingleton<WowApi>()
+                .AddSingleton<WowApi>()                                                
                 .AddSingleton<WowUtilities>()
                 .AddSingleton<WarcraftLogs>()
                 .AddSingleton<ChannelCheck>()   
@@ -80,7 +80,10 @@ namespace NinjaBotCore
                 .AddSingleton<RaiderIOApi>()
                 .AddSingleton<YouTubeApi>()                
                 .AddSingleton<AudioService>()
-                .AddSingleton<LoggingService>();
+                .AddSingleton<LoggingService>()
+                .AddTransient<WclApiRequestor>();
+                services.AddHttpClient<IWowApi, WowApi>();
+                services.AddHttpClient<IWclApiRequestor, WclApiRequestor>();
 
             //Add logging                    
             ConfigureServices(services);    

@@ -16,7 +16,9 @@ namespace NinjaBotCore.Modules.Wow
 
         private DateTime _rateLimitResetRemaining;
 
-        public ApiRequestorThrottle(string apiKey, string baseUrl) : base(apiKey, baseUrl)
+        private IServiceProvider _services;
+
+        public ApiRequestorThrottle(string apiKey, string baseUrl, HttpClient client) : base(apiKey, baseUrl, client)
         {
             _queue = new Semaphore(1, 1);
             _rateLimitRemaining = 1;

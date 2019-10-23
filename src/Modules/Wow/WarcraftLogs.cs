@@ -15,6 +15,7 @@ using Discord.Net;
 using Discord.WebSocket;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -32,17 +33,17 @@ namespace NinjaBotCore.Modules.Wow
         private static CurrentRaidTier _currentRaidTier;
         private readonly WclApiRequestor _apiClassic;
 
-        public WarcraftLogs(IConfigurationRoot config, ILogger<WarcraftLogs> logger, DiscordShardedClient client, bool throttle = true)
+        public WarcraftLogs(IServiceProvider services)
         {
-            _logger = logger;
-            _client = client;
-            _config = config;            
+            _logger = services.GetRequiredService<ILogger<WarcraftLogs>>();
+            _client = services.GetRequiredService<DiscordShardedClient>();
+            _config = services.GetRequiredService<IConfigurationRoot>(); 
+            var client = services.GetRequiredService<HttpClient>();
             try 
             {
-                _api = throttle ? new ApiRequestorThrottle(_config["WarcraftLogsApi"], baseUrl: "https://www.warcraftlogs.com:443/v1/") : new WclApiRequestor(_config["WarcraftLogsApi"], baseUrl: "https://www.warcraftlogs.com:443/v1/");
-                _apiCmd = throttle ? new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"], baseUrl: "https://www.warcraftlogs.com:443/v1/") : new WclApiRequestor(_config["WarcraftLogsApiCmd"], baseUrl: "https://www.warcraftlogs.com:443/v1/");
-                _apiClassic = throttle ? new ApiRequestorThrottle(_config["WarcraftLogsApi"], baseUrl: "https://classic.warcraftlogs.com:443/v1/") : new WclApiRequestor(apiKey: _config["WarcraftLogsApi"], baseUrl: "https://classic.warcraftlogs.com:443/v1/");
-                _apiClassicCmd = throttle ? new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"], baseUrl: "https://classic.warcraftlogs.com:443/v1/") : new WclApiRequestor(apiKey: _config["WarcraftLogsApi"], baseUrl: "https://classic.warcraftlogs.com:443/v1/");                
+                _apiCmd = new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"], baseUrl: "https://www.warcraftlogs.com:443/v1/", client) : services.GetService<WclApiRequestor>();
+                _apiClassic = new ApiRequestorThrottle(_config["WarcraftLogsApi"], baseUrl: "https://classic.warcraftlogs.com:443/v1/" ,client) : services.GetRequiredService<WclApiRequestor>();
+                _apiClassicCmd = new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"], baseUrl: "https://classic.warcraftlogs.com:443/v1/", client) : services.GetRequiredService<WclApiRequestor>();
                 CharClasses = this.GetCharClasses().Result;
                 Zones = this.GetZones().Result;
                 _currentRaidTier = this.SetCurrentTier();

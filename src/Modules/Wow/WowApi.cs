@@ -7,7 +7,8 @@ using System.Net;
 using Newtonsoft.Json;
 using System.Text.RegularExpressions;
 using HtmlAgilityPack;
-using NinjaBotCore.Models.Wow;using System.IO;
+using NinjaBotCore.Models.Wow;
+using System.IO;
 using NinjaBotCore.Database;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -15,10 +16,11 @@ using Microsoft.Extensions.Configuration;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
+using NinjaBotCore.Common;
 
 namespace NinjaBotCore.Modules.Wow
 {
-    public class WowApi
+    public class WowApi : IWowApi
     {
         private static string _token;
         private static WowClasses _classes;
@@ -32,13 +34,13 @@ namespace NinjaBotCore.Modules.Wow
         private readonly ILogger _logger;
         private HttpClient _client;
 
-        public WowApi(IConfigurationRoot config, ILogger<WowApi> logger, IServiceProvider services)
+        public WowApi(IServiceProvider services, HttpClient client) 
         {
             try
-            {
-                _client = services.GetService<IHttpClientFactory>().CreateClient();
-                _config = config;
-                _logger = logger;
+            {                
+                _client = client;
+                _config = services.GetRequiredService<IConfigurationRoot>();
+                _logger = services.GetRequiredService<ILogger<WowApi>>();
                 this.StartTimer();
                 if (!string.IsNullOrEmpty(_token))
                 {
@@ -51,7 +53,7 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
-        private void GetWowData()
+        public void GetWowData()
         {
             Races = this.GetRaces();
             Classes = this.GetWowClasses();
@@ -145,8 +147,6 @@ namespace NinjaBotCore.Modules.Wow
 
         public WowClasses wowclasses;
 
-        //public TalentList wowtalents;
-
         public string GetAPIRequest(string url, string region = "us")
         {
             string response;
@@ -173,7 +173,7 @@ namespace NinjaBotCore.Modules.Wow
             string response;
             string key;
             string prefix;
-            //httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "Your Oauth token")
+            
             region = region.ToLower();
             prefix = $"https://{region}.api.blizzard.com/wow";
             key = $"&access_token={_token}"; 
@@ -215,7 +215,7 @@ namespace NinjaBotCore.Modules.Wow
             return response;
         }
 
-        public async Task<string> GetWoWToken(string username, string password) 
+        public async Task<string> GetWowToken(string username, string password) 
         {            
             string token = string.Empty;                        
             try
@@ -237,7 +237,8 @@ namespace NinjaBotCore.Modules.Wow
                 System.Console.WriteLine($"[{ex.HelpLink}]");
                 System.Console.WriteLine($"[{ex.Source}]");
                 System.Console.WriteLine($"[{ex.StackTrace}]");
-            }            
+            }    
+            _logger.LogInformation($"New wow api auth token -> [{token}]...");        
             return token;
         }
 
@@ -742,7 +743,7 @@ namespace NinjaBotCore.Modules.Wow
         private async void RenewTokenLocal()
         {
             _logger.LogInformation("Renewing token!");
-            _token = GetWoWToken(username: _config["WoWClient"], password: _config["WoWSecret"]).Result;            
+            _token = GetWowToken(username: _config["WoWClient"], password: _config["WoWSecret"]).Result;            
         }
     }
 }
