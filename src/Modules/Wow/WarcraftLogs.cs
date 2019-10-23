@@ -32,12 +32,14 @@ namespace NinjaBotCore.Modules.Wow
         private readonly ILogger _logger;
         private static CurrentRaidTier _currentRaidTier;
         private readonly WclApiRequestor _apiClassic;
+        private readonly WowApi _wowApi;
 
         public WarcraftLogs(IServiceProvider services)
         {
             _logger = services.GetRequiredService<ILogger<WarcraftLogs>>();
             _client = services.GetRequiredService<DiscordShardedClient>();
             _config = services.GetRequiredService<IConfigurationRoot>(); 
+            _wowApi = services.GetRequiredService<WowApi>();
                         
             try 
             {   
@@ -49,8 +51,7 @@ namespace NinjaBotCore.Modules.Wow
                 Zones = this.GetZones().Result;
                 _currentRaidTier = this.SetCurrentTier();
                 this.MigrateOldReports();
-                
-                this.StartTimer();
+                this.StartTimer();                
             }
             catch (Exception ex)
             {
@@ -398,8 +399,7 @@ namespace NinjaBotCore.Modules.Wow
             try
             {
                 while (!token.IsCancellationRequested)
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(15), token);                    
+                {                             
                     action();   
                     await Task.Delay(TimeSpan.FromSeconds(1800),token);                                     
                 }

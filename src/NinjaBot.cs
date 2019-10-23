@@ -60,7 +60,7 @@ namespace NinjaBotCore
                     CaseSensitiveCommands = false, 
                     ThrowOnError = false 
                 }))  
-                .AddHttpClient()                      
+                .AddHttpClient()
                 .AddSingleton<WowApi>()                                                
                 .AddSingleton<WowUtilities>()
                 .AddSingleton<WarcraftLogs>()
@@ -91,14 +91,9 @@ namespace NinjaBotCore
             await serviceProvider.GetRequiredService<StartupService>().StartAsync();
 
             //Load up services
-            serviceProvider.GetRequiredService<WowApi>();
             serviceProvider.GetRequiredService<CommandHandler>();
             serviceProvider.GetRequiredService<UserInteraction>();            
-            serviceProvider.GetRequiredService<AwayCommands>();            
-            //serviceProvider.GetRequiredService<WarcraftLogs>();
-            serviceProvider.GetRequiredService<RaiderIOApi>(); 
-            serviceProvider.GetRequiredService<WowUtilities>();            
-                        
+                                                      
             // Block this program until it is closed.
             await Task.Delay(-1);
         }
@@ -108,7 +103,7 @@ namespace NinjaBotCore
             services.AddLogging(configure => configure.AddSerilog());
 
             var logLevel = Environment.GetEnvironmentVariable("NJA_LOG_LEVEL");
-            var level = Serilog.Events.LogEventLevel.Error;
+            var level = Serilog.Events.LogEventLevel.Information;
             if (!string.IsNullOrEmpty(logLevel))
             {
                 switch (logLevel.ToLower())
