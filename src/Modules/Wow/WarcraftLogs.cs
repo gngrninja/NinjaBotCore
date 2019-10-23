@@ -41,7 +41,7 @@ namespace NinjaBotCore.Modules.Wow
                         
             try 
             {   
-                _api = new WclApiRequestor(_config["WarcraftLogsApiCmd"], baseUrl: "https://www.warcraftlogs.com:443/v1/", services.GetRequiredService<IHttpClientFactory>().CreateClient());             
+                _api = new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"], baseUrl: "https://www.warcraftlogs.com:443/v1/", services.GetRequiredService<IHttpClientFactory>().CreateClient());             
                 _apiCmd = new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"], baseUrl: "https://www.warcraftlogs.com:443/v1/", services.GetRequiredService<IHttpClientFactory>().CreateClient()); 
                 _apiClassic = new ApiRequestorThrottle(_config["WarcraftLogsApi"], baseUrl: "https://classic.warcraftlogs.com:443/v1/" , services.GetRequiredService<IHttpClientFactory>().CreateClient());
                 _apiClassicCmd = new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"], baseUrl: "https://classic.warcraftlogs.com:443/v1/", services.GetRequiredService<IHttpClientFactory>().CreateClient());
@@ -49,6 +49,7 @@ namespace NinjaBotCore.Modules.Wow
                 Zones = this.GetZones().Result;
                 _currentRaidTier = this.SetCurrentTier();
                 this.MigrateOldReports();
+                
                 this.StartTimer();
             }
             catch (Exception ex)
@@ -398,6 +399,7 @@ namespace NinjaBotCore.Modules.Wow
             {
                 while (!token.IsCancellationRequested)
                 {
+                    await Task.Delay(TimeSpan.FromSeconds(15), token);                    
                     action();   
                     await Task.Delay(TimeSpan.FromSeconds(1800),token);                                     
                 }
@@ -408,7 +410,7 @@ namespace NinjaBotCore.Modules.Wow
         }
 
         public async Task StartTimer()
-        {
+        {            
             TokenSource = new CancellationTokenSource();
             var timerAction = new Action(CheckForNewLogs);
             await WarcraftLogsTimer(timerAction, TokenSource.Token);

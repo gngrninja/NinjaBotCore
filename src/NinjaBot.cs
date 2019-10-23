@@ -93,10 +93,11 @@ namespace NinjaBotCore
             await serviceProvider.GetRequiredService<StartupService>().StartAsync();
 
             //Load up services
+            serviceProvider.GetRequiredService<WowApi>();
             serviceProvider.GetRequiredService<CommandHandler>();
             serviceProvider.GetRequiredService<UserInteraction>();            
             serviceProvider.GetRequiredService<AwayCommands>();            
-            serviceProvider.GetRequiredService<WarcraftLogs>();
+            //serviceProvider.GetRequiredService<WarcraftLogs>();
             serviceProvider.GetRequiredService<RaiderIOApi>(); 
             serviceProvider.GetRequiredService<WowUtilities>();            
                         
