@@ -13,7 +13,8 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
 using NinjaBotCore.Services;
 using Microsoft.Extensions.Logging;
-
+using Microsoft.Extensions.DependencyInjection;
+using NinjaBotCore.Common;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -29,7 +30,7 @@ namespace NinjaBotCore.Modules.Wow
         public readonly ILogger _logger;
         
         public WowUtilities(
-                WowApi api, 
+                IServiceProvider services, 
                 ChannelCheck cc, 
                 WarcraftLogs logsApi, 
                 RaiderIOApi rioApi, 
@@ -41,7 +42,7 @@ namespace NinjaBotCore.Modules.Wow
             _logger = logger;
             _cc = cc;            
             _logsApi = logsApi;            
-            _wowApi = api;
+            _wowApi = services.GetRequiredService<IWowApi>() as WowApi;
             _rioApi = rioApi;                                    
             _client = client;            
             _config = config;

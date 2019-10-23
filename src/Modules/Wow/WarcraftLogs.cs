@@ -38,12 +38,13 @@ namespace NinjaBotCore.Modules.Wow
             _logger = services.GetRequiredService<ILogger<WarcraftLogs>>();
             _client = services.GetRequiredService<DiscordShardedClient>();
             _config = services.GetRequiredService<IConfigurationRoot>(); 
-            var client = services.GetRequiredService<HttpClient>();
+                        
             try 
-            {
-                _apiCmd = new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"], baseUrl: "https://www.warcraftlogs.com:443/v1/", client) : services.GetService<WclApiRequestor>();
-                _apiClassic = new ApiRequestorThrottle(_config["WarcraftLogsApi"], baseUrl: "https://classic.warcraftlogs.com:443/v1/" ,client) : services.GetRequiredService<WclApiRequestor>();
-                _apiClassicCmd = new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"], baseUrl: "https://classic.warcraftlogs.com:443/v1/", client) : services.GetRequiredService<WclApiRequestor>();
+            {   
+                _api = new WclApiRequestor(_config["WarcraftLogsApiCmd"], baseUrl: "https://www.warcraftlogs.com:443/v1/", services.GetRequiredService<IHttpClientFactory>().CreateClient());             
+                _apiCmd = new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"], baseUrl: "https://www.warcraftlogs.com:443/v1/", services.GetRequiredService<IHttpClientFactory>().CreateClient()); 
+                _apiClassic = new ApiRequestorThrottle(_config["WarcraftLogsApi"], baseUrl: "https://classic.warcraftlogs.com:443/v1/" , services.GetRequiredService<IHttpClientFactory>().CreateClient());
+                _apiClassicCmd = new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"], baseUrl: "https://classic.warcraftlogs.com:443/v1/", services.GetRequiredService<IHttpClientFactory>().CreateClient());
                 CharClasses = this.GetCharClasses().Result;
                 Zones = this.GetZones().Result;
                 _currentRaidTier = this.SetCurrentTier();

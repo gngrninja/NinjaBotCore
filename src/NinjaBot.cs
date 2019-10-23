@@ -64,8 +64,8 @@ namespace NinjaBotCore
                     LogLevel = LogSeverity.Verbose,
                     CaseSensitiveCommands = false, 
                     ThrowOnError = false 
-                }))         
-                .AddSingleton<WowApi>()                                                
+                }))                        
+                //.AddSingleton<WowApi>()                                                
                 .AddSingleton<WowUtilities>()
                 .AddSingleton<WarcraftLogs>()
                 .AddSingleton<ChannelCheck>()   
@@ -80,10 +80,14 @@ namespace NinjaBotCore
                 .AddSingleton<RaiderIOApi>()
                 .AddSingleton<YouTubeApi>()                
                 .AddSingleton<AudioService>()
-                .AddSingleton<LoggingService>()
-                .AddTransient<WclApiRequestor>();
-                services.AddHttpClient<IWowApi, WowApi>();
-                services.AddHttpClient<IWclApiRequestor, WclApiRequestor>();
+                .AddSingleton<LoggingService>();   
+
+                //Add http clients             
+                //services.AddHttpClient<IWowApi, WowApi>(); 
+                //services.AddHttpClient();
+                
+                //services.AddHttpClient<IWclApiRequestor, WclApiRequestor>();
+                //services.AddHttpClient<IApiRequestorThrottle, ApiRequestorThrottle>();
 
             //Add logging                    
             ConfigureServices(services);    
@@ -94,18 +98,19 @@ namespace NinjaBotCore
             //Instantiate logger/tie-in logging
             serviceProvider.GetRequiredService<LoggingService>();
 
-            //Start the bot
-            await serviceProvider.GetRequiredService<StartupService>().StartAsync();
+
 
             //Load up services
             serviceProvider.GetRequiredService<CommandHandler>();
-            serviceProvider.GetRequiredService<UserInteraction>();
-            serviceProvider.GetRequiredService<WowApi>();                                                     
+            serviceProvider.GetRequiredService<UserInteraction>();            
             serviceProvider.GetRequiredService<AwayCommands>();            
-            serviceProvider.GetRequiredService<WarcraftLogs>();
+            //serviceProvider.GetRequiredService<WarcraftLogs>();
             serviceProvider.GetRequiredService<RaiderIOApi>(); 
             serviceProvider.GetRequiredService<WowUtilities>();
             
+            //Start the bot
+            await serviceProvider.GetRequiredService<StartupService>().StartAsync();
+
             // Block this program until it is closed.
             await Task.Delay(-1);
         }

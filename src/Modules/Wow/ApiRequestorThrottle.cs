@@ -5,10 +5,11 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using NinjaBotCore.Common;
 
 namespace NinjaBotCore.Modules.Wow
 {
-    internal class ApiRequestorThrottle : WclApiRequestor
+    internal class ApiRequestorThrottle : WclApiRequestor, IApiRequestorThrottle
     {        
         private readonly Semaphore _queue;
 
