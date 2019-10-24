@@ -62,7 +62,7 @@ Example:
 ```
 ## WoW Commands
 
-### [Warcraftlogs](https://www.warcraftlogs.com) Auto Log Poster (Retail and Classic)
+### [Warcraft Logs](https://www.warcraftlogs.com) Auto Log Poster (Retail and Classic)
 
 To use the auto log poster, use this command in the channel you want them automatically posted to:
 ```
@@ -75,7 +75,7 @@ You can use the same exact command to disable the auto log posting, and then use
 
 ![example](https://raw.githubusercontent.com/gngrninja/NinjaBotCore/Dev/media/watch-dis.PNG)
 
-### [Warcraftlogs](https://www.warcraftlogs.com) Last Three Logs
+### [Warcraft Logs](https://www.warcraftlogs.com) Last Three Logs
 
 To get the last three of your guild's logs, use:
 
@@ -83,7 +83,7 @@ To get the last three of your guild's logs, use:
 !logs
 ```
 
-### [Warcraftlogs](https://www.warcraftlogs.com) Last Three Logs (Classic WoW)
+### [Warcraft Logs](https://www.warcraftlogs.com) Last Three Logs (Classic WoW)
 
 To get the last three of your guild's logs, use:
 
