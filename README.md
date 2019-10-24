@@ -55,6 +55,11 @@ NinjaBot will associate what you enter as the guild attached to your server. Tha
 
 ![example](https://raw.githubusercontent.com/gngrninja/NinjaBotCore/Dev/media/set-guildc.PNG)
 
+Example:
+### US (also the default if no region is specified)
+```
+!set-guildc "Disorder" "Rattlegore"
+```
 ## WoW Commands
 
 ### [Warcraftlogs](https://www.warcraftlogs.com) Auto Log Poster (Retail and Classic)
