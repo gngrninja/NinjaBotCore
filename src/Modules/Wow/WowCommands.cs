@@ -418,7 +418,8 @@ namespace NinjaBotCore.Modules.Wow
                         ServerName = Context.Guild.Name,
                         ChannelId = (long)Context.Channel.Id,
                         ChannelName = Context.Channel.Name,
-                        MonitorLogs = enable
+                        MonitorLogs = enable,
+                        LatestLog = DateTime.Now
                     });
                 }
                 await db.SaveChangesAsync();
