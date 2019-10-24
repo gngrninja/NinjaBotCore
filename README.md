@@ -20,7 +20,7 @@ Currently there is no way to get classic armory or guild information via the API
 More information on the bot and getting started [here](https://www.gngrninja.com/bot).
 
 ### Associating your guild (Retail WoW)
-Associating a WoW guild with your Discord server allows you to use the Warcraftlogs watching command, as well as some autocomplete features for guild member names when using various WoW commands.
+Associating a WoW guild with your Discord server allows you to use the Warcraft Logs watching command, as well as some autocomplete features for guild member names when using various WoW commands.
 
 To associate your guild with NinjaBot, use the following command:
 ```
@@ -51,7 +51,7 @@ To associate your classic WoW guild with NinjaBot, use the following command:
 Valid regions:
 US, EU, KR, TW, and CN
 
-NinjaBot will associate what you enter as the guild attached to your server. That data will then be used to watch / retrieve logs from Warcraftlogs.
+NinjaBot will associate what you enter as the guild attached to your server. That data will then be used to watch / retrieve logs from Warcraft Logs.
 
 ![example](https://raw.githubusercontent.com/gngrninja/NinjaBotCore/Dev/media/set-guildc.PNG)
 
