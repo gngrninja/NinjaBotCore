@@ -53,7 +53,7 @@ US, EU, KR, TW, and CN
 
 NinjaBot will associate what you enter as the guild attached to your server. That data will then be used to watch / retrieve logs from Warcraft Logs.
 
-![example](https://raw.githubusercontent.com/gngrninja/NinjaBotCore/Dev/media/set-guildc.PNG)
+![example](https://raw.githubusercontent.com/gngrninja/NinjaBotCore/Dev/media/set-guildc.png)
 
 Example:
 ### US (also the default if no region is specified)
