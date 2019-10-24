@@ -524,9 +524,9 @@ namespace NinjaBotCore.Modules.Wow
                                     embed.Title = $"New log found for [{guild.WowGuild}]!";
                                     StringBuilder sb = new StringBuilder();
                                     sb.AppendLine($"[__**{latestLog.title}** **/** **{latestLog.zoneName}**__]({latestLog.reportURL})");
-                                    sb.AppendLine($"\t:timer: Start time: **{UnixTimeStampToDateTime(latestLog.start)}**");
-                                    //sb.AppendLine($"\tLink: ***");
+                                    sb.AppendLine($"\t:timer: Start time: **{UnixTimeStampToDateTime(latestLog.start)}**");                                    
                                     sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{latestLog.id}) | :sob: [WipeFest](https://www.wipefest.net/report/{latestLog.id}) ");
+                                    sb.AppendLine($"\t:pencil2: Created by [**{latestLog.owner}**]"); 
                                     sb.AppendLine();
                                     embed.Description = sb.ToString();
                                     embed.WithColor(new Color(0, 0, 255));
@@ -586,9 +586,7 @@ namespace NinjaBotCore.Modules.Wow
                                     StringBuilder sb = new StringBuilder();
                                     sb.AppendLine($"[__**{latestLog.title}** **/** **{latestLog.zoneName}**__]({latestLog.reportURL})");
                                     sb.AppendLine($"\t:timer: Start time: **{UnixTimeStampToDateTime(latestLog.start)}**");
-                                    sb.AppendLine($"\t:pencil2: Created by [**{latestLog.owner}**]");                                    
-                                    //sb.AppendLine($"\tLink: ***");
-                                    //sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{latestLog.id}) | :sob: [WipeFest](https://www.wipefest.net/report/{latestLog.id}) ");
+                                    sb.AppendLine($"\t:pencil2: Created by [**{latestLog.owner}**]");                                                                        
                                     sb.AppendLine();
                                     embed.Description = sb.ToString();
                                     embed.WithColor(new Color(0, 0, 255));

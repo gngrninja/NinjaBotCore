@@ -149,6 +149,8 @@ namespace NinjaBotCore.Modules.Wow
                         sb.AppendLine($"[__**{guildLogs[i].title}** **/** **{guildLogs[i].zoneName}**__]({guildLogs[i].reportURL})");
                         sb.AppendLine($"\t:timer: Start time: **{_wclLogsApi.UnixTimeStampToDateTime(guildLogs[i].start)}**");
                         sb.AppendLine($"\t:stopwatch: End time: **{_wclLogsApi.UnixTimeStampToDateTime(guildLogs[i].end)}**");
+                        sb.AppendLine($"\t:pencil2: Created by [**{guildLogs[i].owner}**]"); 
+                        sb.AppendLine();
                     }
                     _logger.LogInformation($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
                     embed.Title = $":1234: __Logs for **{wowClassicGuild.WowGuild}** on **{wowClassicGuild.WowRealm}**__:1234: ";

@@ -10,23 +10,22 @@ It's primary focus is to help out guilds in World of Warcraft.
 This project has been an awesome way for me to learn C#, feel free to toss in a pull request if there's a better way to do something!
 
 ## Getting Started
-
 The first thing you'll need to do is [invite the bot to your server](https://discordapp.com/oauth2/authorize?client_id=238495040446398467&scope=bot&permissions=298048). 
 It will need permissions to read and post messages at the very minimum. 
 If you wish to use NinjaBot to assist with admin tasks (kicking/banning users, message management, etc), [please use this link](https://discordapp.com/oauth2/authorize?client_id=238495040446398467&scope=bot&permissions=27718).
 
+There are a limited number of classic WoW commands now available. You can associate your guild, and watch/get logs from Warcraft logs. 
+Currently there is no way to get classic armory or guild information via the API, and I'll be watching to see when/if things get added!
+
 More information on the bot and getting started [here](https://www.gngrninja.com/bot).
 
-### Associating your guild
+### Associating your guild (Retail WoW)
 Associating a WoW guild with your Discord server allows you to use the Warcraftlogs watching command, as well as some autocomplete features for guild member names when using various WoW commands.
 
-To associate your guild with NinjaBot use, the following command:
+To associate your guild with NinjaBot, use the following command:
 ```
 !set-guild realmName, guildname, region
 ```
-
-NinjaBot will then attempt to find all the information it needs to store for future requests from your Discord server.
-
 Here are some examples of using the command:
 ### US (also the default if no region is specified)
 ```
@@ -42,10 +41,23 @@ Here are some examples of using the command:
 ```
 
 ![example](https://raw.githubusercontent.com/gngrninja/NinjaBotCore/Dev/media/set-guild.PNG)
+### Associating your guild (Classic WoW)
+
+To associate your classic WoW guild with NinjaBot, use the following command:
+```
+!set-guildc "guild name" "realm" "region"
+```
+
+Valid regions:
+US, EU, KR, TW, and CN
+
+NinjaBot will associate what you enter as the guild attached to your server. That data will then be used to watch / retrieve logs from Warcraftlogs.
+
+![example](https://raw.githubusercontent.com/gngrninja/NinjaBotCore/Dev/media/set-guildc.PNG)
 
 ## WoW Commands
 
-### [Warcraftlogs](https://www.warcraftlogs.com) Auto Log Poster
+### [Warcraftlogs](https://www.warcraftlogs.com) Auto Log Poster (Retail and Classic)
 
 To use the auto log poster, use this command in the channel you want them automatically posted to:
 ```
@@ -65,6 +77,15 @@ To get the last three of your guild's logs, use:
 ```
 !logs
 ```
+
+### [Warcraftlogs](https://www.warcraftlogs.com) Last Three Logs (Classic WoW)
+
+To get the last three of your guild's logs, use:
+
+```
+!logsc
+```
+![example](https://raw.githubusercontent.com/gngrninja/NinjaBotCore/Dev/media/logsc.png)
 
 ### World of Warcraft Commands
 

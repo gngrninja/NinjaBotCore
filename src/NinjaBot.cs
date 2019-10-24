@@ -27,6 +27,10 @@ using Serilog.Sinks.File;
 using Serilog.Sinks.SystemConsole;
 using Microsoft;
 using NinjaBotCore.Common;
+using System.Net.Http;
+using System.Linq;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Http;
 
 namespace NinjaBotCore
 {
@@ -45,6 +49,7 @@ namespace NinjaBotCore
                 .AddJsonFile(path: "config.json");            
             _config = _builder.Build();
             
+            //Configure services
             var services = new ServiceCollection()
                 .AddSingleton(new DiscordShardedClient(new DiscordSocketConfig
                 {
@@ -77,8 +82,8 @@ namespace NinjaBotCore
                 .AddSingleton<YouTubeApi>()                
                 .AddSingleton<AudioService>()
                 .AddSingleton<LoggingService>();                   
-
-            //Add logging                    
+                        
+            //Add logging      
             ConfigureServices(services);    
 
             //Build services
@@ -94,14 +99,17 @@ namespace NinjaBotCore
             serviceProvider.GetRequiredService<CommandHandler>();
             serviceProvider.GetRequiredService<UserInteraction>();            
                                                       
-            // Block this program until it is closed.
+            //Block this program until it is closed.
             await Task.Delay(-1);
         }
 
         private static void ConfigureServices(IServiceCollection services)
         {
-            services.AddLogging(configure => configure.AddSerilog());
-
+            //Add SeriLog
+            services.AddLogging(configure => configure.AddSerilog()); 
+            //Remove default HttpClient logging as it is extremely verbose
+            services.RemoveAll<IHttpMessageHandlerBuilderFilter>();       
+            //Configure logging level              
             var logLevel = Environment.GetEnvironmentVariable("NJA_LOG_LEVEL");
             var level = Serilog.Events.LogEventLevel.Information;
             if (!string.IsNullOrEmpty(logLevel))
