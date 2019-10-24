@@ -14,21 +14,22 @@ using Discord;
 using Discord.Net;
 using Discord.WebSocket;
 using Microsoft.Extensions.Configuration;
+using NinjaBotCore.Common;
 
 namespace NinjaBotCore.Modules.Wow
 {
-    public class WclApiRequestor : IDisposable
+    public class WclApiRequestor : IWclApiRequestor, IDisposable
     {
         private readonly HttpClient _client;
         private readonly string _apiKey;
         private string apiKey;
+        private string _baseUrl;
 
-        public WclApiRequestor(string apiKey)
-        {
-            _client = new HttpClient
-            {
-                BaseAddress = new Uri("https://www.warcraftlogs.com:443/v1/"),
-            };
+        public WclApiRequestor(string apiKey, string baseUrl, HttpClient client)
+        {          
+            _baseUrl = baseUrl;  
+            _client = client;
+            _client.BaseAddress = new Uri(_baseUrl);
             _client.DefaultRequestHeaders
                     .Accept
                     .Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -36,7 +37,7 @@ namespace NinjaBotCore.Modules.Wow
         }
 
         public async Task<T> Get<T>(string relativeUrl)
-        {
+        {            
             using (var request = new HttpRequestMessage(HttpMethod.Get, $"{relativeUrl}api_key={_apiKey}"))
             using (var response = await SendAsync(request))
             {
@@ -61,7 +62,9 @@ namespace NinjaBotCore.Modules.Wow
                 if (string.IsNullOrEmpty(errorMessage))
                 {
                     throw new Exception("No message!");
-                } else {
+                } 
+                else 
+                {
                     throw new Exception($"{errorMessage}");
                 }
 

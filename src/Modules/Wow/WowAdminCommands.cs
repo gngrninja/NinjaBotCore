@@ -13,7 +13,8 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
 using NinjaBotCore.Services;
 using Microsoft.Extensions.Logging;
-
+using NinjaBotCore.Common;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -29,25 +30,16 @@ namespace NinjaBotCore.Modules.Wow
         private readonly ILogger _logger;
         private WowUtilities _wowUtils;
         
-        public WowAdminCommands(
-                WowApi api, 
-                ChannelCheck cc, 
-                WarcraftLogs logsApi, 
-                RaiderIOApi rioApi, 
-                DiscordShardedClient client, 
-                IConfigurationRoot config, 
-                WowUtilities wowUtilities,
-                ILogger<WowAdminCommands> logger
-            )
+        public WowAdminCommands(IServiceProvider services)
         {
-            _logger = logger;
-            _wowUtils = wowUtilities;
-            _cc = cc;            
-            _logsApi = logsApi;            
-            _wowApi = api;
-            _rioApi = rioApi;                                    
-            _client = client;            
-            _config = config;
+            _logger = services.GetRequiredService<ILogger<WowAdminCommands>>();
+            _wowUtils = services.GetRequiredService<WowUtilities>();
+            _cc = services.GetRequiredService<ChannelCheck>();
+            _logsApi = services.GetRequiredService<WarcraftLogs>();
+            _wowApi = services.GetRequiredService<WowApi>();
+            _rioApi = services.GetRequiredService<RaiderIOApi>();
+            _client = services.GetRequiredService<DiscordShardedClient>(); 
+            _config = services.GetRequiredService<IConfigurationRoot>();
             _prefix = _config["prefix"];
         }
 
@@ -92,8 +84,8 @@ namespace NinjaBotCore.Modules.Wow
                                             using (var db = new NinjaBotEntities())
                                             {
                                                 var latestForGuild = db.LogMonitoring.Where(l => l.ServerId == guild.ServerId).FirstOrDefault();
-                                                latestForGuild.LatestLog = startTime;
-                                                latestForGuild.ReportId = latestLog.id;
+                                                latestForGuild.LatestLogRetail = startTime;
+                                                latestForGuild.RetailReportId = latestLog.id;
                                                 await db.SaveChangesAsync();
                                             }
                                             //System._logger.LogInformation($"Updated [{watchGuild.ServerName}] -> [{latestLog.id}] [{latestLog.owner}]!");
