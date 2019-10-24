@@ -111,7 +111,7 @@ namespace NinjaBotCore
             services.RemoveAll<IHttpMessageHandlerBuilderFilter>();       
             //Configure logging level              
             var logLevel = Environment.GetEnvironmentVariable("NJA_LOG_LEVEL");
-            var level = Serilog.Events.LogEventLevel.Information;
+            var level = Serilog.Events.LogEventLevel.Error;
             if (!string.IsNullOrEmpty(logLevel))
             {
                 switch (logLevel.ToLower())

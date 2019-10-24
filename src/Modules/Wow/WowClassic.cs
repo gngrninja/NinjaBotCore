@@ -93,7 +93,8 @@ namespace NinjaBotCore.Modules.Wow
             wowClassicGuild.WowRealm = realm;
             wowClassicGuild.WowRegion = region;
             wowClassicGuild.SetBy = Context.User.Username;
-            wowClassicGuild.TimeSet = DateTime.Now;            
+            wowClassicGuild.TimeSet = DateTime.Now;  
+            wowClassicGuild.ServerName = Context.Guild.Name;          
 
             try
             {
@@ -135,7 +136,7 @@ namespace NinjaBotCore.Modules.Wow
             int maxReturn = 2;
             WowClassicGuild wowClassicGuild = null;
             using (var db = new NinjaBotEntities())
-            {
+            {                
                 wowClassicGuild = db.WowClassicGuild.Where(g => g.ServerId == (long)Context.Guild.Id).FirstOrDefault();                
             }
             if (wowClassicGuild != null)
