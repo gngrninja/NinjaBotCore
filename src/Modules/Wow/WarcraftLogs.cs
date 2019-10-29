@@ -639,7 +639,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error getting log watch list -> [{ex.Message}]");
+                //_logger.LogError($"Error getting log watch list -> [{ex.Message}]");
             }
         }        
     }
