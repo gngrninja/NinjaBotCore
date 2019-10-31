@@ -110,12 +110,12 @@ namespace NinjaBotCore.Services
             {
                 if (context.Channel is IGuildChannel)
                 {
-                    var logTxt = $"User: [{context.User.Username}] Discord Server: [{context.Guild.Name}] -> [{context.Message.Content}]";
+                    var logTxt = $"User: [{context.User.Username}]<->[{context.User.Id}] Discord Server: [{context.Guild.Name}] -> [{context.Message.Content}]";
                     _logger.LogInformation(logTxt);
                 }
                 else
                 {
-                    var logTxt = $"User: [{context.User.Username}] -> [{context.Message.Content}]";
+                    var logTxt = $"User: [{context.User.Username}]<->[{context.User.Id}] -> [{context.Message.Content}]";
                     _logger.LogInformation(logTxt);
                 }
             });
