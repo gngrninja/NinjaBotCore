@@ -539,7 +539,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error checking for logs [{guild.WowGuild}]:[{guild.WowRealm}]:[{guild.WowRealm}]! -> [{ex.Message}]");
+                //_logger.LogError($"Error checking for logs [{guild.WowGuild}]:[{guild.WowRealm}]:[{guild.WowRealm}]! -> [{ex.Message}]");
             }            
         }
 
