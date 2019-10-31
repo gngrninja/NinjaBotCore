@@ -41,7 +41,6 @@ namespace NinjaBotCore.Services
             // Don't listen to bots
             if (message.Source != MessageSource.User) 
             {
-                _logger.LogInformation($"Bot [{message.Author.Username}] <-> [{message.Author.Id}] tried to run [{message.Content}]!");
                 return;
             }
             
