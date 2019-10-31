@@ -35,13 +35,19 @@ namespace NinjaBotCore.Services
         public async Task HandleCommand(SocketMessage parameterMessage)
         {
             // Don't handle the command if it is a system message
-            var message = parameterMessage as SocketUserMessage;
+            var message = parameterMessage as SocketUserMessage;            
             if (message == null) return;
 
+            // Don't listen to bots
+            if (message.Source != MessageSource.User) 
+            {
+                _logger.LogInformation($"Bot [{message.Author.Username}] <-> [{message.Author.Id}] tried to run [{message.Content}]!");
+                return;
+            }
+            
             // Mark where the prefix ends and the command begins
             int argPos = 0;
             
-
             // Create a Command Context
             var context = new ShardedCommandContext(_client, message);
 
