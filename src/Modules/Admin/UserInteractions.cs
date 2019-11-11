@@ -66,11 +66,11 @@ namespace NinjaBotCore.Modules.Admin
                     {
                         if (messageChannel != null)
                         {
-                            _logger.LogError($"Error with channel -> [{messageChannel.Name}] on [{user.Guild.Name}] -> [{ex.Message}]");
+                            _logger.LogError($"Error with channel -> [{messageChannel.Name}] on [{user.Guild.Name}] -> [{user.Guild.Id}] -> [{ex.Message}]");
                         }
                         else
                         {
-                            _logger.LogError($"Error with no channel -> [{user.Guild.Name}] -> [{ex.Message}]");
+                            _logger.LogError($"Error with no channel -> [{user.Guild.Name}] -> [{user.Guild.Id}] -> [{ex.Message}]");
                         }
                     }
                 }
@@ -119,11 +119,11 @@ namespace NinjaBotCore.Modules.Admin
                     {
                         if (messageChannel != null)
                         {
-                            _logger.LogError($"Error with channel -> [{messageChannel.Name}] on [{user.Guild.Name}] -> [{ex.Message}]");
+                            _logger.LogError($"Error with channel -> [{messageChannel.Name}] on [{user.Guild.Name}] -> [{user.Guild.Id}] -> [{ex.Message}]");
                         }
                         else
                         {
-                            _logger.LogError($"Error with no channel -> [{user.Guild.Name}] -> [{ex.Message}]");
+                            _logger.LogError($"Error with no channel -> [{user.Guild.Name}] -> [{user.Guild.Id}] -> [{ex.Message}]");
                         }
                     }
                 }                
