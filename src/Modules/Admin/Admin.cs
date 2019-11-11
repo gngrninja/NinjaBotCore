@@ -814,6 +814,35 @@ namespace NinjaBotCore.Modules.Admin
             return sb.ToString();
         }
         
-        //[Command("Deafen")]
+        [Command("force-greeting-clear")]
+        [RequireOwner]
+        public async Task ForceGreetingClear([Remainder] long serverId)
+        {
+            ServerGreeting greetingInfo = null;
+            using (var db = new NinjaBotEntities())
+            {
+                greetingInfo = db.ServerGreetings.Where(g => g.DiscordGuildId == serverId).FirstOrDefault();
+            }
+            if (greetingInfo != null)
+            {
+                try
+                {
+                    using (var db = new NinjaBotEntities())
+                    {
+                        db.Remove(db.ServerGreetings.Where(g => g.DiscordGuildId == serverId).FirstOrDefault());
+                        await db.SaveChangesAsync();
+                    }
+                    await _cc.Reply(Context, "Cleared!");
+                }
+                catch (Exception ex)
+                {
+                    await _cc.Reply(Context, $"Error clearing greeting -> [{ex.Message}]");
+                }
+            }
+            else
+            {
+                await _cc.Reply(Context, $"No association found for [{serverId}]!");
+            }
+        }
     }
 }
