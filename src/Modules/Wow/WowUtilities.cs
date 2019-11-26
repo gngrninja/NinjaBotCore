@@ -537,22 +537,22 @@ namespace NinjaBotCore.Modules.Wow
                     {
                         case "ru_RU":
                             {                                                        
-                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
+                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();
                                 break;
                             }
                         case "en_GB":
                             {                            
-                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
+                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();
                                 break;
                             }
                         case "en_US":
                             {                            
-                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
+                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();
                                 break;
                             }
                         default: 
                             {                            
-                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
+                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();
                                 break;
                             }
                     }
