@@ -546,14 +546,18 @@ namespace NinjaBotCore.Modules.Wow
                                 ISocketMessageChannel channel = _client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
                                 if (channel != null)
                                 {
+                                    var tz = GetLocalTz(guild);
+                                    DateTime logStart = GetLocalTime(latestLog, tz);
+
                                     _logger.LogInformation($"Posting log for [{guild.WowGuild}] on [{guild.WowRealm}] for server [{guild.ServerName}]");
+
                                     var embed = new EmbedBuilder();
                                     embed.Title = $"New log found for [{guild.WowGuild}]!";
                                     StringBuilder sb = new StringBuilder();
                                     sb.AppendLine($"[__**{latestLog.title}** **/** **{latestLog.zoneName}**__]({latestLog.reportURL})");
-                                    sb.AppendLine($"\t:timer: Start time: **{UnixTimeStampToDateTime(latestLog.start)}**");                                    
+                                    sb.AppendLine($"\t:timer: Start time: **{logStart}**");
                                     sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{latestLog.id}) | :sob: [WipeFest](https://www.wipefest.net/report/{latestLog.id}) ");
-                                    sb.AppendLine($"\t:pencil2: Created by [**{latestLog.owner}**]"); 
+                                    sb.AppendLine($"\t:pencil2: Created by [**{latestLog.owner}**]");
                                     sb.AppendLine();
                                     embed.Description = sb.ToString();
                                     embed.WithColor(new Color(0, 0, 255));
@@ -568,6 +572,54 @@ namespace NinjaBotCore.Modules.Wow
             {
                 //_logger.LogError($"Error checking for logs [{guild.WowGuild}]:[{guild.WowRealm}]:[{guild.WowRealm}]! -> [{ex.Message}]");
             }            
+        }
+
+        private DateTime GetLocalTime(Reports latestLog, string tz)
+        {
+            DateTime logStart = DateTime.UtcNow;
+            if (!string.IsNullOrEmpty(tz))
+            {
+                logStart = ConvTimeToLocalTimezone(UnixTimeStampToDateTime(latestLog.start), tz);
+
+            }
+            else
+            {
+                logStart = ConvTimeToLocalTimezone(UnixTimeStampToDateTime(latestLog.start));
+            }
+            return logStart;
+        }
+
+        private string GetLocalTz(WowGuildAssociations guild)
+        {
+            var locale = guild.Locale;
+            var realmInfo = new WowRealm.Realm();
+            var tz = string.Empty;
+            if (!string.IsNullOrEmpty(locale))
+            {
+                switch (locale)
+                {
+                    case "en_US":
+                        {
+                            realmInfo = WowApi.RealmInfo.realms.FirstOrDefault(r => r.name == guild.WowRealm);
+                            break;
+                        }
+                    case "en_GB":
+                        {
+                            realmInfo = WowApi.RealmInfoEu.realms.FirstOrDefault(r => r.name == guild.WowRealm);
+                            break;
+                        }
+                    case "ru_RU":
+                        {
+                            realmInfo = WowApi.RealmInfoRu.realms.FirstOrDefault(r => r.name == guild.WowRealm);
+                            break;
+                        }
+                }
+            }
+            if (!string.IsNullOrEmpty(realmInfo.timezone))
+            {
+                tz = realmInfo.timezone;
+            }
+            return tz;
         }
 
         private async Task PerformLogCheck(List<LogMonitoring> logWatchList, bool flip, WowClassicGuild guild)
