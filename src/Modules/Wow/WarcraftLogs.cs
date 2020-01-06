@@ -396,8 +396,17 @@ namespace NinjaBotCore.Modules.Wow
 
         public DateTime ConvTimeToLocalTimezone(DateTime time, string timezone = "America/Los_Angeles")
         {
-            var tzInfo = TimeZoneInfo.FindSystemTimeZoneById(timezone);
-            var date = TimeZoneInfo.ConvertTimeFromUtc(time, tzInfo);
+            TimeZoneInfo tzInfo;
+            DateTime date;
+            try 
+            {
+                tzInfo = TimeZoneInfo.FindSystemTimeZoneById(timezone);
+                date = TimeZoneInfo.ConvertTimeFromUtc(time, tzInfo);
+            }
+            catch (TimeZoneNotFoundException)
+            {
+                date = TimeZoneInfo.ConvertTimeFromUtc(time, TimeZoneInfo.Local);
+            }
             return date;
         }
 
