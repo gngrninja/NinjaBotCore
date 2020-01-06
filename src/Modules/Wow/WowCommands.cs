@@ -744,17 +744,18 @@ namespace NinjaBotCore.Modules.Wow
                 if (guildLogs.Count > 0)
                 {
                     sb.AppendLine();
-                    for (int i = 0; i <= maxReturn && i <= guildLogs.Count; i++)
+                    for (int i = 0; i <= (guildLogs.Count - 1) && i <= maxReturn; i++)
                     {
                         var startTime = _logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].start);
                         var endTime   =  _logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].end);
                         var wfUrl     = $"https://www.wipefest.net/report/{guildLogs[arrayCount].id}";
-                        var wowAnUrl  = $"https://wowanalyzer.com/report/{guildLogs[0].id}";
+                        var wowAnUrl  = $"https://wowanalyzer.com/report/{guildLogs[arrayCount].id}";
 
                         sb.AppendLine($"[__**{guildLogs[arrayCount].title}** **/** **{guildLogs[arrayCount].zoneName}**__]({guildLogs[arrayCount].reportURL})");
                         sb.AppendLine($"\t:timer: Start time: **{startTime}**");
                         sb.AppendLine($"\t:stopwatch: End time: **{endTime}**");
                         sb.AppendLine($"\t:mag: [WoWAnalyzer]({wowAnUrl}) | :sob: [WipeFest]({wfUrl})");
+
                         sb.AppendLine();
                         arrayCount++;
                     }
@@ -765,7 +766,7 @@ namespace NinjaBotCore.Modules.Wow
                     await _cc.Reply(Context, embed);
                     return;
                 }
-                else if (guildLogs.Count == 0)
+                else if (guildLogs.Count == 1)
                 {
                     sb.AppendLine($"[__**{guildLogs[0].title}** **/** **{guildLogs[0].zoneName}**__]({guildLogs[0].reportURL})");
                     sb.AppendLine($"\t:timer: Start time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].start)}**");
@@ -838,7 +839,7 @@ namespace NinjaBotCore.Modules.Wow
                 if (guildLogs.Count > 0)
                 {
                     sb.AppendLine();
-                    for (int i = 0; i <= maxReturn && i <= guildLogs.Count; i++)
+                    for (int i = 0; i <= (guildLogs.Count - 1) && i <= maxReturn; i++)
                     {
                         DateTime startTime = DateTime.UtcNow;
                         DateTime endTime = DateTime.UtcNow;
@@ -857,7 +858,8 @@ namespace NinjaBotCore.Modules.Wow
                         sb.AppendLine($"[__**{guildLogs[arrayCount].title}** **/** **{guildLogs[arrayCount].zoneName}**__]({guildLogs[arrayCount].reportURL})");
                         sb.AppendLine($"\t:timer: Start time: **{startTime}**");
                         sb.AppendLine($"\t:stopwatch: End time: **{endTime}**");
-                        sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[0].id}) | :sob: [WipeFest](https://www.wipefest.net/report/{guildLogs[arrayCount].id})");
+                        sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[arrayCount].id}) | :sob: [WipeFest](https://www.wipefest.net/report/{guildLogs[arrayCount].id})");
+
                         sb.AppendLine();
                         arrayCount++;
                     }
@@ -866,7 +868,7 @@ namespace NinjaBotCore.Modules.Wow
                     embed.Description = sb.ToString();
                     await _cc.Reply(Context, embed);
                 }
-                else if (guildLogs.Count == 0)
+                else if (guildLogs.Count == 1)
                 {
                     sb.AppendLine($"[__**{guildLogs[0].title}** **/** **{guildLogs[0].zoneName}**__]({guildLogs[0].reportURL})");
                     sb.AppendLine($"\t:timer: Start time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].start)}**");
