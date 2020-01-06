@@ -574,7 +574,7 @@ namespace NinjaBotCore.Modules.Wow
             }            
         }
 
-        private DateTime GetLocalTime(Reports latestLog, string tz)
+        private DateTime GetLocalTime(Reports latestLog, string tz = null)
         {
             DateTime logStart = DateTime.UtcNow;
             if (!string.IsNullOrEmpty(tz))
