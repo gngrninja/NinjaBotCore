@@ -390,8 +390,15 @@ namespace NinjaBotCore.Modules.Wow
         {
             // Unix timestamp is seconds past epoch
             System.DateTime dtDateTime = new DateTime(1970, 1, 1, 0, 0, 0, 0, System.DateTimeKind.Utc);
-            dtDateTime = dtDateTime.AddMilliseconds(unixTimeStamp).ToLocalTime();
+            dtDateTime = dtDateTime.AddMilliseconds(unixTimeStamp).ToUniversalTime();
             return dtDateTime;
+        }
+
+        public DateTime ConvTimeToLocalTimezone(DateTime time, string timezone = "America/Los_Angeles")
+        {
+            var tzInfo = TimeZoneInfo.FindSystemTimeZoneById(timezone);
+            var date = TimeZoneInfo.ConvertTimeFromUtc(time, tzInfo);
+            return date;
         }
 
         public async Task WarcraftLogsTimer(Action action, CancellationToken token)

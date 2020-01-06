@@ -682,13 +682,35 @@ namespace NinjaBotCore.Modules.Wow
             int arrayCount = 0;
             string discordGuildName = string.Empty;
             var guildInfo = Context.Guild;
-            var embed = new EmbedBuilder();
+            var embed = new EmbedBuilder();            
 
             guildObject = await _wowUtils.GetGuildName(Context);
             guildName = guildObject.guildName;
             realmName = guildObject.realmName.Replace("'", string.Empty);
             guildRegion = guildObject.regionName;
             locale = guildObject.locale;
+            var realmInfo = new WowRealm.Realm();            
+            if (!string.IsNullOrEmpty(locale))
+            {
+                switch (locale)
+                {
+                    case "en_US":
+                    {
+                        realmInfo = WowApi.RealmInfo.realms.FirstOrDefault(r => r.name == guildObject.realmName);                        
+                        break;
+                    }
+                    case "en_GB":
+                    {
+                        realmInfo = WowApi.RealmInfoEu.realms.FirstOrDefault(r => r.name == guildObject.realmName);   
+                        break;
+                    }
+                    case "ru_RU":
+                    {
+                        realmInfo = WowApi.RealmInfoRu.realms.FirstOrDefault(r => r.name == guildObject.realmName);   
+                        break;
+                    }
+                }
+            }
             if (!string.IsNullOrEmpty(guildObject.locale))
             {
                 locale = guildObject.locale;
@@ -724,10 +746,15 @@ namespace NinjaBotCore.Modules.Wow
                     sb.AppendLine();
                     for (int i = 0; i <= maxReturn && i <= guildLogs.Count; i++)
                     {
+                        var startTime = _logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].start);
+                        var endTime   =  _logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].end);
+                        var wfUrl     = $"https://www.wipefest.net/report/{guildLogs[arrayCount].id}";
+                        var wowAnUrl  = $"https://wowanalyzer.com/report/{guildLogs[0].id}";
+
                         sb.AppendLine($"[__**{guildLogs[arrayCount].title}** **/** **{guildLogs[arrayCount].zoneName}**__]({guildLogs[arrayCount].reportURL})");
-                        sb.AppendLine($"\t:timer: Start time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].start)}**");
-                        sb.AppendLine($"\t:stopwatch: End time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].end)}**");
-                        sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[0].id}) | :sob: [WipeFest](https://www.wipefest.net/report/{guildLogs[arrayCount].id})");
+                        sb.AppendLine($"\t:timer: Start time: **{startTime}**");
+                        sb.AppendLine($"\t:stopwatch: End time: **{endTime}**");
+                        sb.AppendLine($"\t:mag: [WoWAnalyzer]({wowAnUrl}) | :sob: [WipeFest]({wfUrl})");
                         sb.AppendLine();
                         arrayCount++;
                     }
@@ -813,9 +840,23 @@ namespace NinjaBotCore.Modules.Wow
                     sb.AppendLine();
                     for (int i = 0; i <= maxReturn && i <= guildLogs.Count; i++)
                     {
+                        DateTime startTime = DateTime.UtcNow;
+                        DateTime endTime = DateTime.UtcNow;
+
+                        if (!string.IsNullOrEmpty(realmInfo.timezone))
+                        {                            
+                            startTime = _logsApi.ConvTimeToLocalTimezone(_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].start), realmInfo.timezone);
+                            endTime =  _logsApi.ConvTimeToLocalTimezone(_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].end), realmInfo.timezone);
+                        }
+                        else 
+                        {
+                            startTime = _logsApi.ConvTimeToLocalTimezone(_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].start));
+                            endTime =  _logsApi.ConvTimeToLocalTimezone(_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].end));
+                        }
+
                         sb.AppendLine($"[__**{guildLogs[arrayCount].title}** **/** **{guildLogs[arrayCount].zoneName}**__]({guildLogs[arrayCount].reportURL})");
-                        sb.AppendLine($"\t:timer: Start time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].start)}**");
-                        sb.AppendLine($"\t:stopwatch: End time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].end)}**");
+                        sb.AppendLine($"\t:timer: Start time: **{startTime}**");
+                        sb.AppendLine($"\t:stopwatch: End time: **{endTime}**");
                         sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[0].id}) | :sob: [WipeFest](https://www.wipefest.net/report/{guildLogs[arrayCount].id})");
                         sb.AppendLine();
                         arrayCount++;

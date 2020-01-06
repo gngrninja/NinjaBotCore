@@ -529,7 +529,7 @@ namespace NinjaBotCore.Modules.Wow
                 }
 
                 //use locale to determine realm slug
-                for (int i = 0; i<500; i++)
+                for (int i = 0; i < 500; i++)
                 {
                     _logger.LogInformation("Attempting to find slug!");
                     var slugs = _wowApi.GetRealmStatus(locale: locale, region: apiRegion);                        
