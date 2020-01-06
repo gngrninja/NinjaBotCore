@@ -16,6 +16,7 @@ using Discord.WebSocket;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
+using NodaTime.TimeZones;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -397,7 +398,8 @@ namespace NinjaBotCore.Modules.Wow
         public DateTime ConvTimeToLocalTimezone(DateTime time, string timezone = "America/Los_Angeles")
         {
             TimeZoneInfo tzInfo;
-            DateTime date;
+            DateTime date = new DateTime();
+            
             try 
             {
                 tzInfo = TimeZoneInfo.FindSystemTimeZoneById(timezone);
@@ -405,7 +407,17 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (TimeZoneNotFoundException)
             {
-                date = TimeZoneInfo.ConvertTimeFromUtc(time, TimeZoneInfo.Local);
+                var map = TzdbDateTimeZoneSource.Default.WindowsMapping.MapZones.FirstOrDefault(x =>
+                    x.TzdbIds.Any(z => z.Equals(timezone, StringComparison.OrdinalIgnoreCase)));
+                date = TimeZoneInfo.ConvertTimeFromUtc(time, TimeZoneInfo.FindSystemTimeZoneById(map.WindowsId));                    
+                
+            }
+            finally 
+            {
+                if (date == DateTime.MinValue)
+                {
+                    date = TimeZoneInfo.ConvertTimeFromUtc(time, TimeZoneInfo.Local);
+                }
             }
             return date;
         }
