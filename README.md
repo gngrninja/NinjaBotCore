@@ -10,7 +10,7 @@ It's primary focus is to help out guilds in World of Warcraft.
 This project has been an awesome way for me to learn C#, feel free to toss in a pull request if there's a better way to do something!
 
 ## Getting Started
-The first thing you'll need to do is [invite the bot to your server](https://discordapp.com/oauth2/authorize?client_id=238495040446398467&scope=bot&permissions=298048). 
+The first thing you'll need to do is [invite the bot to your server](https://discordapp.com/oauth2/authorize?client_id=238495040446398467&scope=bot&permissions=314432). 
 It will need permissions to read and post messages at the very minimum. 
 If you wish to use NinjaBot to assist with admin tasks (kicking/banning users, message management, etc), [please use this link](https://discordapp.com/oauth2/authorize?client_id=238495040446398467&scope=bot&permissions=27718).
 
