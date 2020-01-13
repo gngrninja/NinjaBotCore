@@ -664,7 +664,7 @@ namespace NinjaBotCore.Modules.Wow
                                     embed.Title = $"New log found for [{guild.WowGuild}]!";
                                     StringBuilder sb = new StringBuilder();
                                     sb.AppendLine($"[__**{latestLog.title}** **/** **{latestLog.zoneName}**__]({latestLog.reportURL})");
-                                    sb.AppendLine($"\t:timer: Start time: **{UnixTimeStampToDateTime(latestLog.start)}**");
+                                    sb.AppendLine($"\t:timer: Start time: **{UnixTimeStampToDateTime(latestLog.start).ToLocalTime()}**");
                                     sb.AppendLine($"\t:pencil2: Created by [**{latestLog.owner}**]");                                                                        
                                     sb.AppendLine();
                                     embed.Description = sb.ToString();
