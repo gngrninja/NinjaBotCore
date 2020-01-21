@@ -128,7 +128,7 @@ namespace NinjaBotCore.Modules.Wow
                            
                 sb.AppendLine($"**__Raid Progression__**");
                 sb.AppendLine();
-                sb.AppendLine($"TEP");                               
+                sb.AppendLine($"Nyalotha");                               
                 sb.AppendLine($"\t **normal** [{normalKilled} / {totalBosses}] **heroic** [{heroicKilled} / {totalBosses}] **mythic** [{mythicKilled} / {totalBosses}]");
                 sb.AppendLine();               
                 sb.AppendLine($"**__Best Runs__**");                
