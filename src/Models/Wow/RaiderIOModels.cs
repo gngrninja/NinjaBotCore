@@ -88,7 +88,11 @@ namespace NinjaBotCore.Models.Wow
             public RaidProgressionAntorusTheBurningThrone CrucibleOfStorms { get; set; } 
 
             [JsonProperty("the-eternal-palace")]
-            public RaidProgressionAntorusTheBurningThrone TheEternalPalace { get; set; }            
+            public RaidProgressionAntorusTheBurningThrone TheEternalPalace { get; set; } 
+
+            [JsonProperty("nyalotha-the-waking-city")]
+            public RaidProgressionAntorusTheBurningThrone Nyalotha { get; set; } 
+
         }
 
         public partial class RaidProgressionAntorusTheBurningThrone
@@ -136,7 +140,10 @@ namespace NinjaBotCore.Models.Wow
             public RaidRankingsAntorusTheBurningThrone CrucibleOfStorms { get; set; }  
 
             [JsonProperty("the-eternal-palace")]
-            public RaidRankingsAntorusTheBurningThrone TheEternalPalace { get; set; }               
+            public RaidRankingsAntorusTheBurningThrone TheEternalPalace { get; set; }       
+
+            [JsonProperty("nyalotha-the-waking-city")]
+            public RaidRankingsAntorusTheBurningThrone Nyalotha { get; set; }                     
         }
 
         public partial class RaidRankingsAntorusTheBurningThrone

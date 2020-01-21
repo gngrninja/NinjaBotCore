@@ -121,10 +121,10 @@ namespace NinjaBotCore.Modules.Wow
                         }
                 }   
 
-                string normalKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.TheEternalPalace.NormalBossesKilled);
-                string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.TheEternalPalace.HeroicBossesKilled);
-                string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.TheEternalPalace.MythicBossesKilled);
-                string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.TheEternalPalace.TotalBosses); 
+                string normalKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Nyalotha.NormalBossesKilled);
+                string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Nyalotha.HeroicBossesKilled);
+                string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Nyalotha.MythicBossesKilled);
+                string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Nyalotha.TotalBosses); 
                            
                 sb.AppendLine($"**__Raid Progression__**");
                 sb.AppendLine();
@@ -197,10 +197,10 @@ namespace NinjaBotCore.Modules.Wow
             var guildObject = await _wowUtils.GetGuildName(Context); 
             var guildStats = _rioApi.GetRioGuildInfo(guildName: guildObject.guildName, realmName: guildObject.realmSlug, region: guildObject.regionName);
                         
-            string normalKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.TheEternalPalace.NormalBossesKilled);
-            string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.TheEternalPalace.HeroicBossesKilled);
-            string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.TheEternalPalace.MythicBossesKilled);
-            string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.TheEternalPalace.TotalBosses);
+            string normalKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Nyalotha.NormalBossesKilled);
+            string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Nyalotha.HeroicBossesKilled);
+            string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Nyalotha.MythicBossesKilled);
+            string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Nyalotha.TotalBosses);
             
             title = $"{guildObject.guildName} on {guildObject.realmName}'s Raider.IO Stats";
 
@@ -210,9 +210,9 @@ namespace NinjaBotCore.Modules.Wow
             sb.AppendLine($"\t **mythic** [{mythicKilled} / {totalBosses}]");
             sb.AppendLine();
             sb.AppendLine("**__Raid Rankings:__**");
-            sb.AppendLine($"\t **normal** [ realm [**{guildStats.RaidRankings.TheEternalPalace.Normal.Realm}**] world [**{guildStats.RaidRankings.TheEternalPalace.Normal.World}**] region [**{guildStats.RaidRankings.TheEternalPalace.Normal.Region}**] ]");            
-            sb.AppendLine($"\t **heroic** [ realm [**{guildStats.RaidRankings.TheEternalPalace.Heroic.Realm}**] world [**{guildStats.RaidRankings.TheEternalPalace.Heroic.World}**] region [**{guildStats.RaidRankings.TheEternalPalace.Heroic.Region}**] ]");
-            sb.AppendLine($"\t **mythic** [ realm [**{guildStats.RaidRankings.TheEternalPalace.Mythic.Realm}**] world [**{guildStats.RaidRankings.TheEternalPalace.Mythic.World}**] region [**{guildStats.RaidRankings.TheEternalPalace.Mythic.Region}**] ]");
+            sb.AppendLine($"\t **normal** [ realm [**{guildStats.RaidRankings.Nyalotha.Normal.Realm}**] world [**{guildStats.RaidRankings.Nyalotha.Normal.World}**] region [**{guildStats.RaidRankings.Nyalotha.Normal.Region}**] ]");            
+            sb.AppendLine($"\t **heroic** [ realm [**{guildStats.RaidRankings.Nyalotha.Heroic.Realm}**] world [**{guildStats.RaidRankings.Nyalotha.Heroic.World}**] region [**{guildStats.RaidRankings.Nyalotha.Heroic.Region}**] ]");
+            sb.AppendLine($"\t **mythic** [ realm [**{guildStats.RaidRankings.Nyalotha.Mythic.Realm}**] world [**{guildStats.RaidRankings.Nyalotha.Mythic.World}**] region [**{guildStats.RaidRankings.Nyalotha.Mythic.Region}**] ]");
             sb.AppendLine();
             sb.AppendLine($"[{guildObject.guildName} Profile]({guildStats.ProfileUrl.AbsoluteUri})");
 
