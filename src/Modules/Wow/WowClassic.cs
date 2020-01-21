@@ -148,8 +148,8 @@ namespace NinjaBotCore.Modules.Wow
                     for (int i = 0; i <= (guildLogs.Count) && i <= maxReturn ; i++)
                     {
                         sb.AppendLine($"[__**{guildLogs[i].title}** **/** **{guildLogs[i].zoneName}**__]({guildLogs[i].reportURL})");
-                        sb.AppendLine($"\t:timer: Start time: **{_wclLogsApi.UnixTimeStampToDateTime(guildLogs[i].start)}**");
-                        sb.AppendLine($"\t:stopwatch: End time: **{_wclLogsApi.UnixTimeStampToDateTime(guildLogs[i].end)}**");
+                        sb.AppendLine($"\t:timer: Start time: **{_wclLogsApi.UnixTimeStampToDateTime(guildLogs[i].start).ToLocalTime()}**");
+                        sb.AppendLine($"\t:stopwatch: End time: **{_wclLogsApi.UnixTimeStampToDateTime(guildLogs[i].end).ToLocalTime()}**");
                         sb.AppendLine($"\t:pencil2: Created by [**{guildLogs[i].owner}**]"); 
                         sb.AppendLine();
                     }
