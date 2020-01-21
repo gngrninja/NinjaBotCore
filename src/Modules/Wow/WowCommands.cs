@@ -341,12 +341,12 @@ namespace NinjaBotCore.Modules.Wow
                         affixLevel = "7";
                         break;
                     }
-                    case "infested":
+                    case "beguiling":
                     {
                         affixLevel = "10";
                         break;
-                    }    
-                    case "beguiling":
+                    }
+                    case "awakened":
                     {
                         affixLevel = "10";
                         break;
