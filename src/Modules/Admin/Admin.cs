@@ -199,7 +199,7 @@ namespace NinjaBotCore.Modules.Admin
             StringBuilder sb = new StringBuilder();
             try
             {
-                await user.SendMessageAsync($"You've been kicked from [**{Context.Guild.Name}**] by [**{Context.User.Username}**]: [**{reason}**]");
+                //await user.SendMessageAsync($"You've been kicked from [**{Context.Guild.Name}**] by [**{Context.User.Username}**]: [**{reason}**]");
                 await user.KickAsync();
                 embed.Title = $"Kicking {user.Username}";
                 if (string.IsNullOrEmpty(reason))
@@ -268,7 +268,7 @@ namespace NinjaBotCore.Modules.Admin
             StringBuilder sb = new StringBuilder();
             try
             {
-                await user.SendMessageAsync($"You have been banned from [**{Context.Guild.Name}**] -> [**{reason}**]");
+                //await user.SendMessageAsync($"You have been banned from [**{Context.Guild.Name}**] -> [**{reason}**]");
                 await Context.Guild.AddBanAsync(user, pruneDays, reason);
                 embed.Title = $"Banning {user.Username}";
                 sb.AppendLine($"Reason: [**{reason}**]");
