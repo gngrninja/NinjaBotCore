@@ -35,10 +35,8 @@ using Microsoft.Extensions.Http;
 namespace NinjaBotCore
 {
     public class NinjaBot
-    {
-        private DiscordShardedClient _client;
-        private CommandHandler _handler;        
-        public static DiscordShardedClient Client;        
+    {       
+        private CommandHandler _handler;                
         private IConfigurationRoot _config;
 
         public async Task StartAsync()
