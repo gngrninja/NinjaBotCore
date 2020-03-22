@@ -844,7 +844,7 @@ namespace NinjaBotCore.Modules.Wow
                         DateTime startTime = DateTime.UtcNow;
                         DateTime endTime = DateTime.UtcNow;
 
-                        if (!string.IsNullOrEmpty(realmInfo.timezone))
+                        if (realmInfo != null && !string.IsNullOrEmpty(realmInfo.timezone))
                         {                            
                             startTime = _logsApi.ConvTimeToLocalTimezone(_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].start), realmInfo.timezone);
                             endTime =  _logsApi.ConvTimeToLocalTimezone(_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].end), realmInfo.timezone);
@@ -955,8 +955,8 @@ namespace NinjaBotCore.Modules.Wow
 
                 if (members != null)
                 {
-                    guildName = members.name;
-                    realmName = members.realm;
+                    guildName = members.guild.name;
+                    realmName = members.guild.realm.slug;
                     await _cc.Reply(Context, "Looking up realm realm information, hang tight!");
                     await _wowUtils.SetGuildAssociation(guildName, realmName, locale: locale, regionName: region, context: Context);
                     await GetGuild();
@@ -1022,33 +1022,33 @@ namespace NinjaBotCore.Modules.Wow
                 string guildRealm = string.Empty;
                 string guildRegion = string.Empty;
                 string faction = string.Empty;
-                string battlegroup = members.battlegroup;
-                int achievementPoints = members.achievementPoints;
-                switch (members.side)
+                //string battlegroup = members.battlegroup;
+                //int achievementPoints = members.achievementPoints;
+                switch (members.guild.faction._type)
                 {
-                    case 0:
+                    case "ALLIANCE":
                         {
                             faction = "Alliance";
                             embed.WithColor(new Color(0, 0, 255));
                             break;
                         }
-                    case 1:
+                    case "HORDE":
                         {
                             faction = "Horde";
                             embed.WithColor(new Color(255, 0, 0));
                             break;
                         }
                 }
-                guildName = members.name;
-                guildRealm = members.realm;
+                guildName = members.guild.name;
+                guildRealm = members.guild.realm.slug;
                 guildRegion = guildObject.regionName;
                 sb.AppendLine($"Guild Name: **{guildName}**");
                 sb.AppendLine($"Realm Name: **{guildRealm}**");
                 sb.AppendLine($"Members: **{members.members.Count().ToString()}**");
-                sb.AppendLine($"Battlegroup: **{battlegroup}**");
+                //sb.AppendLine($"Battlegroup: **{battlegroup}**");
                 sb.AppendLine($"Faction: **{faction}**");
                 sb.AppendLine($"Region: **{guildRegion}**");
-                sb.AppendLine($"Achievement Points: **{achievementPoints.ToString()}**");
+                //sb.AppendLine($"Achievement Points: **{achievementPoints.ToString()}**");
             }
             else
             {

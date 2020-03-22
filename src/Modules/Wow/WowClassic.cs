@@ -161,5 +161,39 @@ namespace NinjaBotCore.Modules.Wow
                 }
             }
         }
+
+        [Command("list-classic-fights")]
+        [RequireOwner]
+        public async Task GetClassicZones([Remainder] string args = null)         
+        {
+            var zones = await _wclLogsApi.GetClassicZones();
+            Zones latest = null;
+            if (args == null) 
+            {
+                latest = zones[zones.Count - 2];
+            }
+            else 
+            {
+                if (args.ToLower() == "bwl") 
+                {
+                    args = "Blackwing Lair";
+                }
+                if (args.ToLower() == "mc") 
+                {
+                    args = "Molten Core";
+                }                
+                latest = zones.Where(z => z.name.ToLower() == args.ToLower()).FirstOrDefault();
+            }
+            var sb = new StringBuilder();
+            if (latest != null)
+            {
+                sb.AppendLine($"fights for [{latest.name}]");                
+                foreach (var fight in latest.encounters)
+                {
+                    sb.AppendLine($"id [{fight.id}] name [{fight.name}]");
+                }
+            }
+            await _cc.Reply(Context, sb.ToString());
+        }
     }
 }

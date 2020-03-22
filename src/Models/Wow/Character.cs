@@ -19,7 +19,7 @@ namespace NinjaBotCore.Models.Wow
 
         public long lastModified { get; set; }
         public string name { get; set; }
-        public string realm { get; set; }
+        public WowRealmResponse realm { get; set; }
         public string battlegroup { get; set; }
         [JsonProperty(PropertyName = "class")]
         public int _class { get; set; }
@@ -613,6 +613,12 @@ namespace NinjaBotCore.Models.Wow
         public WoWSpecs spec { get; set; }
         public string calcTalent { get; set; }
         public string calcSpec { get; set; }
+    }
+
+    public class WowRealmResponse
+    {
+        public int id { get; set; }
+        public string slug { get; set; }
     }
 
     public class WoWSpecs

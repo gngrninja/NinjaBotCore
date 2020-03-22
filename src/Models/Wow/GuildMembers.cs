@@ -3,22 +3,37 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
 
 namespace NinjaBotCore.Models.Wow
 {
     public class GuildMembers
-    {
-        public long lastModified { get; set; }
-        public string name { get; set; }
-        public string realm { get; set; }
-        public string battlegroup { get; set; }
-        public int level { get; set; }
-        public int side { get; set; }
-        public int achievementPoints { get; set; }
+    {                                      
         public Member[] members { get; set; }
         public Emblem emblem { get; set; }
+        public WowGuild guild { get; set; }        
     }
 
+    public class WowRealmResponseGuild
+    {
+        public int id { get; set; }
+        public string slug { get; set; }
+    }
+
+    public class FactionInfo 
+    {
+        [JsonProperty(PropertyName = "type")]
+        public string _type { get; set; }            
+    }
+
+    public class WowGuild
+    {
+        public string name { get; set; }
+        public int id { get; set; }
+        public WowRealmResponseGuild realm { get; set; } 
+        public FactionInfo faction { get; set; }
+    }
+    
     public class Emblem
     {
         public int icon { get; set; }

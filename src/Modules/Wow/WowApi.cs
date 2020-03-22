@@ -25,7 +25,7 @@ namespace NinjaBotCore.Modules.Wow
         private static string _token;
         private static WowClasses _classes;
         private static Race _race;
-        private static List<Achievement2> _achievements;
+        private static List<Achievement> _achievements;
         private static WowRealm _realmInfo;
         private static WowRealm _realmInfoEu;
         private static WowRealm _realmInfoRu;
@@ -58,7 +58,7 @@ namespace NinjaBotCore.Modules.Wow
             Races = this.GetRaces();
             Classes = this.GetWowClasses();
             Achievements cheeves = this.GetWoWAchievements();
-            Achievements = cheeves.achievements.Select(m => m.categories).Skip(1).SelectMany(i => i).Select(a => a.achievements).SelectMany(d => d).ToList();
+            Achievements = cheeves.achievements.ToList();
             RealmInfo = this.GetRealmStatus("us");
             RealmInfoEu = this.GetRealmStatus("eu");
             RealmInfoRu = this.GetRealmStatus("ru_RU", "eu");
@@ -75,6 +75,7 @@ namespace NinjaBotCore.Modules.Wow
                 _realmInfo = value;
             }
         }
+
         public static WowRealm RealmInfoEu
         {
             get
@@ -86,6 +87,7 @@ namespace NinjaBotCore.Modules.Wow
                 _realmInfoEu = value;
             }
         }
+
         public static WowRealm RealmInfoRu
         {
             get
@@ -97,7 +99,8 @@ namespace NinjaBotCore.Modules.Wow
                 _realmInfoRu = value;
             }
         }
-        public static List<Achievement2> Achievements
+        
+        public static List<Achievement> Achievements
         {
             get
             {
@@ -155,7 +158,7 @@ namespace NinjaBotCore.Modules.Wow
 
             region = region.ToLower();
 
-            prefix = $"https://{region}.api.blizzard.com/wow";
+            prefix = $"https://{region}.api.blizzard.com";
             key = $"&access_token={_token}";
             url = $"{prefix}{url}{key}";
 
@@ -175,7 +178,7 @@ namespace NinjaBotCore.Modules.Wow
             string prefix;
             
             region = region.ToLower();
-            prefix = $"https://{region}.api.blizzard.com/wow";
+            prefix = $"https://{region}.api.blizzard.com";
             key = $"&access_token={_token}"; 
 
             if (!url.Contains('='))
@@ -246,7 +249,7 @@ namespace NinjaBotCore.Modules.Wow
         {
             string localeName = GetRegionFromString(locale);
             WowRealm w = new WowRealm();
-            string url = $"/realm/status?";
+            string url = $"/data/wow/realm/index?namespace=dynamic-{locale}";
             w = JsonConvert.DeserializeObject<WowRealm>(GetAPIRequest(url, localeName, locale));
             return w;
         }
@@ -265,7 +268,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             
             WowRealm w = new WowRealm();
-            string url = $"/realm/status?";
+            string url = $"/data/wow/realm/index?namespace=dynamic-{region}";
             w = JsonConvert.DeserializeObject<WowRealm>(GetAPIRequest(url, locale: localeName, region: region));
             return w;
         }
@@ -425,7 +428,7 @@ namespace NinjaBotCore.Modules.Wow
             string profilePicUrl = $"http://render-{regionName}.worldofwarcraft.com/character/{c.thumbnail.Replace("-avatar", "-profilemain")}";
             c.profilePicURL = profilePicUrl;
                         
-            string armoryUrl = $"https://worldofwarcraft.com/{region}/character/{regionName}/{c.realm.Replace(" ","-")}/{c.name}";
+            string armoryUrl = $"https://worldofwarcraft.com/{region}/character/{regionName}/{c.realm.slug.Replace(" ","-")}/{c.name}";
             c.armoryURL = armoryUrl;
             return c;
         }
@@ -486,7 +489,7 @@ namespace NinjaBotCore.Modules.Wow
             string url;
             Race r;
 
-            url = "/data/character/races?locale=en_US";
+            url = "/data/wow/playable-race/index?namespace=static-us&locale=en_US";
             r = JsonConvert.DeserializeObject<Race>(GetAPIRequest(url));
 
             return r;
@@ -497,7 +500,7 @@ namespace NinjaBotCore.Modules.Wow
             WowClasses c;
             string url;
 
-            url = "/data/character/classes?locale=en_US";
+            url = "/data/wow/playable-class/index?namespace=static-us&locale=en_US";
             c = JsonConvert.DeserializeObject<WowClasses>(GetAPIRequest(url));
 
             return c;
@@ -508,7 +511,7 @@ namespace NinjaBotCore.Modules.Wow
             TalentList talents;
             string url;
 
-            url = "/data/talents?locale=en_US";
+            url = "/data/wow/talent/index?namespace=static-us&locale=en_US";
 
             talents = JsonConvert.DeserializeObject<TalentList>(GetAPIRequest(url));
 
@@ -520,7 +523,7 @@ namespace NinjaBotCore.Modules.Wow
             Achievements a;
             string url;
 
-            url = "/data/character/achievements?locale=en_US";
+            url = "/data/wow/achievement/index?namespace=static-us&locale=en_US";
             a = JsonConvert.DeserializeObject<Achievements>(GetAPIRequest(url));
 
             return a;
@@ -544,7 +547,7 @@ namespace NinjaBotCore.Modules.Wow
             string url;
             GuildMembers g;
             string locale = GetRegionFromString(regionName);
-            url = $"/guild/{realm}/{guildName}?fields=members";
+            url = $"/data/wow/guild/{realm}/{guildName.Replace(" ","-")}/roster?namespace=profile-{regionName}";
             if (locale != "en_US")
             {
                 g = JsonConvert.DeserializeObject<GuildMembers>(GetAPIRequest(url, region: "eu", locale: locale ));
@@ -560,7 +563,32 @@ namespace NinjaBotCore.Modules.Wow
         {
             string url;
             GuildMembers g;
-            url = $"/guild/{realm}/{guildName}?fields=members";
+            var slugs = GetRealmStatus(locale: locale, region: regionName);                
+            string realmSlug = string.Empty;        
+            switch (locale)
+            {
+                case "ru_RU":
+                    {                                                        
+                        realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realm.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();
+                        break;
+                    }
+                case "en_GB":
+                    {                            
+                        realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realm.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();
+                        break;
+                    }
+                case "en_US":
+                    {                            
+                        realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realm.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();
+                        break;
+                    }
+                default: 
+                    {                            
+                        realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realm.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();
+                        break;
+                    }
+            }            
+            url = $"/data/wow/guild/{realmSlug}/{guildName.ToLower().Replace(" ","-")}/roster?namespace=profile-{regionName}";
             if (locale != "en_US")
             {
                 g = JsonConvert.DeserializeObject<GuildMembers>(GetAPIRequest(url, region: "eu", locale: locale));
@@ -650,7 +678,7 @@ namespace NinjaBotCore.Modules.Wow
                     case 1:
                         {
                             matchedName = curMember;
-                            realmName = member.character.realm;
+                            realmName = member.character.realm.slug;
 
                             guildInfo.charName = curMember;
                             guildInfo.realmName = realmName;

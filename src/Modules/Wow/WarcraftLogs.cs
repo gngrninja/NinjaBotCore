@@ -24,6 +24,7 @@ namespace NinjaBotCore.Modules.Wow
     {
         private static CancellationTokenSource _tokenSource;
         private static List<Zones> _zones;
+        private static List<Zones> _classicZones;
         private static List<CharClasses> _charClasses;
         private readonly IConfigurationRoot _config;
         private DiscordShardedClient _client;
@@ -50,6 +51,8 @@ namespace NinjaBotCore.Modules.Wow
                 _apiClassicCmd = new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"], baseUrl: "https://classic.warcraftlogs.com:443/v1/", services.GetRequiredService<IHttpClientFactory>().CreateClient());
                 CharClasses = this.GetCharClasses().Result;
                 Zones = this.GetZones().Result;
+                ClassicZones = this.GetClassicZones().Result;
+                
                 _currentRaidTier = this.SetCurrentTier();
                 this.MigrateOldReports();
                 this.StartTimer();                
@@ -69,6 +72,18 @@ namespace NinjaBotCore.Modules.Wow
             private set
             {
                 _zones = value;
+            }
+        }
+
+        public static List<Zones> ClassicZones
+        {
+            get
+            {
+                return _classicZones;
+            }
+            private set
+            {
+                _classicZones = value;
             }
         }
 
@@ -118,6 +133,13 @@ namespace NinjaBotCore.Modules.Wow
             string url = string.Empty;
             url = $"zones?";
             return await _api.Get<List<Zones>>(url);
+        }
+
+        public async Task<List<Zones>> GetClassicZones()
+        {
+            string url = string.Empty;
+            url = $"zones?";
+            return await _apiClassic.Get<List<Zones>>(url);
         }
 
         public async Task<List<Reports>> GetReportsFromGuildClassic(string guildName, string realm, string region, bool isList = false, bool flip = false)
@@ -615,7 +637,7 @@ namespace NinjaBotCore.Modules.Wow
                         }
                 }
             }
-            if (!string.IsNullOrEmpty(realmInfo.timezone))
+            if (realmInfo != null && !string.IsNullOrEmpty(realmInfo.timezone))
             {
                 tz = realmInfo.timezone;
             }

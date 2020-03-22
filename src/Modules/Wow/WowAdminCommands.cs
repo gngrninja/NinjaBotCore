@@ -188,13 +188,13 @@ namespace NinjaBotCore.Modules.Wow
                         }                                         
                         if (match == null || matchTime.Day != DateTime.Now.Day) 
                         {
-                            curMemberStats = _wowApi.GetCharStats(member.character.name, member.character.realm, guildObject.locale);
+                            curMemberStats = _wowApi.GetCharStats(member.character.name, member.character.realm.slug, guildObject.locale);
                             var elixer = curMemberStats.Statistics.SubCategories[0].SubCategories[0].Statistics.Where(s => s.Name == "Elixir consumed most").FirstOrDefault();
                             using (var db = new NinjaBotEntities())
                             {
                                 db.CharStats.Add(new CharStats{
                                     CharName = member.character.name,
-                                    RealmName = member.character.realm,
+                                    RealmName = member.character.realm.slug,
                                     GuildName = guildObject.guildName,
                                     ElixerConsumed = elixer.Highest,
                                     Quantity = elixer.Quantity,

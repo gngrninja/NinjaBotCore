@@ -405,8 +405,8 @@ namespace NinjaBotCore.Modules.Wow
                 int memberCount = 0;
                 if (guildMembers != null)
                 {
-                    guildName = guildMembers.name;
-                    realmName = guildMembers.realm;
+                    guildName = guildMembers.guild.name;
+                    realmName = guildMembers.guild.realm.slug;
                     memberCount = guildMembers.members.Count();
                 }
                 var wowProgressApi = new WowProgress();
@@ -669,7 +669,7 @@ namespace NinjaBotCore.Modules.Wow
                         var matchedCheeve = WowApi.Achievements.Where(c => c.id == findMe.AchId).FirstOrDefault();
                         if (matchedCheeve != null)
                         {
-                            cheevMessage.AppendLine($":white_check_mark: {matchedCheeve.title}");
+                            cheevMessage.AppendLine($":white_check_mark: {matchedCheeve.name}");
                         }
                     }
                 }
