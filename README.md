@@ -10,6 +10,13 @@ It's primary focus is to help out guilds in World of Warcraft.
 This project has been an awesome way for me to learn C#, feel free to toss in a pull request if there's a better way to do something!
 
 ## Getting Started
+(note)
+Blizzard has recently changed their API a bit. I am re-working NinjaBot accordingly. 
+Some commands have not been worked over, but the core functionality should still be there.
+That include guild associations, and log posting for retail and classic. (conversion to local timezones for logs will have to be re-added at a later date)
+
+Outside of that, there may be issues, and I will be fixing them as I see them come up.
+
 The first thing you'll need to do is [invite the bot to your server](https://discordapp.com/oauth2/authorize?client_id=238495040446398467&scope=bot&permissions=314432). 
 It will need permissions to read and post messages at the very minimum. 
 If you wish to use NinjaBot to assist with admin tasks (kicking/banning users, message management, etc), [please use this link](https://discordapp.com/oauth2/authorize?client_id=238495040446398467&scope=bot&permissions=27718).
