@@ -532,7 +532,9 @@ namespace NinjaBotCore.Modules.Wow
                 for (int i = 0; i < 500; i++)
                 {
                     _logger.LogInformation("Attempting to find slug!");
-                    var slugs = _wowApi.GetRealmStatus(locale: locale, region: apiRegion);                        
+                    var slugs = _wowApi.GetRealmStatus(locale: locale, region: apiRegion);   
+                    realmSlug = realmName;         
+                    /*            
                     switch (locale)
                     {
                         case "ru_RU":
@@ -556,6 +558,7 @@ namespace NinjaBotCore.Modules.Wow
                                 break;
                             }
                     }
+                    */
                     if (!string.IsNullOrEmpty(realmSlug))
                     {
                         _logger.LogInformation($"Found slug {realmSlug}!");

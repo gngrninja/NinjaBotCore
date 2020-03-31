@@ -600,6 +600,34 @@ namespace NinjaBotCore.Modules.Wow
             return g;
         }
 
+        public GuildMembers GetGuildMembersBySlug(string slug, string guildName, string locale, string regionName = "us")
+        {
+            string url;
+            GuildMembers g;
+            var slugs = GetRealmStatus(locale: locale, region: regionName);                
+            string realmSlug = slug;                        
+            url = $"/data/wow/guild/{realmSlug}/{guildName.ToLower().Replace(" ","-")}/roster?namespace=profile-{regionName}";
+            if (locale != "en_US")
+            {
+                g = JsonConvert.DeserializeObject<GuildMembers>(GetAPIRequest(url, region: "eu", locale: locale));
+            }
+            else
+            {
+                g = JsonConvert.DeserializeObject<GuildMembers>(GetAPIRequest(url));
+            }
+            return g;
+        }
+
+        public GuildMembers GetGuildMembersBySlug(string slug, string guildName, string regionName = "us")
+        {
+            string url;
+            GuildMembers g;             
+            string realmSlug = slug;                        
+            url = $"/data/wow/guild/{realmSlug}/{guildName.ToLower().Replace(" ","-")}/roster?namespace=profile-{regionName}";        
+            g = JsonConvert.DeserializeObject<GuildMembers>(GetAPIRequest(url));
+            return g;
+        }
+
         public WoWTalentMain GetCharTalents(string charName, string realmName)
         {
             WoWTalentMain charTalents;
