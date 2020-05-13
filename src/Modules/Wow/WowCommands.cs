@@ -48,6 +48,12 @@ namespace NinjaBotCore.Modules.Wow
             await Context.Channel.SendFileAsync("shunt.gif");
         }
 
+        [Command("shuntshark", RunMode = RunMode.Async)]
+        public async Task ShowShuntShark()
+        {
+            await Context.Channel.SendFileAsync("shark.gif");
+        }
+
         [Command("rpi", RunMode = RunMode.Async)]
         public async Task GetMythicPlus([Remainder] string args = null)
         {
