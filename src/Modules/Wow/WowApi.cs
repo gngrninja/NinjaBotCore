@@ -412,7 +412,7 @@ namespace NinjaBotCore.Modules.Wow
             region = GetRegionFromString(regionName);
             Character c = new Character();
             realm = realm.Replace("'", string.Empty).Replace(" ", "-");
-            url = $"/character/{realm}/{name}?fields=achievements,talents,items,stats&locale={region}";
+            url = $"/profile/wow/character/{realm}/{name}";            
             if (region != "en_US")
             {
                 c = JsonConvert.DeserializeObject<Character>(GetAPIRequest(url, "eu"));
@@ -547,7 +547,7 @@ namespace NinjaBotCore.Modules.Wow
             string url;
             GuildMembers g;
             string locale = GetRegionFromString(regionName);
-            url = $"/data/wow/guild/{realm}/{guildName.Replace(" ","-")}/roster?namespace=profile-{regionName}";
+            url = $"/data/wow/guild/{realm}/{guildName.Replace(" ","-").Replace("%20","-").ToLower()}/roster?namespace=profile-{regionName}";
             if (locale != "en_US")
             {
                 g = JsonConvert.DeserializeObject<GuildMembers>(GetAPIRequest(url, region: "eu", locale: locale ));

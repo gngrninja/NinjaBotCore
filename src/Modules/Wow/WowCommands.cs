@@ -84,12 +84,12 @@ namespace NinjaBotCore.Modules.Wow
                 if (!(string.IsNullOrEmpty(charInfo.regionName)))
                 {
                     mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"), region: charInfo.regionName.ToLower());
-                    armoryInfo = _wowApi.GetCharInfo(charInfo.charName, charInfo.realmName, charInfo.regionName);
+                    //armoryInfo = _wowApi.GetCharInfo(charInfo.charName, charInfo.realmName, charInfo.regionName);
                 }
                 else
                 {
                     mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"));
-                    armoryInfo = _wowApi.GetCharInfo(charInfo.charName, charInfo.realmName);
+                    //armoryInfo = _wowApi.GetCharInfo(charInfo.charName, charInfo.realmName);
                 }      
                 var locale = string.Empty;
                 if (!string.IsNullOrEmpty(charInfo.locale))
@@ -165,13 +165,13 @@ namespace NinjaBotCore.Modules.Wow
                 sb.AppendLine();          
                 embed.Title = $"Mythic+ Information For {mPlusInfo.Name} on {mPlusInfo.Realm}";
                 embed.AddField("Raider.IO",$"[{mPlusInfo.Name}]({mPlusInfo.ProfileUrl.AbsoluteUri})", true);
-                embed.AddField("WoW Armory",$"[{mPlusInfo.Name}]({armoryInfo.armoryURL})", true);
+                //embed.AddField("WoW Armory",$"[{mPlusInfo.Name}]({armoryInfo.armoryURL})", true);
                 embed.AddField("Warcraftlogs",$"[{mPlusInfo.Name}](https://www.warcraftlogs.com/character/{region}/{realmSlug}/{mPlusInfo.Name})", true);
                 embed.ThumbnailUrl = $"{mPlusInfo.ThumbnailUrl.AbsoluteUri}";
                 embed.Description = sb.ToString();
                 embed.WithColor(new Color(0, 200, 150));
                 embed.Footer = new EmbedFooterBuilder{
-                    Text = $"Raider.IO Score {mPlusInfo.MythicPlusScores.All} ilvl {armoryInfo.items.averageItemLevel}({armoryInfo.items.averageItemLevelEquipped} equipped)"
+                    Text = $"Raider.IO Score {mPlusInfo.MythicPlusScores.All}"
                 };                            
                 await _cc.Reply(Context, embed);
             }
@@ -532,6 +532,9 @@ namespace NinjaBotCore.Modules.Wow
             string userName = string.Empty;
             string errorMessage = string.Empty;
 
+            await _cc.Reply(Context, $"This command is currently under construction, please use {_prefix}rpi for now!");
+            return;
+            
             GuildChar charInfo = null;
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
