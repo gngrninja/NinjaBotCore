@@ -693,33 +693,37 @@ namespace NinjaBotCore.Modules.Wow
             {
                 _logger.LogError($"{ex.Message}");
             }
-            foreach (Member member in members.members)
-            {
-                string curMember = string.Empty;
-
-                curMember = member.character.name;
-
-                MatchCollection m = myRegex.Matches(curMember.ToLower());
-
-                switch (m.Count)
+            bool done = false;
+            while (!done)
+            {            
+                foreach (Member member in members.members.OrderByDescending(m => m.character.name))
                 {
-                    case 1:
-                        {
-                            matchedName = curMember;
-                            realmName = member.character.realm.slug;
 
-                            guildInfo.charName = curMember;
-                            guildInfo.realmName = realmName;
-                            guildInfo.regionName = regionName;
+                    string curMember = string.Empty;
+                    curMember = member.character.name;
+                    MatchCollection m = myRegex.Matches(curMember.ToLower());
 
-                            break;
-                        }
-                    default:
-                        {
-                            break;
-                        }
-                }
+                    switch (m.Count)
+                    {
+                        case 1:
+                            {
+                                matchedName = curMember;
+                                realmName = member.character.realm.slug;
+
+                                guildInfo.charName = curMember;
+                                guildInfo.realmName = realmName;
+                                guildInfo.regionName = regionName;
+                                done = true;
+                                break;
+                            }
+                        default:
+                            {
+                                break;
+                            }
+                    }
+                }    
             }
+
             return guildInfo;
         }
 
