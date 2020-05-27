@@ -1880,7 +1880,7 @@ namespace NinjaBotCore.Modules.Wow
         }
 
         [Command("yoink")]
-        [RequireUserPermission(GuildPermission.KickMembers)]
+        [RequireUserPermission(GuildPermission.Administrator)]
         public async Task Yoink(SocketVoiceChannel to, SocketVoiceChannel from)
         {
             var usersToMove = from.Users;
