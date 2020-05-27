@@ -1878,5 +1878,20 @@ namespace NinjaBotCore.Modules.Wow
             embed.Description = sb.ToString();
             await _cc.Reply(Context,embed);
         }
+
+        [Command("yoink")]
+        [RequireOwner]
+        public async Task Yoink(SocketVoiceChannel to, SocketVoiceChannel from)
+        {
+            var usersToMove = from.Users;
+
+            foreach (var user in usersToMove)
+            {
+                await user.ModifyAsync(u =>
+                {
+                    u.Channel = to;
+                });
+            }
+        }
     }
 }
