@@ -1880,11 +1880,11 @@ namespace NinjaBotCore.Modules.Wow
         }
 
         [Command("yoink")]
-        [RequireOwner]
+        [RequireUserPermission(GuildPermission.KickMembers)]
         public async Task Yoink(SocketVoiceChannel to, SocketVoiceChannel from)
         {
             var usersToMove = from.Users;
-
+            var numUsers = from.Users.Count;
             foreach (var user in usersToMove)
             {
                 await user.ModifyAsync(u =>
@@ -1892,6 +1892,8 @@ namespace NinjaBotCore.Modules.Wow
                     u.Channel = to;
                 });
             }
+            var message = $"Yoinked [{numUsers}] users from [{from.Name}] to [{to.Name}]!";
+            await _cc.Reply(Context, message);
         }
     }
 }
