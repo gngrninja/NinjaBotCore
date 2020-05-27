@@ -1959,7 +1959,7 @@ namespace NinjaBotCore.Modules.Wow
             var channels     = await Context.Guild.GetTextChannelsAsync();
             var raidCat      = Context.Guild.GetCategoriesAsync().Result.Where(c => c.Name.ToLower() == "raiding").FirstOrDefault();            
             var raiderRole   = serverRoles.Where(r => r.Name.ToLower() == "raider").FirstOrDefault();
-
+                        
             if (raiderRole == null)
             {
                 await _cc.Reply(Context, $"Could not find the [**Raider**] role, please add it if you'd like to use this command!");
@@ -2007,7 +2007,8 @@ namespace NinjaBotCore.Modules.Wow
                 sb.AppendLine($"{user.Mention},");
                 sb.AppendLine();
                 sb.AppendLine($"You should now be able to see raiding channels, welcome to the [**back2back mirror fam**]");   
-                sb.AppendLine(":b2bm:"); 
+                sb.AppendLine();
+                sb.AppendLine("<:b2bm:710554622452039731>"); 
                 sb.AppendLine();
                 if (signUpChannel != null)
                 {
