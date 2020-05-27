@@ -1895,5 +1895,140 @@ namespace NinjaBotCore.Modules.Wow
             var message = $"Yoinked [{numUsers}] users from [{from.Name}] to [{to.Name}]!";
             await _cc.Reply(Context, message);
         }
+
+        [Command("member")]
+        [RequireUserPermission(GuildPermission.KickMembers)]
+        public async Task AddMemberRole(IGuildUser user)
+        {
+            var serverRoles  = Context.Guild.Roles;
+            var userRoles    = user.RoleIds;
+
+            var memberRole   = serverRoles.Where(r => r.Name.ToLower() == "member").FirstOrDefault();
+            var raiderRole   = serverRoles.Where(r => r.Name.ToLower() == "raider").FirstOrDefault();
+
+            if (memberRole == null)
+            {
+                await _cc.Reply(Context, $"Could not find the [**Member**] role, please add it if you'd like to use this command!");
+                return;
+            }
+
+            var memberRoleId = memberRole.Id;
+            var isMember     = userRoles.Where(u => u == memberRoleId).FirstOrDefault();
+            var embed        = new EmbedBuilder();
+            var sb           = new StringBuilder();
+            embed.WithFooter(new EmbedFooterBuilder
+                {
+                    Text    = "Message sent from your local, organically grown, NinjaBot!",
+                    IconUrl = Context.Guild.IconUrl
+                });   
+
+            embed.Title        = $"User role change for [{user.Username}]";
+            embed.ThumbnailUrl = Context.User.GetAvatarUrl();
+
+            if (isMember != 0)
+            {
+                if (raiderRole != null && userRoles.Where(r => r == raiderRole.Id).FirstOrDefault() != 0)
+                {
+                    await user.RemoveRoleAsync(raiderRole);
+                }
+                await user.RemoveRoleAsync(memberRole);        
+                sb.AppendLine($"{user.Mention},");
+                sb.AppendLine();
+                sb.AppendLine($"Member role removed </3");                
+                embed.WithColor(255, 0, 0);
+                      
+            }
+            else
+            {
+                await user.AddRoleAsync(memberRole);                
+                sb.AppendLine($"{user.Mention},");
+                sb.AppendLine();
+                sb.AppendLine($"You should now be able to see more channels, welcome to [**{Context.Guild.Name}**]");                
+                embed.WithColor(0, 255, 0);                         
+            }  
+            embed.Description = sb.ToString();
+            await _cc.Reply(Context, embed);                           
+        }
+
+        [Command("raider")]
+        [RequireUserPermission(GuildPermission.KickMembers)]
+        public async Task AddRaiderRole(IGuildUser user)
+        {
+            var serverRoles  = Context.Guild.Roles;
+            var userRoles    = user.RoleIds;
+            var channels     = await Context.Guild.GetTextChannelsAsync();
+            var raidCat      = Context.Guild.GetCategoriesAsync().Result.Where(c => c.Name.ToLower() == "raiding").FirstOrDefault();            
+            var raiderRole   = serverRoles.Where(r => r.Name.ToLower() == "raider").FirstOrDefault();
+
+            if (raiderRole == null)
+            {
+                await _cc.Reply(Context, $"Could not find the [**Raider**] role, please add it if you'd like to use this command!");
+                return;
+            }
+
+            ITextChannel signUpChannel = null;
+            ITextChannel stratChannel  = null;
+            ITextChannel addonChannel  = null;
+            ITextChannel logsChannel   = null;
+
+            if (raidCat != null)
+            {                
+                signUpChannel = channels.Where(c => c.Name.ToLower() == "sign-up" && c.CategoryId == raidCat.Id).FirstOrDefault();
+                stratChannel  = channels.Where(c => c.Name.ToLower() == "strategy" && c.CategoryId == raidCat.Id).FirstOrDefault();
+                addonChannel  = channels.Where(c => c.Name.ToLower() == "addons" && c.CategoryId == raidCat.Id).FirstOrDefault();
+                logsChannel   = channels.Where(c => c.Name.ToLower() == "logs" && c.CategoryId == raidCat.Id).FirstOrDefault();
+            }
+
+            var raiderRoleId = raiderRole.Id;
+            var isRaider     = userRoles.Where(u => u == raiderRoleId).FirstOrDefault();
+            var embed        = new EmbedBuilder();
+            var sb           = new StringBuilder();
+            embed.WithFooter(new EmbedFooterBuilder
+                {
+                    Text    = "Message sent from your local, organically grown, NinjaBot!",
+                    IconUrl = Context.Guild.IconUrl
+                });   
+
+            embed.Title        = $"User role change for [{user.Username}]";
+            embed.ThumbnailUrl = Context.User.GetAvatarUrl();
+
+            if (isRaider != 0)
+            {
+                await user.RemoveRoleAsync(raiderRole);        
+                sb.AppendLine($"{user.Mention},");
+                sb.AppendLine();
+                sb.AppendLine($"Raider role removed </3");                
+                embed.WithColor(255, 0, 0);
+                      
+            }
+            else
+            {
+                await user.AddRoleAsync(raiderRole);                
+                sb.AppendLine($"{user.Mention},");
+                sb.AppendLine();
+                sb.AppendLine($"You should now be able to see raiding channels, welcome to the [**back2back mirror fam**]");   
+                sb.AppendLine(":b2bm:"); 
+                sb.AppendLine();
+                if (signUpChannel != null)
+                {
+                    sb.AppendLine($":small_blue_diamond: Raid sign-ups are announced in [{signUpChannel.Mention}]");
+                }  
+                if (addonChannel != null)
+                {
+                    sb.AppendLine($":small_blue_diamond: Mandatory addons for raiding are located in [{addonChannel.Mention}]");
+                }
+                if (stratChannel != null)
+                {
+                    sb.AppendLine($":small_blue_diamond: Strats are posted in [{stratChannel.Mention}]");                
+                }         
+                if (logsChannel != null)
+                {
+                    sb.AppendLine($":small_blue_diamond: Logs and WoWAnalyzer/Wipefest links are located in [{logsChannel.Mention}]");                
+                }                           
+                embed.WithColor(0, 255, 0);                         
+            }  
+            embed.Description = sb.ToString();
+            await _cc.Reply(Context, embed);                           
+        }        
     }
 }
