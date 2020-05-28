@@ -15,6 +15,7 @@ using NinjaBotCore.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using NinjaBotCore.Common;
+using System.Threading;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -1891,6 +1892,7 @@ namespace NinjaBotCore.Modules.Wow
                 {
                     u.Channel = to;
                 });
+                Thread.Sleep(750);
             }
             var message = $"Yoinked [{numUsers}] users from [{from.Name}] to [{to.Name}]!";
             await _cc.Reply(Context, message);
@@ -1916,6 +1918,7 @@ namespace NinjaBotCore.Modules.Wow
             var isMember     = userRoles.Where(u => u == memberRoleId).FirstOrDefault();
             var embed        = new EmbedBuilder();
             var sb           = new StringBuilder();
+
             embed.WithFooter(new EmbedFooterBuilder
                 {
                     Text    = "Message sent from your local, organically grown, NinjaBot!",
@@ -1935,8 +1938,7 @@ namespace NinjaBotCore.Modules.Wow
                 sb.AppendLine($"{user.Mention},");
                 sb.AppendLine();
                 sb.AppendLine($"Member role removed </3");                
-                embed.WithColor(255, 0, 0);
-                      
+                embed.WithColor(255, 0, 0);                      
             }
             else
             {
@@ -1983,6 +1985,7 @@ namespace NinjaBotCore.Modules.Wow
             var isRaider     = userRoles.Where(u => u == raiderRoleId).FirstOrDefault();
             var embed        = new EmbedBuilder();
             var sb           = new StringBuilder();
+            
             embed.WithFooter(new EmbedFooterBuilder
                 {
                     Text    = "Message sent from your local, organically grown, NinjaBot!",
