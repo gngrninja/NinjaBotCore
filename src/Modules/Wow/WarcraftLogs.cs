@@ -476,6 +476,7 @@ namespace NinjaBotCore.Modules.Wow
             {
                 try
                 {
+                    System.Console.WriteLine("Checking for logs...");
                     List<WowGuildAssociations> guildList = null;
                     List<LogMonitoring> logWatchList = null;
                     List<WowClassicGuild> cGuildList = null;            
@@ -498,19 +499,20 @@ namespace NinjaBotCore.Modules.Wow
                         _logger.LogInformation("Starting WCL Auto Posting...");
                         foreach (var guild in guildList)
                         {
-                            await PerformLogCheck(logWatchList, flip, guild);
+                            await PerformLogCheck(logWatchList, flip, guild).ConfigureAwait(false);
                         }
                         foreach (var guild in cGuildList)
                         {
-                            await PerformLogCheck(logWatchList, flip, guild);
+                            await PerformLogCheck(logWatchList, flip, guild).ConfigureAwait(false);
                         }
                         _logger.LogInformation("Finished WCL Auto Posting...");
                     }
                 }
                 finally
                 {
-                    await this.StopTimer();
-                    Thread.Sleep(TimeSpan.FromSeconds(10));
+                    System.Console.WriteLine("done checking for logs");
+                    await this.StopTimer();                    
+                    Thread.Sleep(TimeSpan.FromSeconds(130));
                     await this.StartTimer();
                 }
             });                       
@@ -556,6 +558,7 @@ namespace NinjaBotCore.Modules.Wow
                         {
                             var latestLog = logs[0];
                             DateTime startTime = UnixTimeStampToDateTime(latestLog.start);
+                            System.Console.WriteLine($"local id [{watchGuild.RetailReportId}] -> remote id [{latestLog.id}] for [{guild.WowGuild}] on [{guild.WowRealm}].");
                             if (latestLog.id != watchGuild.RetailReportId)
                             {
                                 using (var db = new NinjaBotEntities())
@@ -669,6 +672,7 @@ namespace NinjaBotCore.Modules.Wow
                         {
                             var latestLog = logs[0];
                             DateTime startTime = UnixTimeStampToDateTime(latestLog.start);
+                            System.Console.WriteLine($"local id [{watchGuild.ClassicReportId}] -> remote id [{latestLog.id}] for [{guild.WowGuild}] on [{guild.WowRealm}].");
                             if (latestLog.id != watchGuild.ClassicReportId)
                             {
                                 using (var db = new NinjaBotEntities())
