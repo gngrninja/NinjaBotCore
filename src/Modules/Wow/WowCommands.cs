@@ -2046,7 +2046,15 @@ namespace NinjaBotCore.Modules.Wow
             var sb = new StringBuilder();
             foreach (var raider in mythicRaiders)
             {
-                sb.AppendLine($"<:b2bm:710554622452039731> Username [**{raider.Username}**] Nickname [**{raider.Nickname}**]");
+                if (!string.IsNullOrEmpty(raider.Nickname))
+                {
+                    sb.AppendLine($"<:b2bm:710554622452039731> Username [**{raider.Username}**] Nickname [**{raider.Nickname}**]");
+                }
+                else
+                {
+                    sb.AppendLine($"<:b2bm:710554622452039731> Username [**{raider.Username}**] Nickname [**none set**]");
+                }
+                
             }
 
             var embed = new EmbedBuilder();
