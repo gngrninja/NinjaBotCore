@@ -2034,5 +2034,33 @@ namespace NinjaBotCore.Modules.Wow
             embed.Description = sb.ToString();
             await _cc.Reply(Context, embed);                           
         }        
+        
+        [Command("listmythic")]
+        public async Task ListMythicRaiders()
+        {
+            var serverRoles   = Context.Guild.Roles;
+            var mythicRole    = serverRoles.Where(r => r.Name.ToLower() == "mythic raider").FirstOrDefault();
+            var guildMembers  = await Context.Guild.GetUsersAsync();
+            var mythicRaiders = guildMembers.Where(m => m.RoleIds.Contains(mythicRole.Id)).ToList();
+            
+            var sb = new StringBuilder();
+            foreach (var raider in mythicRaiders)
+            {
+                sb.AppendLine($"<:b2bm:710554622452039731> Username [**{raider.Username}**] Nickname [**{raider.Nickname}**]");
+            }
+
+            var embed = new EmbedBuilder();
+            embed.Color = new Color(0, 255, 0);
+            embed.Title = $"Mythic Raiders in [{Context.Guild.Name}]";
+            embed.ThumbnailUrl = Context.Guild.IconUrl;
+            embed.Description = sb.ToString();            
+            embed.WithFooter(new EmbedFooterBuilder
+                {
+                    Text    = "Message sent from your local, organically grown, NinjaBot!",
+                    IconUrl = Context.Guild.IconUrl
+                });   
+
+            await _cc.Reply(Context, embed);
+        }           
     }
 }
