@@ -2038,12 +2038,14 @@ namespace NinjaBotCore.Modules.Wow
         [Command("listmythic")]
         public async Task ListMythicRaiders()
         {
-            var serverRoles   = Context.Guild.Roles;
-            var mythicRole    = serverRoles.Where(r => r.Name.ToLower() == "mythic raider").FirstOrDefault();
-            var guildMembers  = await Context.Guild.GetUsersAsync();
-            var mythicRaiders = guildMembers.Where(m => m.RoleIds.Contains(mythicRole.Id)).ToList();            
-            var sb = new StringBuilder();
-            
+            var serverRoles      = Context.Guild.Roles;
+            var mythicRole       = serverRoles.Where(r => r.Name.ToLower() == "mythic raider").FirstOrDefault();
+            var mythicBackupRole = serverRoles.Where(r => r.Name.ToLower() == "mythic backup").FirstOrDefault();
+            var guildMembers     = await Context.Guild.GetUsersAsync();
+            var mythicRaiders    = guildMembers.Where(m => m.RoleIds.Contains(mythicRole.Id)).ToList();            
+            var mythicBackups    = guildMembers.Where(m => m.RoleIds.Contains(mythicBackupRole.Id)).ToList();          
+            var sb               = new StringBuilder();
+
             foreach (var raider in mythicRaiders)
             {                
                 if (!string.IsNullOrEmpty(raider.Nickname))
@@ -2059,6 +2061,22 @@ namespace NinjaBotCore.Modules.Wow
             sb.AppendLine("");
             sb.AppendLine($"Total [{mythicRaiders.Count}]");
 
+            sb.AppendLine("__Backups__");
+            foreach (var raider in mythicBackups)
+            {                
+                if (!string.IsNullOrEmpty(raider.Nickname))
+                {
+                    sb.AppendLine($"<:b2bm:710554622452039731> Username [**{raider.Username}**] Nickname [**{raider.Nickname}**]");
+                }
+                else
+                {
+                    sb.AppendLine($"<:b2bm:710554622452039731> Username [**{raider.Username}**] Nickname [**none set**]");
+                }                
+            }
+
+            sb.AppendLine("");
+            sb.AppendLine($"Total [{mythicBackups.Count}]");
+            
             var embed = new EmbedBuilder();
             embed.Color = new Color(0, 255, 0);
             embed.Title = $"Mythic Raiders in [{Context.Guild.Name}]";
