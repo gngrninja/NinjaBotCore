@@ -2060,7 +2060,8 @@ namespace NinjaBotCore.Modules.Wow
 
             sb.AppendLine("");
             sb.AppendLine($"Total [{mythicRaiders.Count}]");
-
+            sb.AppendLine("");
+            
             sb.AppendLine("__Backups__");
             foreach (var raider in mythicBackups)
             {                
@@ -2076,7 +2077,7 @@ namespace NinjaBotCore.Modules.Wow
 
             sb.AppendLine("");
             sb.AppendLine($"Total [{mythicBackups.Count}]");
-            
+
             var embed = new EmbedBuilder();
             embed.Color = new Color(0, 255, 0);
             embed.Title = $"Mythic Raiders in [{Context.Guild.Name}]";
