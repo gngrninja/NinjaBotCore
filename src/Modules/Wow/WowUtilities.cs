@@ -752,85 +752,28 @@ namespace NinjaBotCore.Modules.Wow
 
         public string GetNumberEmojiFromString(int number)
         {
+            var numMap = new List<(int, string)>()
+                {
+                    (1, ":one:"),
+                    (2, ":two:"),
+                    (3, ":three:"),
+                    (4, ":four:"),
+                    (5, ":five:"),
+                    (6, ":six:"),
+                    (7, ":seven:"),
+                    (8, ":eight:"),
+                    (9, ":nine:"),
+                    (0, ":zero:"),
+                };
+
             string numberEmoji = string.Empty;
-            switch (number)
+            string numToString = number.ToString();
+            
+            foreach (char numChar in numToString)
             {
-                case 1:
-                {
-                    numberEmoji = ":one:";
-                    break;
-                }
-                case 2:
-                {
-                    numberEmoji = ":two:";
-                    break;
-                }
-                case 3:
-                {
-                    numberEmoji = ":three:";
-                    break;
-                }
-                case 4:
-                {
-                    numberEmoji = ":four:";
-                    break;
-                }
-                case 5:
-                {
-                    numberEmoji = ":five:";
-                    break;
-                }
-                case 6:
-                {
-                    numberEmoji = ":six:";
-                    break;
-                }
-                case 7:
-                {
-                    numberEmoji = ":seven:";
-                    break;
-                }
-                case 8:
-                {
-                    numberEmoji = ":eight:";
-                    break;
-                }
-                case 9:
-                {
-                    numberEmoji = ":nine:";
-                    break;
-                }
-                case 10:
-                {
-                    numberEmoji = ":one::zero:";
-                    break;
-                }
-                case 11:
-                {
-                    numberEmoji = ":one::one:";
-                    break;
-                }
-                case 12:
-                {
-                    numberEmoji = ":one::two:";
-                    break;
-                }
-                case 13:
-                {
-                    numberEmoji = ":one::three:";
-                    break;
-                }
-                case 14:
-                {
-                    numberEmoji = ":one::four:";
-                    break;
-                }
-                default:
-                {
-                    numberEmoji = ":zero:";
-                    break;
-                }                                                                                                                                                                                
+                numberEmoji += numMap.Where(m => m.Item1 == int.Parse(numChar.ToString())).FirstOrDefault().Item2;
             }
+                                                       
             return numberEmoji;
         }
         

@@ -12,11 +12,8 @@ namespace NinjaBotCore.Modules.Wow
     internal class ApiRequestorThrottle : WclApiRequestor, IApiRequestorThrottle
     {        
         private readonly Semaphore _queue;
-
         private int _rateLimitRemaining;
-
         private DateTime _rateLimitResetRemaining;
-
         private IServiceProvider _services;
 
         public ApiRequestorThrottle(string apiKey, string baseUrl, HttpClient client) : base(apiKey, baseUrl, client)

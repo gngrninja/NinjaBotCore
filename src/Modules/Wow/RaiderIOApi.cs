@@ -14,6 +14,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -23,12 +24,12 @@ namespace NinjaBotCore.Modules.Wow
         private readonly IConfigurationRoot _config;
         private readonly ILogger _logger;
 
-        public RaiderIOApi(IConfigurationRoot config, ILogger<RaiderIOApi> logger)
+        public RaiderIOApi(IServiceProvider services)
         {
             try
             {
-                _logger = logger;
-                _config = config;
+                _logger = services.GetRequiredService<ILogger<RaiderIOApi>>();
+                _config = services.GetRequiredService<IConfigurationRoot>();
           
             }
             catch (Exception ex)
