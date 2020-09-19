@@ -558,7 +558,7 @@ namespace NinjaBotCore.Modules.Wow
                         {
                             var latestLog = logs[0];
                             DateTime startTime = UnixTimeStampToDateTime(latestLog.start);
-                            System.Console.WriteLine($"local id [{watchGuild.RetailReportId}] -> remote id [{latestLog.id}] for [{guild.WowGuild}] on [{guild.WowRealm}].");
+                            //System.Console.WriteLine($"local id [{watchGuild.RetailReportId}] -> remote id [{latestLog.id}] for [{guild.WowGuild}] on [{guild.WowRealm}].");
                             if (latestLog.id != watchGuild.RetailReportId)
                             {
                                 using (var db = new NinjaBotEntities())
@@ -672,7 +672,7 @@ namespace NinjaBotCore.Modules.Wow
                         {
                             var latestLog = logs[0];
                             DateTime startTime = UnixTimeStampToDateTime(latestLog.start);
-                            System.Console.WriteLine($"local id [{watchGuild.ClassicReportId}] -> remote id [{latestLog.id}] for [{guild.WowGuild}] on [{guild.WowRealm}].");
+                            //System.Console.WriteLine($"local id [{watchGuild.ClassicReportId}] -> remote id [{latestLog.id}] for [{guild.WowGuild}] on [{guild.WowRealm}].");
                             if (latestLog.id != watchGuild.ClassicReportId)
                             {
                                 using (var db = new NinjaBotEntities())
