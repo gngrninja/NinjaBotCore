@@ -35,7 +35,7 @@ namespace NinjaBotCore.Modules.Admin
             _logger.LogInformation("Admin module loaded!");
         }
 
-        [Command("change-prefix",RunMode = RunMode.Async)]
+        [Command("change-prefix", RunMode = RunMode.Async)]
         [RequireUserPermission(GuildPermission.Administrator)]
         public async Task ChangePrefix(char prefix)
         {
@@ -704,6 +704,34 @@ namespace NinjaBotCore.Modules.Admin
             var numGuilds = await Context.Client.GetGuildsAsync();
             await ReplyAsync($"I am connected to {numGuilds.Count()} guilds!");
         }
+
+        [Command("add-word")]
+        public async Task AddWord([Remainder] string word) 
+        {
+            var sb = new StringBuilder();
+            using (var db = new NinjaBotEntities())
+            {
+                var words = db.WordList.Where(w => w.ServerId == (long)Context.Guild.Id).ToList().FirstOrDefault();
+                if (words != null && words.Word.ToLower().Contains(word.ToLower()))
+                {
+                    sb.AppendLine($"[{word}] is already in the list!");
+                }
+                else 
+                {
+                    sb.AppendLine($"Adding [{word}] to the list!");
+                    db.Add(new WordList
+                    {
+                        ServerId = (long)Context.Guild.Id,
+                        ServerName = Context.Guild.Name,
+                        Word = word,
+                        SetById = (long)Context.User.Id                        
+                    });
+                    await db.SaveChangesAsync();
+                }
+            }
+            await _cc.Reply(Context, sb.ToString());
+        }        
+        
         private async void AddWarning(ICommandContext context, IGuildUser userWarned)
         {
             using (var db = new NinjaBotEntities())
