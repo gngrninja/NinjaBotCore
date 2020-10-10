@@ -16,8 +16,8 @@ using Microsoft.Extensions.Logging;
 namespace NinjaBotCore.Modules.Admin
 {
     public class Admin : ModuleBase
-    {
-
+    {                
+        private static bool _isLinked = false;        
         private static DiscordShardedClient _client;
         private static ChannelCheck _cc;
         private readonly IConfigurationRoot _config;
@@ -27,12 +27,49 @@ namespace NinjaBotCore.Modules.Admin
         public Admin(IServiceProvider services)
         {            
             _client = services.GetRequiredService<DiscordShardedClient>();
-            _cc = services.GetRequiredService<ChannelCheck>();
-            _config = services.GetRequiredService<IConfigurationRoot>();            
-            _prefix = _config["prefix"];
             _logger = services.GetRequiredService<ILogger<Admin>>();
-            
+            if (!_isLinked)
+            {
+                _client.MessageReceived += WordFinder;
+                _logger.LogInformation($"Hooked into message received for away commands.");
+            }
+            _isLinked = true;            
+            _cc     = services.GetRequiredService<ChannelCheck>();
+            _config = services.GetRequiredService<IConfigurationRoot>();            
+            _prefix = _config["prefix"];                       
             _logger.LogInformation("Admin module loaded!");
+        }
+
+        private async Task WordFinder(SocketMessage messageDetails)
+        {
+            await Task.Run(async () =>
+            {
+                var message = messageDetails as SocketUserMessage;
+                if (!messageDetails.Author.IsBot)
+                {                              
+                    List<NinjaBotCore.Database.WordList> serverWordList = null;
+                    using (var db = new NinjaBotEntities())
+                    {
+                        SocketGuild guild = (message.Channel as SocketGuildChannel)?.Guild;
+                        serverWordList = db.WordList.Where(w => w.ServerId == (long)guild.Id).ToList();                        
+                    }                    
+                    bool wordFound = false;
+                    foreach (var singleWord in serverWordList)
+                    {                  
+                        foreach (var content in messageDetails.Content.ToLower().Split(' '))
+                        {
+                            if (singleWord.Word.ToLower().Contains(content))
+                            {
+                                wordFound = true;
+                            }
+                        }      
+                    }
+                    if (wordFound)
+                    {
+                        await messageDetails.DeleteAsync();
+                    }
+                }
+            });
         }
 
         [Command("change-prefix", RunMode = RunMode.Async)]
@@ -711,12 +748,20 @@ namespace NinjaBotCore.Modules.Admin
             var sb = new StringBuilder();
             using (var db = new NinjaBotEntities())
             {
-                var words = db.WordList.Where(w => w.ServerId == (long)Context.Guild.Id).ToList().FirstOrDefault();
-                if (words != null && words.Word.ToLower().Contains(word.ToLower()))
+                var words = db.WordList.Where(w => w.ServerId == (long)Context.Guild.Id).ToList();
+                bool wordFound = false;
+                foreach (var singleWord in words)
+                {
+                    if (singleWord.Word.ToLower().Contains(word.ToLower()))
+                    {
+                        wordFound = true;
+                    }
+                }
+                if (wordFound)
                 {
                     sb.AppendLine($"[{word}] is already in the list!");
                 }
-                else 
+                else
                 {
                     sb.AppendLine($"Adding [{word}] to the list!");
                     db.Add(new WordList
@@ -728,8 +773,9 @@ namespace NinjaBotCore.Modules.Admin
                     });
                     await db.SaveChangesAsync();
                 }
+
             }
-            await _cc.Reply(Context, sb.ToString());
+            await _cc.Reply(Context, sb.ToString());                        
         }        
         
         private async void AddWarning(ICommandContext context, IGuildUser userWarned)
