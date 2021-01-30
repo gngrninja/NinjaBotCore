@@ -31,7 +31,7 @@ Associating a WoW guild with your Discord server allows you to use the Warcraft 
 
 To associate your guild with NinjaBot, use the following command:
 ```
-!set-guild realmName, guildname, region
+!set-guild realmName, guildName, region
 ```
 Here are some examples of using the command:
 ### US (also the default if no region is specified)
