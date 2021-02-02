@@ -17,6 +17,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using NodaTime.TimeZones;
+using NinjaBotCore.Services;
 
 namespace NinjaBotCore.Modules.Wow
 {

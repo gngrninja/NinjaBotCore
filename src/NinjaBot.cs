@@ -52,8 +52,23 @@ namespace NinjaBotCore
                 .AddSingleton(new DiscordShardedClient(new DiscordSocketConfig
                 {
                     //LogLevel = LogSeverity.Debug,
-                    LogLevel = LogSeverity.Verbose, 
-                    MessageCacheSize = 1000
+                    GatewayIntents = 
+                        GatewayIntents.GuildMembers | 
+                        GatewayIntents.GuildMessages | 
+                        GatewayIntents.GuildIntegrations | 
+                        GatewayIntents.Guilds |
+                        GatewayIntents.GuildBans |
+                        GatewayIntents.GuildVoiceStates |
+                        GatewayIntents.GuildEmojis | 
+                        GatewayIntents.GuildInvites | 
+                        GatewayIntents.GuildMessageReactions |
+                        GatewayIntents.GuildMessageTyping |
+                        GatewayIntents.GuildWebhooks |
+                        GatewayIntents.DirectMessageReactions |
+                        GatewayIntents.DirectMessages | 
+                        GatewayIntents.DirectMessageTyping,                
+                    LogLevel = LogSeverity.Error,                     
+                    MessageCacheSize = 1000,                    
                 }))
                 .AddSingleton(_config)
                 .AddSingleton(new CommandService(new CommandServiceConfig 

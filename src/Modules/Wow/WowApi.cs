@@ -17,6 +17,7 @@ using System.Threading;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using NinjaBotCore.Common;
+using NinjaBotCore.Services;
 
 namespace NinjaBotCore.Modules.Wow
 {

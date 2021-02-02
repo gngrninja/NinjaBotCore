@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using NinjaBotCore.Database;
+using NinjaBotCore.Services;
 
 namespace NinjaBotCore.Modules.Away
 {
