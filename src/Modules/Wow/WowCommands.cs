@@ -967,7 +967,7 @@ namespace NinjaBotCore.Modules.Wow
                 {
                     guildName = members.guild.name;
                     realmName = members.guild.realm.slug;
-                    await _cc.Reply(Context, "Looking up realm realm information, hang tight!");
+                    await _cc.Reply(Context, "Looking up realm information, hang tight!");
                     await _wowUtils.SetGuildAssociation(guildName, realmName, locale: locale, regionName: region, context: Context);
                     await GetGuild();
                 }
