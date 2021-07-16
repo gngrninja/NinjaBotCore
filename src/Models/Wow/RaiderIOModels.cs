@@ -95,6 +95,10 @@ namespace NinjaBotCore.Models.Wow
 
             [JsonProperty("castle-nathria")]
             public RaidProgressionAntorusTheBurningThrone CastleNathria { get; set; }
+
+            [JsonProperty("sanctum-of-domination")]
+            public RaidProgressionAntorusTheBurningThrone Sanctum { get; set; }            
+
         }
 
         public partial class RaidProgressionAntorusTheBurningThrone
@@ -149,6 +153,9 @@ namespace NinjaBotCore.Models.Wow
 
             [JsonProperty("castle-nathria")]
             public RaidRankingsAntorusTheBurningThrone CastleNathria { get; set; }
+
+            [JsonProperty("sanctum-of-domination")]
+            public RaidRankingsAntorusTheBurningThrone Sanctum { get; set; }            
         }
 
         public partial class RaidRankingsAntorusTheBurningThrone
