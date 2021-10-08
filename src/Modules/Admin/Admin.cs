@@ -630,14 +630,14 @@ namespace NinjaBotCore.Modules.Admin
         [Summary("Clear an amount of messages in the channel from a specific user")]
         [RequireBotPermission(GuildPermission.ManageMessages)]
         [RequireUserPermission(GuildPermission.ManageMessages)]
-        public async Task ClearMessageFromUser(IUser user, int numberOfMessages = 5)
+        public async Task ClearMessageFromUser(IGuildUser user, int numberOfMessages = 5)
         {        
             if (numberOfMessages > 25)
             {
                 numberOfMessages = 25;
             }            
             var messagesToDelete = await Context.Channel.GetMessagesAsync(numberOfMessages).FlattenAsync();
-            var messagesFromUser = messagesToDelete.Where(async a => a.Author.Id == user.ID);
+            var messagesFromUser = messagesToDelete.Where(async a => a.Author.Id == user.Id);
             await (Context.Channel as ITextChannel).DeleteMessagesAsync(messagesFromUser);        
         }          
 
