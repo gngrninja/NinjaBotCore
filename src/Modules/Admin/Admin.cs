@@ -630,7 +630,7 @@ namespace NinjaBotCore.Modules.Admin
         [Summary("Clear an amount of messages in the channel from a specific user")]
         [RequireBotPermission(GuildPermission.ManageMessages)]
         [RequireUserPermission(GuildPermission.ManageMessages)]
-        public async Task ClearMessageFromUser(IGuildUser user, int numberOfMessages = 5)
+        public async Task ClearMessageFromUser(IUser user, int numberOfMessages = 5)
         {        
             if (numberOfMessages > 25)
             {
