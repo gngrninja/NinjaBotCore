@@ -637,7 +637,7 @@ namespace NinjaBotCore.Modules.Admin
                 numberOfMessages = 25;
             }            
             var messagesToDelete = await Context.Channel.GetMessagesAsync(numberOfMessages).FlattenAsync();
-            var messagesFromUser = messagesToDelete.Where(async a => a.Author.Id == user.Id);
+            var messagesFromUser = messagesToDelete.Where(a => a.Author.Id == user.Id);
             await (Context.Channel as ITextChannel).DeleteMessagesAsync(messagesFromUser);        
         }          
 
