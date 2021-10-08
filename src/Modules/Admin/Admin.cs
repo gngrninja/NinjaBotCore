@@ -626,6 +626,21 @@ namespace NinjaBotCore.Modules.Admin
             await (Context.Channel as ITextChannel).DeleteMessagesAsync(messagesToDelete);        
         }
 
+        [Command("clearu", RunMode = RunMode.Async)]
+        [Summary("Clear an amount of messages in the channel from a specific user")]
+        [RequireBotPermission(GuildPermission.ManageMessages)]
+        [RequireUserPermission(GuildPermission.ManageMessages)]
+        public async Task ClearMessageFromUser(IGuildUser user, int numberOfMessages = 5)
+        {        
+            if (numberOfMessages > 25)
+            {
+                numberOfMessages = 25;
+            }            
+            var messagesToDelete = await Context.Channel.GetMessagesAsync(numberOfMessages).FlattenAsync();
+            var messagesFromUser = messagesToDelete.Where(a => a.Author.Id == user.Id);
+            await (Context.Channel as ITextChannel).DeleteMessagesAsync(messagesFromUser);        
+        }          
+
         [Command("set-note", RunMode = RunMode.Async)]
         [Alias("snote")]
         [Summary("Set a note associated with a discord server")]
