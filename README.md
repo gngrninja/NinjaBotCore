@@ -10,6 +10,8 @@ I will be shifting to more administrative / Discord tasks for the time being as 
 
 This project has been an awesome way for me to learn C#, feel free to toss in a pull request if there's a better way to do something!
 
+Updates will be coming for Dragonflight! Stay tuned.
+
 ## Getting Started
 (note)
 Blizzard has recently changed their API a bit. I am re-working NinjaBot accordingly. 
