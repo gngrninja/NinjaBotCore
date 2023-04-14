@@ -74,7 +74,6 @@ namespace NinjaBotCore.Modules.YouTube
             {
                 ApiKey = _key,
                 ApplicationName = this.GetType().ToString()
-
             });
             var searchListRequest = youtubeService.Search.List("snippet");
             searchListRequest.Q = keyword;

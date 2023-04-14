@@ -3,19 +3,20 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Discord.Interactions;
 using Discord;
 using Discord.Net;
-using Discord.Commands;
 using Discord.WebSocket;
 using NinjaBotCore.Models.YouTube;
 using Google.Apis.YouTube;
 using Google.Apis.YouTube.v3;
 using Google.Apis.YouTube.v3.Data;
 using NinjaBotCore.Services;
+using NinjaBotCore.Modules.YouTube;
 
-namespace NinjaBotCore.Modules.YouTube
+namespace NinjaBotCore.Modules.Interactions.YouTube
 {
-    public class YouTubeCommands : ModuleBase
+    public class YouTubeCommands : InteractionModuleBase<ShardedInteractionContext>
     {
         private static ChannelCheck _cc = null;
         private static YouTubeApi _youTubeApi = null;
@@ -32,9 +33,8 @@ namespace NinjaBotCore.Modules.YouTube
             }
         }
         //Command that links just one video normally so it has play button
-        [Command("ysearch", RunMode = RunMode.Async)]
-        [Summary("Search YouTube for a specific keyword")]
-        public async Task SearchYouTube([Remainder] string args = "")
+        [SlashCommand("ysearch", "search youtube")]
+        public async Task SearchYouTube(string args = "")
         {
             string searchFor = string.Empty;
             var embed = new EmbedBuilder();
@@ -51,7 +51,7 @@ namespace NinjaBotCore.Modules.YouTube
                 embed.WithColor(new Discord.Color(255, 0, 0));                 
                 sb.AppendLine("Please provide a term to search for!");
                 embed.Description = sb.ToString();
-                await _cc.Reply(Context, embed);
+                await RespondAsync(embed: embed.Build());
                 return;
             }
             else
@@ -90,7 +90,7 @@ namespace NinjaBotCore.Modules.YouTube
                     sb.AppendLine($":video_camera: **__{result.Snippet.ChannelTitle}__** -> [**{result.Snippet.Title}**]({fullVideoUrl})\n\n *{description}*\n");              
                 }
                 embed.Description = sb.ToString();
-                await _cc.Reply(Context, embed);
+                await RespondAsync(embed: embed.Build());
             }
         }
     }

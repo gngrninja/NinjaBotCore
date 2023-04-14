@@ -55,7 +55,7 @@ namespace NinjaBotCore.Modules.Wow
                 ClassicZones = this.GetClassicZones().Result;
                 
                 _currentRaidTier = this.SetCurrentTier();
-                this.MigrateOldReports();
+                //this.MigrateOldReports();
                 this.StartTimer();                
             }
             catch (Exception ex)

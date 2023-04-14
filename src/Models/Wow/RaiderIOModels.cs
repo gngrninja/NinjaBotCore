@@ -97,8 +97,10 @@ namespace NinjaBotCore.Models.Wow
             public RaidProgressionAntorusTheBurningThrone CastleNathria { get; set; }
 
             [JsonProperty("sanctum-of-domination")]
-            public RaidProgressionAntorusTheBurningThrone Sanctum { get; set; }            
+            public RaidProgressionAntorusTheBurningThrone Sanctum { get; set; }
 
+            [JsonProperty("vault-of-the-incarnates")]
+            public RaidProgressionAntorusTheBurningThrone Vault { get; set; }           
         }
 
         public partial class RaidProgressionAntorusTheBurningThrone
@@ -155,7 +157,10 @@ namespace NinjaBotCore.Models.Wow
             public RaidRankingsAntorusTheBurningThrone CastleNathria { get; set; }
 
             [JsonProperty("sanctum-of-domination")]
-            public RaidRankingsAntorusTheBurningThrone Sanctum { get; set; }            
+            public RaidRankingsAntorusTheBurningThrone Sanctum { get; set; }  
+
+            [JsonProperty("vault-of-the-incarnates")]
+            public RaidRankingsAntorusTheBurningThrone Vault { get; set; }          
         }
 
         public partial class RaidRankingsAntorusTheBurningThrone

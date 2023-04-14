@@ -35,6 +35,7 @@ namespace NinjaBotCore.Services
         public async Task HandleCommand(SocketMessage parameterMessage)
         {
             // Don't handle the command if it is a system message
+            System.Console.WriteLine(parameterMessage.Content);
             var message = parameterMessage as SocketUserMessage;            
             if (message == null) return;
 
@@ -58,10 +59,11 @@ namespace NinjaBotCore.Services
             {
                 prefix = serverPrefix.Prefix;
             }
-            
+            System.Console.WriteLine($"{message.Content}");
             // Determine if the message has a valid prefix, adjust argPos
             if (!(message.HasMentionPrefix(_client.CurrentUser, ref argPos) || message.HasCharPrefix(prefix, ref argPos))) return;
 
+           
             //Check blacklist
             List<Blacklist> blacklist = new List<Blacklist>();
 

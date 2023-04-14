@@ -5,13 +5,13 @@ using System.Text;
 using System.Threading.Tasks;
 using Discord;
 using Discord.Net;
-using Discord.Commands;
+using Discord.Interactions;
 using NinjaBotCore.Services;
 using Microsoft.Extensions.Logging;
 
-namespace NinjaBotCore.Modules.Admin
+namespace NinjaBotCore.Modules.Interactions.Admin
 {
-    public class SetChanCommands : ModuleBase
+    public class SetChanCommands : InteractionModuleBase<ShardedInteractionContext>
     {
         private ChannelCheck _cc;        
         private readonly ILogger _logger;
@@ -22,8 +22,7 @@ namespace NinjaBotCore.Modules.Admin
             _logger = logger;
         }
 
-        [Command("set-channel")]
-        [Summary("Change the bot's default reply channel to the channel you issue this command from")]
+        [SlashCommand("set-channel", "Change the bot's default reply to channel to the one you use this command in")]        
         [RequireUserPermission(GuildPermission.KickMembers)]
         public async Task SetChannel()
         {
@@ -39,25 +38,21 @@ namespace NinjaBotCore.Modules.Admin
             string channelName = Context.Channel.Name;
             
             try
-            {
-                await ReplyAsync($"Attempting to set reply to channel to **{channelName}**");
-
+            {                
                 await _cc.SetGuildBotChannelAsync(channelId, channelName, userId, userName, guildName, guildId);
-
-                await ReplyAsync($"Reply to channel set to **{channelName}**");                
+                await RespondAsync($"Reply to channel set to **{channelName}**");                
             }
             catch (Exception ex)
             {
-                await ReplyAsync("Something went wrong :(");
+                await RespondAsync("Something went wrong :(");
 
                 _logger.LogError($"Error while setting reply to channel {ex.Message} {ex.Source} {ex.InnerException}");
 
-                await ReplyAsync(sb.ToString());
+                await RespondAsync(sb.ToString());
             }
         }
 
-        [Command("get-channel")]
-        [Summary("Shows the channel name the bot will reply to on this server")]
+        [SlashCommand("get-channel", "show the channel the bot is currently sending replies to")]
         public async Task GetChannel()
         {
             ulong guildId = Context.Guild.Id;
@@ -67,11 +62,11 @@ namespace NinjaBotCore.Modules.Admin
 
             if (!string.IsNullOrEmpty(channelInfo.ChannelName))
             {
-                await ReplyAsync($"Reply to channel for guild **{channelInfo.ServerName}** is **{channelInfo.ChannelName}**");
+                await RespondAsync($"Reply to channel for guild **{channelInfo.ServerName}** is **{channelInfo.ChannelName}**");
             }
             else
             {
-                await ReplyAsync($"No channel set for guild **{guildName}**");
+                await RespondAsync($"No channel set for guild **{guildName}**");
             }            
         }
     }

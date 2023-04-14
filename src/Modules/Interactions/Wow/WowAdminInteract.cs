@@ -1,24 +1,28 @@
-using NinjaBotCore.Database;
-using NinjaBotCore.Models.Wow;
 using Discord;
-using Discord.Commands;
+using Discord.Interactions;
+using NinjaBotCore.Attributes;
 using System;
-using System.Collections.Generic;
+using System.Threading.Tasks;
+using NinjaBotCore.Services;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 using Discord.Net;
 using Discord.WebSocket;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
-using NinjaBotCore.Services;
 using Microsoft.Extensions.Logging;
-using NinjaBotCore.Common;
 using Microsoft.Extensions.DependencyInjection;
+using NinjaBotCore.Common;
+using System.Threading;
+using NinjaBotCore.Modules.Wow;
+using NinjaBotCore.Models.Wow;
+using NinjaBotCore.Database;
+using System.Collections.Generic;
 
-namespace NinjaBotCore.Modules.Wow
+namespace NinjaBotCore.Modules.Interactions.Wow
 {
-    public class WowAdminCommands : ModuleBase
+    // Interaction modules must be public and inherit from an IInteractionModuleBase
+    public class WowAdminInteract : InteractionModuleBase<ShardedInteractionContext>
     {
         private ChannelCheck _cc;
         private WarcraftLogs _logsApi;
@@ -30,21 +34,20 @@ namespace NinjaBotCore.Modules.Wow
         private readonly ILogger _logger;
         private WowUtilities _wowUtils;
         
-        public WowAdminCommands(IServiceProvider services)
+        public WowAdminInteract(IServiceProvider services)
         {
-            _logger = services.GetRequiredService<ILogger<WowAdminCommands>>();
+            _logger = services.GetRequiredService<ILogger<WowAdminInteract>>();
             _wowUtils = services.GetRequiredService<WowUtilities>();
             _cc = services.GetRequiredService<ChannelCheck>();
             _logsApi = services.GetRequiredService<WarcraftLogs>();
             _wowApi = services.GetRequiredService<WowApi>();
             _rioApi = services.GetRequiredService<RaiderIOApi>();
             _client = services.GetRequiredService<DiscordShardedClient>(); 
-            _config = services.GetRequiredService<IConfigurationRoot>();
-            _prefix = _config["prefix"];
+            _config = services.GetRequiredService<IConfigurationRoot>();            
         }
 
-        [Command("Populate-Logs",RunMode = RunMode.Async)]
-        [RequireOwner]
+        [SlashCommand("populatelogs", "populate logs")]
+        [Discord.Interactions.RequireOwner]
         public async Task PopulateLogs()
         {
             {
@@ -52,7 +55,6 @@ namespace NinjaBotCore.Modules.Wow
                 List<LogMonitoring> logWatchList = null;
                 try
                 {
-
                     using (var db = new NinjaBotEntities())
                     {
                         guildList = db.WowGuildAssociations.ToList();
@@ -103,143 +105,8 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
-        [Command("noggen", RunMode = RunMode.Async)]
-        [RequireOwner]
-        public async Task GetNoggen([Remainder] string args = null)
-        {
-            var embed = new EmbedBuilder();
-            var sb = new StringBuilder();
-            string title = string.Empty;
-            GuildMembers members = null;
-            string thumbUrl = string.Empty;
-            var guildInfo = Context.Guild;
-            string discordGuildName = string.Empty;
-
-            if (guildInfo == null)
-            {
-                discordGuildName = Context.User.Username;
-                thumbUrl = Context.User.GetAvatarUrl();
-            }
-            else
-            {
-                discordGuildName = Context.Guild.Name;
-                thumbUrl = Context.Guild.IconUrl;
-            }
-
-            var guildObject = await _wowUtils.GetGuildName(Context);
-
-            title = $"Top Noggenfogger Consumers in **{guildObject.guildName}**";
-            embed.Title = title;
-            embed.ThumbnailUrl = thumbUrl;
-
-            if (guildObject.guildName != null || members != null)
-            {
-                try
-                {
-                    if (args == "clear")
-                    {
-                        List<CharStats> statsFromDb = new List<CharStats>();
-
-                        using (var db = new NinjaBotEntities())
-                        {
-                            statsFromDb = db.CharStats.Where(c => c.GuildName == guildObject.guildName).ToList();                                                                        
-                        }
-                        if (statsFromDb != null)
-                        {
-                            using (var db = new NinjaBotEntities())
-                            {
-                                var people = db.CharStats.Where(c => c.GuildName == guildObject.guildName).ToList();
-                                foreach (var person in people)
-                                {
-                                    db.CharStats.Remove(person);
-                                }                                
-                                await db.SaveChangesAsync();
-                            }                            
-                        }
-                    }
-                    else 
-                    {
-                    if (!string.IsNullOrEmpty(guildObject.locale))
-                    {
-                        members = _wowApi.GetGuildMembers(guildObject.realmName, guildObject.guildName, locale: guildObject.locale, regionName: guildObject.regionName);
-                    }
-                    else
-                    {
-                        members = _wowApi.GetGuildMembers(guildObject.realmName, guildObject.guildName, regionName: guildObject.regionName);
-                    }     
-
-                    var maxLevelChars = members.members.Where(m => m.character.level == 120);               
-                    List<CharStats> statsFromDb = new List<CharStats>();
-
-                    using (var db = new NinjaBotEntities())
-                    {
-                        statsFromDb = db.CharStats.Where(c => c.GuildName == guildObject.guildName).ToList();                                                                        
-                    }
-
-                    foreach (var member in maxLevelChars)
-                    {
-                        var curMemberStats = new WowStats();
-                        var match = statsFromDb.Where(s => s.CharName == member.character.name).FirstOrDefault(); 
-                        var matchTime = DateTime.Now;
-
-                        if (match != null)
-                        {
-                            matchTime = match.LastModified;  
-                        }                                         
-                        if (match == null || matchTime.Day != DateTime.Now.Day) 
-                        {
-                            curMemberStats = _wowApi.GetCharStats(member.character.name, member.character.realm.slug, guildObject.locale);
-                            var elixer = curMemberStats.Statistics.SubCategories[0].SubCategories[0].Statistics.Where(s => s.Name == "Elixir consumed most").FirstOrDefault();
-                            using (var db = new NinjaBotEntities())
-                            {
-                                db.CharStats.Add(new CharStats{
-                                    CharName = member.character.name,
-                                    RealmName = member.character.realm.slug,
-                                    GuildName = guildObject.guildName,
-                                    ElixerConsumed = elixer.Highest,
-                                    Quantity = elixer.Quantity,
-                                    LastModified = DateTime.Now                                    
-                                });
-                                await db.SaveChangesAsync();                                
-                            }
-                        }
-                        else
-                        {
-
-                        }
-                    }
-                    if (statsFromDb.Count() == 0)
-                    {
-                        using (var db = new NinjaBotEntities())
-                        {
-                            statsFromDb = db.CharStats.Where(c => c.GuildName == guildObject.guildName).ToList();                                                                        
-                        }
-                    }                  
-                    if (statsFromDb.Count() > 0)
-                    {
-                        var candidates = statsFromDb.OrderByDescending(o => o.Quantity).Take(10).ToList();
-                        if (candidates != null && candidates.Count() > 0)
-                        {
-                            foreach (var canditate in candidates)
-                            {
-                                sb.AppendLine($":black_medium_small_square: {canditate.CharName} -> *{canditate.Quantity}*");
-                            }                            
-                        }
-                    }
-                    embed.Description = sb.ToString();
-                    await _cc.Reply(Context, embed);
-                    }                   
-                }                
-                catch (Exception ex)
-                {
-                    _logger.LogError($"Get-Guild Error getting guild info: [{ex.Message}]");
-                }
-            }
-        }
-
-        [Command("remove-achievement", RunMode = RunMode.Async)]
-        [Alias("ra")]
-        [RequireOwner]
+        [SlashCommand("removeachievement", "remove achivement")]
+        [Discord.Interactions.RequireOwner]
         public async Task RemoveAchieve(long id)
         {
             using (var db = new NinjaBotEntities())
@@ -249,18 +116,17 @@ namespace NinjaBotCore.Modules.Wow
                 {
                     db.Remove(foundCheeve);
                     await db.SaveChangesAsync();
-                    await _cc.Reply(Context, $"Removed achievement id {id} from the database!");
+                    await RespondAsync($"Removed achievement id {id} from the database!");
                 }
                 else
                 {
-                    await _cc.Reply(Context, $"Sorry, unable to find achievement ID {id} in the database!");
+                    await RespondAsync($"Sorry, unable to find achievement ID {id} in the database!");
                 }
             }
         }
 
-        [Command("add-achievement", RunMode = RunMode.Async)]
-        [Alias("adda")]
-        [RequireOwner]
+        [SlashCommand("addachievement", "add achivement")]
+        [Discord.Interactions.RequireOwner]
         public async Task AddAchieve(long id, int cat)
         {
             using (var db = new NinjaBotEntities())
@@ -279,7 +145,7 @@ namespace NinjaBotCore.Modules.Wow
                                 AchCategory = category
                             });
                             await db.SaveChangesAsync();
-                            await _cc.Reply(Context, $"Added achievement ID {id} with category {category.CatName} to the database!");
+                            await RespondAsync($"Added achievement ID {id} with category {category.CatName} to the database!");
                         }
                         catch (Exception ex)
                         {
@@ -288,20 +154,19 @@ namespace NinjaBotCore.Modules.Wow
                     }
                     else
                     {
-                        await _cc.Reply(Context, $"Unable to find category with ID {cat} in the database!");
+                        await RespondAsync($"Unable to find category with ID {cat} in the database!");
                     }
 
                 }
                 else
                 {
-                    await _cc.Reply(Context, $"Sorry, achievement {id} already exists in the database!");
+                    await RespondAsync($"Sorry, achievement {id} already exists in the database!");
                 }
             }
         }
 
-        [Command("list-achievements", RunMode = RunMode.Async)]
-        [Alias("la")]
-        [RequireOwner]
+        [SlashCommand("listachievements", "list achivements")]
+        [Discord.Interactions.RequireOwner]
         public async Task ListCheeves()
         {
             StringBuilder sb = new StringBuilder();
@@ -317,26 +182,25 @@ namespace NinjaBotCore.Modules.Wow
                     sb.AppendLine($"{cheeve.AchId}");
                 }
             }
-            await _cc.Reply(Context, sb.ToString());
+            await RespondAsync(sb.ToString());
         }
 
-        [Command("tu", RunMode = RunMode.Async)]
-        [RequireOwner]
+        [SlashCommand("tu", "start wcl timer")]
+        [Discord.Interactions.RequireOwner]
         public async Task StartTimer()
         {
             await _logsApi.StartTimer();
         }
 
-        [Command("td", RunMode = RunMode.Async)]
-        [RequireOwner]
+        [SlashCommand("td", "stop wcl timer")]
+        [Discord.Interactions.RequireOwner]
         public async Task StopTimer()
         {
             await _logsApi.StopTimer();
         }
     
-        [Command("get-latest-zone", RunMode = RunMode.Async)]
-        [Alias("glz")]
-        [RequireOwner]
+        [SlashCommand("get-latest-zone", "get latest zone")]
+        [Discord.Interactions.RequireOwner]
         public async Task GetLatestZone()
         {
             var zone = WarcraftLogs.Zones[WarcraftLogs.Zones.Count - 1];
@@ -366,13 +230,12 @@ namespace NinjaBotCore.Modules.Wow
 
             });
             
-            await _cc.Reply(Context, embed);
+            await RespondAsync(embed: embed.Build());
         }
 
-        [Command("set-zone", RunMode = RunMode.Async)]
-        [Alias("slz")]
-        [RequireOwner]
-        public async Task SetLatestZone([Remainder] string args = null)
+        [SlashCommand("set-zone", "set zone")]
+        [Discord.Interactions.RequireOwner]
+        public async Task SetLatestZone(string args = null)
         {     
             Zones zone = null;
             int currentId = 0;
@@ -403,13 +266,12 @@ namespace NinjaBotCore.Modules.Wow
                 _logger.LogError($"Error setting db to new raid -> [{ex.Message}]");
                 embed.Description = $"Error setting raid tier!";
             }            
-            await _cc.Reply(Context, embed);
+            await RespondAsync(embed: embed.Build());
         }
 
-        [Command("set-partition",RunMode = RunMode.Async)]
-        [Alias("sp")]
-        [RequireOwner]
-        public async Task SetPartition([Remainder] string args = null)
+        [SlashCommand("set-partition", "set partition")]        
+        [Discord.Interactions.RequireOwner]
+        public async Task SetPartition(string args = null)
         {
             var embed = new EmbedBuilder();
             embed.Title = "Parition setter for NinjaBot";
@@ -432,8 +294,8 @@ namespace NinjaBotCore.Modules.Wow
                 _logger.LogError($"Error setting partition -> [{ex.Message}]");
                 embed.Description = "Error setting parition!";
             }
-            await _cc.Reply(Context, embed);
+            await RespondAsync(embed: embed.Build());
             WarcraftLogs.CurrentRaidTier.Partition = partition;
-        }
+        }        
     }
 }

@@ -1,38 +1,41 @@
-using NinjaBotCore.Database;
-using NinjaBotCore.Models.Wow;
 using Discord;
-using Discord.Commands;
+using Discord.Interactions;
+using NinjaBotCore.Attributes;
 using System;
-using System.Collections.Generic;
+using System.Threading.Tasks;
+using NinjaBotCore.Services;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 using Discord.Net;
 using Discord.WebSocket;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
-using NinjaBotCore.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
+using NinjaBotCore.Common;
+using System.Threading;
+using NinjaBotCore.Modules.Wow;
+using NinjaBotCore.Models.Wow;
+using NinjaBotCore.Database;
+using System.Collections.Generic;
 
-namespace NinjaBotCore.Modules.Wow
+namespace NinjaBotCore.Modules.Interactions.Wow
 {
-    public class WowClassic : ModuleBase
+    public class WowClassicInteract : InteractionModuleBase<ShardedInteractionContext>
     {
-
-        private readonly ILogger<WowClassic> _logger;
+        private readonly ILogger<WowClassicInteract> _logger;
         private readonly List<String> _wclRegions = new List<String>{"US", "EU", "KR", "TW", "CN"};
         private readonly ChannelCheck _cc;
         private WarcraftLogs _wclLogsApi;        
         
-        public WowClassic(IServiceProvider services) 
+        public WowClassicInteract(IServiceProvider services) 
         {
-            _logger = services.GetRequiredService<ILogger<WowClassic>>();
+            _logger = services.GetRequiredService<ILogger<WowClassicInteract>>();
             _cc = services.GetRequiredService<ChannelCheck>();
             _wclLogsApi = services.GetRequiredService<WarcraftLogs>();
         }
 
-        [Command("get-guildc")]
+        [SlashCommand("getclassicguild", "get classic guild info")]
         public async Task GetClassicGuild()
         {
             var sb = new StringBuilder();
@@ -54,14 +57,13 @@ namespace NinjaBotCore.Modules.Wow
             else
             {
                 sb.AppendLine($"There is no guild associated to this server!");
-                sb.AppendLine("Placeholder for help text");
             } 
             embed.WithColor(0, 255, 155);
             embed.Description = sb.ToString();
-            await _cc.Reply(Context, embed);
+            await RespondAsync(embed: embed.Build());
         }
 
-        [Command("set-guildc")]
+        [SlashCommand("setclassicguild", "set classic guild")]
         [RequireUserPermission(GuildPermission.KickMembers)]
         public async Task SetClassicGuild(string guildName, string realm, string region = "US")
         {
@@ -83,7 +85,7 @@ namespace NinjaBotCore.Modules.Wow
                     sb.AppendLine(reg);
                 }
                 embed.Description = sb.ToString();
-                await _cc.Reply(Context, embed);
+                await RespondAsync(embed: embed.Build());
                 return;
             } 
 
@@ -119,7 +121,7 @@ namespace NinjaBotCore.Modules.Wow
                     IconUrl = Context.User.GetAvatarUrl()                    
                 });
                 embed.WithColor(0, 255, 155);
-                await _cc.Reply(Context, embed);
+                await RespondAsync(embed: embed.Build());
             }
             catch (Exception ex)
             {
@@ -128,7 +130,7 @@ namespace NinjaBotCore.Modules.Wow
             
         }
 
-        [Command("logsc")]
+        [SlashCommand("logsclassic", "get classic logs")]
         public async Task GetLogsClassic()
         {
             var embed = new EmbedBuilder();
@@ -157,14 +159,14 @@ namespace NinjaBotCore.Modules.Wow
                     embed.Title = $":1234: __Logs for **{wowClassicGuild.WowGuild}** on **{wowClassicGuild.WowRealm}**__:1234: ";
                     embed.Description = sb.ToString();
                     embed.WithColor(0, 255, 100);
-                    await _cc.Reply(Context, embed);                    
+                    await RespondAsync(embed: embed.Build());                    
                 }
             }
         }
 
-        [Command("list-classic-fights")]
-        [RequireOwner]
-        public async Task GetClassicZones([Remainder] string args = null)         
+        [SlashCommand("listclassicfights", "list classic fights")]
+        [Discord.Interactions.RequireOwner]
+        public async Task GetClassicZones(string args = null)         
         {
             var zones = await _wclLogsApi.GetClassicZones();
             Zones latest = null;
@@ -193,7 +195,7 @@ namespace NinjaBotCore.Modules.Wow
                     sb.AppendLine($"id [{fight.id}] name [{fight.name}]");
                 }
             }
-            await _cc.Reply(Context, sb.ToString());
+            await RespondAsync(sb.ToString());
         }
     }
 }
