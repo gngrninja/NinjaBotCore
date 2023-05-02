@@ -61,7 +61,6 @@ namespace NinjaBotCore.Services
             
             // Determine if the message has a valid prefix, adjust argPos
             if (!(message.HasMentionPrefix(_client.CurrentUser, ref argPos) || message.HasCharPrefix(prefix, ref argPos))) return;
-
            
             //Check blacklist
             List<Blacklist> blacklist = new List<Blacklist>();

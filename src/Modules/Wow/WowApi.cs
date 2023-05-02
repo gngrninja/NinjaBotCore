@@ -220,6 +220,10 @@ namespace NinjaBotCore.Modules.Wow
             string key;
             string prefix;
             
+            if (region != "us") 
+            {
+                region = "eu";
+            }
             region = region.ToLower();
             prefix = $"https://{region}.api.blizzard.com";
             key = $"&access_token={_token}"; 
@@ -631,32 +635,36 @@ namespace NinjaBotCore.Modules.Wow
         public GuildMembers GetGuildMembers(string realm, string guildName, string locale, string regionName = "us")
         {
             string url;
-            GuildMembers g;
-            var slugs = GetRealmStatus(locale: locale, region: regionName);                
+            GuildMembers g;               
             string realmSlug = string.Empty;        
             switch (locale)
             {
                 case "ru_RU":
                     {                                                        
-                        realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realm.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();
+                        realmSlug = RealmSearchRu.results.Where(r => r.data.name.ru_RU.Replace("'","").ToLower().Contains(realm.Replace("'","").ToLower())).Select(s => s.data.slug).FirstOrDefault();
                         break;
                     }
                 case "en_GB":
                     {                            
-                        realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realm.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();
+                        realmSlug = RealmSearchEu.results.Where(r => r.data.name.en_GB.Replace("'","").ToLower().Contains(realm.Replace("'","").ToLower())).Select(s => s.data.slug).FirstOrDefault();
                         break;
                     }
                 case "en_US":
-                    {                            
-                        realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realm.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();
+                    {   
+                        //realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realm.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();      
+                        realmSlug = RealmSearch.results.Where(r => r.data.name.en_US.Replace("'","").ToLower().Contains(realm.Replace("'","").ToLower())).Select(s => s.data.slug).FirstOrDefault();                                           
                         break;
                     }
                 default: 
                     {                            
-                        realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realm.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();
+                        realmSlug = RealmSearch.results.Where(r => r.data.name.en_US.Replace("'","").ToLower().Contains(realm.Replace("'","").ToLower())).Select(s => s.data.slug).FirstOrDefault();
                         break;
                     }
-            }            
+            }   
+            if (regionName != "us")
+            {
+                regionName = "eu";
+            }         
             url = $"/data/wow/guild/{realmSlug}/{guildName.ToLower().Replace(" ","-")}/roster?namespace=profile-{regionName}";
             if (locale != "en_US")
             {

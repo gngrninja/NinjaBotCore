@@ -5,24 +5,24 @@
 
 NinjaBot is a Discord bot written in C#. 
 
-It's primary focus was to help out guilds in World of Warcraft.
+Its primary focus was to help out guilds in World of Warcraft.
 I will be shifting to more administrative / Discord tasks for the time being as I am no longer actively playing World of Warcraft.
 
 This project has been an awesome way for me to learn C#, feel free to toss in a pull request if there's a better way to do something!
 
-Updates will be coming for Dragonflight! Stay tuned.
+**Updated for 10.1, good luck in *Aberrus, the Shadowed Crucible*.**
 
 ## Getting Started
-(note)
-Blizzard has recently changed their API a bit. I am re-working NinjaBot accordingly. 
-Some commands have not been worked over, but the core functionality should still be there.
-That include guild associations, and log posting for retail and classic. (conversion to local timezones for logs will have to be re-added at a later date)
-
-Outside of that, there may be issues, and I will be fixing them as I see them come up.
-
-The first thing you'll need to do is [invite the bot to your server](https://discordapp.com/oauth2/authorize?client_id=238495040446398467&scope=bot&permissions=314432). 
+The first thing you'll need to do is [invite the bot to your server](https://discord.com/api/oauth2/authorize?client_id=238495040446398467&permissions=377960909888&scope=bot%20applications.commands). 
 It will need permissions to read and post messages at the very minimum. 
-If you wish to use NinjaBot to assist with admin tasks (kicking/banning users, message management, etc), [please use this link](https://discordapp.com/oauth2/authorize?client_id=238495040446398467&scope=bot&permissions=27718).
+If you wish to use NinjaBot to assist with admin tasks (kicking/banning users, message management, etc), [please use this link](https://discord.com/api/oauth2/authorize?client_id=238495040446398467&permissions=1494652415174&scope=bot%20applications.commands).
+
+### Slash commands
+This bot is now using [slash commands](https://discord.com/blog/slash-commands-permissions-discord-apps-bots), be sure to use the updated invites above to invite it to your discord server. 
+If it is already on your server, you may need to ensure users can use the commands:
+```
+Go to Server Settings → Integrations, and then 'Manage' (next to NinjaBot).
+```
 
 There are a limited number of classic WoW commands now available. You can associate your guild, and watch/get logs from Warcraft logs. 
 Currently there is no way to get classic armory or guild information via the API, and I'll be watching to see when/if things get added!
@@ -34,28 +34,27 @@ Associating a WoW guild with your Discord server allows you to use the Warcraft 
 
 To associate your guild with NinjaBot, use the following command:
 ```
-!set-guild realmName, guildName, region
+/setguild realmName, guildName, region
 ```
 Here are some examples of using the command:
 ### US (also the default if no region is specified)
 ```
-!set-guild Destromath, NinjaBread Men, us
+/setguild Blackwater Raiders, Raiders of the Lost Ark, us
 ```
 ### EU
 ``` 
-!set-guild Silvermoon, Rome in a Day, eu
+/setguild Silvermoon, Rome in a Day, eu
 ```
 ### RU
 ```
-!set-guild Ревущий фьорд, Порейдим месяц, ru
+/setguild Ревущий фьорд, Порейдим месяц, ru
 ```
 
-![example](https://raw.githubusercontent.com/gngrninja/NinjaBotCore/Dev/media/set-guild.PNG)
 ### Associating your guild (Classic WoW)
 
 To associate your classic WoW guild with NinjaBot, use the following command:
 ```
-!set-guildc "guild name" "realm" "region"
+/setclassicguild "guild name" "realm" "region"
 ```
 
 Valid regions:
@@ -63,12 +62,10 @@ US, EU, KR, TW, and CN
 
 NinjaBot will associate what you enter as the guild attached to your server. That data will then be used to watch / retrieve logs from Warcraft Logs.
 
-![example](https://raw.githubusercontent.com/gngrninja/NinjaBotCore/Dev/media/set-guildc.png)
-
 Example:
 ### US (also the default if no region is specified)
 ```
-!set-guildc "Disorder" "Rattlegore"
+/setclassicguild "Disorder" "Rattlegore"
 ```
 ## WoW Commands
 
@@ -76,21 +73,17 @@ Example:
 
 To use the auto log poster, use this command in the channel you want them automatically posted to:
 ```
-!watch-logs
+/watchlogs
 ```
 
-![example](https://raw.githubusercontent.com/gngrninja/NinjaBotCore/Dev/media/watch-en.PNG)
-
 You can use the same exact command to disable the auto log posting, and then use it again to enable it (in the channel you want them posted to).
-
-![example](https://raw.githubusercontent.com/gngrninja/NinjaBotCore/Dev/media/watch-dis.PNG)
 
 ### [Warcraft Logs](https://www.warcraftlogs.com) Last Three Logs
 
 To get the last three of your guild's logs, use:
 
 ```
-!logs
+/logs
 ```
 
 ### [Warcraft Logs](https://www.warcraftlogs.com) Last Three Logs (Classic WoW)
@@ -98,9 +91,8 @@ To get the last three of your guild's logs, use:
 To get the last three of your guild's logs, use:
 
 ```
-!logsc
+/logsclassic
 ```
-![example](https://raw.githubusercontent.com/gngrninja/NinjaBotCore/Dev/media/logsc.png)
 
 ### World of Warcraft Commands
 
@@ -110,40 +102,23 @@ Command
 Help:
 
 ```
-!rpi
+/rio
 ```
 
 Try to find character (first in guild, then best guess)
 ``` 
-!rpi characterName
+/rio characterName
 ```
-
-![example](https://raw.githubusercontent.com/gngrninja/NinjaBotCore/Dev/media/rpi.PNG)
 
 Long form version to try to find someone not in the same region
 ```
-!rpi characterName realmName region(us or eu)
+/rio characterName realmName region(us or eu)
 ```
 
 ### [Raider.IO](https://www.raider.io) Guild Information
 
 ```
-!guildstats
-```
-
-![example](https://raw.githubusercontent.com/gngrninja/NinjaBotCore/Dev/media/guildstats.PNG)
-
-### Armory lookup (soon to be rolled into rpi where it counts)
-
-```
-!armory characterName
-```
-
-### Gearlist
-
-List out a character's gear, including heart of azeroth level. Links to the Wowhead page for the gear.
-```
-!gearlist characterName
+/ginfo
 ```
 
 ## Server Enhancement Commands

@@ -917,44 +917,7 @@ namespace NinjaBotCore.Modules.Wow
                 {
                     apiRegion = "eu";
                 }
-
-                //use locale to determine realm slug
-                for (int i = 0; i < 500; i++)
-                {
-                    _logger.LogInformation("Attempting to find slug!");
-                    var slugs = _wowApi.GetRealmStatus(locale: locale, region: apiRegion);   
-                    realmSlug = realmName;         
-                    /*            
-                    switch (locale)
-                    {
-                        case "ru_RU":
-                            {                                                        
-                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();
-                                break;
-                            }
-                        case "en_GB":
-                            {                            
-                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();
-                                break;
-                            }
-                        case "en_US":
-                            {                            
-                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();
-                                break;
-                            }
-                        default: 
-                            {                            
-                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();
-                                break;
-                            }
-                    }
-                    */
-                    if (!string.IsNullOrEmpty(realmSlug))
-                    {
-                        _logger.LogInformation($"Found slug {realmSlug}!");
-                        break;
-                    }
-                }
+                realmSlug = realmName;               
             
                 using (var db = new NinjaBotEntities())
                 {

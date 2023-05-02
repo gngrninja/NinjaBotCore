@@ -56,7 +56,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
         // [Summary] lets you customize the name and the description of a parameter
         [SlashCommand("rio", "Get character's raider IO profile")]
-        public async Task GetRioProfile(string args, [Summary(description: "get RIO info")] bool mention = false)
+        public async Task GetRioProfile(string args = null)
         {
             var sb = new StringBuilder();
             var embed = new EmbedBuilder();
@@ -65,11 +65,11 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             {
                 embed.Title = $"M+ Character Info Help";
                 sb.AppendLine($"Usage examples:");
-                sb.AppendLine($":black_small_square: **/rpi** charactername");
+                sb.AppendLine($":black_small_square: **/rio** charactername");
                 sb.AppendLine($"\t:black_small_square: Search raider.io for *charactername* (first in guild, then in the rest of WoW(US))");
-                sb.AppendLine($":black_small_square: **/rpi** charactername realmname");
+                sb.AppendLine($":black_small_square: **/rio** charactername realmname");
                 sb.AppendLine($"\t:black_small_square: Search raider.io for *charactername* on *realmname* WoW (US)");
-                sb.AppendLine($":black_small_square: **/rpi** charactername realmname region(us or eu)");
+                sb.AppendLine($":black_small_square: **/rio** charactername realmname region(us or eu)");
                 sb.AppendLine($"\t:black_small_square: Search raider.io for *charactername* on *realmname* WoW (US or EU as specified)");
                 embed.Description = sb.ToString();
                 await ReplyAsync(embed: embed.Build());
@@ -84,13 +84,11 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 string region = string.Empty;
                 if (!(string.IsNullOrEmpty(charInfo.regionName)))
                 {
-                    mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"), region: charInfo.regionName.ToLower());
-                    //armoryInfo = _wowApi.GetCharInfo(charInfo.charName, charInfo.realmName, charInfo.regionName);
+                    mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"), region: charInfo.regionName.ToLower());                    
                 }
                 else
                 {
-                    mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"));
-                    //armoryInfo = _wowApi.GetCharInfo(charInfo.charName, charInfo.realmName);
+                    mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"));                    
                 }      
                 var locale = string.Empty;
                 if (!string.IsNullOrEmpty(charInfo.locale))
@@ -106,7 +104,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     case "us":
                         {
                             region = "us";
-                            realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.Replace("'","").ToLower().Contains(charInfo.realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
+                            realmSlug = charInfo.realmName;
                             break;
                         }
                     case "ru":
