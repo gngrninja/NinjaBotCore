@@ -128,14 +128,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         }
                 }   
 
-                string normalKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Vault.NormalBossesKilled);
-                string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Vault.HeroicBossesKilled);
-                string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Vault.MythicBossesKilled);
-                string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Vault.TotalBosses); 
+                string normalKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Aberrus.NormalBossesKilled);
+                string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Aberrus.HeroicBossesKilled);
+                string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Aberrus.MythicBossesKilled);
+                string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Aberrus.TotalBosses); 
                            
                 sb.AppendLine($"**__Raid Progression__**");
                 sb.AppendLine();
-                sb.AppendLine($"Sanctum of Domination");                               
+                sb.AppendLine($"Aberrus, The Shadowed Crucible");                               
                 sb.AppendLine($"\t **normal** [{normalKilled} / {totalBosses}] **heroic** [{heroicKilled} / {totalBosses}] **mythic** [{mythicKilled} / {totalBosses}]");
                 sb.AppendLine();               
                 sb.AppendLine($"**__Best Runs__**");                
@@ -174,7 +174,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 embed.Footer = new EmbedFooterBuilder{
                     Text = $"Raider.IO Score {mPlusInfo.MythicPlusScores.All}"
                 };                            
-                await RespondAsync(embed: embed.Build());
+                await RespondAsync(embed: embed.Build(), ephemeral: true);
             }
         }
 
@@ -204,10 +204,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var guildObject = await _wowUtils.GetGuildName(Context); 
             var guildStats = _rioApi.GetRioGuildInfo(guildName: guildObject.guildName, realmName: guildObject.realmSlug, region: guildObject.regionName);
                         
-            string normalKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Vault.NormalBossesKilled);
-            string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Vault.HeroicBossesKilled);
-            string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Vault.MythicBossesKilled);
-            string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Vault.TotalBosses);
+            string normalKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Aberrus.NormalBossesKilled);
+            string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Aberrus.HeroicBossesKilled);
+            string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Aberrus.MythicBossesKilled);
+            string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Aberrus.TotalBosses);
             
             title = $"{guildObject.guildName} on {guildObject.realmName}'s Raider.IO Stats";
 
@@ -217,9 +217,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             sb.AppendLine($"\t **mythic** [{mythicKilled} / {totalBosses}]");
             sb.AppendLine();
             sb.AppendLine("**__Raid Rankings:__**");
-            sb.AppendLine($"\t **normal** [ realm [**{guildStats.RaidRankings.Vault.Normal.Realm}**] world [**{guildStats.RaidRankings.Vault.Normal.World}**] region [**{guildStats.RaidRankings.Vault.Normal.Region}**] ]");            
-            sb.AppendLine($"\t **heroic** [ realm [**{guildStats.RaidRankings.Vault.Heroic.Realm}**] world [**{guildStats.RaidRankings.Vault.Heroic.World}**] region [**{guildStats.RaidRankings.Vault.Heroic.Region}**] ]");
-            sb.AppendLine($"\t **mythic** [ realm [**{guildStats.RaidRankings.Vault.Mythic.Realm}**] world [**{guildStats.RaidRankings.Vault.Mythic.World}**] region [**{guildStats.RaidRankings.Vault.Mythic.Region}**] ]");
+            sb.AppendLine($"\t **normal** [ realm [**{guildStats.RaidRankings.Aberrus.Normal.Realm}**] world [**{guildStats.RaidRankings.Aberrus.Normal.World}**] region [**{guildStats.RaidRankings.Aberrus.Normal.Region}**] ]");            
+            sb.AppendLine($"\t **heroic** [ realm [**{guildStats.RaidRankings.Aberrus.Heroic.Realm}**] world [**{guildStats.RaidRankings.Aberrus.Heroic.World}**] region [**{guildStats.RaidRankings.Aberrus.Heroic.Region}**] ]");
+            sb.AppendLine($"\t **mythic** [ realm [**{guildStats.RaidRankings.Aberrus.Mythic.Realm}**] world [**{guildStats.RaidRankings.Aberrus.Mythic.World}**] region [**{guildStats.RaidRankings.Aberrus.Mythic.Region}**] ]");
             sb.AppendLine();
             sb.AppendLine($"[{guildObject.guildName} Profile]({guildStats.ProfileUrl.AbsoluteUri})");
 
@@ -228,7 +228,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             embed.WithColor(new Color(0, 0, 255));
             embed.Description = sb.ToString();
 
-            await RespondAsync(embed: embed.Build());                        
+            await RespondAsync(embed: embed.Build(), ephemeral: true);                        
         }
 
         [SlashCommand("affixes", "Get current m+ affixes")]
@@ -294,7 +294,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             sb.AppendLine($"[Leaderboard]({affixes.LeaderboardUrl.AbsoluteUri})");            
             embed.Description = sb.ToString();
 
-            await RespondAsync(embed: embed.Build());                       
+            await RespondAsync(embed: embed.Build(), ephemeral: true);                       
         }
 
         [SlashCommand("watchlogs", "watch logs for guild")]
@@ -358,7 +358,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 await db.SaveChangesAsync();
             }
             embed.Description = sb.ToString();
-            await RespondAsync(embed: embed.Build());
+            await RespondAsync(embed: embed.Build(), ephemeral: true);
         }
         [SlashCommand("wowdiscord", "list class discord servers")]
         public async Task ListWowDiscordServers()
@@ -384,7 +384,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         });
                     }
                     embed.WithColor(new Color(0, 255, 0));
-                    await RespondAsync(embed: embed.Build());
+                    await RespondAsync(embed: embed.Build(), ephemeral: true);
                 }
             }
             catch (Exception ex)
@@ -440,7 +440,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 sb.AppendLine($"Sorry, unable to find that character!");
             }
             embed.Description = sb.ToString();
-            await RespondAsync(embed: embed.Build());
+            await RespondAsync(embed: embed.Build(), ephemeral: true);
         }
 
         [SlashCommand("logs", "Gets logs from Warcraftlogs")]
@@ -538,7 +538,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
                     embed.Title = $":1234:__Logs from **{args.Split(' ')[1]}**__:1234: ";
                     embed.Description = sb.ToString();
-                    await RespondAsync(embed: embed.Build());
+                    await RespondAsync(embed: embed.Build(), ephemeral: true);
                     return;
                 }
                 else if (guildLogs.Count == 1)
@@ -551,7 +551,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     _logger.LogInformation($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
                     embed.Title = $":1234: __Logs for **{guildName}** on **{realmName}**__:1234: ";
                     embed.Description = sb.ToString();
-                    await RespondAsync(embed: embed.Build());
+                    await RespondAsync(embed: embed.Build(), ephemeral: true);
                 }
             }
             else
@@ -608,7 +608,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 {
                     sb.AppendLine($"Unable to find logs for **{guildName}** on **{realmName}**");
                     _logger.LogError($"{ex.Message}");
-                    await RespondAsync(sb.ToString());
+                    await RespondAsync(sb.ToString(), ephemeral: true);
                     return;
                 }
                 if (guildLogs.Count > 0)
@@ -641,7 +641,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     _logger.LogInformation($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
                     embed.Title = $":1234:__Logs for **{guildName}** on **{realmName}**__:1234: ";
                     embed.Description = sb.ToString();
-                    await RespondAsync(embed: embed.Build());
+                    await RespondAsync(embed: embed.Build(), ephemeral: true);
                 }
                 else if (guildLogs.Count == 1)
                 {
@@ -654,14 +654,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     _logger.LogInformation($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
                     embed.Title = $":1234: __Logs for **{guildName}** on **{realmName}**__:1234: ";
                     embed.Description = sb.ToString();
-                    await RespondAsync(embed: embed.Build());
+                    await RespondAsync(embed: embed.Build(), ephemeral: true);
                 }
                 else
                 {
                     embed.Title = $"Unable to find logs for {guildName} on {realmName} ({guildRegion})";
                     embed.Description = $"**{Context.User.Username}**, ensure you've uploaded the logs as attached to **{guildName}** on http://www.warcraftlogs.com \n";
                     embed.Description += $"More information: http://www.wowhead.com/guides/raiding/warcraft-logs";
-                    await RespondAsync(embed: embed.Build());
+                    await RespondAsync(embed: embed.Build(), ephemeral: true);
                 }
             }
         }
@@ -701,7 +701,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 sb.AppendLine($"Example: /set-guild Destromath, NinjaBread Men");
                 sb.AppendLine($"Example: /set-guild Silvermoon, Rome in a Day, eu");
                 sb.AppendLine($"Example: /set-guild Ревущий фьорд, Порейдим месяц, ru");
-                await RespondAsync(sb.ToString());
+                await RespondAsync(sb.ToString(), ephemeral: true);
                 return;
             }
             locale = _wowUtils.GetLocaleFromRegion(ref region);
@@ -720,7 +720,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 GuildMembers members = null;
                 try
                 {
-                    await DeferAsync();
+                    await DeferAsync(ephemeral: true);
                     members = _wowApi.GetGuildMembers(realmName, guildName, locale: locale, regionName: region);
                 }
                 catch (Exception ex)
@@ -732,14 +732,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 {
                     guildName = members.guild.name;
                     realmName = members.guild.realm.slug;
-                    await FollowupAsync("Looking up realm information, hang tight!");
+                    await FollowupAsync("Looking up realm information, hang tight!", ephemeral: true);
                     await _wowUtils.SetGuildAssociation(guildName, realmName, locale: locale, regionName: region, context: Context);
-                    await FollowupAsync("Guild info set! Try /getguild");
+                    await FollowupAsync("Guild info set! Try /getguild", ephemeral: true);
                     //await GetGuild();
                 }
                 else
                 {
-                    await RespondAsync($"Unable to associate guild/realm (**{guildName}**/**{realmName}**) (region {region}) to **{discordGuildName}** (typo?)");
+                    await RespondAsync($"Unable to associate guild/realm (**{guildName}**/**{realmName}**) (region {region}) to **{discordGuildName}** (typo?)", ephemeral: true);
                 }
             }
             catch (Exception ex)
@@ -780,7 +780,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             {
                 try
                 {
-                    await DeferAsync();
+                    await DeferAsync(ephemeral: true);
                     if (!string.IsNullOrEmpty(guildObject.locale))
                     {
                         members = _wowApi.GetGuildMembersBySlug(guildObject.realmName, guildObject.guildName, locale: guildObject.locale, regionName: guildObject.regionName);
@@ -832,7 +832,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 sb.AppendLine($"Please use /set-guild realmName, guild name, region (optional, defaults to US, valid values are eu or us) to associate a guild with **{discordGuildName}**");
             }
             embed.Description = sb.ToString();
-            await FollowupAsync(embed: embed.Build());
+            await FollowupAsync(embed: embed.Build(), ephemeral: true);
         }
 
         [SlashCommand("wow", "Use this combined with rankings (gets guild rank from WoWProgress")]
@@ -842,7 +842,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             string guildName = string.Empty;
             string realmName = string.Empty;
             string regionName = "us";
-            await DeferAsync();
+            await DeferAsync(ephemeral: true);
             if (string.IsNullOrEmpty(args))
             {
                 guildObject = await _wowUtils.GetGuildName(Context);
@@ -880,7 +880,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     sb.AppendLine($"Command syntax: /wow rankings realm name, guild name");
                     sb.AppendLine($"Command example: /wow rankings azgalor, carebears");
                     embed.Description = sb.ToString();
-                    await FollowupAsync(embed: embed.Build());
+                    await FollowupAsync(embed: embed.Build(), ephemeral: true);
                     return;
                 }
             }
@@ -893,7 +893,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 sb.AppendLine($"Command syntax: /wow rankings realm name, guild name");
                 sb.AppendLine($"Command example: /wow rankings azgalor, carebears");
                 embed.Description = sb.ToString();
-                await FollowupAsync(embed: embed.Build());
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
                 return;
             }
             try
@@ -936,7 +936,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 embed.WithUrl($"{guild.url}");
                 embed.Description = sb.ToString();
 
-                await FollowupAsync(embed: embed.Build());
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
             }
             catch (Exception ex)
             {
@@ -948,7 +948,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 sb.AppendLine($"Command syntax: /wow rankings realm name, guild name");
                 sb.AppendLine($"Command example: /wow rankings azgalor, carebears");
                 embed.Description = sb.ToString();
-                await FollowupAsync(embed: embed.Build());
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
             }
         }
     
@@ -1015,7 +1015,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 sb.AppendLine($"The above command would get the top 10 **dps** results for **Garothi Worldbreaker** on **{realmName}** for **{guildName}** on **mythic** difficulty.");
                 embed.Title = $"{Context.User.Username}, here are some examples for **/top10**";
                 embed.Description = sb.ToString();
-                await RespondAsync(embed: embed.Build());
+                await RespondAsync(embed: embed.Build(), ephemeral: true);
                 return;
             }
             else
@@ -1033,12 +1033,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                             j++;
                         }
                         embed.Description = sb.ToString();
-                        await RespondAsync(embed: embed.Build());
+                        await RespondAsync(embed: embed.Build(), ephemeral: true);
                     }
                     return;
                 }
 
-                await DeferAsync();
+                await DeferAsync(ephemeral: true);
 
                 //set default difficulty
                 difficulty = "heroic";
@@ -1214,7 +1214,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     sb.AppendLine($"{Context.User.Username}, please specify a fight name/number!");
                     sb.AppendLine($"**Example:** /top10 1");
                     sb.AppendLine($"**Encounter Lists:** /top10 list");
-                    await FollowupAsync(sb.ToString());
+                    await FollowupAsync(sb.ToString(), ephemeral: true);
                     return;
                 }
 
@@ -1367,7 +1367,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 }
                 try
                 {
-                    await FollowupAsync(embed: embed.Build());
+                    await FollowupAsync(embed: embed.Build(), ephemeral: true);
                 }
                 catch (Exception ex)
                 {
@@ -1413,7 +1413,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             }
             embed.Description = sb.ToString();
-            await RespondAsync(embed: embed.Build());            
+            await RespondAsync(embed: embed.Build(), ephemeral: true);            
         }
 
         [SlashCommand("realminfo", "Return WoW realm information")]
@@ -1425,7 +1425,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             string region = string.Empty;
             string findMe = string.Empty;
             findMe = args;
-            await DeferAsync();
+            await DeferAsync(ephemeral: true);
             
             if (!string.IsNullOrEmpty(guildInfo.regionName))
             {
@@ -1467,7 +1467,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 embed.WithColor(new Color(255, 0, 0));
             }
             embed.Description = sb.ToString();
-            await FollowupAsync(embed: embed.Build());
+            await FollowupAsync(embed: embed.Build(), ephemeral: true);
         }   
 
         [SlashCommand("yoink", "grab users from one voice channel and yoink them into another")]
@@ -1539,7 +1539,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 embed.WithColor(0, 255, 0);                         
             }  
             embed.Description = sb.ToString();
-            await RespondAsync(embed: embed.Build());                           
+            await RespondAsync(embed: embed.Build(), ephemeral: true);                           
         }
 
         [SlashCommand("raider", "give user the raider role")]
@@ -1623,7 +1623,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 embed.WithColor(0, 255, 0);                         
             }  
             embed.Description = sb.ToString();
-            await RespondAsync(embed: embed.Build());                           
+            await RespondAsync(embed: embed.Build(), ephemeral: true);                           
         }        
         
         [SlashCommand("listmythic", "list mythic raiders")]
@@ -1681,7 +1681,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     IconUrl = Context.Guild.IconUrl
                 });   
 
-            await RespondAsync(embed: embed.Build());
+            await RespondAsync(embed: embed.Build(), ephemeral: true);
         }            
     }
 }

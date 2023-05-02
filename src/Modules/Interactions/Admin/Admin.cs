@@ -82,7 +82,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             {
                 sb.AppendLine($"Name: {guild.Name} Id: {guild.Id} Owner: {guild.Owner}");
             }
-            await RespondAsync(sb.ToString());
+            await RespondAsync(sb.ToString(), ephemeral: true);
         }
 
         [SlashCommand("announce", "announce a message")]
@@ -138,7 +138,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                 }
                 catch (Exception ex)
                 {
-                    await RespondAsync($"Error adding resource: [{ex.Message}]");
+                    await RespondAsync($"Error adding resource: [{ex.Message}]", ephemeral: true);
                 }
             }
         }
@@ -159,7 +159,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                 }
                 catch (Exception ex)
                 {
-                    await RespondAsync($"Error removing resource: [{ex.Message}]");
+                    await RespondAsync($"Error removing resource: [{ex.Message}]", ephemeral: true);
                 }
             }
         }
@@ -189,13 +189,13 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                         Value = sb.ToString()
                     });
                 }
-                await RespondAsync(embed: embed.Build());
+                await RespondAsync(embed: embed.Build(), ephemeral: true);
             }
         }
 
         [SlashCommand("kick", "kick someone!")]        
         [RequireBotPermission(GuildPermission.KickMembers)]
-        [RequireUserPermission(GuildPermission.KickMembers)]
+        [DefaultMemberPermissions(GuildPermission.KickMembers)]
         public async Task KickUser(IGuildUser user, string reason = null)
         {
             var embed = new EmbedBuilder();
@@ -224,7 +224,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
         [SlashCommand("ban", "ban someone!")]        
         [RequireBotPermission(GuildPermission.BanMembers)]
-        [RequireUserPermission(GuildPermission.BanMembers)]
+        [DefaultMemberPermissions(GuildPermission.KickMembers)]
         public async Task BanUser(IGuildUser user, string args = null)
         {
             int pruneDays = 0;
@@ -288,7 +288,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
         [SlashCommand("unban", "unban someone!")]        
         [RequireBotPermission(GuildPermission.BanMembers)]
-        [RequireUserPermission(GuildPermission.BanMembers)]
+        [DefaultMemberPermissions(GuildPermission.KickMembers)]
         public async Task UnBanUser(string user)
         {
             var embed = new EmbedBuilder();
@@ -357,7 +357,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             embed.Description = sb.ToString();
             embed.WithColor(new Color(0, 0, 255));
             //await _client.Log("test")
-            await RespondAsync(embed: embed.Build());
+            await RespondAsync(embed: embed.Build(), ephemeral: true);
         }
 
         [SlashCommand("set-join-message", "set join message")]
@@ -413,7 +413,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             embed.Description = sb.ToString();
             embed.WithColor(new Color(0, 255, 0));
             embed.ThumbnailUrl = Context.Guild.IconUrl;
-            await RespondAsync(embed: embed.Build());
+            await RespondAsync(embed: embed.Build(), ephemeral: true);
         }
 
         [SlashCommand("set-part-message", "set a message to display when users leave the server")]        
@@ -469,7 +469,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             embed.Description = sb.ToString();
             embed.WithColor(new Color(0, 255, 0));
             embed.ThumbnailUrl = Context.Guild.IconUrl;
-            await RespondAsync(embed: embed.Build());
+            await RespondAsync(embed: embed.Build(), ephemeral: true);
         }
 
         [SlashCommand("toggle-greetings", "toggle join/leave messages to be displayed in this channel")]        
@@ -520,8 +520,45 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             embed.Description = sb.ToString();
             embed.WithColor(new Color(0, 255, 0));
             embed.ThumbnailUrl = Context.Guild.IconUrl;
-            await RespondAsync(embed: embed.Build());
+            await RespondAsync(embed: embed.Build(), ephemeral: true);
         }
+
+        [SlashCommand("set-parting-channel", "if greetings are enabled, set the channel for parting messages")]        
+        [RequireUserPermission(GuildPermission.KickMembers)]
+        public async Task SetPartingChannel()
+        {
+            var embed = new EmbedBuilder();
+            StringBuilder sb = new StringBuilder();
+            using (var db = new NinjaBotEntities())
+            {
+                try
+                {
+                    var currentSetting = db.ServerGreetings.Where(g => g.DiscordGuildId == (long)Context.Guild.Id).FirstOrDefault();
+                    if (currentSetting != null)
+                    {
+                        if (currentSetting.GreetUsers == true)
+                        {
+                            currentSetting.PartingChannelId = (long)Context.Channel.Id;                            
+                            sb.AppendLine($"Parting messages channel set to {Context.Channel.Name}!");
+                        }
+                        else
+                        {
+                            sb.AppendLine("Please enable greetings first via /toggle-greetings");
+                        }
+                    }                   
+                    await db.SaveChangesAsync();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error toggling greetings -> [{ex.Message}]!");
+                }
+            }
+            embed.Title = $"User greeting settings for {Context.Guild.Name}";
+            embed.Description = sb.ToString();
+            embed.WithColor(new Color(0, 255, 0));
+            embed.ThumbnailUrl = Context.Guild.IconUrl;
+            await RespondAsync(embed: embed.Build(), ephemeral: true);
+        }        
 
         [SlashCommand("blacklist", "blacklist a user from using the bot")]        
         [RequireOwner]
@@ -567,7 +604,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             {
                 sb.AppendLine($"Error attempting to blacklist [{user.Username}] -> [{ex.Message}]");
             }
-            await RespondAsync(embed: embed.Build());
+            await RespondAsync(embed: embed.Build(), ephemeral: true);
         }
 
         [SlashCommand("clear", "clear x amount of messages from a channel")]        
@@ -607,7 +644,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             embed.Description = result;
             embed.ThumbnailUrl = Context.Guild.IconUrl;
             embed.WithColor(new Color(0, 255, 0));
-            await RespondAsync(embed: embed.Build());
+            await RespondAsync(embed: embed.Build(), ephemeral: true);
         }
 
         [SlashCommand("get-note", "get a note associated with a discord server")]                
@@ -675,7 +712,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                 System.Console.WriteLine($"Unable to log warning in database -> [{ex.Message}]!");
             }
             await user.SendMessageAsync(warnMessage.ToString());
-            await RespondAsync(warnMessage.ToString());
+            await RespondAsync(warnMessage.ToString(), ephemeral: true);
             if (numWarnings >= 3)
             {
                 await KickUser(user, "Maximum number of warnings reached!");
@@ -691,11 +728,11 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             if (warnings != null)
             {
                 ResetWarnings(warnings);
-                await RespondAsync($"Warnings reset for **{user.Username}**");
+                await RespondAsync($"Warnings reset for **{user.Username}**", ephemeral: true);
             }
             else
             {
-                await RespondAsync($"No warnings found for **{user.Username}**!");
+                await RespondAsync($"No warnings found for **{user.Username}**!", ephemeral: true);
             }
         }
 
@@ -705,7 +742,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         {
             var client = (IDiscordClient)Context.Client;            
             var numGuilds = await client.GetGuildsAsync();
-            await RespondAsync($"I am connected to {numGuilds.Count()} guilds!");
+            await RespondAsync($"I am connected to {numGuilds.Count()} guilds!", ephemeral: true);
         }
 
         [SlashCommand("add-word", "add word to blacklist")]
@@ -742,7 +779,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                 }
 
             }
-            await RespondAsync(sb.ToString());                        
+            await RespondAsync(sb.ToString(), ephemeral: true);                        
         }        
         
         private async void AddWarning(ShardedInteractionContext context, IGuildUser userWarned)
@@ -877,12 +914,12 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                 }
                 catch (Exception ex)
                 {
-                    await RespondAsync($"Error clearing greeting -> [{ex.Message}]");
+                    await RespondAsync($"Error clearing greeting -> [{ex.Message}]", ephemeral: true);
                 }
             }
             else
             {
-                await RespondAsync($"No association found for [{serverId}]!");
+                await RespondAsync($"No association found for [{serverId}]!", ephemeral: true);
             }
         }
     }

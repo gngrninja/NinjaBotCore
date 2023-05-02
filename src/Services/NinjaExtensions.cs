@@ -25,27 +25,24 @@ namespace NinjaBotCore.Services
         public static string FirstFromSplit(this string source, char delimiter)
         {
             var i = source.IndexOf(delimiter);
-
             return i == -1 ? source : source.Substring(0, i);
         }
 
         public static string FirstFromSplit(this string source, string delimiter)
         {
             var i = source.IndexOf(delimiter);
-
             return i == -1 ? source : source.Substring(0, i);
         }
 
         public static string OmitFirstFromSplit(this string source, string delimiter)
         {
             var i = source.IndexOf(delimiter) + 1;
-
             return i == 1 ? source : source.Substring(i);
         }
 
         public static IAsyncEnumerable<TEntity> AsAsyncEnumerable<TEntity>(this Microsoft.EntityFrameworkCore.DbSet<TEntity> obj) where TEntity : class
         {
-                return Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AsAsyncEnumerable(obj);
+            return Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AsAsyncEnumerable(obj);
         }
         
         public static IQueryable<TEntity> Where<TEntity>(this Microsoft.EntityFrameworkCore.DbSet<TEntity> obj, System.Linq.Expressions.Expression<Func<TEntity, bool>> predicate) where TEntity : class

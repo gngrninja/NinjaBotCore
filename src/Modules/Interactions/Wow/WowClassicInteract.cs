@@ -60,7 +60,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             } 
             embed.WithColor(0, 255, 155);
             embed.Description = sb.ToString();
-            await RespondAsync(embed: embed.Build());
+            await RespondAsync(embed: embed.Build(), ephemeral: true);
         }
 
         [SlashCommand("setclassicguild", "set classic guild")]
@@ -85,7 +85,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     sb.AppendLine(reg);
                 }
                 embed.Description = sb.ToString();
-                await RespondAsync(embed: embed.Build());
+                await RespondAsync(embed: embed.Build(), ephemeral: true);
                 return;
             } 
 
@@ -121,7 +121,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     IconUrl = Context.User.GetAvatarUrl()                    
                 });
                 embed.WithColor(0, 255, 155);
-                await RespondAsync(embed: embed.Build());
+                await RespondAsync(embed: embed.Build(), ephemeral: true);
             }
             catch (Exception ex)
             {
@@ -159,7 +159,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     embed.Title = $":1234: __Logs for **{wowClassicGuild.WowGuild}** on **{wowClassicGuild.WowRealm}**__:1234: ";
                     embed.Description = sb.ToString();
                     embed.WithColor(0, 255, 100);
-                    await RespondAsync(embed: embed.Build());                    
+                    await RespondAsync(embed: embed.Build(), ephemeral: true);                    
                 }
             }
         }

@@ -36,7 +36,6 @@ namespace NinjaBotCore.Models.Wow
             public Uri WowheadUrl { get; set; }
         }
 
-
         public partial class RioGuildInfo
         {
             [JsonProperty("name")]
@@ -100,7 +99,10 @@ namespace NinjaBotCore.Models.Wow
             public RaidProgressionAntorusTheBurningThrone Sanctum { get; set; }
 
             [JsonProperty("vault-of-the-incarnates")]
-            public RaidProgressionAntorusTheBurningThrone Vault { get; set; }           
+            public RaidProgressionAntorusTheBurningThrone Vault { get; set; }  
+
+            [JsonProperty("aberrus-the-shadowed-crucible")]
+            public RaidProgressionAntorusTheBurningThrone Aberrus { get; set; }                       
         }
 
         public partial class RaidProgressionAntorusTheBurningThrone
@@ -160,7 +162,10 @@ namespace NinjaBotCore.Models.Wow
             public RaidRankingsAntorusTheBurningThrone Sanctum { get; set; }  
 
             [JsonProperty("vault-of-the-incarnates")]
-            public RaidRankingsAntorusTheBurningThrone Vault { get; set; }          
+            public RaidRankingsAntorusTheBurningThrone Vault { get; set; }   
+
+            [JsonProperty("aberrus-the-shadowed-crucible")]
+            public RaidRankingsAntorusTheBurningThrone Aberrus { get; set; }                   
         }
 
         public partial class RaidRankingsAntorusTheBurningThrone

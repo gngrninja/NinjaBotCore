@@ -93,14 +93,14 @@ namespace NinjaBotCore.Modules.Interactions.Away
                     var awayData = new AwayData();
                     awayData.setAwayUser(away);
                 }
-                await RespondAsync(sb.ToString());
+                await RespondAsync(sb.ToString(), ephemeral: true);
             }
             catch (Exception ex)
             {
                 StringBuilder sb = new StringBuilder();
                 sb.AppendLine("Something went wrong setting you away :(");
                 _logger.LogError($"Away command error {ex.Message}");
-                await RespondAsync(sb.ToString());
+                await RespondAsync(sb.ToString(), ephemeral: true);
             }
         }
 
@@ -164,7 +164,7 @@ namespace NinjaBotCore.Modules.Interactions.Away
                         }                        
                         sb.AppendLine($"You were away for: [{awayDuration}]");
                     }
-                    await RespondAsync(sb.ToString());
+                    await RespondAsync(sb.ToString(), ephemeral: true);
                 }
             }
             catch (Exception ex)

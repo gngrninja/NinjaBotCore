@@ -27,9 +27,12 @@ namespace NinjaBotCore.Modules.Wow
         private static WowClasses _classes;
         private static Race _race;
         private static List<Achievement> _achievements;
+        private static WowRealmSearch.Root _realmSearch;
+        private static WowRealmSearch.Root _realmSearchEu;
+        private static WowRealmSearch.Root _realmSearchRu;
         private static WowRealm _realmInfo;
         private static WowRealm _realmInfoEu;
-        private static WowRealm _realmInfoRu;
+        private static WowRealm _realmInfoRu;        
         private readonly IConfigurationRoot _config;
         private static CancellationTokenSource _tokenSource;
         private readonly ILogger _logger;
@@ -60,10 +63,49 @@ namespace NinjaBotCore.Modules.Wow
             Classes = this.GetWowClasses();
             Achievements cheeves = this.GetWoWAchievements();
             Achievements = cheeves.achievements.ToList();
-            RealmInfo = this.GetRealmStatus("us");
-            RealmInfoEu = this.GetRealmStatus("eu");
-            RealmInfoRu = this.GetRealmStatus("ru_RU", "eu");
+            RealmSearch = this.GetRealmSearch();
+            RealmSearchEu = this.GetRealmSearch("eu");
+            RealmSearchRu = this.GetRealmSearch("ru_RU", "eu");   
+            RealmInfoEu = this.GetRealmStatus("eu");         
+            RealmInfoRu = this.GetRealmStatus("ru_RU", "eu");            
+            RealmInfo = this.GetRealmStatus("us");                       
         }
+
+        public static WowRealmSearch.Root RealmSearch
+        {
+            get
+            {
+                return _realmSearch;
+            }
+            private set
+            {
+                _realmSearch = value;
+            }
+        }     
+
+        public static WowRealmSearch.Root RealmSearchEu
+        {
+            get
+            {
+                return _realmSearchEu;
+            }
+            private set
+            {
+                _realmSearchEu = value;
+            }
+        }   
+
+        public static WowRealmSearch.Root RealmSearchRu
+        {
+            get
+            {
+                return _realmSearchRu;
+            }
+            private set
+            {
+                _realmSearchRu = value;
+            }
+        }                     
 
         public static WowRealm RealmInfo
         {
@@ -210,7 +252,6 @@ namespace NinjaBotCore.Modules.Wow
 
             _logger.LogInformation($"Wow API request to {url}");
 
-
             _client.DefaultRequestHeaders
                 .Accept
                 .Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -244,6 +285,33 @@ namespace NinjaBotCore.Modules.Wow
             }    
             _logger.LogInformation($"New wow api auth token -> [{token}]...");        
             return token;
+        }
+
+        public WowRealmSearch.Root GetRealmSearch(string locale = "us")
+        {
+            string localeName = GetRegionFromString(locale);
+            
+            WowRealmSearch.Root w = new WowRealmSearch.Root();            
+            string url = $"/data/wow/search/realm?namespace=dynamic-{locale}&orderby=id&_pageSize=1000";
+            w = JsonConvert.DeserializeObject<WowRealmSearch.Root>(GetAPIRequest(url, localeName, locale));;
+            return w;
+        }
+
+        public WowRealmSearch.Root GetRealmSearch(string locale, string regionName)
+        {
+            string localeName = string.Empty;            
+            if (locale.Length == 5)
+            {
+                localeName = GetRegionFromString(locale.Substring(3).ToLower());
+            }
+            else if (locale.Length == 2)
+            {
+                localeName = GetRegionFromString(locale);
+            }
+            WowRealmSearch.Root w = new WowRealmSearch.Root();            
+            string url = $"/data/wow/search/realm?namespace=dynamic-{regionName}&orderby=id&_pageSize=1000";
+            w = JsonConvert.DeserializeObject<WowRealmSearch.Root>(GetAPIRequest(url, locale: localeName, region: regionName));
+            return w;
         }
 
         public WowRealm GetRealmStatus(string locale = "us")

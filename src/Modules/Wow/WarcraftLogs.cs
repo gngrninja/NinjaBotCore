@@ -619,31 +619,33 @@ namespace NinjaBotCore.Modules.Wow
         {
             var locale = guild.Locale;
             var realmInfo = new WowRealm.Realm();
+            WowRealmSearch.Result tzRealmInfo = new WowRealmSearch.Result();
             var tz = string.Empty;
             if (!string.IsNullOrEmpty(locale))
             {
                 switch (locale)
                 {
                     case "en_US":
-                        {
-                            realmInfo = WowApi.RealmInfo.realms.FirstOrDefault(r => r.name == guild.WowRealm);
+                        {                            
+                            tzRealmInfo = WowApi.RealmSearch.results.Where(r => r.data.slug == guild.WowRealm).FirstOrDefault();
                             break;
                         }
                     case "en_GB":
-                        {
-                            realmInfo = WowApi.RealmInfoEu.realms.FirstOrDefault(r => r.name == guild.WowRealm);
+                        {                            
+                            tzRealmInfo = WowApi.RealmSearchEu.results.Where(r => r.data.slug == guild.WowRealm).FirstOrDefault();
                             break;
                         }
                     case "ru_RU":
-                        {
-                            realmInfo = WowApi.RealmInfoRu.realms.FirstOrDefault(r => r.name == guild.WowRealm);
+                        {                            
+                            tzRealmInfo = WowApi.RealmSearchRu.results.Where(r => r.data.slug == guild.WowRealm).FirstOrDefault();
                             break;
                         }
                 }
             }
-            if (realmInfo != null && !string.IsNullOrEmpty(realmInfo.timezone))
+            
+            if (tzRealmInfo != null && !string.IsNullOrEmpty(tzRealmInfo.data.timezone))
             {
-                tz = realmInfo.timezone;
+                tz = tzRealmInfo.data.timezone;
             }
             return tz;
         }

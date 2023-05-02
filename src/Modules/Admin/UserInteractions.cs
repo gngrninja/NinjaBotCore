@@ -39,8 +39,15 @@ namespace NinjaBotCore.Modules.Admin
                     try
                     {                            
                         if (shouldGreet.GreetingChannelId != 0)
-                        {
-                            messageChannel = user.Guild.GetChannel((ulong)shouldGreet.GreetingChannelId) as ISocketMessageChannel;
+                        {                            
+                            if (shouldGreet.PartingChannelId != null)
+                            {
+                                messageChannel = user.Guild.GetChannel((ulong)shouldGreet.PartingChannelId) as ISocketMessageChannel;
+                            }      
+                            else
+                            {
+                                messageChannel = user.Guild.GetChannel((ulong)shouldGreet.GreetingChannelId) as ISocketMessageChannel;
+                            }                      
                         }
                         else
                         {

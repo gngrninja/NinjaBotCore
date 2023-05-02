@@ -21,7 +21,6 @@ namespace NinjaBotCore.Services
             _services = services;
             _config = _services.GetRequiredService<IConfigurationRoot>();
             _discord = _services.GetRequiredService<DiscordShardedClient>();
-            _commands = _services.GetRequiredService<CommandService>();
         }
 
         public async Task StartAsync()
@@ -34,7 +33,6 @@ namespace NinjaBotCore.Services
 
             await _discord.LoginAsync(TokenType.Bot, discordToken);
             await _discord.StartAsync();
-            await _commands.AddModulesAsync(Assembly.GetEntryAssembly(), _services);
         }
     }
 }

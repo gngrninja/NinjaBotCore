@@ -1,5 +1,4 @@
 using NinjaBotCore.Database;
-using NinjaBotCore.Models.OxfordDictionary;
 using Discord;
 using Discord.WebSocket;
 using System;
@@ -60,7 +59,7 @@ namespace NinjaBotCore.Modules.Interactions.Fun
             embed.Title = $"{Context.User.Username}, help keep NinjaBot going!";            
             embed.Description = sb.ToString();
 
-            await RespondAsync(embed: embed.Build());
+            await RespondAsync(embed: embed.Build(), ephemeral: true);
         }
 
       
@@ -143,7 +142,7 @@ namespace NinjaBotCore.Modules.Interactions.Fun
             }            
 
             embed.Description = sb.ToString();
-            await RespondAsync(embed: embed.Build());
+            await RespondAsync(embed: embed.Build(), ephemeral: true);
         }
     }
 }

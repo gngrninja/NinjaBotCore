@@ -1,4 +1,3 @@
-using Discord.Net;
 using Discord;
 using Discord.Commands;
 using Discord.Interactions;
@@ -6,44 +5,25 @@ using Discord.WebSocket;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using System;
-using NinjaBotCore.Database;
-using System.IO;
-using System.Collections.Generic;
-using Newtonsoft.Json;
 using NinjaBotCore.Modules.Wow;
 using NinjaBotCore.Modules.Admin;
 using NinjaBotCore.Modules.Steam;
-using NinjaBotCore.Modules.Interactions.Fun;
 using NinjaBotCore.Modules.Interactions.Away;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
 using NinjaBotCore.Services;
 using NinjaBotCore.Modules.YouTube;
-using Microsoft.EntityFrameworkCore;
 using Serilog;
-using Serilog.Sinks.File;
-using Serilog.Sinks.SystemConsole;
-using Microsoft;
-using NinjaBotCore.Common;
-using System.Net.Http;
-using System.Linq;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Http;
-using Microsoft.Extensions.Hosting;
-using Microsoft.AspNetCore.Hosting;
+using ArgentPonyWarcraftClient;
+using ArgentPonyWarcraftClient.Extensions.DependencyInjection;
 
 namespace NinjaBotCore
 {
     public class NinjaBot
-    {       
-        private CommandHandler _handler;                
+    {                   
         private IConfigurationRoot _config;
-
-        public static IHostBuilder CreateHostBuilder(string[] args)
-        => Host.CreateDefaultBuilder(args)
-            .ConfigureWebHostDefaults(
-                webBuilder => webBuilder.UseStartup<NinjaBot>());
-
+        
         public async Task StartAsync()
         {    
             //Create the configuration
@@ -57,7 +37,7 @@ namespace NinjaBotCore
                 .AddSingleton(new DiscordShardedClient(new DiscordSocketConfig
                 {
                     GatewayIntents = GatewayIntents.All,               
-                    LogLevel = LogSeverity.Info,                     
+                    LogLevel = LogSeverity.Error,                     
                     MessageCacheSize = 1000,    
                     AlwaysDownloadUsers = true               
                 }))
@@ -83,7 +63,8 @@ namespace NinjaBotCore
                 .AddSingleton<SteamApi>()         
                 .AddSingleton<RaiderIOApi>()
                 .AddSingleton<YouTubeApi>()                
-                .AddSingleton<AudioService>()
+                .AddSingleton<AudioService>()       
+                .AddWarcraftClients(_config["WoWClient"], _config["WoWSecret"])         
                 .AddSingleton<LoggingService>();                   
                         
             //Add logging      
