@@ -36,7 +36,8 @@ namespace NinjaBotCore
             var services = new ServiceCollection()
                 .AddSingleton(new DiscordShardedClient(new DiscordSocketConfig
                 {
-                    GatewayIntents = GatewayIntents.All,               
+                    GatewayIntents = GatewayIntents.AllUnprivileged |
+                    GatewayIntents.GuildMembers,                           
                     LogLevel = LogSeverity.Error,                     
                     MessageCacheSize = 1000,    
                     AlwaysDownloadUsers = true               
