@@ -1,27 +1,28 @@
 using Discord;
-using Discord.Commands;
 using Discord.WebSocket;
 using System;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Discord.Interactions;
 
 namespace NinjaBotCore.Services
 {
     public class LoggingService
     {
         private readonly ILogger _logger;
-        private readonly DiscordShardedClient _discord;
-        private readonly CommandService _commands;
+        private readonly DiscordShardedClient _discord;        
+        private readonly InteractionService _interactions;
         
-        public LoggingService(ILogger<LoggingService> logger, DiscordShardedClient discord, CommandService commands)
+        public LoggingService(ILogger<LoggingService> logger, DiscordShardedClient discord, InteractionService interactionService)
         {            
             _discord  = discord;
-            _commands = commands;
+            _interactions = interactionService;
             _logger   = logger;
+
             
             _discord.Log += OnLogAsync;
-            _commands.Log += OnLogAsync;
+            _interactions.Log += OnLogAsync;
         }
         
         public Task OnLogAsync(LogMessage msg)

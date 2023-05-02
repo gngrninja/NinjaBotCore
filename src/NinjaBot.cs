@@ -1,44 +1,29 @@
-using Discord.Net;
 using Discord;
 using Discord.Commands;
+using Discord.Interactions;
 using Discord.WebSocket;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using System;
-using NinjaBotCore.Database;
-using System.IO;
-using System.Collections.Generic;
-using Newtonsoft.Json;
 using NinjaBotCore.Modules.Wow;
 using NinjaBotCore.Modules.Admin;
 using NinjaBotCore.Modules.Steam;
-using NinjaBotCore.Modules.RocketLeague;
-using NinjaBotCore.Modules.Fun;
-using NinjaBotCore.Modules.Away;
+using NinjaBotCore.Modules.Interactions.Away;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
 using NinjaBotCore.Services;
-using NinjaBotCore.Modules.Giphy;
-using NinjaBotCore.Modules.Weather;
 using NinjaBotCore.Modules.YouTube;
-using Microsoft.EntityFrameworkCore;
 using Serilog;
-using Serilog.Sinks.File;
-using Serilog.Sinks.SystemConsole;
-using Microsoft;
-using NinjaBotCore.Common;
-using System.Net.Http;
-using System.Linq;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Http;
+using ArgentPonyWarcraftClient;
+using ArgentPonyWarcraftClient.Extensions.DependencyInjection;
 
 namespace NinjaBotCore
 {
     public class NinjaBot
-    {       
-        private CommandHandler _handler;                
+    {                   
         private IConfigurationRoot _config;
-
+        
         public async Task StartAsync()
         {    
             //Create the configuration
@@ -51,49 +36,35 @@ namespace NinjaBotCore
             var services = new ServiceCollection()
                 .AddSingleton(new DiscordShardedClient(new DiscordSocketConfig
                 {
-                    //LogLevel = LogSeverity.Debug,
-                    GatewayIntents = 
-                        GatewayIntents.GuildMembers | 
-                        GatewayIntents.GuildMessages | 
-                        GatewayIntents.GuildIntegrations | 
-                        GatewayIntents.Guilds |
-                        GatewayIntents.GuildBans |
-                        GatewayIntents.GuildVoiceStates |
-                        GatewayIntents.GuildEmojis | 
-                        GatewayIntents.GuildInvites | 
-                        GatewayIntents.GuildMessageReactions |
-                        GatewayIntents.GuildMessageTyping |
-                        GatewayIntents.GuildWebhooks |
-                        GatewayIntents.DirectMessageReactions |
-                        GatewayIntents.DirectMessages | 
-                        GatewayIntents.DirectMessageTyping,                
+                    GatewayIntents = GatewayIntents.All,               
                     LogLevel = LogSeverity.Error,                     
-                    MessageCacheSize = 1000,                    
+                    MessageCacheSize = 1000,    
+                    AlwaysDownloadUsers = true               
                 }))
                 .AddSingleton(_config)
                 .AddSingleton(new CommandService(new CommandServiceConfig 
                 { 
-                    DefaultRunMode = RunMode.Async,
+                    DefaultRunMode = Discord.Commands.RunMode.Async,
                     LogLevel = LogSeverity.Verbose,
                     CaseSensitiveCommands = false, 
                     ThrowOnError = false 
                 }))  
-                .AddHttpClient()
+                .AddHttpClient()                
                 .AddSingleton<WowApi>()                                                
                 .AddSingleton<WowUtilities>()
                 .AddSingleton<WarcraftLogs>()
                 .AddSingleton<ChannelCheck>()   
-                .AddSingleton<OxfordApi>()
                 .AddSingleton<AwayCommands>()
                 .AddSingleton<UserInteraction>()
                 .AddSingleton<CommandHandler>()
+                .AddSingleton(x => new InteractionService(x.GetRequiredService<DiscordShardedClient>()))
+                .AddSingleton<InteractionHandler>()
                 .AddSingleton<StartupService>()
-                .AddSingleton<SteamApi>()        
-                .AddSingleton<GiphyApi>()    
-                .AddSingleton<WeatherApi>()
+                .AddSingleton<SteamApi>()         
                 .AddSingleton<RaiderIOApi>()
                 .AddSingleton<YouTubeApi>()                
-                .AddSingleton<AudioService>()
+                .AddSingleton<AudioService>()       
+                .AddWarcraftClients(_config["WoWClient"], _config["WoWSecret"])         
                 .AddSingleton<LoggingService>();                   
                         
             //Add logging      
@@ -104,6 +75,10 @@ namespace NinjaBotCore
 
             //Instantiate logger/tie-in logging
             serviceProvider.GetRequiredService<LoggingService>();
+
+            // interaction testing
+            await serviceProvider.GetRequiredService<InteractionHandler>()
+                .InitializeAsync();
 
             //Start the bot
             await serviceProvider.GetRequiredService<StartupService>().StartAsync();
@@ -123,7 +98,8 @@ namespace NinjaBotCore
             //Remove default HttpClient logging as it is extremely verbose
             services.RemoveAll<IHttpMessageHandlerBuilderFilter>();       
             //Configure logging level              
-            var logLevel = Environment.GetEnvironmentVariable("NJA_LOG_LEVEL");
+            var logLevel = "info";
+            //var logLevel = Environment.GetEnvironmentVariable("NJA_LOG_LEVEL");
             var level = Serilog.Events.LogEventLevel.Error;
             if (!string.IsNullOrEmpty(logLevel))
             {
@@ -166,6 +142,14 @@ namespace NinjaBotCore
                     .WriteTo.Console()             
                     .MinimumLevel.Is(level)                                                                          
                     .CreateLogger();  
+        }
+         public static bool IsDebug()
+        {
+#if DEBUG
+            return true;
+#else
+            return false;
+#endif
         }
     }
 }

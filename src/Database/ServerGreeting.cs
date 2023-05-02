@@ -14,6 +14,7 @@ namespace NinjaBotCore.Database
         public Nullable<System.DateTime> TimeSet { get; set; }
         public string PartingMessage { get; set; }
         public Nullable<long> GreetingChannelId { get; set; }
+        public Nullable<long> PartingChannelId { get; set; }
         public string GreetingChannelName { get; set; }
     }
 }

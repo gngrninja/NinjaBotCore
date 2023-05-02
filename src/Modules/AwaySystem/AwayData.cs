@@ -30,7 +30,6 @@ namespace NinjaBotCore.Modules.Away
                 }
                 db.SaveChanges();
             }
-
         }
 
         public AwaySystem getAwayUser(string discordUserName)

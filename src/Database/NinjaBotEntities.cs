@@ -3,9 +3,15 @@ namespace NinjaBotCore.Database
     using System;
     using Microsoft.Data.Sqlite;
     using Microsoft.EntityFrameworkCore;
-
+    
     public partial class NinjaBotEntities : DbContext
     {
+        public NinjaBotEntities() {
+            
+        }
+        public NinjaBotEntities(DbContextOptions<NinjaBotEntities> options) : base(options)
+        {            
+        }        
         public virtual DbSet<RlStat> RlStats { get; set; }
         public virtual DbSet<RlUserStat> RlUserStats { get; set; }
         public virtual DbSet<TriviaQuestion> TriviaQuestion { get; set; }
@@ -43,8 +49,10 @@ namespace NinjaBotCore.Database
             var connectionStringBuilder = new SqliteConnectionStringBuilder { DataSource = "ninjabot.db" };
             var connectionString = connectionStringBuilder.ToString();
             var connection = new SqliteConnection(connectionString);
-
-            optionsBuilder.UseSqlite(connection);
+            if (!optionsBuilder.IsConfigured) 
+            {
+                optionsBuilder.UseSqlite(connection);
+            }            
         }
     }
 }

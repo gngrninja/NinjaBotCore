@@ -3,16 +3,17 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using Discord.Commands;
 using Discord;
 using Discord.WebSocket;
 using NinjaBotCore.Database;
 using NinjaBotCore.Services;
 using Microsoft.Extensions.Logging;
+using NinjaBotCore.Modules.Away;
+using Discord.Interactions;
 
-namespace NinjaBotCore.Modules.Away
+namespace NinjaBotCore.Modules.Interactions.Away
 {
-    public class AwayCommands : ModuleBase
+    public class AwayCommands : InteractionModuleBase<ShardedInteractionContext>
     {
         private static bool _isLinked = false;
         private static ChannelCheck _cc = null;
@@ -38,10 +39,8 @@ namespace NinjaBotCore.Modules.Away
             }
         }
 
-        [Command("away", RunMode = RunMode.Async)]
-        [Alias("afk")]
-        [Summary("Set yourself as away, replying to anyone that @mentions you")]
-        public async Task SetAway([Remainder] string input)
+        [SlashCommand("away", "set yourself as away, replying to @mentions of you")]        
+        public async Task SetAway(string input)
         {
             try
             {
@@ -94,19 +93,18 @@ namespace NinjaBotCore.Modules.Away
                     var awayData = new AwayData();
                     awayData.setAwayUser(away);
                 }
-                await _cc.Reply(Context, sb.ToString());
+                await RespondAsync(sb.ToString(), ephemeral: true);
             }
             catch (Exception ex)
             {
                 StringBuilder sb = new StringBuilder();
                 sb.AppendLine("Something went wrong setting you away :(");
                 _logger.LogError($"Away command error {ex.Message}");
-                await _cc.Reply(Context, sb.ToString());
+                await RespondAsync(sb.ToString(), ephemeral: true);
             }
         }
 
-        [Command("back", RunMode = RunMode.Async)]
-        [Summary("Set yourself as back from being away")]
+        [SlashCommand("back", "set yourself as back from being away")]        
         public async Task SetBack(bool forced = false, IGuildUser forceUser = null)
         {
             try
@@ -166,7 +164,7 @@ namespace NinjaBotCore.Modules.Away
                         }                        
                         sb.AppendLine($"You were away for: [{awayDuration}]");
                     }
-                    await _cc.Reply(Context, sb.ToString());
+                    await RespondAsync(sb.ToString(), ephemeral: true);
                 }
             }
             catch (Exception ex)
@@ -174,11 +172,11 @@ namespace NinjaBotCore.Modules.Away
                 StringBuilder sb = new StringBuilder();
                 sb.AppendLine("Something went wrong marking you as back :(");
                 _logger.LogError($"Back command error {ex.Message}");
-                await _cc.Reply(Context, sb.ToString());
+                await RespondAsync(sb.ToString());
             }
         }
 
-        [Command("set-back", RunMode = RunMode.Async)]
+        [SlashCommand("set-back-forced", "force a user as being back from away")]
         [RequireUserPermission(GuildPermission.KickMembers)]
         public async Task SetBack(IGuildUser user)
         {

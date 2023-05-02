@@ -9,11 +9,17 @@ using Microsoft.EntityFrameworkCore;
 using System.Linq;
 using Serilog;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Hosting;
 
 namespace NinjaBotCore
 {
     class Program
     {
+        public static IHostBuilder CreateHostBuilder(string[] args) 
+        { 
+            return Host.CreateDefaultBuilder(); 
+        }
+        
         public static void Main(string[] args)
         {
             try
