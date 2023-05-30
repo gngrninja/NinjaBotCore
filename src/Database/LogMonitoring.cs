@@ -15,9 +15,11 @@ namespace NinjaBotCore.Database
         public bool WatchLog { get; set; }
         public string RetailReportId { get; set; }
         public string ClassicReportId { get; set; }
+        public string VanillaReportId { get; set; }
         public string ReportId { get; set; }
         public DateTime? LatestLog { get; set; } 
-        public DateTime? LatestLogClassic { get; set; }        
+        public DateTime? LatestLogClassic { get; set; }    
+        public DateTime? LatestLogVanilla { get; set; }      
         public DateTime? LatestLogRetail { get; set; }
     }
 }
