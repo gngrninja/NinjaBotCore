@@ -126,7 +126,7 @@ namespace NinjaBotCore.Modules.Wow
         public RaiderIOModels.RioMythicPlusChar GetCharMythicPlusInfo(string charName, string realmName, string region = "us")
         {
             RaiderIOModels.RioMythicPlusChar mythicCharInfo = null;            
-            string url = $"/characters/profile?region={region}&realm={realmName}&name={charName}&fields=mythic_plus_scores%2Cmythic_plus_ranks%2Cmythic_plus_scores%2Cmythic_plus_highest_level_runs%2Cmythic_plus_recent_runs%2Cmythic_plus_best_runs%2Craid_progression";
+            string url = $"/characters/profile?region={region}&realm={realmName}&name={charName}&fields=mythic_plus_scores_by_season:current%2Cmythic_plus_ranks%2Cmythic_plus_scores%2Cmythic_plus_highest_level_runs%2Cmythic_plus_recent_runs%2Cmythic_plus_best_runs%2Craid_progression";
             mythicCharInfo = JsonConvert.DeserializeObject<RaiderIOModels.RioMythicPlusChar>(GetApiRequest(url: url));
             return mythicCharInfo;
         }

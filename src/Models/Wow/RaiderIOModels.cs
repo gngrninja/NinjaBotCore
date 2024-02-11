@@ -102,7 +102,10 @@ namespace NinjaBotCore.Models.Wow
             public RaidProgressionAntorusTheBurningThrone Vault { get; set; }  
 
             [JsonProperty("aberrus-the-shadowed-crucible")]
-            public RaidProgressionAntorusTheBurningThrone Aberrus { get; set; }                       
+            public RaidProgressionAntorusTheBurningThrone Aberrus { get; set; } 
+            
+            [JsonProperty("amirdrassil-the-dreams-hope")]
+            public RaidProgressionAntorusTheBurningThrone Amirdrassil { get; set; }               
         }
 
         public partial class RaidProgressionAntorusTheBurningThrone
@@ -165,7 +168,10 @@ namespace NinjaBotCore.Models.Wow
             public RaidRankingsAntorusTheBurningThrone Vault { get; set; }   
 
             [JsonProperty("aberrus-the-shadowed-crucible")]
-            public RaidRankingsAntorusTheBurningThrone Aberrus { get; set; }                   
+            public RaidRankingsAntorusTheBurningThrone Aberrus { get; set; }   
+
+            [JsonProperty("amirdrassil-the-dreams-hope")]
+            public RaidRankingsAntorusTheBurningThrone Amirdrassil { get; set; }                     
         }
 
         public partial class RaidRankingsAntorusTheBurningThrone
@@ -257,8 +263,8 @@ namespace NinjaBotCore.Models.Wow
             [JsonProperty("profile_url")]
             public Uri ProfileUrl { get; set; }
 
-            [JsonProperty("mythic_plus_scores")]
-            public MythicPlusScores MythicPlusScores { get; set; }
+            [JsonProperty("mythic_plus_scores_by_season")]
+            public MythicPlusScores[] MythicPlusScores { get; set; }
 
             [JsonProperty("mythic_plus_ranks")]
             public MythicPlusRanks MythicPlusRanks { get; set; }
@@ -363,7 +369,7 @@ namespace NinjaBotCore.Models.Wow
             public long Realm { get; set; }
         }
 
-        public partial class MythicPlusScores
+        public partial class MythicPlusScoreBreakout
         {
             [JsonProperty("all")]
             public double All { get; set; }
@@ -376,6 +382,15 @@ namespace NinjaBotCore.Models.Wow
 
             [JsonProperty("tank")]
             public long Tank { get; set; }
+        }
+
+        public partial class MythicPlusScores
+        {
+            [JsonProperty("season")]
+            public string Season { get; set; }
+
+            [JsonProperty("scores")]
+            public MythicPlusScoreBreakout Scores { get; set; }
         }
     }
 }

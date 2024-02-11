@@ -126,14 +126,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         }
                 }   
 
-                string normalKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Aberrus.NormalBossesKilled);
-                string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Aberrus.HeroicBossesKilled);
-                string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Aberrus.MythicBossesKilled);
-                string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Aberrus.TotalBosses); 
+                string normalKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Amirdrassil.NormalBossesKilled);
+                string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Amirdrassil.HeroicBossesKilled);
+                string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Amirdrassil.MythicBossesKilled);
+                string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Amirdrassil.TotalBosses); 
                            
                 sb.AppendLine($"**__Raid Progression__**");
                 sb.AppendLine();
-                sb.AppendLine($"Aberrus, The Shadowed Crucible");                               
+                sb.AppendLine($"Amirdrassil, The Dreams Hope");                               
                 sb.AppendLine($"\t **normal** [{normalKilled} / {totalBosses}] **heroic** [{heroicKilled} / {totalBosses}] **mythic** [{mythicKilled} / {totalBosses}]");
                 sb.AppendLine();               
                 sb.AppendLine($"**__Best Runs__**");                
@@ -170,7 +170,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 embed.Description = sb.ToString();
                 embed.WithColor(new Color(0, 200, 150));
                 embed.Footer = new EmbedFooterBuilder{
-                    Text = $"Raider.IO Score {mPlusInfo.MythicPlusScores.All}"
+                    Text = $"Raider.IO Score {mPlusInfo.MythicPlusScores[0].Scores.All}"
                 };                            
                 await RespondAsync(embed: embed.Build(), ephemeral: true);
             }
