@@ -1,8 +1,8 @@
 #Build configuration
-os: Visual Studio 2019 
+os: Visual Studio 2022
 before_build:
   - dotnet --info
-  - dotnet restore  
+  - dotnet restore
 # build platform, i.e. x86, x64, Any CPU. This setting is optional.
 platform: Any CPU
 # build Configuration, i.e. Debug, Release, etc.
