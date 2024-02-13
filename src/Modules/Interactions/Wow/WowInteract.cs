@@ -202,10 +202,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var guildObject = await _wowUtils.GetGuildName(Context); 
             var guildStats = _rioApi.GetRioGuildInfo(guildName: guildObject.guildName, realmName: guildObject.realmSlug, region: guildObject.regionName);
                         
-            string normalKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Aberrus.NormalBossesKilled);
-            string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Aberrus.HeroicBossesKilled);
-            string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Aberrus.MythicBossesKilled);
-            string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Aberrus.TotalBosses);
+            string normalKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Amirdrassil.NormalBossesKilled);
+            string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Amirdrassil.HeroicBossesKilled);
+            string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Amirdrassil.MythicBossesKilled);
+            string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Amirdrassil.TotalBosses);
             
             title = $"{guildObject.guildName} on {guildObject.realmName}'s Raider.IO Stats";
 
@@ -215,9 +215,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             sb.AppendLine($"\t **mythic** [{mythicKilled} / {totalBosses}]");
             sb.AppendLine();
             sb.AppendLine("**__Raid Rankings:__**");
-            sb.AppendLine($"\t **normal** [ realm [**{guildStats.RaidRankings.Aberrus.Normal.Realm}**] world [**{guildStats.RaidRankings.Aberrus.Normal.World}**] region [**{guildStats.RaidRankings.Aberrus.Normal.Region}**] ]");            
-            sb.AppendLine($"\t **heroic** [ realm [**{guildStats.RaidRankings.Aberrus.Heroic.Realm}**] world [**{guildStats.RaidRankings.Aberrus.Heroic.World}**] region [**{guildStats.RaidRankings.Aberrus.Heroic.Region}**] ]");
-            sb.AppendLine($"\t **mythic** [ realm [**{guildStats.RaidRankings.Aberrus.Mythic.Realm}**] world [**{guildStats.RaidRankings.Aberrus.Mythic.World}**] region [**{guildStats.RaidRankings.Aberrus.Mythic.Region}**] ]");
+            sb.AppendLine($"\t **normal** [ realm [**{guildStats.RaidRankings.Amirdrassil.Normal.Realm}**] world [**{guildStats.RaidRankings.Amirdrassil.Normal.World}**] region [**{guildStats.RaidRankings.Amirdrassil.Normal.Region}**] ]");            
+            sb.AppendLine($"\t **heroic** [ realm [**{guildStats.RaidRankings.Amirdrassil.Heroic.Realm}**] world [**{guildStats.RaidRankings.Amirdrassil.Heroic.World}**] region [**{guildStats.RaidRankings.Amirdrassil.Heroic.Region}**] ]");
+            sb.AppendLine($"\t **mythic** [ realm [**{guildStats.RaidRankings.Amirdrassil.Mythic.Realm}**] world [**{guildStats.RaidRankings.Amirdrassil.Mythic.World}**] region [**{guildStats.RaidRankings.Amirdrassil.Mythic.Region}**] ]");
             sb.AppendLine();
             sb.AppendLine($"[{guildObject.guildName} Profile]({guildStats.ProfileUrl.AbsoluteUri})");
 
