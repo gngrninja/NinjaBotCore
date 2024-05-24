@@ -420,56 +420,11 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         [RequireUserPermission(GuildPermission.KickMembers)]
         public async Task ChangeParting(string args = null)
         {
-            var embed = new EmbedBuilder();
-            StringBuilder sb = new StringBuilder();
-            if (!string.IsNullOrEmpty(args))
-            {
-                embed.Title = $"Parting message change for {Context.Guild.Name}";
-                sb.AppendLine("New message:");
-                sb.AppendLine(args);
-                using (var db = new NinjaBotEntities())
-                {
-                    try
-                    {
-                        var guildGreetingInfo = db.ServerGreetings.Where(g => g.DiscordGuildId == (long)Context.Guild.Id).FirstOrDefault();
-                        if (guildGreetingInfo != null)
-                        {
-                            guildGreetingInfo.PartingMessage = args.Trim();
-                            guildGreetingInfo.SetById = (long)Context.User.Id;
-                            guildGreetingInfo.SetByName = Context.User.Username;
-                            guildGreetingInfo.TimeSet = DateTime.Now;
-                        }
-                        else
-                        {
-                            db.ServerGreetings.Add(new ServerGreeting
-                            {
-                                DiscordGuildId = (long)Context.Guild.Id,
-                                PartingMessage = args.Trim(),
-                                SetById = (long)Context.User.Id,
-                                SetByName = Context.User.Username,
-                                TimeSet = DateTime.Now
-                            });
-                        }
-                        await db.SaveChangesAsync();
-                    }
-                    catch (Exception)
-                    {
-                        embed.Title = $"Error changing message";
-                        sb.AppendLine($"{Context.User.Mention},");
-                        sb.AppendLine($"I've encounted an error, please contact the owner for help.");
-                    }
-                }
-            }
-            else
-            {
-                embed.Title = $"Error changing message";
-                sb.AppendLine($"{Context.User.Mention},");
-                sb.AppendLine($"Please provided a message!");
-            }
-            embed.Description = sb.ToString();
-            embed.WithColor(new Color(0, 255, 0));
-            embed.ThumbnailUrl = Context.Guild.IconUrl;
-            await RespondAsync(embed: embed.Build(), ephemeral: true);
+            var mb = new ModalBuilder()
+                .WithTitle("Parting message")
+                .WithCustomId("parting_message")
+                .AddTextInput("Message:", "parting_message", TextInputStyle.Paragraph, "Goodbye!");
+            await Context.Interaction.RespondWithModalAsync(mb.Build());
         }
 
         [SlashCommand("toggle-greetings", "toggle join/leave messages to be displayed in this channel")]        

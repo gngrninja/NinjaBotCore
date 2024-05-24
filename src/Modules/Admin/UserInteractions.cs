@@ -23,9 +23,28 @@ namespace NinjaBotCore.Modules.Admin
             _logger = services.GetRequiredService<ILogger<UserInteraction>>();
             services.GetRequiredService<DiscordShardedClient>().UserJoined += HandleGreeting;
             services.GetRequiredService<DiscordShardedClient>().UserLeft += HandleParting;
+            services.GetRequiredService<DiscordShardedClient>().ModalSubmitted += HandleModal;
             _logger.LogInformation($"UserInteractions loaded");
         }
 
+        private async Task HandleModal(SocketModal modal)
+        {
+            await Task.Run(async () =>
+            {
+                // Get the values of components.
+                List<SocketMessageComponentData> components =
+                modal.Data.Components.ToList();
+                switch (modal.Data.CustomId)
+                {
+                    case "parting_message":
+                    {
+                        string partingMessage = components.First(x => x.CustomId == "parting_message").Value;
+                        await modal.RespondAsync(partingMessage);
+                        break;
+                    }
+                }
+            });
+        }
         private async Task HandleParting(SocketGuild guild, SocketUser socketUser)
         {
             await Task.Run(async () =>
