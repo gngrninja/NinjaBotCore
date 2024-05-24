@@ -10,7 +10,7 @@ I will be shifting to more administrative / Discord tasks for the time being as 
 
 This project has been an awesome way for me to learn C#, feel free to toss in a pull request if there's a better way to do something!
 
-**Updated for 10.1, good luck in *Aberrus, the Shadowed Crucible*.**
+**10.2.x updates coming soon**
 
 ## Getting Started
 The first thing you'll need to do is [invite the bot to your server](https://discord.com/api/oauth2/authorize?client_id=238495040446398467&permissions=377960909888&scope=bot%20applications.commands). 
