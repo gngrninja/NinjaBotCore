@@ -123,8 +123,47 @@ Long form version to try to find someone not in the same region
 
 ## Server Enhancement Commands
 
-NinjaBot can greet people leaving the server, and notify the server when someone leaves. The messages the bot uses are customizable.
+NinjaBot can greet people joining the server, and notify the server when someone leaves. The messages the bot uses are customizable.
 
+### Greetings:
+
+In the channel you'd like to have the greetings in (this will either enable or disable, as a toggle): 
+```
+/toggle-greetings
+```
+
+If greetings are enabled, and you'd like to set a different channel to handle leaving/parting messages, use (in the channel you want it to be):
+
+```
+/set-parting-channel
+```
+
+To change the greeting message, use:
+
+```
+/set-join-message
+```
+
+To change the leaving/parting message, use:
+```
+/set-part-message 
+```
+
+### Server wide note
+
+Server members with kick permissions and above can set a server wide note via:
+
+```
+/set-note
+```
+
+Anyone in the server can retrieve the note via:
+
+```
+/get-note
+```
+
+(note: updating the website in the mere future!)
 Visit the [NinjaBot website](https://www.gngrninja.com/ninjabot-command-reference/2017/6/13/admin-commands) for more information.
 
 ## Help!
