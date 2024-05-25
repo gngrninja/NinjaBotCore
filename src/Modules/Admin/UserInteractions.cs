@@ -39,6 +39,7 @@ namespace NinjaBotCore.Modules.Admin
                     case "parting_message":
                     {
                         string partingMessage = components.First(x => x.CustomId == "parting_message").Value;
+                        
                         await modal.RespondAsync(partingMessage);
                         break;
                     }
