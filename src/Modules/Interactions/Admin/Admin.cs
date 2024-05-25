@@ -362,68 +362,43 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
         [SlashCommand("set-join-message", "set join message")]
         [RequireUserPermission(GuildPermission.KickMembers)]
-        public async Task ChangeGreeting(string args = null)
+        public async Task ChangeGreeting()
         {
-            var embed = new EmbedBuilder();
-            StringBuilder sb = new StringBuilder();
-            if (!string.IsNullOrEmpty(args))
+            string curGreeting;
+            using (var db = new NinjaBotEntities())
             {
-                embed.Title = $"Join greeting change for {Context.Guild.Name}";
-                sb.AppendLine("New message:");
-                sb.AppendLine(args);
-                using (var db = new NinjaBotEntities())
-                {
-                    try
-                    {
-                        var guildGreetingInfo = db.ServerGreetings.Where(g => g.DiscordGuildId == (long)Context.Guild.Id).FirstOrDefault();
-                        if (guildGreetingInfo != null)
-                        {
-                            guildGreetingInfo.Greeting = args.Trim();
-                            guildGreetingInfo.SetById = (long)Context.User.Id;
-                            guildGreetingInfo.SetByName = Context.User.Username;
-                            guildGreetingInfo.TimeSet = DateTime.Now;
-                        }
-                        else
-                        {
-                            db.ServerGreetings.Add(new ServerGreeting
-                            {
-                                DiscordGuildId = (long)Context.Guild.Id,
-                                Greeting = args.Trim(),
-                                SetById = (long)Context.User.Id,
-                                SetByName = Context.User.Username,
-                                TimeSet = DateTime.Now
-                            });
-                        }
-                        await db.SaveChangesAsync();
-                    }
-                    catch (Exception)
-                    {
-                        embed.Title = $"Error changing message";
-                        sb.AppendLine($"{Context.User.Mention},");
-                        sb.AppendLine($"I've encounted an error, please contact the owner for help.");
-                    }
-                }
+                var guildGreetingInfo = db.ServerGreetings.Where(g => g.DiscordGuildId == (long)Context.Guild.Id).FirstOrDefault();
+                curGreeting = guildGreetingInfo.Greeting;
             }
-            else
+            if (string.IsNullOrEmpty(curGreeting))
             {
-                embed.Title = $"Error changing message";
-                sb.AppendLine($"{Context.User.Mention},");
-                sb.AppendLine($"Please provided a message!");
-            }
-            embed.Description = sb.ToString();
-            embed.WithColor(new Color(0, 255, 0));
-            embed.ThumbnailUrl = Context.Guild.IconUrl;
-            await RespondAsync(embed: embed.Build(), ephemeral: true);
+                curGreeting = "Hello!";
+            }            
+            var mb = new ModalBuilder()
+                .WithTitle("Greeting message")
+                .WithCustomId("joining_message")
+                .AddTextInput("Message:", "joining_message", TextInputStyle.Paragraph, $"{curGreeting}");
+            await Context.Interaction.RespondWithModalAsync(mb.Build());
         }
 
         [SlashCommand("set-part-message", "set a message to display when users leave the server")]        
         [RequireUserPermission(GuildPermission.KickMembers)]
-        public async Task ChangeParting(string args = null)
+        public async Task ChangeParting()
         {
+            string curParting;
+            using (var db = new NinjaBotEntities())
+            {
+                var guildGreetingInfo = db.ServerGreetings.Where(g => g.DiscordGuildId == (long)Context.Guild.Id).FirstOrDefault();
+                curParting = guildGreetingInfo.PartingMessage;
+            }
+            if (string.IsNullOrEmpty(curParting))
+            {
+                curParting = "Goodbye!";
+            }                        
             var mb = new ModalBuilder()
                 .WithTitle("Parting message")
                 .WithCustomId("parting_message")
-                .AddTextInput("Message:", "parting_message", TextInputStyle.Paragraph, "Goodbye!");
+                .AddTextInput("Message:", "parting_message", TextInputStyle.Paragraph, $"{curParting}");
             await Context.Interaction.RespondWithModalAsync(mb.Build());
         }
 
@@ -591,15 +566,14 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
         [SlashCommand("set-note", "set a note for the server")]        
         [RequireUserPermission(GuildPermission.ManageMessages)]
-        public async Task SetNote(string note)
+        public async Task SetNote()
         {
-            string result = await SetNoteInfo(Context, note);
-            var embed = new EmbedBuilder();
-            embed.Title = $":notepad_spiral:Notes for {Context.Guild.Name}:notepad_spiral:";
-            embed.Description = result;
-            embed.ThumbnailUrl = Context.Guild.IconUrl;
-            embed.WithColor(new Color(0, 255, 0));
-            await RespondAsync(embed: embed.Build(), ephemeral: true);
+            var curNote = await GetNoteInfo(Context);
+            var mb = new ModalBuilder()
+                .WithTitle($"Note for Discord server: [{Context.Guild.Name}]")
+                .WithCustomId("discord_server_note")
+                .AddTextInput("Note:", "note_text", TextInputStyle.Paragraph, $"{curNote}");
+            await Context.Interaction.RespondWithModalAsync(mb.Build());            
         }
 
         [SlashCommand("get-note", "get a note associated with a discord server")]                
@@ -785,46 +759,6 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                 warning = db.Warnings.Where(w => w.ServerId == (long)context.Guild.Id && w.UserWarnedId == (long)userWarned.Id).FirstOrDefault();
             }
             return warning;
-        }
-
-        private async Task<string> SetNoteInfo(ShardedInteractionContext Context, string noteText)
-        {
-            StringBuilder sb = new StringBuilder();
-            try
-            {
-                using (var db = new NinjaBotEntities())
-                {
-                    var currentNote = db.Notes.FirstOrDefault(c => c.ServerId == (long)Context.Guild.Id);
-                    if (currentNote == null)
-                    {
-                        Note n = new Note()
-                        {
-                            Note1 = noteText,
-                            ServerId = (long)Context.Guild.Id,
-                            ServerName = Context.Guild.Name,
-                            SetBy = Context.User.Username,
-                            SetById = (long)Context.User.Id,
-                            TimeSet = DateTime.Now
-                        };
-                        db.Notes.Add(n);
-                    }
-                    else
-                    {
-                        currentNote.Note1 = noteText;
-                        currentNote.SetBy = Context.User.Username;
-                        currentNote.SetById = (long)Context.User.Id;
-                        currentNote.TimeSet = DateTime.Now;
-                    }
-                    await db.SaveChangesAsync();
-                }
-                sb.AppendLine($"Note successfully added for server [**{Context.Guild.Name}**] by [**{Context.User.Username}**]!");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error setting note {ex.Message}");
-                sb.AppendLine($"Something went wrong adding a note for server [**{Context.Guild.Name}**] :(");
-            }
-            return sb.ToString();
         }
 
         private async Task<string> GetNoteInfo(ShardedInteractionContext Context)
