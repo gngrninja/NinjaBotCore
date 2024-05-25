@@ -138,6 +138,14 @@ If greetings are enabled, and you'd like to set a different channel to handle le
 /set-parting-channel
 ```
 
+When setting greetings, you can use emojis the bot has access to. For example, you can use :joy:, and it will translate to 😂.
+
+If you'd like to link to a specific channel, you'd use:
+```
+Please check out this channel for information: <#channel-id-here>
+```
+(to get the ID, just right click a text channel and click "**Copy Channel ID**")
+
 To change the greeting message, use:
 
 ```
