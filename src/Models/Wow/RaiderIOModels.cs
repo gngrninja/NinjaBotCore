@@ -105,7 +105,10 @@ namespace NinjaBotCore.Models.Wow
             public RaidProgressionAntorusTheBurningThrone Aberrus { get; set; } 
             
             [JsonProperty("amirdrassil-the-dreams-hope")]
-            public RaidProgressionAntorusTheBurningThrone Amirdrassil { get; set; }               
+            public RaidProgressionAntorusTheBurningThrone Amirdrassil { get; set; }  
+
+            [JsonProperty("nerubar-palace")]
+            public RaidProgressionAntorusTheBurningThrone NerubarPalace { get; set; }                                   
         }
 
         public partial class RaidProgressionAntorusTheBurningThrone
@@ -171,7 +174,10 @@ namespace NinjaBotCore.Models.Wow
             public RaidRankingsAntorusTheBurningThrone Aberrus { get; set; }   
 
             [JsonProperty("amirdrassil-the-dreams-hope")]
-            public RaidRankingsAntorusTheBurningThrone Amirdrassil { get; set; }                     
+            public RaidRankingsAntorusTheBurningThrone Amirdrassil { get; set; }
+
+            [JsonProperty("nerubar-palace")]
+            public RaidRankingsAntorusTheBurningThrone NerubarPalace { get; set; }                                            
         }
 
         public partial class RaidRankingsAntorusTheBurningThrone

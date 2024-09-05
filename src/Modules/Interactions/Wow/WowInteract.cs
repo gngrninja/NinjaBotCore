@@ -36,7 +36,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private string _prefix;
         private readonly ILogger _logger;
         private WowUtilities _wowUtils;
-        // Constructor injection is also a valid way to access the dependencies
+
         public WowInteract(IServiceProvider services)
         {
             _handler = services.GetRequiredService<InteractionHandler>();
@@ -50,11 +50,6 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             _wowUtils = services.GetRequiredService<WowUtilities>();
         }
 
-        // You can use a number of parameter types in you Slash Command handlers (string, int, double, bool, IUser, IChannel, IMentionable, IRole, Enums) by default. Optionally,
-        // you can implement your own TypeConverters to support a wider range of parameter types. For more information, refer to the library documentation.
-        // Optional method parameters(parameters with a default value) also will be displayed as optional on Discord.
-
-        // [Summary] lets you customize the name and the description of a parameter
         [SlashCommand("rio", "Get character's raider IO profile")]
         public async Task GetRioProfile(string args = null)
         {
@@ -126,16 +121,19 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         }
                 }   
 
-                string normalKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Amirdrassil.NormalBossesKilled);
-                string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Amirdrassil.HeroicBossesKilled);
-                string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Amirdrassil.MythicBossesKilled);
-                string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.Amirdrassil.TotalBosses); 
-                           
-                sb.AppendLine($"**__Raid Progression__**");
-                sb.AppendLine();
-                sb.AppendLine($"Amirdrassil, The Dreams Hope");                               
-                sb.AppendLine($"\t **normal** [{normalKilled} / {totalBosses}] **heroic** [{heroicKilled} / {totalBosses}] **mythic** [{mythicKilled} / {totalBosses}]");
-                sb.AppendLine();               
+                if (mPlusInfo.RaidProgression.NerubarPalace != null)
+                {
+                    string normalKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.NerubarPalace.NormalBossesKilled);
+                    string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.NerubarPalace.HeroicBossesKilled);
+                    string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.NerubarPalace.MythicBossesKilled);
+                    string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.NerubarPalace.TotalBosses); 
+                    sb.AppendLine($"**__Raid Progression__**");
+                    sb.AppendLine();
+                    sb.AppendLine($"Nerubar Palace");                               
+                    sb.AppendLine($"\t **normal** [{normalKilled} / {totalBosses}] **heroic** [{heroicKilled} / {totalBosses}] **mythic** [{mythicKilled} / {totalBosses}]");
+                    sb.AppendLine();     
+                }
+                                     
                 sb.AppendLine($"**__Best Runs__**");                
                 foreach (var run in mPlusInfo.MythicPlusBestRuns)
                 {
