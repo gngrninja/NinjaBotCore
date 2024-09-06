@@ -364,11 +364,14 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         [RequireUserPermission(GuildPermission.KickMembers)]
         public async Task ChangeGreeting()
         {
-            string curGreeting;
+            string curGreeting = string.Empty;
             using (var db = new NinjaBotEntities())
             {
                 var guildGreetingInfo = db.ServerGreetings.Where(g => g.DiscordGuildId == (long)Context.Guild.Id).FirstOrDefault();
-                curGreeting = guildGreetingInfo.Greeting;
+                if (guildGreetingInfo != null)
+                {
+                    curGreeting = guildGreetingInfo.Greeting;
+                }                
             }
             if (string.IsNullOrEmpty(curGreeting))
             {
@@ -385,11 +388,14 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         [RequireUserPermission(GuildPermission.KickMembers)]
         public async Task ChangeParting()
         {
-            string curParting;
+            string curParting = string.Empty;
             using (var db = new NinjaBotEntities())
             {
                 var guildGreetingInfo = db.ServerGreetings.Where(g => g.DiscordGuildId == (long)Context.Guild.Id).FirstOrDefault();
-                curParting = guildGreetingInfo.PartingMessage;
+                if (guildGreetingInfo != null)
+                {
+                    curParting = guildGreetingInfo.PartingMessage;
+                }                
             }
             if (string.IsNullOrEmpty(curParting))
             {
