@@ -120,7 +120,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                             break;
                         }
                 }   
-
+                
                 if (mPlusInfo.RaidProgression.NerubarPalace != null)
                 {
                     string normalKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.NerubarPalace.NormalBossesKilled);
@@ -129,18 +129,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.NerubarPalace.TotalBosses); 
                     sb.AppendLine($"**__Raid Progression__**");
                     sb.AppendLine();
-                    sb.AppendLine($"Nerubar Palace");                               
-                    sb.AppendLine($"\t **normal** [{normalKilled} / {totalBosses}] **heroic** [{heroicKilled} / {totalBosses}] **mythic** [{mythicKilled} / {totalBosses}]");
+                    sb.AppendLine($"__Nerubar Palace__");                               
+                    sb.AppendLine($"\t **normal** [{normalKilled} / {totalBosses}]");
+                    sb.AppendLine($"\t **heroic** [{heroicKilled} / {totalBosses}]");
+                    sb.AppendLine($"\t **mythic** [{mythicKilled} / {totalBosses}]");
                     sb.AppendLine();     
                 }
-                                     
-                sb.AppendLine($"**__Best Runs__**");                
-                foreach (var run in mPlusInfo.MythicPlusBestRuns)
-                {
-                    sb.AppendLine($"\t [:white_square_button: [{run.ShortName}(**{run.MythicLevel}**)] {run.ClearTimeMs / 60000} minutes]({run.Url.AbsoluteUri})");
-                } 
-                sb.AppendLine();                                
-                sb.AppendLine($"**__M+ Rankings For Active Spec ({mPlusInfo.ActiveSpecRole})__**");
+                                                                  
+                sb.AppendLine($"**__M+ Rankings For Active Spec ({mPlusInfo.ActiveSpecName})__**");
                 switch (mPlusInfo.ActiveSpecRole.ToLower())
                 {
                     case "dps":
@@ -161,6 +157,16 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 }
                 sb.AppendLine();          
                 embed.Title = $"Mythic+ Information For {mPlusInfo.Name} on {mPlusInfo.Realm}";
+                if (mPlusInfo.MythicPlusBestRuns.Count() > 0)
+                {
+                    sb.AppendLine($"**__Best Runs__**");                
+                    foreach (var run in mPlusInfo.MythicPlusBestRuns)
+                    {
+                        sb.AppendLine($"\t [:white_square_button: [{run.ShortName}(**{run.MythicLevel}**)] {run.ClearTimeMs / 60000} minutes]({run.Url.AbsoluteUri})");
+                    } 
+                    sb.AppendLine(); 
+                }
+                  
                 embed.AddField("Raider.IO",$"[{mPlusInfo.Name}]({mPlusInfo.ProfileUrl.AbsoluteUri})", true);
                 //embed.AddField("WoW Armory",$"[{mPlusInfo.Name}]({armoryInfo.armoryURL})", true);
                 embed.AddField("Warcraftlogs",$"[{mPlusInfo.Name}](https://www.warcraftlogs.com/character/{region}/{realmSlug}/{mPlusInfo.Name})", true);
@@ -200,10 +206,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var guildObject = await _wowUtils.GetGuildName(Context); 
             var guildStats = _rioApi.GetRioGuildInfo(guildName: guildObject.guildName, realmName: guildObject.realmSlug, region: guildObject.regionName);
                         
-            string normalKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Amirdrassil.NormalBossesKilled);
-            string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Amirdrassil.HeroicBossesKilled);
-            string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Amirdrassil.MythicBossesKilled);
-            string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.Amirdrassil.TotalBosses);
+            string normalKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.NerubarPalace.NormalBossesKilled);
+            string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.NerubarPalace.HeroicBossesKilled);
+            string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.NerubarPalace.MythicBossesKilled);
+            string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.NerubarPalace.TotalBosses);
             
             title = $"{guildObject.guildName} on {guildObject.realmName}'s Raider.IO Stats";
 
@@ -213,9 +219,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             sb.AppendLine($"\t **mythic** [{mythicKilled} / {totalBosses}]");
             sb.AppendLine();
             sb.AppendLine("**__Raid Rankings:__**");
-            sb.AppendLine($"\t **normal** [ realm [**{guildStats.RaidRankings.Amirdrassil.Normal.Realm}**] world [**{guildStats.RaidRankings.Amirdrassil.Normal.World}**] region [**{guildStats.RaidRankings.Amirdrassil.Normal.Region}**] ]");            
-            sb.AppendLine($"\t **heroic** [ realm [**{guildStats.RaidRankings.Amirdrassil.Heroic.Realm}**] world [**{guildStats.RaidRankings.Amirdrassil.Heroic.World}**] region [**{guildStats.RaidRankings.Amirdrassil.Heroic.Region}**] ]");
-            sb.AppendLine($"\t **mythic** [ realm [**{guildStats.RaidRankings.Amirdrassil.Mythic.Realm}**] world [**{guildStats.RaidRankings.Amirdrassil.Mythic.World}**] region [**{guildStats.RaidRankings.Amirdrassil.Mythic.Region}**] ]");
+            sb.AppendLine($"\t **normal** [ realm [**{guildStats.RaidRankings.NerubarPalace.Normal.Realm}**] world [**{guildStats.RaidRankings.NerubarPalace.Normal.World}**] region [**{guildStats.RaidRankings.NerubarPalace.Normal.Region}**] ]");            
+            sb.AppendLine($"\t **heroic** [ realm [**{guildStats.RaidRankings.NerubarPalace.Heroic.Realm}**] world [**{guildStats.RaidRankings.NerubarPalace.Heroic.World}**] region [**{guildStats.RaidRankings.NerubarPalace.Heroic.Region}**] ]");
+            sb.AppendLine($"\t **mythic** [ realm [**{guildStats.RaidRankings.NerubarPalace.Mythic.Realm}**] world [**{guildStats.RaidRankings.NerubarPalace.Mythic.World}**] region [**{guildStats.RaidRankings.NerubarPalace.Mythic.Region}**] ]");
             sb.AppendLine();
             sb.AppendLine($"[{guildObject.guildName} Profile]({guildStats.ProfileUrl.AbsoluteUri})");
 
