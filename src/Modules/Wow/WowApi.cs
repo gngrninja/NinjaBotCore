@@ -203,12 +203,14 @@ namespace NinjaBotCore.Modules.Wow
 
             prefix = $"https://{region}.api.blizzard.com";
             key = $"&access_token={_token}";
-            url = $"{prefix}{url}{key}";
+            url = $"{prefix}{url}";
 
             _logger.LogInformation($"Wow API request to {url}");
             _client.DefaultRequestHeaders
                 .Accept
-                .Add(new MediaTypeWithQualityHeaderValue("application/json"));                                             
+                .Add(new MediaTypeWithQualityHeaderValue("application/json"));  
+            _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("bearer", _token);                
+            
             response = _client.GetStringAsync(url).Result;
 
             return response;
@@ -226,7 +228,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             region = region.ToLower();
             prefix = $"https://{region}.api.blizzard.com";
-            key = $"&access_token={_token}"; 
+            //key = $"&access_token={_token}"; 
 
             if (!url.Contains('='))
             {
@@ -237,13 +239,14 @@ namespace NinjaBotCore.Modules.Wow
                 locale = $"&locale={locale}";
             }         
 
-            url = $"{prefix}{url}{locale}{key}";
+            url = $"{prefix}{url}{locale}";
 
             _logger.LogInformation($"Wow API request to {url}");
 
             _client.DefaultRequestHeaders
                     .Accept
-                    .Add(new MediaTypeWithQualityHeaderValue("application/json"));                
+                    .Add(new MediaTypeWithQualityHeaderValue("application/json"));     
+            _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("bearer", _token);
             response = _client.GetStringAsync(url).Result;                    
 
             return response;
@@ -259,6 +262,7 @@ namespace NinjaBotCore.Modules.Wow
             _client.DefaultRequestHeaders
                 .Accept
                 .Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("bearer", _token);                
             response = _client.GetStringAsync(url).Result;
                         
             return response;
