@@ -136,7 +136,26 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     sb.AppendLine();     
                 }
                                                                   
-                sb.AppendLine($"**__M+ Rankings For Active Spec ({mPlusInfo.ActiveSpecName})__**");
+                sb.AppendLine($"**__M+ Rankings For Active Spec and Class ({mPlusInfo.ActiveSpecName})__**");
+                switch (mPlusInfo.ActiveSpecRole.ToLower())
+                {
+                    case "dps":
+                    {
+                        sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.ClassDps.Realm}] Region [{mPlusInfo.MythicPlusRanks.ClassDps.Region}] World [{mPlusInfo.MythicPlusRanks.ClassDps.World}]");
+                        break;
+                    }
+                    case "healing":
+                    {
+                        sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.ClassHealer.Realm}] Region [{mPlusInfo.MythicPlusRanks.ClassHealer.Region}] World [{mPlusInfo.MythicPlusRanks.ClassHealer.World}]");
+                        break;
+                    }
+                    case "tank":
+                    {
+                        sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.ClassTank.Realm}] Region [{mPlusInfo.MythicPlusRanks.ClassTank.Region}] World [{mPlusInfo.MythicPlusRanks.ClassTank.World}]");
+                        break;
+                    }
+                }
+                sb.AppendLine($"**__M+ Rankings For All of Spec ({mPlusInfo.ActiveSpecRole})__**");
                 switch (mPlusInfo.ActiveSpecRole.ToLower())
                 {
                     case "dps":
@@ -144,7 +163,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.Dps.Realm}] Region [{mPlusInfo.MythicPlusRanks.Dps.Region}] World [{mPlusInfo.MythicPlusRanks.Dps.World}]");
                         break;
                     }
-                    case "healer":
+                    case "healing":
                     {
                         sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.Healer.Realm}] Region [{mPlusInfo.MythicPlusRanks.Healer.Region}] World [{mPlusInfo.MythicPlusRanks.Healer.World}]");
                         break;
@@ -154,7 +173,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.Tank.Realm}] Region [{mPlusInfo.MythicPlusRanks.Tank.Region}] World [{mPlusInfo.MythicPlusRanks.Tank.World}]");
                         break;
                     }
-                }
+                }                
                 sb.AppendLine();          
                 embed.Title = $"Mythic+ Information For {mPlusInfo.Name} on {mPlusInfo.Realm}";
                 if (mPlusInfo.MythicPlusBestRuns.Count() > 0)
