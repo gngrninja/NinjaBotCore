@@ -108,7 +108,10 @@ namespace NinjaBotCore.Models.Wow
             public RaidProgressionAntorusTheBurningThrone Amirdrassil { get; set; }  
 
             [JsonProperty("nerubar-palace")]
-            public RaidProgressionAntorusTheBurningThrone NerubarPalace { get; set; }                                   
+            public RaidProgressionAntorusTheBurningThrone NerubarPalace { get; set; }  
+
+            [JsonProperty("liberation-of-undermine")]
+            public RaidProgressionAntorusTheBurningThrone LiberationOfUndermine { get; set; }                                  
         }
 
         public partial class RaidProgressionAntorusTheBurningThrone
@@ -177,7 +180,10 @@ namespace NinjaBotCore.Models.Wow
             public RaidRankingsAntorusTheBurningThrone Amirdrassil { get; set; }
 
             [JsonProperty("nerubar-palace")]
-            public RaidRankingsAntorusTheBurningThrone NerubarPalace { get; set; }                                            
+            public RaidRankingsAntorusTheBurningThrone NerubarPalace { get; set; } 
+
+            [JsonProperty("liberation-of-undermine")]
+            public RaidRankingsAntorusTheBurningThrone LiberationOfUndermine { get; set; }         
         }
 
         public partial class RaidRankingsAntorusTheBurningThrone
