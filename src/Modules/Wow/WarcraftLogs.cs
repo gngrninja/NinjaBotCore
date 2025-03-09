@@ -562,21 +562,15 @@ namespace NinjaBotCore.Modules.Wow
                         List<Reports> logs = null;
                         if (!string.IsNullOrEmpty(guild.LocalRealmSlug))
                         {
-
                             logs = await GetReportsFromGuild(guildName: guild.WowGuild, locale: guild.Locale, realm: guild.WowRealm.Replace("'", ""), realmSlug: guild.LocalRealmSlug, region: guild.WowRegion, isList: true, flip: flip);
-
                         }
                         else if (!string.IsNullOrEmpty(guild.Locale))
                         {
-
                             logs = await GetReportsFromGuild(guildName: guild.WowGuild, realm: guild.WowRealm.Replace("'", ""), region: guild.WowRegion, isList: true, locale: guild.Locale, flip: flip);
-
                         }
                         else
                         {
-
                             logs = await GetReportsFromGuild(guildName: guild.WowGuild, realm: guild.WowRealm.Replace("'", ""), region: guild.WowRegion, isList: true, flip: flip);
-
                         }
                         if (flip)
                         {
@@ -594,10 +588,24 @@ namespace NinjaBotCore.Modules.Wow
                             if (latestLog.id != watchGuild.RetailReportId)
                             {
                                 using (var db = new NinjaBotEntities())
-                                {
+                                {                
+                                    var checkId = db.WclPosted.Where(p => p.ServerId == guild.ServerId && p.ReportId == latestLog.id).FirstOrDefault();
+                                    if (checkId != null)
+                                    {
+                                        _logger.LogInformation($"latest report id {latestLog.id} found in database, cancelling post for {guild.ServerName}!");
+                                        return;
+                                    }                                                  
                                     var latestForGuild = db.LogMonitoring.Where(l => l.ServerId == guild.ServerId).FirstOrDefault();
                                     latestForGuild.LatestLogRetail = startTime;
                                     latestForGuild.RetailReportId = latestLog.id;
+                                    db.WclPosted.Add(new WclPosted
+                                    {
+                                        ServerId = (long)guild.ServerId,
+                                        ChannelId = latestForGuild.ChannelId,
+                                        ChannelName = latestForGuild.ChannelName,
+                                        ServerName = latestForGuild.ServerName,
+                                        ReportId = latestLog.id
+                                    });
                                     await db.SaveChangesAsync();
                                 }
                                 ISocketMessageChannel channel = _client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
