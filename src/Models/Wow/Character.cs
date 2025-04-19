@@ -52,7 +52,7 @@ namespace NinjaBotCore.Models.Wow
         public int achievementPoints { get; set; }
         public string thumbnail { get; set; }
         public string calcClass { get; set; }
-        public int faction { get; set; }
+        public Faction faction { get; set; }
         public int totalHonorableKills { get; set; }
         public string raceName
         {
@@ -419,7 +419,6 @@ namespace NinjaBotCore.Models.Wow
         public string name { get; set; }
         public Category[] categories { get; set; }
     }
-
     public class Achievement1
     {
         public int id { get; set; }

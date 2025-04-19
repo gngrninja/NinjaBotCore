@@ -20,10 +20,10 @@ namespace NinjaBotCore.Models.Wow
         public string slug { get; set; }
     }
 
-    public class FactionInfo 
+    public class Faction
     {
-        [JsonProperty(PropertyName = "type")]
-        public string _type { get; set; }            
+        public string type { get; set; }
+        public string name { get; set; }
     }
 
     public class WowGuild
@@ -31,7 +31,7 @@ namespace NinjaBotCore.Models.Wow
         public string name { get; set; }
         public int id { get; set; }
         public WowRealmResponseGuild realm { get; set; } 
-        public FactionInfo faction { get; set; }
+        public Faction faction { get; set; }
     }
     
     public class Emblem

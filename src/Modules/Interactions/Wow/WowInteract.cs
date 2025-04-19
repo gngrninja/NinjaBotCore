@@ -802,7 +802,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 string faction = string.Empty;
                 //string battlegroup = members.battlegroup;
                 //int achievementPoints = members.achievementPoints;
-                switch (members.guild.faction._type)
+                switch (members.guild.faction.type)
                 {
                     case "ALLIANCE":
                         {

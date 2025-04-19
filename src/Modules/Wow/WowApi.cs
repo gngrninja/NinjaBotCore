@@ -631,6 +631,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             else
             {
+                url = $"{url}&locale=en_US";
                 g = JsonConvert.DeserializeObject<GuildMembers>(GetAPIRequest(url));
             }
             return g;
@@ -676,6 +677,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             else
             {
+                url = $"{url}&locale=en_US";
                 g = JsonConvert.DeserializeObject<GuildMembers>(GetAPIRequest(url));
             }
             return g;
@@ -694,6 +696,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             else
             {
+                url = $"{url}&locale=en_US";
                 g = JsonConvert.DeserializeObject<GuildMembers>(GetAPIRequest(url));
             }
             return g;
@@ -704,7 +707,8 @@ namespace NinjaBotCore.Modules.Wow
             string url;
             GuildMembers g;             
             string realmSlug = slug;                        
-            url = $"/data/wow/guild/{realmSlug}/{guildName.ToLower().Replace(" ","-")}/roster?namespace=profile-{regionName}";        
+            url = $"/data/wow/guild/{realmSlug}/{guildName.ToLower().Replace(" ","-")}/roster?namespace=profile-{regionName}"; 
+            url = $"{url}&locale=en_US";       
             g = JsonConvert.DeserializeObject<GuildMembers>(GetAPIRequest(url));
             return g;
         }
