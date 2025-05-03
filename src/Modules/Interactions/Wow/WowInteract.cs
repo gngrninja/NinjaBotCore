@@ -1441,23 +1441,24 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             if (!string.IsNullOrEmpty(guildInfo.realmName) && string.IsNullOrEmpty(findMe))
             {
                 findMe = guildInfo.realmName;
-            }
-            var getRealmList = _wowApi.GetRealmStatus(region);
+            }            
+            var getRealmList = _wowApi.GetRealmStatus(region);                                                       
             var foundRealm = getRealmList.realms.Where(r => r.slug.ToLower().Contains(findMe.ToLower())).FirstOrDefault();
+            var connectedUrlFinder = _wowApi.GetSingleRealmInfo(foundRealm.slug);
+            var realmResult = _wowApi.GetConnectedRealmInfo(connectedUrlFinder.ConnectedRealm.Href.ToString());
             if (foundRealm != null)
             {
                 embed.Title = $"Realm Information for {foundRealm.name}!";
-                sb.AppendLine($":black_small_square: Battlegroup: **{foundRealm.battlegroup}**");
-                sb.AppendLine($":black_small_square: Type: **{foundRealm.type}**");
-                sb.AppendLine($":black_small_square: Locale: **{foundRealm.locale}**");
-                sb.AppendLine($":black_small_square: Population: **{foundRealm.population}**");
-                sb.AppendLine($":black_small_square: Status: **{foundRealm.status}**");
-                sb.AppendLine($":black_small_square: TimeZone: **{foundRealm.timezone}**");
-                sb.AppendLine($":black_small_square: Queue: **{foundRealm.queue}**");
+                sb.AppendLine($":black_small_square: Type: **{realmResult.Realms[0].Type.Name}**");
+                sb.AppendLine($":black_small_square: Locale: **{realmResult.Realms[0].Locale}**");
+                sb.AppendLine($":black_small_square: Population: **{realmResult.Population.Name}**");
+                sb.AppendLine($":black_small_square: Status: **{realmResult.Status.Name}**");
+                sb.AppendLine($":black_small_square: TimeZone: **{realmResult.Realms[0].Timezone}**");
+                sb.AppendLine($":black_small_square: Queue: **{realmResult.HasQueue}**");
                 sb.AppendLine($":black_small_square: Connected Realms:");
-                foreach (var realm in foundRealm.connected_realms)
+                foreach (var realm in realmResult.Realms)
                 {
-                    sb.AppendLine($"\t :black_small_square: **{realm}**");
+                    sb.AppendLine($"\t :black_small_square: **{realm.Name}**");
                 }
             }
             if (foundRealm.status)

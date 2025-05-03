@@ -34,7 +34,7 @@ namespace NinjaBotCore.Models.Wow
             public Category category { get; set; }
             public string locale { get; set; }
             public Type type { get; set; }
-            public string slug { get; set; }
+            public string slug { get; set; }     
         }
 
         public class Key

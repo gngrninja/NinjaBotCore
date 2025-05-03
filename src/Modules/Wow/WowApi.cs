@@ -64,11 +64,11 @@ namespace NinjaBotCore.Modules.Wow
             Achievements cheeves = this.GetWoWAchievements();
             Achievements = cheeves.achievements.ToList();
             RealmSearch = this.GetRealmSearch();
+            RealmInfo = this.GetRealmStatus("us");  
             RealmSearchEu = this.GetRealmSearch("eu");
             RealmSearchRu = this.GetRealmSearch("ru_RU", "eu");   
             RealmInfoEu = this.GetRealmStatus("eu");         
-            RealmInfoRu = this.GetRealmStatus("ru_RU", "eu");            
-            RealmInfo = this.GetRealmStatus("us");                       
+            RealmInfoRu = this.GetRealmStatus("ru_RU", "eu");                           
         }
 
         public static WowRealmSearch.Root RealmSearch
@@ -216,6 +216,21 @@ namespace NinjaBotCore.Modules.Wow
             return response;
         }
 
+        public string GetAPIRequest(string url, bool fullUrl)
+        {
+            string response;
+
+            _logger.LogInformation($"Wow API request to {url}");
+            _client.DefaultRequestHeaders
+                .Accept
+                .Add(new MediaTypeWithQualityHeaderValue("application/json"));  
+            _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("bearer", _token);                
+            
+            response = _client.GetStringAsync(url).Result;
+
+            return response;
+        }
+
         public string GetAPIRequest(string url, string locale, string region = "us")
         {
             string response;
@@ -252,22 +267,6 @@ namespace NinjaBotCore.Modules.Wow
             return response;
         }
 
-        public string GetAPIRequest(string url, bool fileDownload)
-        {
-            string response;
-            url = $"{url}";
-
-            _logger.LogInformation($"Wow API request to {url}");
-
-            _client.DefaultRequestHeaders
-                .Accept
-                .Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("bearer", _token);                
-            response = _client.GetStringAsync(url).Result;
-                        
-            return response;
-        }
-
         public async Task<string> GetWowToken(string username, string password) 
         {            
             string token = string.Empty;                        
@@ -295,13 +294,33 @@ namespace NinjaBotCore.Modules.Wow
             return token;
         }
 
+        public WowConnectedRealm GetConnectedRealmInfo(int realmId, string regionName = "us")
+        {
+            string url;
+            WowConnectedRealm w = new WowConnectedRealm();
+            string locale = GetRegionFromString(regionName);
+            string realmSlug = string.Empty;             
+            url = $"/data/wow/connected-realm/{realmId}?namespace=dynamic-{regionName}";
+            w = JsonConvert.DeserializeObject<WowConnectedRealm>(GetAPIRequest(url, locale: locale, region: regionName));
+            return w;
+        }
+
+        public WowConnectedRealm GetConnectedRealmInfo(string href, string regionName = "us")
+        {            
+            string localeName = GetRegionFromString(regionName);
+            string url = $"{href}&locale={localeName}";
+            WowConnectedRealm w = new WowConnectedRealm();
+            w = JsonConvert.DeserializeObject<WowConnectedRealm>(GetAPIRequest(url, true));
+            return w;
+        }        
+
         public WowRealmSearch.Root GetRealmSearch(string locale = "us")
         {
             string localeName = GetRegionFromString(locale);
             
             WowRealmSearch.Root w = new WowRealmSearch.Root();            
             string url = $"/data/wow/search/realm?namespace=dynamic-{locale}&orderby=id&_pageSize=1000";
-            w = JsonConvert.DeserializeObject<WowRealmSearch.Root>(GetAPIRequest(url, localeName, locale));;
+            w = JsonConvert.DeserializeObject<WowRealmSearch.Root>(GetAPIRequest(url, localeName, locale));
             return w;
         }
 
@@ -328,6 +347,16 @@ namespace NinjaBotCore.Modules.Wow
             WowRealm w = new WowRealm();
             string url = $"/data/wow/realm/index?namespace=dynamic-{locale}";
             w = JsonConvert.DeserializeObject<WowRealm>(GetAPIRequest(url, localeName, locale));
+            return w;
+        }
+
+        public WowSingleRealmInfo GetSingleRealmInfo(string realmSlug, string regionName = "us")
+        {
+            string url;
+            string locale = GetRegionFromString(regionName);
+            WowSingleRealmInfo w = new WowSingleRealmInfo();
+            url = $"/data/wow/realm/{realmSlug}?namespace=dynamic-{regionName}";
+            w = JsonConvert.DeserializeObject<WowSingleRealmInfo>(GetAPIRequest(url, locale: locale, region: regionName));
             return w;
         }
 
@@ -379,7 +408,7 @@ namespace NinjaBotCore.Modules.Wow
             {
                 if (lastModified > latestTimeStampFromDb)
                 {
-                    fileContent = GetAPIRequest(fileURL, true);
+                    //fileContent = GetAPIRequest(fileURL, true);
                 }
                 else
                 {
@@ -388,7 +417,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             else
             {
-                fileContent = GetAPIRequest(fileURL, true);
+                //fileContent = GetAPIRequest(fileURL, true);
             }
             a = JsonConvert.DeserializeObject<AuctionsModel.Auctions>(fileContent);
             auctions = a.auctions;
@@ -636,7 +665,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             return g;
         }
-
+        
         public GuildMembers GetGuildMembers(string realm, string guildName, string locale, string regionName = "us")
         {
             string url;
