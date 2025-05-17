@@ -136,7 +136,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     sb.AppendLine();     
                 }
                                                                   
-                sb.AppendLine($"**__M+ Rankings For Active Spec ({mPlusInfo.ActiveSpecName})__**");
+                sb.AppendLine($"**__M+ Rankings For Active Role ({mPlusInfo.ActiveSpecRole.ToLower()})__**");
                 switch (mPlusInfo.ActiveSpecRole.ToLower())
                 {
                     case "dps":
@@ -144,7 +144,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.Dps.Realm}] Region [{mPlusInfo.MythicPlusRanks.Dps.Region}] World [{mPlusInfo.MythicPlusRanks.Dps.World}]");
                         break;
                     }
-                    case "healer":
+                    case "healing":
                     {
                         sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.Healer.Realm}] Region [{mPlusInfo.MythicPlusRanks.Healer.Region}] World [{mPlusInfo.MythicPlusRanks.Healer.World}]");
                         break;
@@ -155,6 +155,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         break;
                     }
                 }
+                sb.AppendLine($"**__M+ Rankings For Class ({mPlusInfo.Class.ToLower()})__**");
+                sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.Class.Realm}] Region [{mPlusInfo.MythicPlusRanks.Class.Region}] World [{mPlusInfo.MythicPlusRanks.Class.World}]");
                 sb.AppendLine();          
                 embed.Title = $"Mythic+ Information For {mPlusInfo.Name} on {mPlusInfo.Realm}";
                 if (mPlusInfo.MythicPlusBestRuns.Count() > 0)
