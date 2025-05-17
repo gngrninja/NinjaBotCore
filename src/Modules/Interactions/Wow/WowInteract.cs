@@ -51,8 +51,24 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         }
 
         [SlashCommand("rio", "Get character's raider IO profile")]
-        public async Task GetRioProfile(string args = null)
+        public async Task GetRioProfile([Autocomplete(typeof(NinjaAutoComplete))] string autoCompleteArgs = null)
         {
+            var charAssociation = new WowCharAssociation();
+            if (!string.IsNullOrEmpty(autoCompleteArgs))
+            {
+                using (var db = new NinjaBotEntities())
+                {
+                    charAssociation = db.WowCharAssociation.Where(c => c.Id == long.Parse(autoCompleteArgs)).FirstOrDefault();
+                }
+            }
+            else
+            {
+                using (var db = new NinjaBotEntities())
+                {
+                    charAssociation = db.WowCharAssociation.Where(c => c.UserId == (long)Context.User.Id && c.IsMain).FirstOrDefault();
+                }
+            }
+            var args = charAssociation.CharName;
             var sb = new StringBuilder();
             var embed = new EmbedBuilder();
             GuildChar charInfo = null;
@@ -181,6 +197,82 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 await RespondAsync(embed: embed.Build(), ephemeral: true);
             }
         }
+
+
+        [SlashCommand("setchar", "associate a character to yourself")]
+        public async Task SetMyChar(string lookupInfo, bool isMain = false)
+        {
+            GuildChar result = new GuildChar();
+            List<WowCharAssociation> getChars = new List<WowCharAssociation>();
+            var nameMatch = false;
+            await DeferAsync(ephemeral: true);
+            try 
+            {
+                getChars = GetCharAssociation(Context);
+                result = await _wowUtils.GetCharFromArgs(lookupInfo, Context);         
+            }
+            catch (Exception ex)
+            {
+                System.Console.WriteLine($"Unable to lookup char -> {ex.Message}");
+            }                      
+            if (string.IsNullOrEmpty(result.locale))
+            {
+                await FollowupAsync($"Char not found for: {lookupInfo}!");
+                return;
+            }  
+            var matched = getChars.Where(c => c.CharName.ToLower() == result.charName.ToLower()).FirstOrDefault();
+            if (!string.IsNullOrEmpty(result.charName))
+            {
+                using (var db = new NinjaBotEntities())
+                {                   
+                    if ((matched != null) && (matched.WowRealm == result.realmName))
+                    {
+                        var dbEntry = db.WowCharAssociation.Where(a => a.CharName.ToLower() == matched.CharName.ToLower() && a.WowRealm == matched.WowRealm).FirstOrDefault();
+                        if (dbEntry.IsMain != isMain)
+                        {
+                            dbEntry.IsMain = isMain;
+                            var otherMains = db.WowCharAssociation.Where(a => a.IsMain && a.CharName != matched.CharName).ToList();
+                            if (otherMains.Any())                      
+                            {
+                                foreach (var main in otherMains)
+                                {
+                                    main.IsMain = false;
+                                }
+                            }                            
+                        }                                                
+                    }  
+                    else
+                    {
+                        db.WowCharAssociation.Add(new WowCharAssociation
+                        {
+                            UserId = (long)Context.User.Id,
+                            IsMain = isMain,
+                            CharName = result.charName,
+                            WowRealm = result.realmName,
+                            WowRegion = result.regionName,
+                            Locale = result.locale
+                        });   
+                    }
+
+                    await db.SaveChangesAsync();
+                }
+                await FollowupAsync("Char set!", ephemeral: true);
+            }
+            else
+            {
+                await FollowupAsync($"Unable to find character based on the following: {lookupInfo}", ephemeral: true);
+            }
+        }
+
+        private List<WowCharAssociation> GetCharAssociation(ShardedInteractionContext context)
+        {
+            List<WowCharAssociation> result;
+            using (var db = new NinjaBotEntities())
+            {
+                result = db.WowCharAssociation.Where(c => c.UserId == (long)Context.User.Id).ToList();
+            }
+            return result;
+        }   
 
         [SlashCommand("ginfo", "Get guild information")]
         public async Task GetRioGuildStats()

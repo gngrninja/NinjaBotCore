@@ -45,16 +45,17 @@ namespace NinjaBotCore.Database
         public virtual DbSet<WowClassicGuild> WowClassicGuild { get; set; }
         public virtual DbSet<WowVanillaGuild> WowVanillaGuild { get; set; }
         public virtual DbSet<WclPosted> WclPosted { get; set; }
+        public virtual DbSet<WowCharAssociation> WowCharAssociation { get; set; }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
             var connectionStringBuilder = new SqliteConnectionStringBuilder { DataSource = "ninjabot.db" };
             var connectionString = connectionStringBuilder.ToString();
             var connection = new SqliteConnection(connectionString);
-            if (!optionsBuilder.IsConfigured) 
+            if (!optionsBuilder.IsConfigured)
             {
                 optionsBuilder.UseSqlite(connection);
-            }            
+            }
         }
     }
 }
