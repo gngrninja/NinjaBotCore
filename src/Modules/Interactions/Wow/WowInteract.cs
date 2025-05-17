@@ -36,6 +36,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private string _prefix;
         private readonly ILogger _logger;
         private WowUtilities _wowUtils;
+        private NinjaBotEntities _db;
 
         public WowInteract(IServiceProvider services)
         {
@@ -48,6 +49,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             _client = services.GetRequiredService<DiscordShardedClient>();            
             _config = services.GetRequiredService<IConfigurationRoot>();
             _wowUtils = services.GetRequiredService<WowUtilities>();
+            _db = services.GetRequiredService<NinjaBotEntities>();
         }
 
         [SlashCommand("rio", "Get character's raider IO profile")]
@@ -141,17 +143,29 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 {
                     case "dps":
                     {
-                        sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.Dps.Realm}] Region [{mPlusInfo.MythicPlusRanks.Dps.Region}] World [{mPlusInfo.MythicPlusRanks.Dps.World}]");
+                        var realmPercent = Math.Round((decimal)mPlusInfo.MythicPlusRanks.ClassDps.Realm / mPlusInfo.MythicPlusRanks.Dps.Realm * 100, 2);
+                        var regionPercent = Math.Round((decimal)mPlusInfo.MythicPlusRanks.ClassDps.Region / mPlusInfo.MythicPlusRanks.Dps.Region * 100, 2);
+                        var worldPercent = Math.Round((decimal)mPlusInfo.MythicPlusRanks.ClassDps.World / mPlusInfo.MythicPlusRanks.Dps.World * 100, 2);
+
+                        sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.ClassDps.Realm} ({realmPercent}%)] Region [{mPlusInfo.MythicPlusRanks.ClassDps.Region} {regionPercent}%)] World [{mPlusInfo.MythicPlusRanks.ClassDps.World} {worldPercent}%)]");
                         break;
                     }
-                    case "healer":
+                    case "healing":
                     {
-                        sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.Healer.Realm}] Region [{mPlusInfo.MythicPlusRanks.Healer.Region}] World [{mPlusInfo.MythicPlusRanks.Healer.World}]");
+                        var realmPercent = Math.Round((decimal)mPlusInfo.MythicPlusRanks.ClassHealer.Realm / mPlusInfo.MythicPlusRanks.Healer.Realm * 100, 2);
+                        var regionPercent = Math.Round((decimal)mPlusInfo.MythicPlusRanks.ClassHealer.Region / mPlusInfo.MythicPlusRanks.Healer.Region * 100, 2);
+                        var worldPercent = Math.Round((decimal)mPlusInfo.MythicPlusRanks.ClassHealer.World / mPlusInfo.MythicPlusRanks.Healer.World * 100, 2);
+                       
+                        sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.ClassHealer.Realm} ({realmPercent}%)] Region [{mPlusInfo.MythicPlusRanks.ClassHealer.Region} ({regionPercent}%)] World [{mPlusInfo.MythicPlusRanks.ClassHealer.World} ({worldPercent}%)]");
                         break;
-                    }
+                    }                   
                     case "tank":
                     {
-                        sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.Tank.Realm}] Region [{mPlusInfo.MythicPlusRanks.Tank.Region}] World [{mPlusInfo.MythicPlusRanks.Tank.World}]");
+                        var realmPercent = Math.Round((decimal)mPlusInfo.MythicPlusRanks.ClassTank.Realm / mPlusInfo.MythicPlusRanks.Tank.Realm * 100, 2);
+                        var regionPercent = Math.Round((decimal)mPlusInfo.MythicPlusRanks.ClassTank.Region / mPlusInfo.MythicPlusRanks.Tank.Region * 100, 2);
+                        var worldPercent = Math.Round((decimal)mPlusInfo.MythicPlusRanks.ClassTank.World / mPlusInfo.MythicPlusRanks.Tank.World * 100, 2);  
+
+                        sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.ClassTank.Realm} ({realmPercent}%)] Region [{mPlusInfo.MythicPlusRanks.ClassTank.Region} ({regionPercent}%)] World [{mPlusInfo.MythicPlusRanks.Class.World} ({worldPercent}%)]");
                         break;
                     }
                 }
@@ -1685,5 +1699,79 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             await RespondAsync(embed: embed.Build(), ephemeral: true);
         }            
+    
+        [SlashCommand("setchar", "associate a character to yourself")]
+        public async Task SetMyChar(string lookupInfo, bool isMain = false)
+        {
+            GuildChar result = new GuildChar();
+            List<WowCharAssociation> getChars = new List<WowCharAssociation>();
+            var nameMatch = false;
+            await DeferAsync(ephemeral: true);
+            try 
+            {
+                getChars = GetCharAssociation(Context);
+                result = await _wowUtils.GetCharFromArgs(lookupInfo, Context);         
+            }
+            catch (Exception ex)
+            {
+                System.Console.WriteLine($"Unable to lookup char -> {ex.Message}");
+            }                      
+            if (string.IsNullOrEmpty(result.locale))
+            {
+                await FollowupAsync($"Char not found for: {lookupInfo}!");
+                return;
+            }  
+            var matched = getChars.Where(c => c.CharName.ToLower() == result.charName.ToLower()).FirstOrDefault();
+            if (!string.IsNullOrEmpty(result.charName))
+            {
+                using (var db = new NinjaBotEntities())
+                {                   
+                    if ((matched != null) && (matched.WowRealm == result.realmName))
+                    {
+                        var dbEntry = db.WowCharAssociation.Where(a => a.CharName.ToLower() == matched.CharName.ToLower() && a.WowRealm == matched.WowRealm).FirstOrDefault();
+                        if (dbEntry.IsMain != isMain)
+                        {
+                            dbEntry.IsMain = isMain;
+                            var otherMains = db.WowCharAssociation.Where(a => a.IsMain && a.CharName != matched.CharName).ToList();
+                            if (otherMains.Any())                      
+                            {
+                                foreach (var main in otherMains)
+                                {
+                                    main.IsMain = false;
+                                }
+                            }                            
+                        }                                                
+                    }  
+                    else
+                    {
+                        db.WowCharAssociation.Add(new WowCharAssociation
+                        {
+                            UserId = (long)Context.User.Id,
+                            IsMain = isMain,
+                            CharName = result.charName,
+                            WowRealm = result.realmName,
+                            Locale = result.locale
+                        });   
+                    }
+                 
+                    await db.SaveChangesAsync();
+                }
+                await FollowupAsync("Char set!", ephemeral: true);
+            }
+            else
+            {
+                await FollowupAsync($"Unable to find character based on the following: {lookupInfo}", ephemeral: true);
+            }
+        }
+        
+        private List<WowCharAssociation> GetCharAssociation(ShardedInteractionContext context)
+        {
+            List<WowCharAssociation> result;
+            using (var db = new NinjaBotEntities())
+            {
+                result = db.WowCharAssociation.Where(c => c.UserId == (long)Context.User.Id).ToList();
+            }
+            return result;
+        }        
     }
 }

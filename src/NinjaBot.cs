@@ -17,6 +17,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Http;
 using ArgentPonyWarcraftClient;
 using ArgentPonyWarcraftClient.Extensions.DependencyInjection;
+using NinjaBotCore.Database;
 
 namespace NinjaBotCore
 {
@@ -60,11 +61,13 @@ namespace NinjaBotCore
                 .AddSingleton<CommandHandler>()
                 .AddSingleton(x => new InteractionService(x.GetRequiredService<DiscordShardedClient>()))
                 .AddSingleton<InteractionHandler>()
+                .AddSingleton<NinjaAutoComplete>()
                 .AddSingleton<StartupService>()
                 .AddSingleton<SteamApi>()         
                 .AddSingleton<RaiderIOApi>()
                 .AddSingleton<YouTubeApi>()                
                 .AddSingleton<AudioService>()       
+                .AddDbContext<NinjaBotEntities>()
                 .AddWarcraftClients(_config["WoWClient"], _config["WoWSecret"])         
                 .AddSingleton<LoggingService>();                   
                         
