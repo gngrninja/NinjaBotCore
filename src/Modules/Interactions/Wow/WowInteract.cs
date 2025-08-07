@@ -136,7 +136,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                             break;
                         }
                 }   
-                
+                // do a null check or figure out why RaidProgression isn't filled
                 if (mPlusInfo.RaidProgression.LiberationOfUndermine != null)
                 {
                     string normalKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.LiberationOfUndermine.NormalBossesKilled);
@@ -219,13 +219,13 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             {
                 await FollowupAsync($"Char not found for: {lookupInfo}!");
                 return;
-            }  
-            var matched = getChars.Where(c => c.CharName.ToLower() == result.charName.ToLower()).FirstOrDefault();
+            }
+            var matched = getChars.Where(c => c.CharName.ToLower() == result.charName.ToLower() && c.WowRealm == result.realmName).FirstOrDefault();
             if (!string.IsNullOrEmpty(result.charName))
             {
                 using (var db = new NinjaBotEntities())
                 {                   
-                    if ((matched != null) && (matched.WowRealm == result.realmName))
+                    if (matched != null)
                     {
                         var dbEntry = db.WowCharAssociation.Where(a => a.CharName.ToLower() == matched.CharName.ToLower() && a.WowRealm == matched.WowRealm).FirstOrDefault();
                         if (dbEntry.IsMain != isMain)

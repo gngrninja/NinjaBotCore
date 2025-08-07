@@ -45,7 +45,9 @@ namespace NinjaBotCore.Modules.Wow
             string prefix;
             
             prefix = $"https://raider.io/api/v1";
-            url = $"{prefix}{url}?region={region}&locale={locale}";
+            string separator = url.Contains("?") ? "&" : "?";
+            url = $"{prefix}{url}{separator}access_key={_config["RioApi"]}";            
+            //url = $"{prefix}{url}?region={region}&locale={locale}&access_key={_config["RioApi"]}";
 
             _logger.LogInformation($"RaiderIO API request to {url}");
 
@@ -67,7 +69,9 @@ namespace NinjaBotCore.Modules.Wow
             string prefix;
             
             prefix = $"https://raider.io/api/v1";
-            url = $"{prefix}{url}?region={region}";
+            string separator = url.Contains("?") ? "&" : "?";
+            url = $"{prefix}{url}{separator}access_key={_config["RioApi"]}";            
+            //url = $"{prefix}{url}?region={region}&access_key={_config["RioApi"]}";
 
             _logger.LogInformation($"RaiderIO API request to {url}");
 
@@ -89,7 +93,9 @@ namespace NinjaBotCore.Modules.Wow
             string prefix;
             
             prefix = $"https://raider.io/api/v1";
-            url = $"{prefix}{url}";
+            string separator = url.Contains("?") ? "&" : "?";
+            url = $"{prefix}{url}{separator}access_key={_config["RioApi"]}";            
+            //url = $"{prefix}{url}?access_key={_config["RioApi"]}";
 
             _logger.LogInformation($"RaiderIO API request to {url}");
 
