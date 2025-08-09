@@ -84,13 +84,13 @@ namespace NinjaBotCore.Models.Wow
             public RaidProgressionAntorusTheBurningThrone BattleOfDazaralor { get; set; }
 
             [JsonProperty("crucible-of-storms")]
-            public RaidProgressionAntorusTheBurningThrone CrucibleOfStorms { get; set; } 
+            public RaidProgressionAntorusTheBurningThrone CrucibleOfStorms { get; set; }
 
             [JsonProperty("the-eternal-palace")]
-            public RaidProgressionAntorusTheBurningThrone TheEternalPalace { get; set; } 
+            public RaidProgressionAntorusTheBurningThrone TheEternalPalace { get; set; }
 
             [JsonProperty("nyalotha-the-waking-city")]
-            public RaidProgressionAntorusTheBurningThrone Nyalotha { get; set; } 
+            public RaidProgressionAntorusTheBurningThrone Nyalotha { get; set; }
 
             [JsonProperty("castle-nathria")]
             public RaidProgressionAntorusTheBurningThrone CastleNathria { get; set; }
@@ -99,19 +99,22 @@ namespace NinjaBotCore.Models.Wow
             public RaidProgressionAntorusTheBurningThrone Sanctum { get; set; }
 
             [JsonProperty("vault-of-the-incarnates")]
-            public RaidProgressionAntorusTheBurningThrone Vault { get; set; }  
+            public RaidProgressionAntorusTheBurningThrone Vault { get; set; }
 
             [JsonProperty("aberrus-the-shadowed-crucible")]
-            public RaidProgressionAntorusTheBurningThrone Aberrus { get; set; } 
-            
+            public RaidProgressionAntorusTheBurningThrone Aberrus { get; set; }
+
             [JsonProperty("amirdrassil-the-dreams-hope")]
-            public RaidProgressionAntorusTheBurningThrone Amirdrassil { get; set; }  
+            public RaidProgressionAntorusTheBurningThrone Amirdrassil { get; set; }
 
             [JsonProperty("nerubar-palace")]
-            public RaidProgressionAntorusTheBurningThrone NerubarPalace { get; set; }  
+            public RaidProgressionAntorusTheBurningThrone NerubarPalace { get; set; }
 
             [JsonProperty("liberation-of-undermine")]
-            public RaidProgressionAntorusTheBurningThrone LiberationOfUndermine { get; set; }                                  
+            public RaidProgressionAntorusTheBurningThrone LiberationOfUndermine { get; set; }
+
+            [JsonProperty("manaforge-omega")]
+            public RaidProgressionAntorusTheBurningThrone ManaforgeOmega { get; set; }                                               
         }
 
         public partial class RaidProgressionAntorusTheBurningThrone
@@ -156,34 +159,37 @@ namespace NinjaBotCore.Models.Wow
             public RaidRankingsAntorusTheBurningThrone BattleOfDazaralor { get; set; }
 
             [JsonProperty("crucible-of-storms")]
-            public RaidRankingsAntorusTheBurningThrone CrucibleOfStorms { get; set; }  
+            public RaidRankingsAntorusTheBurningThrone CrucibleOfStorms { get; set; }
 
             [JsonProperty("the-eternal-palace")]
-            public RaidRankingsAntorusTheBurningThrone TheEternalPalace { get; set; }       
+            public RaidRankingsAntorusTheBurningThrone TheEternalPalace { get; set; }
 
             [JsonProperty("nyalotha-the-waking-city")]
-            public RaidRankingsAntorusTheBurningThrone Nyalotha { get; set; }     
+            public RaidRankingsAntorusTheBurningThrone Nyalotha { get; set; }
 
             [JsonProperty("castle-nathria")]
             public RaidRankingsAntorusTheBurningThrone CastleNathria { get; set; }
 
             [JsonProperty("sanctum-of-domination")]
-            public RaidRankingsAntorusTheBurningThrone Sanctum { get; set; }  
+            public RaidRankingsAntorusTheBurningThrone Sanctum { get; set; }
 
             [JsonProperty("vault-of-the-incarnates")]
-            public RaidRankingsAntorusTheBurningThrone Vault { get; set; }   
+            public RaidRankingsAntorusTheBurningThrone Vault { get; set; }
 
             [JsonProperty("aberrus-the-shadowed-crucible")]
-            public RaidRankingsAntorusTheBurningThrone Aberrus { get; set; }   
+            public RaidRankingsAntorusTheBurningThrone Aberrus { get; set; }
 
             [JsonProperty("amirdrassil-the-dreams-hope")]
             public RaidRankingsAntorusTheBurningThrone Amirdrassil { get; set; }
 
             [JsonProperty("nerubar-palace")]
-            public RaidRankingsAntorusTheBurningThrone NerubarPalace { get; set; } 
+            public RaidRankingsAntorusTheBurningThrone NerubarPalace { get; set; }
 
             [JsonProperty("liberation-of-undermine")]
-            public RaidRankingsAntorusTheBurningThrone LiberationOfUndermine { get; set; }         
+            public RaidRankingsAntorusTheBurningThrone LiberationOfUndermine { get; set; }
+
+            [JsonProperty("manaforge-omega")]
+            public RaidRankingsAntorusTheBurningThrone ManaforgeOmega { get; set; }                       
         }
 
         public partial class RaidRankingsAntorusTheBurningThrone

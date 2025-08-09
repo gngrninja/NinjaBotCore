@@ -136,16 +136,16 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                             break;
                         }
                 }   
-                // do a null check or figure out why RaidProgression isn't filled
-                if (mPlusInfo.RaidProgression.LiberationOfUndermine != null)
+
+                if (mPlusInfo.RaidProgression.ManaforgeOmega != null)
                 {
-                    string normalKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.LiberationOfUndermine.NormalBossesKilled);
-                    string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.LiberationOfUndermine.HeroicBossesKilled);
-                    string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.LiberationOfUndermine.MythicBossesKilled);
-                    string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.LiberationOfUndermine.TotalBosses); 
+                    string normalKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.ManaforgeOmega.NormalBossesKilled);
+                    string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.ManaforgeOmega.HeroicBossesKilled);
+                    string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.ManaforgeOmega.MythicBossesKilled);
+                    string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.ManaforgeOmega.TotalBosses); 
                     sb.AppendLine($"**__Raid Progression__**");
                     sb.AppendLine();
-                    sb.AppendLine($"__Liberation of Undermine__");                               
+                    sb.AppendLine($"__Manaforge Omega__");                               
                     sb.AppendLine($"\t **normal** [{normalKilled} / {totalBosses}]");
                     sb.AppendLine($"\t **heroic** [{heroicKilled} / {totalBosses}]");
                     sb.AppendLine($"\t **mythic** [{mythicKilled} / {totalBosses}]");
@@ -300,10 +300,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var guildObject = await _wowUtils.GetGuildName(Context); 
             var guildStats = _rioApi.GetRioGuildInfo(guildName: guildObject.guildName, realmName: guildObject.realmSlug, region: guildObject.regionName);
                         
-            string normalKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.LiberationOfUndermine.NormalBossesKilled);
-            string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.LiberationOfUndermine.HeroicBossesKilled);
-            string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.LiberationOfUndermine.MythicBossesKilled);
-            string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.LiberationOfUndermine.TotalBosses);
+            string normalKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.ManaforgeOmega.NormalBossesKilled);
+            string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.ManaforgeOmega.HeroicBossesKilled);
+            string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.ManaforgeOmega.MythicBossesKilled);
+            string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.ManaforgeOmega.TotalBosses);
             
             title = $"{guildObject.guildName} on {guildObject.realmName}'s Raider.IO Stats";
 
@@ -313,9 +313,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             sb.AppendLine($"\t **mythic** [{mythicKilled} / {totalBosses}]");
             sb.AppendLine();
             sb.AppendLine("**__Raid Rankings:__**");
-            sb.AppendLine($"\t **normal** [ realm [**{guildStats.RaidRankings.LiberationOfUndermine.Normal.Realm}**] world [**{guildStats.RaidRankings.LiberationOfUndermine.Normal.World}**] region [**{guildStats.RaidRankings.LiberationOfUndermine.Normal.Region}**] ]");            
-            sb.AppendLine($"\t **heroic** [ realm [**{guildStats.RaidRankings.LiberationOfUndermine.Heroic.Realm}**] world [**{guildStats.RaidRankings.LiberationOfUndermine.Heroic.World}**] region [**{guildStats.RaidRankings.LiberationOfUndermine.Heroic.Region}**] ]");
-            sb.AppendLine($"\t **mythic** [ realm [**{guildStats.RaidRankings.LiberationOfUndermine.Mythic.Realm}**] world [**{guildStats.RaidRankings.LiberationOfUndermine.Mythic.World}**] region [**{guildStats.RaidRankings.LiberationOfUndermine.Mythic.Region}**] ]");
+            sb.AppendLine($"\t **normal** [ realm [**{guildStats.RaidRankings.ManaforgeOmega.Normal.Realm}**] world [**{guildStats.RaidRankings.ManaforgeOmega.Normal.World}**] region [**{guildStats.RaidRankings.ManaforgeOmega.Normal.Region}**] ]");            
+            sb.AppendLine($"\t **heroic** [ realm [**{guildStats.RaidRankings.ManaforgeOmega.Heroic.Realm}**] world [**{guildStats.RaidRankings.ManaforgeOmega.Heroic.World}**] region [**{guildStats.RaidRankings.ManaforgeOmega.Heroic.Region}**] ]");
+            sb.AppendLine($"\t **mythic** [ realm [**{guildStats.RaidRankings.ManaforgeOmega.Mythic.Realm}**] world [**{guildStats.RaidRankings.ManaforgeOmega.Mythic.World}**] region [**{guildStats.RaidRankings.ManaforgeOmega.Mythic.Region}**] ]");
             sb.AppendLine();
             sb.AppendLine($"[{guildObject.guildName} Profile]({guildStats.ProfileUrl.AbsoluteUri})");
 
