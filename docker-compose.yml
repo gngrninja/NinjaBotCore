@@ -7,11 +7,14 @@ services:
       dockerfile: Dockerfile
     container_name: ninjabot
     restart: unless-stopped
+    network_mode: "host"
     environment:
       - DOTNET_ENVIRONMENT=Production
+    env_file:
+      - .env.production  # Production environment variables (create on server, not in git)
     volumes:
-      - ./config:/app/config:ro
-      - ninjabot-sqlite:/app/ninjabot.db
+      - ./config:/app/config:ro  # Optional: config.json fallback (env vars take precedence)
       - ./src/logs:/app/logs
 volumes:
+  # SQLite volume no longer needed with PostgreSQL, but kept for backwards compatibility
   ninjabot-sqlite:

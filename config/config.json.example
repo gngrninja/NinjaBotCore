@@ -7,6 +7,6 @@
     "Provider": "Postgres"
   },
   "ConnectionStrings": {
-    "NinjaBot": "Host=db_host;Port=5432;Database=ninjabot;Username=ninjabot;Password=your-password;SslMode=Require;Include Error Detail=true"
+    "NinjaBot": "Host=db_host;Port=5432;Database=db-name;Username=db-user;Password=your-password;SslMode=Require"
   }
 }
