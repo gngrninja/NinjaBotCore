@@ -24,6 +24,10 @@ namespace NinjaBotCore.Modules.Wow
     public class WowApi : IWowApi
     {
         private static string _token;
+        private static readonly object _tokenLock = new();
+        private readonly TimeSpan _tokenRefreshInterval = TimeSpan.FromHours(12);
+        private CancellationTokenSource _tokenRefreshCancellation;
+        private Task _tokenRefreshTask;
         private static WowClasses _classes;
         private static Race _race;
         private static List<Achievement> _achievements;
@@ -34,9 +38,8 @@ namespace NinjaBotCore.Modules.Wow
         private static WowRealm _realmInfoEu;
         private static WowRealm _realmInfoRu;        
         private readonly IConfigurationRoot _config;
-        private static CancellationTokenSource _tokenSource;
         private readonly ILogger _logger;
-        private HttpClient _client;
+        private readonly HttpClient _client;
 
         public WowApi(IServiceProvider services) 
         {
@@ -45,11 +48,15 @@ namespace NinjaBotCore.Modules.Wow
                 _client = services.GetRequiredService<IHttpClientFactory>().CreateClient();
                 _config = services.GetRequiredService<IConfigurationRoot>();
                 _logger = services.GetRequiredService<ILogger<WowApi>>();
-                this.StartTimer();
-                if (!string.IsNullOrEmpty(_token))
+                InitializeTokenRefresh();
+                if (!string.IsNullOrEmpty(GetCurrentToken()))
                 {
                     GetWowData();
-                }                
+                }
+                else
+                {
+                    _logger.LogWarning("Unable to preload WoW data because the API token could not be acquired.");
+                }
             }
             catch (Exception ex)
             {
@@ -179,92 +186,46 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
-        public static CancellationTokenSource TokenSource
+        public WowClasses wowclasses;
+
+        private static string GetCurrentToken()
         {
-            get
+            lock (_tokenLock)
             {
-                return _tokenSource;
-            }
-            set
-            {
-                _tokenSource = value;
+                return _token;
             }
         }
 
-        public WowClasses wowclasses;
+        private static void SetCurrentToken(string token)
+        {
+            lock (_tokenLock)
+            {
+                _token = token;
+            }
+        }
 
         public string GetAPIRequest(string url, string region = "us")
         {
-            string response;
-            string key;
-            string prefix;
-
-            region = region.ToLower();
-
-            prefix = $"https://{region}.api.blizzard.com";
-            key = $"&access_token={_token}";
-            url = $"{prefix}{url}";
-
-            _logger.LogInformation($"Wow API request to {url}");
-            _client.DefaultRequestHeaders
-                .Accept
-                .Add(new MediaTypeWithQualityHeaderValue("application/json"));  
-            _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("bearer", _token);                
-            
-            response = _client.GetStringAsync(url).Result;
-
-            return response;
+            var normalizedRegion = region.ToLowerInvariant();
+            var requestUrl = $"https://{normalizedRegion}.api.blizzard.com{url}";
+            _logger.LogInformation("Wow API request to {RequestUrl}", requestUrl);
+            return SendAuthorizedGet(requestUrl);
         }
 
         public string GetAPIRequest(string url, bool fullUrl)
         {
-            string response;
-
-            _logger.LogInformation($"Wow API request to {url}");
-            _client.DefaultRequestHeaders
-                .Accept
-                .Add(new MediaTypeWithQualityHeaderValue("application/json"));  
-            _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("bearer", _token);                
-            
-            response = _client.GetStringAsync(url).Result;
-
-            return response;
+            _logger.LogInformation("Wow API request to {RequestUrl}", url);
+            return SendAuthorizedGet(url);
         }
 
         public string GetAPIRequest(string url, string locale, string region = "us")
         {
-            string response;
-            string key;
-            string prefix;
-            
-            if (region != "us") 
-            {
-                region = "eu";
-            }
-            region = region.ToLower();
-            prefix = $"https://{region}.api.blizzard.com";
-            //key = $"&access_token={_token}"; 
-
-            if (!url.Contains('='))
-            {
-                locale = $"locale={locale}";
-            }      
-            else 
-            {
-                locale = $"&locale={locale}";
-            }         
-
-            url = $"{prefix}{url}{locale}";
-
-            _logger.LogInformation($"Wow API request to {url}");
-
-            _client.DefaultRequestHeaders
-                    .Accept
-                    .Add(new MediaTypeWithQualityHeaderValue("application/json"));     
-            _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("bearer", _token);
-            response = _client.GetStringAsync(url).Result;                    
-
-            return response;
+            var normalizedRegion = region.ToLowerInvariant();
+            var prefix = $"https://{normalizedRegion}.api.blizzard.com";
+            var localeParameter = url.Contains('=') ? $"&locale={locale}" : $"locale={locale}";
+            var requestUrl = $"{prefix}{url}{localeParameter}";
+            _logger.LogInformation("Wow API request to {RequestUrl}", requestUrl);
+            return SendAuthorizedGet(requestUrl);
         }
 
         public async Task<string> GetWowToken(string username, string password) 
@@ -290,7 +251,7 @@ namespace NinjaBotCore.Modules.Wow
                 System.Console.WriteLine($"[{ex.Source}]");
                 System.Console.WriteLine($"[{ex.StackTrace}]");
             }    
-            _logger.LogInformation($"New wow api auth token -> [{token}]...");        
+            _logger.LogInformation("Received new WoW API auth token.");
             return token;
         }
 
@@ -576,6 +537,39 @@ namespace NinjaBotCore.Modules.Wow
                     }
             }
             return region;
+        }
+
+        private string SendAuthorizedGet(string url)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            var token = GetCurrentToken();
+            if (string.IsNullOrEmpty(token))
+            {
+                throw new InvalidOperationException("Blizzard API access token has not been initialized.");
+            }
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            return SendRequest(request);
+        }
+
+        private string SendRequest(HttpRequestMessage request)
+        {
+            try
+            {
+                using var response = _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult();
+                response.EnsureSuccessStatusCode();
+                return response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogError(ex, "Error executing WoW API request to {RequestUrl}", request.RequestUri);
+                throw;
+            }
+            catch (TaskCanceledException ex)
+            {
+                _logger.LogError(ex, "WoW API request timed out for {RequestUrl}", request.RequestUri);
+                throw;
+            }
         }
 
         public ItemInfo GetItemInfo(int itemID)
@@ -886,38 +880,58 @@ namespace NinjaBotCore.Modules.Wow
             return chars;
         }
         
-        public async Task WoWTokenTimer(Action action, TimeSpan interval, CancellationToken token)
+        private void InitializeTokenRefresh()
         {
+            _tokenRefreshCancellation = new CancellationTokenSource();
+            RenewTokenAsync(_tokenRefreshCancellation.Token).GetAwaiter().GetResult();
+            _tokenRefreshTask = RunTokenRefreshLoopAsync(_tokenRefreshCancellation.Token);
+        }
+
+        private async Task RunTokenRefreshLoopAsync(CancellationToken token)
+        {
+            using var timer = new PeriodicTimer(_tokenRefreshInterval);
             try
             {
-                while (!token.IsCancellationRequested)
+                while (await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
                 {
-                    action();
-                    await Task.Delay(interval, token);
+                    await RenewTokenAsync(token).ConfigureAwait(false);
                 }
             }
-            catch (TaskCanceledException ex)
+            catch (OperationCanceledException)
             {
-
+                // Expected when disposing the service.
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error while refreshing WoW API auth token.");
             }
         }
 
-        public async Task StartTimer()
+        private async Task RenewTokenAsync(CancellationToken token)
         {
-            TokenSource = new CancellationTokenSource();
-            var timerAction = new Action(RenewTokenLocal);
-            await WoWTokenTimer(timerAction, TimeSpan.FromSeconds(43200), TokenSource.Token);
-        }
+            if (token.IsCancellationRequested)
+            {
+                return;
+            }
 
-        public async Task StopTimer()
-        {
-            TokenSource.Cancel();
-        }
-
-        private async void RenewTokenLocal()
-        {
-            _logger.LogInformation("Renewing token!");
-            _token = GetWowToken(username: _config["WoWClient"], password: _config["WoWSecret"]).Result;            
+            try
+            {
+                _logger.LogInformation("Refreshing WoW API auth token.");
+                var newToken = await GetWowToken(_config["WoWClient"], _config["WoWSecret"]).ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(newToken))
+                {
+                    SetCurrentToken(newToken);
+                    _logger.LogInformation("WoW API auth token refreshed successfully.");
+                }
+                else
+                {
+                    _logger.LogWarning("Received empty WoW API auth token while refreshing credentials.");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to refresh WoW API auth token.");
+            }
         }
     }
 }

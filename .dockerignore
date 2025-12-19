@@ -1,0 +1,17 @@
+bin/
+obj/
+logs/
+**/*.user
+**/*.swp
+**/*.suo
+*.db-shm
+*.db-wal
+.DS_Store
+*.iml
+.idea/
+.vs/
+node_modules/
+docker-compose.yml.backup
+Dockerfile.backup
+**/secrets.json
+**/appsettings.*.json

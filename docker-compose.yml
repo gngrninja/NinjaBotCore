@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  ninjabot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ninjabot
+    restart: unless-stopped
+    environment:
+      - DOTNET_ENVIRONMENT=Production
+    volumes:
+      - ./config:/app/config:ro
+      - ninjabot-sqlite:/app/ninjabot.db
+      - ./src/logs:/app/logs
+volumes:
+  ninjabot-sqlite:

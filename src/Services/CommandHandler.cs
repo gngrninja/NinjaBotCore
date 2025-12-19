@@ -133,7 +133,7 @@ namespace NinjaBotCore.Services
             request.Command = context.Message.Content;
             request.UserName = context.User.Username;
             request.Success = true;
-            request.RequestTime = DateTime.Now;
+            request.RequestTime = DateTime.UtcNow;
             using (var db = new NinjaBotEntities())
             {
                 

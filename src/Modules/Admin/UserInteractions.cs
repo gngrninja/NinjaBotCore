@@ -80,7 +80,7 @@ namespace NinjaBotCore.Modules.Admin
                             guildGreetingInfo.PartingMessage = partingMessage.Trim();
                             guildGreetingInfo.SetById = (long)modal.User.Id;
                             guildGreetingInfo.SetByName = modal.User.Username;
-                            guildGreetingInfo.TimeSet = DateTime.Now;
+                            guildGreetingInfo.TimeSet = DateTime.UtcNow;
                         }
                         else
                         {
@@ -90,7 +90,7 @@ namespace NinjaBotCore.Modules.Admin
                                 PartingMessage = partingMessage.Trim(),
                                 SetById = (long)modal.User.Id,
                                 SetByName = modal.User.Username,
-                                TimeSet = DateTime.Now
+                                TimeSet = DateTime.UtcNow
                             });
                         }
                         await db.SaveChangesAsync();
@@ -127,7 +127,7 @@ namespace NinjaBotCore.Modules.Admin
                             guildGreetingInfo.Greeting = joiningMessage.Trim();
                             guildGreetingInfo.SetById = (long)modal.User.Id;
                             guildGreetingInfo.SetByName = modal.User.Username;
-                            guildGreetingInfo.TimeSet = DateTime.Now;
+                            guildGreetingInfo.TimeSet = DateTime.UtcNow;
                         }
                         else
                         {
@@ -137,7 +137,7 @@ namespace NinjaBotCore.Modules.Admin
                                 Greeting = joiningMessage.Trim(),
                                 SetById = (long)modal.User.Id,
                                 SetByName = modal.User.Username,
-                                TimeSet = DateTime.Now
+                                TimeSet = DateTime.UtcNow
                             });
                         }
                         await db.SaveChangesAsync();
@@ -173,7 +173,7 @@ namespace NinjaBotCore.Modules.Admin
                             ServerName = guildInfo.Name,
                             SetBy = modal.User.Username,
                             SetById = (long)modal.User.Id,
-                            TimeSet = DateTime.Now
+                            TimeSet = DateTime.UtcNow
                         };
                         db.Notes.Add(n);
                     }
@@ -182,7 +182,7 @@ namespace NinjaBotCore.Modules.Admin
                         currentNote.Note1 = noteText;
                         currentNote.SetBy = modal.User.Username;
                         currentNote.SetById = (long)modal.User.Id;
-                        currentNote.TimeSet = DateTime.Now;
+                        currentNote.TimeSet = DateTime.UtcNow;
                     }
                     await db.SaveChangesAsync();
                 }

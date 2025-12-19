@@ -26,7 +26,7 @@ namespace NinjaBotCore.Modules.Interactions.Away
             if (!_isLinked)
             {
                 client.MessageReceived += AwayMentionFinder;
-                _logger.LogInformation($"Hooked into message received for away commands.");
+                _logger.LogInformation("Hooked into MessageReceived for Away module.");
             }
             _isLinked = true;
             if (_cc == null)
@@ -76,7 +76,7 @@ namespace NinjaBotCore.Modules.Interactions.Away
                         away.Status = true;
                         away.Message = message;
                         away.UserName = userName;
-                        away.TimeAway = DateTime.Now;
+                        away.TimeAway = DateTime.UtcNow;
 
                         var awayData = new AwayData();
                         awayData.setAwayUser(away);
@@ -88,7 +88,7 @@ namespace NinjaBotCore.Modules.Interactions.Away
                     away.Status = true;
                     away.Message = message;
                     away.UserName = userName;
-                    away.TimeAway = DateTime.Now;
+                    away.TimeAway = DateTime.UtcNow;
 
                     var awayData = new AwayData();
                     awayData.setAwayUser(away);
@@ -148,7 +148,7 @@ namespace NinjaBotCore.Modules.Interactions.Away
                         string awayDuration = string.Empty;
                         if (attempt.TimeAway.HasValue)
                         {
-                            var awayTime = DateTime.Now - attempt.TimeAway;
+                            var awayTime = DateTime.UtcNow - attempt.TimeAway;
                             if (awayTime.HasValue)
                             {
                                 awayDuration = $"**{awayTime.Value.Days}** days, **{awayTime.Value.Hours}** hours, **{awayTime.Value.Minutes}** minutes, and **{awayTime.Value.Seconds}** seconds";
@@ -202,7 +202,7 @@ namespace NinjaBotCore.Modules.Interactions.Away
                                 string awayDuration = string.Empty;
                                 if (awayUser.TimeAway.HasValue)
                                 {
-                                    var awayTime = DateTime.Now - awayUser.TimeAway;
+                                    var awayTime = DateTime.UtcNow - awayUser.TimeAway;
                                     if (awayTime.HasValue)
                                     {
                                         awayDuration = $"**{awayTime.Value.Days}** days, **{awayTime.Value.Hours}** hours, **{awayTime.Value.Minutes}** minutes, and **{awayTime.Value.Seconds}** seconds";
