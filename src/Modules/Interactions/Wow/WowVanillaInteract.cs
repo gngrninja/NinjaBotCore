@@ -95,7 +95,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             wowvanillaGuild.WowRealm = realm;
             wowvanillaGuild.WowRegion = region;
             wowvanillaGuild.SetBy = Context.User.Username;
-            wowvanillaGuild.TimeSet = DateTime.Now;  
+            wowvanillaGuild.TimeSet = DateTime.UtcNow;  
             wowvanillaGuild.ServerName = Context.Guild.Name;          
 
             try

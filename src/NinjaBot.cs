@@ -17,6 +17,10 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Http;
 using ArgentPonyWarcraftClient;
 using ArgentPonyWarcraftClient.Extensions.DependencyInjection;
+using System.IO;
+using System.Linq;
+using Microsoft.Extensions.FileProviders;
+using NinjaBotCore.Database;
 
 namespace NinjaBotCore
 {
@@ -27,10 +31,32 @@ namespace NinjaBotCore
         public async Task StartAsync()
         {    
             //Create the configuration
+            var basePath = Directory.GetCurrentDirectory();
+            var configCandidates = new[]
+            {
+                Environment.GetEnvironmentVariable("NINJABOT_CONFIG_PATH"),
+                Path.Combine("config", "config.json"),
+                "config.json"
+            }
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => Path.IsPathRooted(path) ? path : Path.Combine(basePath, path))
+            .ToList();
+
+            var resolvedConfigPath = configCandidates.FirstOrDefault(File.Exists);
+            if (resolvedConfigPath == null)
+            {
+                throw new FileNotFoundException($"Unable to locate NinjaBot configuration. Looked in: {string.Join(", ", configCandidates)}");
+            }
+
+            var fileProvider = new PhysicalFileProvider(Path.GetDirectoryName(resolvedConfigPath)!);
+            var configFileName = Path.GetFileName(resolvedConfigPath);
+
             var _builder = new ConfigurationBuilder()
-                .SetBasePath(AppContext.BaseDirectory)
-                .AddJsonFile(path: "config.json");            
+                .SetBasePath(basePath)
+                .AddJsonFile(fileProvider, configFileName, optional: false, reloadOnChange: false)
+                .AddEnvironmentVariables(prefix: "NINJABOT_");            
             _config = _builder.Build();
+            DatabaseConfigurator.ConfigureFrom(_config);
             
             //Configure services
             var services = new ServiceCollection()
@@ -76,6 +102,16 @@ namespace NinjaBotCore
 
             //Instantiate logger/tie-in logging
             serviceProvider.GetRequiredService<LoggingService>();
+
+            var configuredProvider = _config["Database:Provider"];
+            var providerLabel = string.IsNullOrWhiteSpace(configuredProvider)
+                ? "SQLite (embedded ninjabot.db)"
+                : configuredProvider;
+            var connectionString = _config.GetConnectionString("NinjaBot");
+            var connectionLabel = string.IsNullOrWhiteSpace(connectionString)
+                ? "Default local database file"
+                : "External connection string configured";
+            Log.Information("NinjaBot database provider: {Provider} ({ConnectionContext})", providerLabel, connectionLabel);
 
             // interaction testing
             await serviceProvider.GetRequiredService<InteractionHandler>()

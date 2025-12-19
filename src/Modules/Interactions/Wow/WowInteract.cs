@@ -448,7 +448,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         ChannelId = (long)Context.Channel.Id,
                         ChannelName = Context.Channel.Name,
                         MonitorLogs = enable,
-                        LatestLog = DateTime.Now
+                        LatestLog = DateTime.UtcNow
                     });
                 }
                 await db.SaveChangesAsync();

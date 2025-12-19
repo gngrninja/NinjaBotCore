@@ -467,7 +467,7 @@ namespace NinjaBotCore.Modules.Wow
                             Locale         = locale,
                             SetBy          = context.User.Username,
                             SetById        = (long)context.User.Id,
-                            TimeSet        = DateTime.Now
+                            TimeSet        = DateTime.UtcNow
                         };
                         db.WowGuildAssociations.Add(newGuild);
                     }
@@ -481,14 +481,22 @@ namespace NinjaBotCore.Modules.Wow
                         foundGuild.LocalRealmSlug = realmSlug;
                         foundGuild.SetBy          = context.User.Username;
                         foundGuild.SetById        = (long)context.User.Id;
-                        foundGuild.TimeSet        = DateTime.Now;
+                        foundGuild.TimeSet        = DateTime.UtcNow;
                     }
                     await db.SaveChangesAsync();
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error setting guild association for {context.Guild.Name} to {wowGuildName}-{realmName} [{ex.Message}]");
+                var inner = ex.InnerException?.Message;
+                if (!string.IsNullOrEmpty(inner))
+                {
+                    _logger.LogError(ex, "Error setting guild association for {Guild} to {WowGuild}-{Realm}: {InnerMessage}", context.Guild?.Name ?? context.User.Username, wowGuildName, realmName, inner);
+                }
+                else
+                {
+                    _logger.LogError(ex, "Error setting guild association for {Guild} to {WowGuild}-{Realm}", context.Guild?.Name ?? context.User.Username, wowGuildName, realmName);
+                }
             }
         }
 
@@ -936,7 +944,7 @@ namespace NinjaBotCore.Modules.Wow
                             Locale         = locale,
                             SetBy          = context.User.Username,
                             SetById        = (long)context.User.Id,
-                            TimeSet        = DateTime.Now
+                            TimeSet        = DateTime.UtcNow
                         };
                         db.WowGuildAssociations.Add(newGuild);
                     }
@@ -950,14 +958,22 @@ namespace NinjaBotCore.Modules.Wow
                         foundGuild.LocalRealmSlug = realmSlug;
                         foundGuild.SetBy          = context.User.Username;
                         foundGuild.SetById        = (long)context.User.Id;
-                        foundGuild.TimeSet        = DateTime.Now;
+                        foundGuild.TimeSet        = DateTime.UtcNow;
                     }
                     await db.SaveChangesAsync();
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error setting guild association for {context.Guild.Name} to {wowGuildName}-{realmName} [{ex.Message}]");
+                var inner = ex.InnerException?.Message;
+                if (!string.IsNullOrEmpty(inner))
+                {
+                    _logger.LogError(ex, "Error setting guild association for {Guild} to {WowGuild}-{Realm}: {InnerMessage}", context.Guild?.Name ?? context.User.Username, wowGuildName, realmName, inner);
+                }
+                else
+                {
+                    _logger.LogError(ex, "Error setting guild association for {Guild} to {WowGuild}-{Realm}", context.Guild?.Name ?? context.User.Username, wowGuildName, realmName);
+                }
             }
         }
     }

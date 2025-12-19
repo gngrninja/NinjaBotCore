@@ -1,7 +1,5 @@
 namespace NinjaBotCore.Database
 {
-    using System;
-    using Microsoft.Data.Sqlite;
     using Microsoft.EntityFrameworkCore;
     
     public partial class NinjaBotEntities : DbContext
@@ -49,12 +47,9 @@ namespace NinjaBotCore.Database
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
-            var connectionStringBuilder = new SqliteConnectionStringBuilder { DataSource = "ninjabot.db" };
-            var connectionString = connectionStringBuilder.ToString();
-            var connection = new SqliteConnection(connectionString);
             if (!optionsBuilder.IsConfigured)
             {
-                optionsBuilder.UseSqlite(connection);
+                DatabaseConfigurator.Apply(optionsBuilder);
             }
         }
     }

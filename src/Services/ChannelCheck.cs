@@ -39,7 +39,7 @@ namespace NinjaBotCore.Services
                             ServerName = guildName,
                             SetById = (long)userId,
                             SetByName = userName,
-                            SetTime = DateTime.Now
+                            SetTime = DateTime.UtcNow
                         };
                         db.ChannelOutputs.Add(createChannel);
                     }
@@ -51,7 +51,7 @@ namespace NinjaBotCore.Services
                         currentChannel.ServerName = guildName;
                         currentChannel.SetById = (long)userId;
                         currentChannel.SetByName = userName;
-                        currentChannel.SetTime = DateTime.Now;
+                        currentChannel.SetTime = DateTime.UtcNow;
                     }
                     await db.SaveChangesAsync();
                 }

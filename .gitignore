@@ -25,9 +25,25 @@ Migrations/
 config.json.save
 .DS_Store
 ninjabot.db-journal
+.env
+.env.local
+.env.test
+.env.development
+.env.production
 
 
 #Ignore misc files
 *.dll
 *.exe
 *.mp3
+
+migration-output/*
+DEVELOPMENT_WORKFLOW.md
+PRODUCTION_MIGRATION_GUIDE.md
+POSTGRES_MIGRATION_CHECKLIST.md
+TODO.md
+config/README.md
+test/README-QUICK-START.md
+test/test-databases.md
+test/TESTING.md
+test/NinjaBotCore.Tests/README.md

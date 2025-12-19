@@ -31,7 +31,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             if (!_isLinked)
             {
                 _client.MessageReceived += WordFinder;
-                _logger.LogInformation($"Hooked into message received for away commands.");
+                _logger.LogInformation("Hooked into MessageReceived for Admin word filter.");
             }
             _isLinked = true;            
             _cc     = services.GetRequiredService<ChannelCheck>();
@@ -526,7 +526,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                                 DiscordUserId = (long)user.Id,
                                 DiscordUserName = user.Username,
                                 Reason = reason,
-                                WhenBlacklisted = DateTime.Now
+                                WhenBlacklisted = DateTime.UtcNow
                             });
                             sb.AppendLine($"Blacklisting [**{user.Username}**] -> [*{reason}*]");
                         }
@@ -736,7 +736,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                         UserWarnedName = userWarned.Username,
                         IssuerId = (long)context.User.Id,
                         IssuerName = context.User.Username,
-                        TimeIssued = DateTime.Now,
+                        TimeIssued = DateTime.UtcNow,
                         NumWarnings = 1
                     });                    
                 }

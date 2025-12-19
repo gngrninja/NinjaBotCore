@@ -1,9 +1,13 @@
-#Build configuration
+# Build configuration
 os: Visual Studio 2022
+
 before_build:
+  - ps: |
+      $ErrorActionPreference = "Stop"
+      Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
+      ./dotnet-install.ps1 -Version 10.0.101 -InstallDir "C:\Program Files\dotnet"
   - dotnet --info
   - dotnet restore
-# build platform, i.e. x86, x64, Any CPU. This setting is optional.
+
 platform: Any CPU
-# build Configuration, i.e. Debug, Release, etc.
 configuration: Debug

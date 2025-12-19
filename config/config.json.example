@@ -1,0 +1,12 @@
+{
+  "Token": "discord-bot-token-here",
+  "prefix": "!",
+  "WoWClient": "wow-client-id",
+  "WoWSecret": "wow-client-secret",
+  "Database": {
+    "Provider": "Postgres"
+  },
+  "ConnectionStrings": {
+    "NinjaBot": "Host=db_host;Port=5432;Database=db-name;Username=db-user;Password=your-password;SslMode=Require"
+  }
+}
