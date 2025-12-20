@@ -15,6 +15,7 @@ services:
     volumes:
       - ./config:/app/config:ro  # Optional: config.json fallback (env vars take precedence)
       - ./logs:/app/logs
+      - ./help.txt:/app/help.txt:ro
 volumes:
   # SQLite volume no longer needed with PostgreSQL, but kept for backwards compatibility
   ninjabot-sqlite:
