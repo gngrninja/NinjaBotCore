@@ -295,7 +295,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             embed.ThumbnailUrl = Context.Guild.IconUrl;
             StringBuilder sb = new StringBuilder();
             var currentBans = Context.Guild.GetBansAsync().FlattenAsync().Result;
-            var bannedUser = currentBans.Where(c => c.User.Username.Contains(user)).FirstOrDefault();
+            var bannedUser = currentBans.Where(c => c.User.Username.ToLower().Contains(user.ToLower())).FirstOrDefault();
             if (bannedUser != null)
             {
                 try
