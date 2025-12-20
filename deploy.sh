@@ -51,6 +51,7 @@ $SUDO rsync -av --delete \
   --exclude='obj' \
   --exclude='config' \
   --exclude='logs' \
+  --exclude='.nuget' \
   --exclude='.env*' \
   "$RSYNC_SRC" "$DEPLOY_DIR"/
 
@@ -58,18 +59,17 @@ $SUDO rsync -av --delete \
 echo "[2/5] Setting permissions..."
 $SUDO chown -R "$DEPLOY_USER":"$DEPLOY_USER" "$DEPLOY_DIR"
 
-# Navigate to deployment directory
-cd "$DEPLOY_DIR"
+TARGET_DIR="$DEPLOY_DIR"
 # Ensure logs directory exists (as deploy user) but do not sync/overwrite
-run_as_deploy mkdir -p logs
+run_as_deploy sh -c "cd \"$TARGET_DIR\" && mkdir -p logs"
 
 # Stop current containers
 echo "[3/5] Stopping containers..."
-run_as_deploy /usr/bin/docker compose down || echo "No containers running"
+run_as_deploy sh -c "cd \"$TARGET_DIR\" && /usr/bin/docker compose down" || echo "No containers running"
 
 # Build and start new containers
 echo "[4/5] Building and starting containers..."
-run_as_deploy /usr/bin/docker compose up -d --build
+run_as_deploy sh -c "cd \"$TARGET_DIR\" && /usr/bin/docker compose up -d --build"
 
 # Wait for container to start
 sleep 5
@@ -80,10 +80,10 @@ echo "========================================="
 echo "Deployment Status"
 echo "========================================="
 echo "[5/5] Checking container status..."
-run_as_deploy /usr/bin/docker compose ps
+run_as_deploy sh -c "cd \"$TARGET_DIR\" && /usr/bin/docker compose ps"
 
 # Verify container is running
-if run_as_deploy /usr/bin/docker compose ps | grep -q "Up"; then
+if run_as_deploy sh -c "cd \"$TARGET_DIR\" && /usr/bin/docker compose ps" | grep -q "Up"; then
   echo ""
   echo "✅ Deployment successful! NinjaBot is running in Docker."
   echo ""
