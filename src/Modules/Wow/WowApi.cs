@@ -18,6 +18,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using NinjaBotCore.Common;
 using NinjaBotCore.Services;
+using Polly;
+using Polly.Retry;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -40,14 +42,47 @@ namespace NinjaBotCore.Modules.Wow
         private readonly IConfigurationRoot _config;
         private readonly ILogger _logger;
         private readonly HttpClient _client;
+        private readonly ResiliencePipeline<HttpResponseMessage> _httpResiliencePipeline;
 
-        public WowApi(IServiceProvider services) 
+        public WowApi(IServiceProvider services)
         {
             try
-            {                
+            {
                 _client = services.GetRequiredService<IHttpClientFactory>().CreateClient();
                 _config = services.GetRequiredService<IConfigurationRoot>();
                 _logger = services.GetRequiredService<ILogger<WowApi>>();
+
+                // Configure resilience pipeline for API calls
+                _httpResiliencePipeline = new ResiliencePipelineBuilder<HttpResponseMessage>()
+                    .AddRetry(new RetryStrategyOptions<HttpResponseMessage>
+                    {
+                        MaxRetryAttempts = 3,
+                        Delay = TimeSpan.FromSeconds(1),
+                        BackoffType = DelayBackoffType.Exponential,
+                        UseJitter = true,
+                        ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
+                            .Handle<HttpRequestException>()
+                            .Handle<TaskCanceledException>()
+                            .HandleResult(response =>
+                                response.StatusCode == HttpStatusCode.TooManyRequests || // 429 Rate limit
+                                response.StatusCode == HttpStatusCode.RequestTimeout || // 408
+                                response.StatusCode == HttpStatusCode.InternalServerError || // 500
+                                response.StatusCode == HttpStatusCode.BadGateway || // 502
+                                response.StatusCode == HttpStatusCode.ServiceUnavailable || // 503
+                                response.StatusCode == HttpStatusCode.GatewayTimeout), // 504
+                        OnRetry = args =>
+                        {
+                            var statusCode = args.Outcome.Result?.StatusCode.ToString() ?? "Exception";
+                            _logger.LogWarning(
+                                "Retry attempt {AttemptNumber} for WoW API request. Status: {StatusCode}, Delay: {Delay}",
+                                args.AttemptNumber,
+                                statusCode,
+                                args.RetryDelay);
+                            return ValueTask.CompletedTask;
+                        }
+                    })
+                    .Build();
+
                 InitializeTokenRefresh();
                 if (!string.IsNullOrEmpty(GetCurrentToken()))
                 {
@@ -60,7 +95,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error creating WowApi class -> [{ex.Message}]");
+                _logger.LogError(ex, "Error creating WowApi class");
             }
         }
 
@@ -212,10 +247,24 @@ namespace NinjaBotCore.Modules.Wow
             return SendAuthorizedGet(requestUrl);
         }
 
+        public async Task<string> GetAPIRequestAsync(string url, string region = "us", CancellationToken cancellationToken = default)
+        {
+            var normalizedRegion = region.ToLowerInvariant();
+            var requestUrl = $"https://{normalizedRegion}.api.blizzard.com{url}";
+            _logger.LogInformation("Wow API request to {RequestUrl}", requestUrl);
+            return await SendAuthorizedGetAsync(requestUrl, cancellationToken);
+        }
+
         public string GetAPIRequest(string url, bool fullUrl)
         {
             _logger.LogInformation("Wow API request to {RequestUrl}", url);
             return SendAuthorizedGet(url);
+        }
+
+        public async Task<string> GetAPIRequestAsync(string url, bool fullUrl, CancellationToken cancellationToken = default)
+        {
+            _logger.LogInformation("Wow API request to {RequestUrl}", url);
+            return await SendAuthorizedGetAsync(url, cancellationToken);
         }
 
         public string GetAPIRequest(string url, string locale, string region = "us")
@@ -226,6 +275,16 @@ namespace NinjaBotCore.Modules.Wow
             var requestUrl = $"{prefix}{url}{localeParameter}";
             _logger.LogInformation("Wow API request to {RequestUrl}", requestUrl);
             return SendAuthorizedGet(requestUrl);
+        }
+
+        public async Task<string> GetAPIRequestAsync(string url, string locale, string region = "us", CancellationToken cancellationToken = default)
+        {
+            var normalizedRegion = region.ToLowerInvariant();
+            var prefix = $"https://{normalizedRegion}.api.blizzard.com";
+            var localeParameter = url.Contains('=') ? $"&locale={locale}" : $"locale={locale}";
+            var requestUrl = $"{prefix}{url}{localeParameter}";
+            _logger.LogInformation("Wow API request to {RequestUrl}", requestUrl);
+            return await SendAuthorizedGetAsync(requestUrl, cancellationToken);
         }
 
         public async Task<string> GetWowToken(string username, string password) 
@@ -340,137 +399,6 @@ namespace NinjaBotCore.Modules.Wow
             return w;
         }
         
-        public async Task<List<WowAuctions>> GetAuctionsByRealm(string realmName, string regionName = "us")
-        {
-            AuctionsModel.AuctionFile file;
-            AuctionsModel.Auctions a = new AuctionsModel.Auctions();
-            AuctionsModel.Auction[] auctions;
-            string url = string.Empty;
-            string fileContent = string.Empty;
-            DateTime? latestTimeStampFromDb;
-            List<WowAuctions> dbAuctions = new List<WowAuctions>();
-            List<WowAuctions> returnAuction = new List<WowAuctions>();
-            
-            url = $"/auction/data/{realmName}?locale={regionName}";
-
-            file = JsonConvert.DeserializeObject<AuctionsModel.AuctionFile>(GetAPIRequest(url, regionName));
-            string fileURL = file.files[0].url;
-            DateTime lastModified = UnixTimeStampToDateTime(file.files[0].lastModified);
-
-            using (var db = new NinjaBotEntities())
-            {
-                dbAuctions = db.WowAuctions.Where(r => r.RealmName.ToLower() == realmName.ToLower()).ToList();
-                latestTimeStampFromDb = dbAuctions.OrderBy(t => t.DateModified).Take(1).Select(l => l.DateModified).FirstOrDefault();
-                //db.Database.CurrentTransaction.Dispose();
-                //db.Database.Connection.Close();
-            }
-
-            if (dbAuctions.Count > 0)
-            {
-                if (lastModified > latestTimeStampFromDb)
-                {
-                    //fileContent = GetAPIRequest(fileURL, true);
-                }
-                else
-                {
-                    return dbAuctions;
-                }
-            }
-            else
-            {
-                //fileContent = GetAPIRequest(fileURL, true);
-            }
-            a = JsonConvert.DeserializeObject<AuctionsModel.Auctions>(fileContent);
-            auctions = a.auctions;
-            auctions[0].fileDate = lastModified;
-            await AddAuctionsToDb(realmName, a, auctions, lastModified);
-            using (var db = new NinjaBotEntities())
-            {
-                string slugName = a.realms[0].slug;
-                returnAuction = db.WowAuctions.Where(w => w.RealmSlug == slugName).ToList();
-                //db.Database.Connection.Close();
-            }
-            return returnAuction;
-        }
-
-        private async Task AddAuctionsToDb(string realmName, AuctionsModel.Auctions a, AuctionsModel.Auction[] auctions, DateTime lastModified)
-        {
-            using (var db = new NinjaBotEntities())
-            {
-                List<WowAuctions> dbAuctions = new List<WowAuctions>();
-                //db.Configuration.AutoDetectChangesEnabled = false;
-                //db.Configuration.ValidateOnSaveEnabled = false;
-                try
-                {
-                    string slugName = a.realms[0].slug;
-                    dbAuctions = db.WowAuctions.Where(w => w.RealmSlug == slugName).ToList();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex.Message);
-                }
-                if (dbAuctions.Count > 0)
-                {
-                    DateTime? latestTimeStamp = dbAuctions.OrderBy(t => t.DateModified).Take(1).Select(l => l.DateModified).FirstOrDefault();
-                    if (!string.IsNullOrEmpty(latestTimeStamp.Value.ToString("d")))
-                    {
-                        if (lastModified > latestTimeStamp)
-                        {
-                            var delThese = db.WowAuctions.Where(d => d.DateModified != lastModified);
-                            db.WowAuctions.RemoveRange(delThese);
-                            await db.SaveChangesAsync();
-                            foreach (var auction in auctions)
-                            {
-                                db.WowAuctions.Add(new WowAuctions
-                                {
-                                    RealmName = realmName,
-                                    AuctionBid = auction.bid,
-                                    AuctionBuyout = auction.buyout,
-                                    AuctionContext = auction.context,
-                                    WowAuctionId = auction.auc,
-                                    RealmSlug = a.realms[0].slug,
-                                    AuctionItemId = auction.item,
-                                    AuctionOwner = auction.owner,
-                                    AuctionOwnerRealm = auction.ownerRealm,
-                                    AuctionRand = auction.rand,
-                                    AuctionQuantity = auction.quantity,
-                                    AuctionTimeLeft = auction.timeLeft,
-                                    AuctionSeed = auction.seed,
-                                    DateModified = lastModified
-                                });
-                            }
-                            _logger.LogInformation("New Auctions... Saving changes to DB");
-                        }
-                    }
-                }
-                else
-                {
-                    foreach (var auction in auctions)
-                    {
-                        db.WowAuctions.Add(new WowAuctions
-                        {
-                            RealmName = realmName,
-                            AuctionBid = auction.bid,
-                            AuctionBuyout = auction.buyout,
-                            AuctionContext = auction.context,
-                            WowAuctionId = auction.auc,
-                            RealmSlug = a.realms[0].slug,
-                            AuctionItemId = auction.item,
-                            AuctionOwner = auction.owner,
-                            AuctionOwnerRealm = auction.ownerRealm,
-                            AuctionRand = auction.rand,
-                            AuctionQuantity = auction.quantity,
-                            AuctionTimeLeft = auction.timeLeft,
-                            AuctionSeed = auction.seed,
-                            DateModified = lastModified
-                        });
-                    }
-                    _logger.LogInformation("Saving changes to DB");
-                }
-                await db.SaveChangesAsync();
-                //db.Database.Connection.Close();
-            }
-        }
 
         public Character GetCharInfo(string name, string realm, string regionName = "us")
         {
@@ -552,6 +480,19 @@ namespace NinjaBotCore.Modules.Wow
             return SendRequest(request);
         }
 
+        private async Task<string> SendAuthorizedGetAsync(string url, CancellationToken cancellationToken = default)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            var token = GetCurrentToken();
+            if (string.IsNullOrEmpty(token))
+            {
+                throw new InvalidOperationException("Blizzard API access token has not been initialized.");
+            }
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            return await SendRequestAsync(request, cancellationToken);
+        }
+
         private string SendRequest(HttpRequestMessage request)
         {
             try
@@ -563,6 +504,29 @@ namespace NinjaBotCore.Modules.Wow
             catch (HttpRequestException ex)
             {
                 _logger.LogError(ex, "Error executing WoW API request to {RequestUrl}", request.RequestUri);
+                throw;
+            }
+            catch (TaskCanceledException ex)
+            {
+                _logger.LogError(ex, "WoW API request timed out for {RequestUrl}", request.RequestUri);
+                throw;
+            }
+        }
+
+        private async Task<string> SendRequestAsync(HttpRequestMessage request, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var response = await _httpResiliencePipeline.ExecuteAsync(
+                    async ct => await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct),
+                    cancellationToken);
+
+                response.EnsureSuccessStatusCode();
+                return await response.Content.ReadAsStringAsync(cancellationToken);
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogError(ex, "Error executing WoW API request to {RequestUrl} after retries", request.RequestUri);
                 throw;
             }
             catch (TaskCanceledException ex)

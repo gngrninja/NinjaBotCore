@@ -15,14 +15,18 @@ using System.Net.Http.Headers;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
+using System.Threading;
+using Polly;
+using Polly.Retry;
 
 namespace NinjaBotCore.Modules.Wow
 {
     public class RaiderIOApi
     {
-
         private readonly IConfigurationRoot _config;
         private readonly ILogger _logger;
+        private readonly HttpClient _httpClient;
+        private readonly ResiliencePipeline _resiliencePipeline;
 
         public RaiderIOApi(IServiceProvider services)
         {
@@ -30,111 +34,110 @@ namespace NinjaBotCore.Modules.Wow
             {
                 _logger = services.GetRequiredService<ILogger<RaiderIOApi>>();
                 _config = services.GetRequiredService<IConfigurationRoot>();
-          
+                _httpClient = services.GetRequiredService<IHttpClientFactory>().CreateClient();
+
+                // Configure default headers
+                _httpClient.DefaultRequestHeaders.Accept.Add(
+                    new MediaTypeWithQualityHeaderValue("application/json"));
+
+                // Configure resilience pipeline for API calls
+                _resiliencePipeline = new ResiliencePipelineBuilder()
+                    .AddRetry(new RetryStrategyOptions
+                    {
+                        MaxRetryAttempts = 3,
+                        Delay = TimeSpan.FromSeconds(1),
+                        BackoffType = DelayBackoffType.Exponential,
+                        UseJitter = true,
+                        ShouldHandle = new PredicateBuilder()
+                            .Handle<HttpRequestException>()
+                            .Handle<TaskCanceledException>(),
+                        OnRetry = args =>
+                        {
+                            _logger.LogWarning(
+                                "Retry attempt {AttemptNumber} for RaiderIO API request. Delay: {Delay}",
+                                args.AttemptNumber,
+                                args.RetryDelay);
+                            return ValueTask.CompletedTask;
+                        }
+                    })
+                    .Build();
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error creating RaiderIO class -> [{ex.Message}]");
+                _logger.LogError(ex, "Error creating RaiderIO class");
             }
         }
 
-
-        public string GetApiRequest(string url, string region = "us", string locale = "en")
+        private async Task<string> GetApiRequestAsync(string url, CancellationToken cancellationToken = default)
         {
-            string response;            
-            string prefix;
-            
-            prefix = $"https://raider.io/api/v1";
+            const string prefix = "https://raider.io/api/v1";
             string separator = url.Contains("?") ? "&" : "?";
-            url = $"{prefix}{url}{separator}access_key={_config["RioApi"]}";            
-            //url = $"{prefix}{url}?region={region}&locale={locale}&access_key={_config["RioApi"]}";
+            string fullUrl = $"{prefix}{url}{separator}access_key={_config["RioApi"]}";
 
-            _logger.LogInformation($"RaiderIO API request to {url}");
+            _logger.LogInformation("RaiderIO API request to {Url}", fullUrl);
 
-            using (HttpClient httpClient = new HttpClient())
+            try
             {
-                httpClient.DefaultRequestHeaders
-                    .Accept
-                    .Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                //test = httpClient.PostAsJsonAsync<FaceRequest>(fullUrl, request).Result;                             
-                response = httpClient.GetStringAsync(url).Result;
+                var response = await _resiliencePipeline.ExecuteAsync(
+                    async ct => await _httpClient.GetStringAsync(fullUrl, ct),
+                    cancellationToken);
+                return response;
             }
-
-            return response;
-        }
-
-        public string GetApiRequest(string url, string region = "us")
-        {
-            string response;            
-            string prefix;
-            
-            prefix = $"https://raider.io/api/v1";
-            string separator = url.Contains("?") ? "&" : "?";
-            url = $"{prefix}{url}{separator}access_key={_config["RioApi"]}";            
-            //url = $"{prefix}{url}?region={region}&access_key={_config["RioApi"]}";
-
-            _logger.LogInformation($"RaiderIO API request to {url}");
-
-            using (HttpClient httpClient = new HttpClient())
+            catch (HttpRequestException ex)
             {
-                httpClient.DefaultRequestHeaders
-                    .Accept
-                    .Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                //test = httpClient.PostAsJsonAsync<FaceRequest>(fullUrl, request).Result;                             
-                response = httpClient.GetStringAsync(url).Result;
+                _logger.LogError(ex, "Error making RaiderIO API request to {Url} after retries", fullUrl);
+                throw;
             }
-
-            return response;
-        }
-
-        public string GetApiRequest(string url)
-        {
-            string response;            
-            string prefix;
-            
-            prefix = $"https://raider.io/api/v1";
-            string separator = url.Contains("?") ? "&" : "?";
-            url = $"{prefix}{url}{separator}access_key={_config["RioApi"]}";            
-            //url = $"{prefix}{url}?access_key={_config["RioApi"]}";
-
-            _logger.LogInformation($"RaiderIO API request to {url}");
-
-            using (HttpClient httpClient = new HttpClient())
+            catch (TaskCanceledException ex)
             {
-                httpClient.DefaultRequestHeaders
-                    .Accept
-                    .Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                //test = httpClient.PostAsJsonAsync<FaceRequest>(fullUrl, request).Result;                             
-                response = httpClient.GetStringAsync(url).Result;
+                _logger.LogError(ex, "RaiderIO API request timed out for {Url}", fullUrl);
+                throw;
             }
-
-            return response;
-        }
-        
-        public RaiderIOModels.Affix GetCurrentAffix(string region = "us", string locale = "en")
-        {
-            RaiderIOModels.Affix affixes = null;
-            string url = $"/mythic-plus/affixes";
-            affixes = JsonConvert.DeserializeObject<RaiderIOModels.Affix>(GetApiRequest(url: url, region: region, locale: locale));
-            return affixes;
         }
 
-        public RaiderIOModels.RioGuildInfo GetRioGuildInfo(string guildName, string realmName, string region)
+        public async Task<RaiderIOModels.Affix> GetCurrentAffixAsync(string region = "us", string locale = "en", CancellationToken cancellationToken = default)
         {
-            RaiderIOModels.RioGuildInfo guildInfo = null;
+            string url = $"/mythic-plus/affixes?region={region}&locale={locale}";
+            var response = await GetApiRequestAsync(url, cancellationToken);
+            return JsonConvert.DeserializeObject<RaiderIOModels.Affix>(response);
+        }
+
+        public async Task<RaiderIOModels.RioGuildInfo> GetRioGuildInfoAsync(string guildName, string realmName, string region, CancellationToken cancellationToken = default)
+        {
             guildName = guildName.Replace(" ", "%20");
             realmName = realmName.Replace(" ", "%20");
             string url = $"/guilds/profile?region={region}&realm={realmName}&name={guildName}&fields=raid_progression%2Craid_rankings";
-            guildInfo = JsonConvert.DeserializeObject<RaiderIOModels.RioGuildInfo>(GetApiRequest(url: url));
-            return guildInfo;
-        }    
+            var response = await GetApiRequestAsync(url, cancellationToken);
+            return JsonConvert.DeserializeObject<RaiderIOModels.RioGuildInfo>(response);
+        }
 
+        public async Task<RaiderIOModels.RioMythicPlusChar> GetCharMythicPlusInfoAsync(string charName, string realmName, string region = "us", CancellationToken cancellationToken = default)
+        {
+            string url = $"/characters/profile?region={region}&realm={realmName}&name={charName}&fields=mythic_plus_scores_by_season:current%2Cmythic_plus_ranks%2Cmythic_plus_scores%2Cmythic_plus_highest_level_runs%2Cmythic_plus_recent_runs%2Cmythic_plus_best_runs%2Craid_progression";
+            var response = await GetApiRequestAsync(url, cancellationToken);
+            return JsonConvert.DeserializeObject<RaiderIOModels.RioMythicPlusChar>(response);
+        }
+
+        #region Synchronous Wrappers (for backward compatibility - consider removing)
+
+        [Obsolete("Use GetCurrentAffixAsync instead. Synchronous methods will be removed in a future version.")]
+        public RaiderIOModels.Affix GetCurrentAffix(string region = "us", string locale = "en")
+        {
+            return GetCurrentAffixAsync(region, locale).GetAwaiter().GetResult();
+        }
+
+        [Obsolete("Use GetRioGuildInfoAsync instead. Synchronous methods will be removed in a future version.")]
+        public RaiderIOModels.RioGuildInfo GetRioGuildInfo(string guildName, string realmName, string region)
+        {
+            return GetRioGuildInfoAsync(guildName, realmName, region).GetAwaiter().GetResult();
+        }
+
+        [Obsolete("Use GetCharMythicPlusInfoAsync instead. Synchronous methods will be removed in a future version.")]
         public RaiderIOModels.RioMythicPlusChar GetCharMythicPlusInfo(string charName, string realmName, string region = "us")
         {
-            RaiderIOModels.RioMythicPlusChar mythicCharInfo = null;            
-            string url = $"/characters/profile?region={region}&realm={realmName}&name={charName}&fields=mythic_plus_scores_by_season:current%2Cmythic_plus_ranks%2Cmythic_plus_scores%2Cmythic_plus_highest_level_runs%2Cmythic_plus_recent_runs%2Cmythic_plus_best_runs%2Craid_progression";
-            mythicCharInfo = JsonConvert.DeserializeObject<RaiderIOModels.RioMythicPlusChar>(GetApiRequest(url: url));
-            return mythicCharInfo;
+            return GetCharMythicPlusInfoAsync(charName, realmName, region).GetAwaiter().GetResult();
         }
+
+        #endregion
     }
 }
