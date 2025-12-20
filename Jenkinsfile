@@ -48,9 +48,14 @@ pipeline {
 
     stage('Deploy') {
       when {
-        tag pattern: "v\\d+\\.\\d+\\.\\d+", comparator: "REGEXP"
+        expression {
+          return env.GIT_BRANCH =~ /.*\/tags\/v\d+\.\d+\.\d+/
+        }
       }
       steps {
+        script {
+          env.TAG_NAME = env.GIT_BRANCH.replaceAll('.*/tags/', '')
+        }
         sh '''
           echo "Deploying NinjaBot version ${TAG_NAME}..."
 
