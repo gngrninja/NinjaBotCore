@@ -10,9 +10,6 @@ pipeline {
     DOTNET_CLI_TELEMETRY_OPTOUT = '1'
     DOTNET_SKIP_FIRST_TIME_EXPERIENCE = '1'
     NUGET_PACKAGES = "${WORKSPACE}/.nuget/packages"
-
-    EMAIL_FROM = "ninjabot@gngr.ninja"
-    EMAIL_TO   = "ninja@gngr.ninja"
   }
 
   stages {
@@ -46,6 +43,27 @@ pipeline {
         always {
           archiveArtifacts artifacts: 'TestResults/**/*', allowEmptyArchive: true
         }
+      }
+    }
+
+    stage('Deploy') {
+      when {
+        tag pattern: "v\\d+\\.\\d+\\.\\d+", comparator: "REGEXP"
+      }
+      steps {
+        sh '''
+          echo "Deploying NinjaBot version ${TAG_NAME}..."
+
+          # Load deployment configuration from server
+          if [ -f /var/lib/jenkins/ninjabot.env ]; then
+            source /var/lib/jenkins/ninjabot.env
+          else
+            echo "Warning: /var/lib/jenkins/ninjabot.env not found, using defaults"
+          fi
+
+          chmod +x ./deploy.sh
+          ./deploy.sh
+        '''
       }
     }
   }
