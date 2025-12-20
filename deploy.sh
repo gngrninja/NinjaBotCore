@@ -6,6 +6,10 @@ SERVICE_NAME="${NINJABOT_SERVICE_NAME}"
 DEPLOY_DIR="${NINJABOT_DEPLOY_DIR}"
 DEPLOY_USER="${NINJABOT_DEPLOY_USER}"
 
+# Normalize source path to the directory where this script lives (repo root)
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
+RSYNC_SRC="$SCRIPT_DIR/"
+
 # Require passwordless sudo (or root) since Jenkins is non-interactive
 SUDO="sudo -n"
 if [ "$(id -u)" -eq 0 ]; then
@@ -27,10 +31,13 @@ run_as_deploy() {
 echo "========================================="
 echo "NinjaBot Docker Deployment"
 echo "========================================="
+echo "Running from: $SCRIPT_DIR"
+echo "Deploying to: $DEPLOY_DIR"
 
 # Sync code to deployment directory
 echo "[1/5] Syncing code to $DEPLOY_DIR..."
 $SUDO mkdir -p "$DEPLOY_DIR"
+$SUDO mkdir -p "$DEPLOY_DIR/logs"
 $SUDO rsync -av --delete \
   --exclude='.git' \
   --exclude='TestResults' \
@@ -38,8 +45,9 @@ $SUDO rsync -av --delete \
   --exclude='bin' \
   --exclude='obj' \
   --exclude='config' \
+  --exclude='logs' \
   --exclude='.env*' \
-  ./ "$DEPLOY_DIR"/
+  "$RSYNC_SRC" "$DEPLOY_DIR"/
 
 # Set proper permissions
 echo "[2/5] Setting permissions..."
