@@ -73,56 +73,33 @@ static string QuoteIdentifier(string identifier) => $"\"{identifier}\"";
 
 static async Task ResetPostgresSequencesAsync(NinjaBotEntities context)
 {
-    // First, get count of sequences to reset
-    var countSql = """
-SELECT COUNT(*)
-FROM pg_class c
-JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE c.relkind = 'S' AND n.nspname = 'public'
-""";
+    Console.WriteLine("  Resetting all PostgreSQL sequences...");
 
-    var connection = context.Database.GetDbConnection();
-    await connection.OpenAsync();
-
-    var cmd = connection.CreateCommand();
-    cmd.CommandText = countSql;
-    var sequenceCount = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-
-    Console.WriteLine($"  Found {sequenceCount} sequences to reset");
-
-    // Now reset all sequences
+    // Reset all sequences using pg_get_serial_sequence to find them automatically
     var resetSql = """
 DO $$
-DECLARE
-    r RECORD;
-    max_val BIGINT;
+DECLARE r record;
 BEGIN
     FOR r IN
-        SELECT
-            c.relname AS seq_name,
-            n.nspname AS seq_schema,
-            t.relname AS table_name,
-            a.attname AS column_name
-        FROM pg_class c
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        JOIN pg_depend d ON d.objid = c.oid AND d.deptype = 'a'
-        JOIN pg_class t ON t.oid = d.refobjid
-        JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
-        WHERE c.relkind = 'S'
-          AND n.nspname = 'public'
+        SELECT pg_get_serial_sequence(format('%I.%I', tn.nspname, t.relname), a.attname) AS seq_name,
+               format('%I.%I', tn.nspname, t.relname) AS tbl_name,
+               a.attname AS col_name
+        FROM pg_class t
+        JOIN pg_namespace tn ON tn.oid = t.relnamespace
+        JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum > 0
+        WHERE pg_get_serial_sequence(format('%I.%I', tn.nspname, t.relname), a.attname) IS NOT NULL
     LOOP
-        EXECUTE format('SELECT COALESCE(MAX(%I), 0) FROM %I.%I',
-                      r.column_name, r.seq_schema, r.table_name)
-        INTO max_val;
-
-        EXECUTE format('SELECT setval(%L, %s)',
-                      r.seq_schema || '.' || r.seq_name, max_val);
+        EXECUTE format(
+            'SELECT setval(%L, COALESCE((SELECT MAX(%I) FROM %s),0)+1, false)',
+            r.seq_name, r.col_name, r.tbl_name
+        );
+        RAISE NOTICE 'Reset sequence for table % column %', r.tbl_name, r.col_name;
     END LOOP;
 END $$;
 """;
 
     await context.Database.ExecuteSqlRawAsync(resetSql);
-    Console.WriteLine($"  Successfully reset {sequenceCount} sequences");
+    Console.WriteLine("  Successfully reset all sequences");
 }
 
 sealed record MigrationOptions(

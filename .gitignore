@@ -16,7 +16,6 @@ Migrations/
 
 #Ignore scripts/txt files
 *.ps1
-*.txt
 
 #Ignore vscode folders
 /.vscode/

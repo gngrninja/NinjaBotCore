@@ -1,0 +1,56 @@
+🟣 NinjaBot — Command Guide
+
+⚔️ World of Warcraft / Logs
+/setguild <realm> <guild> <region>
+Associate a Retail WoW guild with this server
+
+/setclassicguild <guild> <realm> <region>
+Associate a Classic WoW guild
+
+/watchlogs
+Toggle automatic Warcraft Logs posting in this channel
+
+/logs
+Show the last 3 Warcraft Logs for your guild
+
+/logsclassic
+Show the last 3 Classic Warcraft Logs
+
+/rio <character> [realm] [region]
+Raider.IO character lookup
+
+/ginfo
+Raider.IO guild stats
+
+
+🌍 Server & Community
+/toggle-greetings
+Enable or disable join/leave messages
+
+/set-join-message <message>
+Set the user join greeting
+
+/set-part-message <message>
+Set the user leave message
+
+/set-parting-channel
+Set the channel for leave messages
+
+
+📝 Notes
+/set-note <message>
+Set a server-wide note (requires Kick permission)
+
+/get-note
+View the current server note
+
+
+ℹ️ Info
+• NinjaBot uses slash commands
+• Old !commands are deprecated
+• Some features depend on external APIs
+
+
+🔗 Links
+Docs: https://github.com/gngrninja/NinjaBotCore
+Issues: https://github.com/gngrninja/NinjaBotCore/issues
