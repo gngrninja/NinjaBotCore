@@ -63,10 +63,67 @@ foreach (var task in tasksToRun)
     Console.WriteLine($"  Copied {copied} rows.");
 }
 
+Console.WriteLine("Resetting PostgreSQL sequences...");
+await ResetPostgresSequencesAsync(postgresContext);
+
 Console.WriteLine("Migration complete.");
 return 0;
 
 static string QuoteIdentifier(string identifier) => $"\"{identifier}\"";
+
+static async Task ResetPostgresSequencesAsync(NinjaBotEntities context)
+{
+    // First, get count of sequences to reset
+    var countSql = """
+SELECT COUNT(*)
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relkind = 'S' AND n.nspname = 'public'
+""";
+
+    var connection = context.Database.GetDbConnection();
+    await connection.OpenAsync();
+
+    var cmd = connection.CreateCommand();
+    cmd.CommandText = countSql;
+    var sequenceCount = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+
+    Console.WriteLine($"  Found {sequenceCount} sequences to reset");
+
+    // Now reset all sequences
+    var resetSql = """
+DO $$
+DECLARE
+    r RECORD;
+    max_val BIGINT;
+BEGIN
+    FOR r IN
+        SELECT
+            c.relname AS seq_name,
+            n.nspname AS seq_schema,
+            t.relname AS table_name,
+            a.attname AS column_name
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_depend d ON d.objid = c.oid AND d.deptype = 'a'
+        JOIN pg_class t ON t.oid = d.refobjid
+        JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
+        WHERE c.relkind = 'S'
+          AND n.nspname = 'public'
+    LOOP
+        EXECUTE format('SELECT COALESCE(MAX(%I), 0) FROM %I.%I',
+                      r.column_name, r.seq_schema, r.table_name)
+        INTO max_val;
+
+        EXECUTE format('SELECT setval(%L, %s)',
+                      r.seq_schema || '.' || r.seq_name, max_val);
+    END LOOP;
+END $$;
+""";
+
+    await context.Database.ExecuteSqlRawAsync(resetSql);
+    Console.WriteLine($"  Successfully reset {sequenceCount} sequences");
+}
 
 sealed record MigrationOptions(
     string SqlitePath,
