@@ -48,9 +48,10 @@ pipeline {
 
     stage('Deploy') {
       when {
+        // Require this to be a tag build and match semantic version tags
         allOf {
           buildingTag()
-          tag pattern: "v\\d+\\.\\d+\\.\\d+"
+          tag pattern: "v\\d+\\.\\d+\\.\\d+", comparator: "REGEXP"
         }
       }
       steps {
