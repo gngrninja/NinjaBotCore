@@ -1,6 +1,6 @@
 🟣 NinjaBot — Command Guide
 
-⚔️ World of Warcraft / Logs
+⚔️ **__World of Warcraft / Logs__**
 /setguild <realm> <guild> <region>
 Associate a Retail WoW guild with this server
 
@@ -23,7 +23,7 @@ Raider.IO character lookup
 Raider.IO guild stats
 
 
-🌍 Server & Community
+🌍 **__Server & Community__**
 /toggle-greetings
 Enable or disable join/leave messages
 
@@ -37,7 +37,7 @@ Set the user leave message
 Set the channel for leave messages
 
 
-📝 Notes
+📝 **__Notes__**
 /set-note <message>
 Set a server-wide note (requires Kick permission)
 
@@ -45,12 +45,12 @@ Set a server-wide note (requires Kick permission)
 View the current server note
 
 
-ℹ️ Info
+ℹ️ **__Info__**
 • NinjaBot uses slash commands
 • Old !commands are deprecated
 • Some features depend on external APIs
 
 
-🔗 Links
+🔗 **__Links__**
 Docs: https://github.com/gngrninja/NinjaBotCore
 Issues: https://github.com/gngrninja/NinjaBotCore/issues
