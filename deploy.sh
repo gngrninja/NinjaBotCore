@@ -43,7 +43,6 @@ echo "Deploying to: $DEPLOY_DIR"
 # Sync code to deployment directory
 echo "[1/5] Syncing code to $DEPLOY_DIR..."
 $SUDO mkdir -p "$DEPLOY_DIR"
-$SUDO mkdir -p "$DEPLOY_DIR/logs"
 $SUDO rsync -av --delete \
   --exclude='.git' \
   --exclude='TestResults' \
@@ -61,6 +60,8 @@ $SUDO chown -R "$DEPLOY_USER":"$DEPLOY_USER" "$DEPLOY_DIR"
 
 # Navigate to deployment directory
 cd "$DEPLOY_DIR"
+# Ensure logs directory exists (as deploy user) but do not sync/overwrite
+run_as_deploy mkdir -p logs
 
 # Stop current containers
 echo "[3/5] Stopping containers..."
