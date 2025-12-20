@@ -6,6 +6,12 @@ SERVICE_NAME="${NINJABOT_SERVICE_NAME}"
 DEPLOY_DIR="${NINJABOT_DEPLOY_DIR}"
 DEPLOY_USER="${NINJABOT_DEPLOY_USER}"
 
+# Validate required config to avoid running with empty paths
+if [ -z "$DEPLOY_DIR" ] || [ -z "$DEPLOY_USER" ]; then
+  echo "Error: DEPLOY_DIR or DEPLOY_USER is empty. Check environment (/var/lib/jenkins/ninjabot.env)."
+  exit 1
+fi
+
 # Normalize source path to the directory where this script lives (repo root)
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 RSYNC_SRC="$SCRIPT_DIR/"

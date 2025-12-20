@@ -65,6 +65,7 @@ pipeline {
           # Load deployment configuration from server (POSIX shell)
           if [ -f /var/lib/jenkins/ninjabot.env ]; then
             . /var/lib/jenkins/ninjabot.env
+            export NINJABOT_SERVICE_NAME NINJABOT_DEPLOY_DIR NINJABOT_DEPLOY_USER
           else
             echo "Warning: /var/lib/jenkins/ninjabot.env not found, using defaults"
           fi
