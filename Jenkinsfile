@@ -48,13 +48,15 @@ pipeline {
 
     stage('Deploy') {
       when {
-        expression {
-          return env.GIT_BRANCH =~ /.*\/tags\/v\d+\.\d+\.\d+/
+        allOf {
+          buildingTag()
+          tag pattern: "v\\d+\\.\\d+\\.\\d+"
         }
       }
       steps {
         script {
-          env.TAG_NAME = env.GIT_BRANCH.replaceAll('.*/tags/', '')
+          // Multibranch sets BRANCH_NAME to the tag (e.g., v2.0.4); fall back to GIT_BRANCH for single-branch jobs
+          env.TAG_NAME = env.BRANCH_NAME ?: env.GIT_BRANCH?.replace('refs/tags/', '')?.replaceAll('.*/tags/', '')
         }
         sh '''
           echo "Deploying NinjaBot version ${TAG_NAME}..."
