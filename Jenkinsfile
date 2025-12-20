@@ -62,9 +62,9 @@ pipeline {
         sh '''
           echo "Deploying NinjaBot version ${TAG_NAME}..."
 
-          # Load deployment configuration from server
+          # Load deployment configuration from server (POSIX shell)
           if [ -f /var/lib/jenkins/ninjabot.env ]; then
-            source /var/lib/jenkins/ninjabot.env
+            . /var/lib/jenkins/ninjabot.env
           else
             echo "Warning: /var/lib/jenkins/ninjabot.env not found, using defaults"
           fi
