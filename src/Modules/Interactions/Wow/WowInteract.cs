@@ -51,24 +51,29 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         }
 
         [SlashCommand("rio", "Get character's raider IO profile")]
-        public async Task GetRioProfile([Autocomplete(typeof(NinjaAutoComplete))] string autoCompleteArgs = null)
+        public async Task GetRioProfile([Autocomplete(typeof(GuildCharAutocomplete))] string character = null)
         {
-            var charAssociation = new WowCharAssociation();
-            if (!string.IsNullOrEmpty(autoCompleteArgs))
+            string args = null;
+
+            // If no character specified, use user's main character
+            if (string.IsNullOrEmpty(character))
             {
                 using (var db = new NinjaBotEntities())
                 {
-                    charAssociation = db.WowCharAssociation.Where(c => c.Id == long.Parse(autoCompleteArgs)).FirstOrDefault();
+                    var charAssociation = db.WowCharAssociation.Where(c => c.UserId == (long)Context.User.Id && c.IsMain).FirstOrDefault();
+                    if (charAssociation != null)
+                    {
+                        args = string.IsNullOrEmpty(charAssociation.WowRealm)
+                            ? charAssociation.CharName
+                            : $"{charAssociation.CharName} {charAssociation.WowRealm}";
+                    }
                 }
             }
             else
             {
-                using (var db = new NinjaBotEntities())
-                {
-                    charAssociation = db.WowCharAssociation.Where(c => c.UserId == (long)Context.User.Id && c.IsMain).FirstOrDefault();
-                }
+                // Character was provided (either from autocomplete or typed manually)
+                args = character;
             }
-            var args = charAssociation.CharName;
             var sb = new StringBuilder();
             var embed = new EmbedBuilder();
             GuildChar charInfo = null;
@@ -93,13 +98,46 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 Character armoryInfo = null;
                 string realmSlug = string.Empty;
                 string region = string.Empty;
-                if (!(string.IsNullOrEmpty(charInfo.regionName)))
+
+                try
                 {
-                    mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"), region: charInfo.regionName.ToLower());                    
+                    if (!string.IsNullOrEmpty(charInfo.regionName))
+                    {
+                        mPlusInfo = await _rioApi.GetCharMythicPlusInfoAsync(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ", "%20"), region: charInfo.regionName.ToLower());
+                    }
+                    else
+                    {
+                        mPlusInfo = await _rioApi.GetCharMythicPlusInfoAsync(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ", "%20"));
+                    }
                 }
-                else
+                catch (InvalidOperationException ex)
                 {
-                    mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"));                    
+                    // Character not found on RaiderIO
+                    embed.Title = "Character Not Found";
+                    embed.WithColor(new Color(255, 0, 0));
+                    sb.AppendLine($"Could not find **{charInfo.charName}** on **{charInfo.realmName}** in RaiderIO.");
+                    sb.AppendLine();
+                    sb.AppendLine("**Possible reasons:**");
+                    sb.AppendLine("• Character name or realm is incorrect");
+                    sb.AppendLine("• Character has no Mythic+ or raid activity this season");
+                    sb.AppendLine("• Realm name needs to use hyphens (e.g., 'sisters-of-elune')");
+                    sb.AppendLine();
+                    sb.AppendLine($"*Error details: {ex.Message}*");
+                    embed.Description = sb.ToString();
+                    await RespondAsync(embed: embed.Build(), ephemeral: true);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    // Other errors
+                    _logger.LogError(ex, "Error fetching RaiderIO data for {Character} on {Realm}", charInfo.charName, charInfo.realmName);
+                    embed.Title = "Error Fetching Data";
+                    embed.WithColor(new Color(255, 165, 0));
+                    sb.AppendLine($"An error occurred while fetching RaiderIO data for **{charInfo.charName}**.");
+                    sb.AppendLine("Please try again later.");
+                    embed.Description = sb.ToString();
+                    await RespondAsync(embed: embed.Build(), ephemeral: true);
+                    return;
                 }      
                 var locale = string.Empty;
                 if (!string.IsNullOrEmpty(charInfo.locale))
@@ -200,16 +238,16 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
 
         [SlashCommand("setchar", "associate a character to yourself")]
-        public async Task SetMyChar(string lookupInfo, bool isMain = false)
+        public async Task SetMyChar([Autocomplete(typeof(GuildCharAutocomplete))] string lookupInfo, bool isMain = false)
         {
             GuildChar result = new GuildChar();
             List<WowCharAssociation> getChars = new List<WowCharAssociation>();
             var nameMatch = false;
             await DeferAsync(ephemeral: true);
-            try 
+            try
             {
                 getChars = GetCharAssociation(Context);
-                result = await _wowUtils.GetCharFromArgs(lookupInfo, Context);         
+                result = await _wowUtils.GetCharFromArgs(lookupInfo, Context);
             }
             catch (Exception ex)
             {
@@ -272,6 +310,56 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 result = db.WowCharAssociation.Where(c => c.UserId == (long)Context.User.Id).ToList();
             }
             return result;
+        }
+
+        [SlashCommand("getchars", "List your saved WoW characters")]
+        public async Task GetChars()
+        {
+            var embed = new EmbedBuilder();
+            var sb = new StringBuilder();
+
+            List<WowCharAssociation> savedChars;
+            using (var db = new NinjaBotEntities())
+            {
+                savedChars = db.WowCharAssociation
+                    .Where(c => c.UserId == (long)Context.User.Id)
+                    .OrderByDescending(c => c.IsMain)
+                    .ThenBy(c => c.CharName)
+                    .ToList();
+            }
+
+            if (savedChars.Any())
+            {
+                embed.Title = $"Your Saved Characters ({savedChars.Count})";
+                embed.WithColor(new Color(0, 200, 150));
+
+                foreach (var character in savedChars)
+                {
+                    var mainIndicator = character.IsMain ? "★ [MAIN]" : "";
+                    var realm = !string.IsNullOrEmpty(character.WowRealm) ? character.WowRealm : "Unknown Realm";
+                    var region = !string.IsNullOrEmpty(character.WowRegion) ? character.WowRegion.ToUpper() : "US";
+
+                    sb.AppendLine($"{mainIndicator} **{character.CharName}** - {realm} ({region})");
+                }
+
+                sb.AppendLine();
+                sb.AppendLine("*Use `/rio` to view RaiderIO profile*");
+                sb.AppendLine("*Use `/setchar` with `isMain: true` to change your main character*");
+            }
+            else
+            {
+                embed.Title = "No Saved Characters";
+                embed.WithColor(new Color(255, 165, 0));
+                sb.AppendLine("You haven't saved any characters yet!");
+                sb.AppendLine();
+                sb.AppendLine("Use `/setchar` to associate a character with your Discord account.");
+                sb.AppendLine("This allows you to quickly look up RaiderIO info with `/rio`.");
+            }
+
+            embed.Description = sb.ToString();
+            embed.ThumbnailUrl = Context.User.GetAvatarUrl();
+
+            await RespondAsync(embed: embed.Build(), ephemeral: true);
         }   
 
         [SlashCommand("ginfo", "Get guild information")]

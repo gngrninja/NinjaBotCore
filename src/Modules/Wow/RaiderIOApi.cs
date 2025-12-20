@@ -79,9 +79,43 @@ namespace NinjaBotCore.Modules.Wow
             try
             {
                 var response = await _resiliencePipeline.ExecuteAsync(
-                    async ct => await _httpClient.GetStringAsync(fullUrl, ct),
+                    async ct =>
+                    {
+                        var httpResponse = await _httpClient.GetAsync(fullUrl, ct);
+
+                        // Don't retry 4xx client errors (bad request, not found, etc.)
+                        // Only retry transient errors (5xx, network issues)
+                        if (httpResponse.StatusCode >= HttpStatusCode.BadRequest &&
+                            httpResponse.StatusCode < HttpStatusCode.InternalServerError)
+                        {
+                            var errorContent = await httpResponse.Content.ReadAsStringAsync(ct);
+                            _logger.LogWarning(
+                                "RaiderIO API returned client error {StatusCode} for {Url}: {Content}",
+                                (int)httpResponse.StatusCode,
+                                fullUrl,
+                                errorContent);
+
+                            // Throw without retrying
+                            httpResponse.EnsureSuccessStatusCode();
+                        }
+
+                        // For 5xx errors, ensure throws so Polly can retry
+                        httpResponse.EnsureSuccessStatusCode();
+
+                        return await httpResponse.Content.ReadAsStringAsync(ct);
+                    },
                     cancellationToken);
                 return response;
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode >= HttpStatusCode.BadRequest &&
+                                                    ex.StatusCode < HttpStatusCode.InternalServerError)
+            {
+                // Client errors - provide helpful message
+                _logger.LogError(ex, "RaiderIO API client error {StatusCode} for {Url}. Character may not exist or realm name may be incorrect.",
+                    (int?)ex.StatusCode, fullUrl);
+                throw new InvalidOperationException(
+                    $"Character not found or invalid request. Please check the character name and realm. (Error: {ex.StatusCode})",
+                    ex);
             }
             catch (HttpRequestException ex)
             {
