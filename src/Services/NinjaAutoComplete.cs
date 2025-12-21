@@ -196,4 +196,181 @@ namespace NinjaBotCore.Services
             }
         }
     }
+
+    /// <summary>
+    /// Autocomplete handler for WoW realm selection
+    /// Shows realms from the appropriate region based on user input
+    /// </summary>
+    public class RealmAutocomplete : AutocompleteHandler
+    {
+        public override async Task<AutocompletionResult> GenerateSuggestionsAsync(
+            IInteractionContext context,
+            IAutocompleteInteraction autocompleteInteraction,
+            IParameterInfo parameter,
+            IServiceProvider services)
+        {
+            try
+            {
+                var logger = services.GetService<ILogger<RealmAutocomplete>>();
+                var results = new List<AutocompleteResult>();
+                var userInput = (autocompleteInteraction.Data.Current.Value as string ?? "").ToLower().Trim();
+
+                // Get region parameter value to determine which realm list to use
+                var regionParam = autocompleteInteraction.Data.Options.FirstOrDefault(o => o.Name == "region");
+                var region = (regionParam?.Value as string ?? "us").ToLower();
+
+                // Select appropriate realm list
+                WowRealm.Realm[] realms = region switch
+                {
+                    "eu" => WowApi.RealmInfoEu?.realms ?? Array.Empty<WowRealm.Realm>(),
+                    "ru" => WowApi.RealmInfoRu?.realms ?? Array.Empty<WowRealm.Realm>(),
+                    _ => WowApi.RealmInfo?.realms ?? Array.Empty<WowRealm.Realm>()
+                };
+
+                if (realms.Length == 0)
+                {
+                    logger?.LogWarning("No realm data available for region: {Region}", region);
+                    return AutocompletionResult.FromSuccess(new[] { new AutocompleteResult("No realms available", "error") });
+                }
+
+                // Filter realms by user input
+                var filteredRealms = realms
+                    .Where(r => string.IsNullOrWhiteSpace(userInput) ||
+                                r.name.ToLower().Contains(userInput) ||
+                                r.slug.ToLower().Contains(userInput))
+                    .OrderBy(r => r.name)
+                    .Take(25)
+                    .Select(r => new AutocompleteResult(r.name, r.slug))
+                    .ToList();
+
+                return await Task.FromResult(AutocompletionResult.FromSuccess(filteredRealms));
+            }
+            catch (Exception ex)
+            {
+                var logger = services.GetService<ILogger<RealmAutocomplete>>();
+                logger?.LogError(ex, "Error in RealmAutocomplete");
+                return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
+            }
+        }
+    }
+
+    /// <summary>
+    /// Autocomplete handler for WoW guild search
+    /// Searches for guilds by name across all realms in the selected region
+    /// Shows results as "GuildName (RealmName)"
+    /// </summary>
+    public class GuildSearchAutocomplete : AutocompleteHandler
+    {
+        public override async Task<AutocompletionResult> GenerateSuggestionsAsync(
+            IInteractionContext context,
+            IAutocompleteInteraction autocompleteInteraction,
+            IParameterInfo parameter,
+            IServiceProvider services)
+        {
+            try
+            {
+                var logger = services.GetService<ILogger<GuildSearchAutocomplete>>();
+                var wowApi = services.GetRequiredService<WowApi>();
+                var userInput = (autocompleteInteraction.Data.Current.Value as string ?? "").Trim();
+
+                // Need at least 2 characters to search
+                if (string.IsNullOrWhiteSpace(userInput) || userInput.Length < 2)
+                {
+                    return AutocompletionResult.FromSuccess(new[]
+                    {
+                        new AutocompleteResult("Type at least 2 characters to search...", "search")
+                    });
+                }
+
+                // Get region parameter to determine search scope
+                var regionParam = autocompleteInteraction.Data.Options.FirstOrDefault(o => o.Name == "region");
+                var region = (regionParam?.Value as string ?? "us").ToLower();
+
+                // Get appropriate realm list for the region
+                WowRealm.Realm[] realms = region switch
+                {
+                    "eu" => WowApi.RealmInfoEu?.realms ?? Array.Empty<WowRealm.Realm>(),
+                    "ru" => WowApi.RealmInfoRu?.realms ?? Array.Empty<WowRealm.Realm>(),
+                    _ => WowApi.RealmInfo?.realms ?? Array.Empty<WowRealm.Realm>()
+                };
+
+                if (realms.Length == 0)
+                {
+                    return AutocompletionResult.FromSuccess(new[]
+                    {
+                        new AutocompleteResult("No realm data available", "error")
+                    });
+                }
+
+                var results = new List<AutocompleteResult>();
+                var foundGuilds = new HashSet<string>(); // Track unique guild+realm combos
+
+                // Search across all realms to find matches
+                // Start with high-pop realms first for better results, then expand to all
+                var realmsToSearch = realms
+                    .OrderByDescending(r => r.population == "full" ? 4 :
+                                           r.population == "high" ? 3 :
+                                           r.population == "medium" ? 2 :
+                                           r.population == "low" ? 1 : 0)
+                    .ThenBy(r => r.name)
+                    .Take(100) // Search up to 100 realms for better coverage
+                    .ToList();
+
+                foreach (var realm in realmsToSearch)
+                {
+                    if (results.Count >= 25) break; // Discord autocomplete limit
+
+                    try
+                    {
+                        // Try to fetch guild info
+                        var locale = region switch
+                        {
+                            "eu" => "en_GB",
+                            "ru" => "ru_RU",
+                            _ => "en_US"
+                        };
+
+                        var guildMembers = wowApi.GetGuildMembers(realm.slug, userInput, locale, region);
+
+                        if (guildMembers?.guild != null)
+                        {
+                            var guildKey = $"{guildMembers.guild.name}|{guildMembers.guild.realm.slug}";
+
+                            if (!foundGuilds.Contains(guildKey))
+                            {
+                                foundGuilds.Add(guildKey);
+                                results.Add(new AutocompleteResult(
+                                    $"{guildMembers.guild.name} ({guildMembers.guild.realm.slug})",
+                                    guildKey));
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Guild not found on this realm, continue searching
+                        continue;
+                    }
+                }
+
+                if (results.Count == 0)
+                {
+                    return AutocompletionResult.FromSuccess(new[]
+                    {
+                        new AutocompleteResult($"No guilds found matching '{userInput}'", "none")
+                    });
+                }
+
+                return AutocompletionResult.FromSuccess(results);
+            }
+            catch (Exception ex)
+            {
+                var logger = services.GetService<ILogger<GuildSearchAutocomplete>>();
+                logger?.LogError(ex, "Error in GuildSearchAutocomplete");
+                return AutocompletionResult.FromSuccess(new[]
+                {
+                    new AutocompleteResult("Search error - please type full guild and realm names", "error")
+                });
+            }
+        }
+    }
 }

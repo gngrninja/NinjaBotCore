@@ -16,6 +16,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using NinjaBotCore.Common;
 using Discord.Interactions;
+using System.Threading;
+using NinjaBotCore.Models.Wow;
+using Microsoft.EntityFrameworkCore;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -29,6 +32,7 @@ namespace NinjaBotCore.Modules.Wow
         public readonly IConfigurationRoot _config;
         public string _prefix;
         public readonly ILogger _logger;
+        private readonly NinjaBotEntities _db;
         
         public WowUtilities(IServiceProvider services)
         {
@@ -39,6 +43,7 @@ namespace NinjaBotCore.Modules.Wow
             _rioApi = services.GetRequiredService<RaiderIOApi>();
             _client = services.GetRequiredService<DiscordShardedClient>();            
             _config = services.GetRequiredService<IConfigurationRoot>();
+            _db     = services.GetRequiredService<NinjaBotEntities>();
             _prefix = _config["prefix"];
         }
 
@@ -806,5 +811,67 @@ namespace NinjaBotCore.Modules.Wow
                 }
             }
         }
+        
+        public async Task RefreshGuildRosterAsync(
+            NinjaBotCore.Models.Wow.NinjaObjects.GuildObject guildObject,
+            CancellationToken cancellationToken = default)
+        {
+            var now = DateTime.UtcNow;
+
+            // 🔹 Cache guard
+            var lastFetch = await _db.WowGuildRosterMembers
+                .Where(x =>
+                    x.GuildName == guildObject.guildName &&
+                    x.GuildRealmSlug == guildObject.realmSlug &&
+                    x.Region == guildObject.regionName)
+                .MaxAsync(x => (DateTime?)x.LastUpdated, cancellationToken);
+
+            if (lastFetch.HasValue && lastFetch > now.AddMinutes(-60))
+                return;
+
+            // 🔹 Fetch API first
+            var apiResult = _wowApi.GetGuildMembersBySlug(
+                guildObject.realmSlug,
+                guildObject.guildName,
+                locale: guildObject.locale,
+                regionName: guildObject.regionName);
+
+            using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
+
+            try
+            {
+                // 🔹 Clear old snapshot
+                await _db.WowGuildRosterMembers
+                    .Where(x =>
+                        x.GuildName == guildObject.guildName &&
+                        x.GuildRealmSlug == guildObject.realmSlug &&
+                        x.Region == guildObject.regionName)
+                    .ExecuteDeleteAsync(cancellationToken);
+
+                // 🔹 Insert new snapshot
+                var rows = apiResult.members.Select(m => new WowGuildRosterMember
+                {
+                    GuildName = guildObject.guildName,
+                    RealmSlug = m.character.realm.slug,
+                    GuildRealmSlug = guildObject.realmSlug,
+                    Region = guildObject.regionName,
+                    CharacterName = m.character.name,
+                    Level = m.character.level,
+                    Rank = m.rank,
+                    Faction = m.character.faction.type,
+                    LastUpdated = now
+                });
+
+                await _db.WowGuildRosterMembers.AddRangeAsync(rows, cancellationToken);
+                await _db.SaveChangesAsync(cancellationToken);
+
+                await tx.CommitAsync(cancellationToken);
+            }
+            catch
+            {
+                await tx.RollbackAsync(cancellationToken);
+                throw;
+            }
+        }    
     }
 }
