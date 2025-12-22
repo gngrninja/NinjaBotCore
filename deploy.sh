@@ -70,9 +70,9 @@ run_as_deploy sh -c "cd \"$TARGET_DIR\" && /usr/bin/docker compose down" || echo
 
 # Run database migrations
 echo "[3.5/5] Running database migrations..."
-run_as_deploy sh -c "cd \"$TARGET_DIR\" && dotnet ef database update --project src/NinjaBotCore.csproj" || {
+run_as_deploy sh -c "cd \"$TARGET_DIR\" && $HOME/.dotnet/tools/dotnet-ef database update --project src/NinjaBotCore.csproj" || {
   echo "⚠️  Warning: Migration failed. Container may still be starting or EF tools not available."
-  echo "You can manually run: dotnet ef database update --project src/NinjaBotCore.csproj"
+  echo "You can manually run: $HOME/.dotnet/tools/dotnet-ef database update --project src/NinjaBotCore.csproj"
 }
 
 # Build and start new containers
