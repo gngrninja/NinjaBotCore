@@ -5,6 +5,7 @@ set -e  # Exit on any error
 SERVICE_NAME="${NINJABOT_SERVICE_NAME}"
 DEPLOY_DIR="${NINJABOT_DEPLOY_DIR}"
 DEPLOY_USER="${NINJABOT_DEPLOY_USER}"
+DOTNET="/usr/local/share/dotnet/dotnet"
 
 # Validate required config to avoid running with empty paths
 if [ -z "$DEPLOY_DIR" ] || [ -z "$DEPLOY_USER" ]; then
@@ -70,10 +71,20 @@ run_as_deploy sh -c "cd \"$TARGET_DIR\" && /usr/bin/docker compose down" || echo
 
 # Run database migrations
 echo "[3.5/5] Running database migrations..."
-run_as_deploy sh -c "cd \"$TARGET_DIR\" && $HOME/.dotnet/tools/dotnet-ef database update --project src/NinjaBotCore.csproj" || {
-  echo "⚠️  Warning: Migration failed. Container may still be starting or EF tools not available."
-  echo "You can manually run: $HOME/.dotnet/tools/dotnet-ef database update --project src/NinjaBotCore.csproj"
-}
+
+DOTNET="/usr/local/share/dotnet/dotnet"
+
+$SUDO -u "$NINJABOT_DEPLOY_USER" -H env \
+  DOTNET_ROOT="/usr/local/share/dotnet" \
+  PATH="/usr/local/share/dotnet:$PATH" \
+  sh -c "
+    cd \"$TARGET_DIR\" &&
+    \"$DOTNET\" ef database update --project src/NinjaBotCore.csproj
+  " || {
+    echo \"⚠️  Warning: Migration failed. Container may still be starting or EF tools not available.\"
+    echo \"You can manually run: $DOTNET ef database update --project src/NinjaBotCore.csproj\"
+  }
+
 
 # Build and start new containers
 echo "[4/5] Building and starting containers..."
