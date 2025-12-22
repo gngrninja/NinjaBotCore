@@ -6,8 +6,6 @@
 bin/
 obj/
 /obj/
-Migrations/
-/Migrations/
 
 #Ignore db/log files
 *.db*
@@ -29,7 +27,6 @@ ninjabot.db-journal
 .env.test
 .env.development
 .env.production
-
 
 #Ignore misc files
 *.dll
