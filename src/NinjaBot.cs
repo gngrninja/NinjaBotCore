@@ -81,6 +81,8 @@ namespace NinjaBotCore
                 .AddSingleton<WowApi>()                                                
                 .AddSingleton<WowUtilities>()
                 .AddSingleton<WarcraftLogs>()
+                .AddSingleton<WarcraftLogsV2Client>()
+                .AddSingleton<WarcraftLogsV2Test>()
                 .AddSingleton<ChannelCheck>()   
                 .AddSingleton<AwayCommands>()
                 .AddSingleton<UserInteraction>()

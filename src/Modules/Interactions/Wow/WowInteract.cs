@@ -31,6 +31,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private InteractionHandler _handler;
         private ChannelCheck _cc;
         private WarcraftLogs _logsApi;
+        private WarcraftLogsV2Client _logsApiV2;
         private WowApi _wowApi;
         private DiscordShardedClient _client;
         private RaiderIOApi _rioApi;
@@ -45,10 +46,11 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             _handler = services.GetRequiredService<InteractionHandler>();
             _logger = services.GetRequiredService<ILogger<WowInteract>>();
             _cc = services.GetRequiredService<ChannelCheck>();
-            _logsApi = services.GetRequiredService<WarcraftLogs>();            
+            _logsApi = services.GetRequiredService<WarcraftLogs>();
+            _logsApiV2 = services.GetRequiredService<WarcraftLogsV2Client>();
             _wowApi = services.GetRequiredService<WowApi>();
             _rioApi = services.GetRequiredService<RaiderIOApi>();
-            _client = services.GetRequiredService<DiscordShardedClient>();            
+            _client = services.GetRequiredService<DiscordShardedClient>();
             _config = services.GetRequiredService<IConfigurationRoot>();
             _wowUtils = services.GetRequiredService<WowUtilities>();
             _db = services.GetRequiredService<NinjaBotEntities>();
@@ -1044,15 +1046,41 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 }
                 try
                 {
-                    if (string.IsNullOrEmpty(locale))
+                    // Try v2 API first (faster, only fetches what we need)
+                    try
                     {
-                        guildLogs = await _logsApi.GetReportsFromGuild(guildName: guildName, realm: realmName, region: guildRegion);
+                        string realmSlug = guildObject.realmSlug ?? realmName.ToLower().Replace(" ", "-").Replace("'", "");
+                        var v2Reports = await _logsApiV2.GetGuildReportsAsync(guildName, realmSlug, guildRegion, limit: 3);
+
+                        if (v2Reports != null && v2Reports.Count > 0)
+                        {
+                            guildLogs = v2Reports.Select(r => new Reports
+                            {
+                                id = r.Code,
+                                title = r.Title,
+                                owner = r.OwnerName,
+                                start = r.StartTime,
+                                end = r.EndTime,
+                                zone = r.Zone?.Id ?? 0
+                            }).ToList();
+                            _logger.LogInformation($"[v2] Retrieved {guildLogs.Count} reports for {guildName}");
+                        }
                     }
-                    else
+                    catch (Exception v2Ex)
                     {
-                        guildLogs = await _logsApi.GetReportsFromGuild(guildName: guildName, realm: realmName, region: guildRegion, locale: locale, realmSlug: guildObject.realmSlug);
+                        _logger.LogWarning($"[v2] Failed for {guildName}, falling back to v1: {v2Ex.Message}");
+
+                        // Fallback to v1 API
+                        if (string.IsNullOrEmpty(locale))
+                        {
+                            guildLogs = await _logsApi.GetReportsFromGuild(guildName: guildName, realm: realmName, region: guildRegion);
+                        }
+                        else
+                        {
+                            guildLogs = await _logsApi.GetReportsFromGuild(guildName: guildName, realm: realmName, region: guildRegion, locale: locale, realmSlug: guildObject.realmSlug);
+                        }
+                        _logger.LogInformation($"[v1] Retrieved {guildLogs?.Count ?? 0} reports for {guildName}");
                     }
-                    //arrayCount = guildLogs.Count - 1;
                 }
                 catch (Exception ex)
                 {
