@@ -12,11 +12,6 @@ RUN dotnet publish ./src/NinjaBotCore.csproj -c Release -o /app/publish /p:UseAp
 
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS final
 WORKDIR /app
-
-# Install EF Core tools for database migrations
-RUN dotnet tool install --global dotnet-ef --version 9.0.*
-ENV PATH="${PATH}:/root/.dotnet/tools"
-
 COPY --from=build /app/publish .
 
 # Expose log path for bind mounts

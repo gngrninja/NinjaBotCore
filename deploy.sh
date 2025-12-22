@@ -53,6 +53,7 @@ $SUDO rsync -av --delete \
   --exclude='logs' \
   --exclude='.nuget' \
   --exclude='.env*' \
+  --exclude='config.json'
   "$RSYNC_SRC" "$DEPLOY_DIR"/
 
 # Set proper permissions
@@ -67,19 +68,16 @@ run_as_deploy sh -c "cd \"$TARGET_DIR\" && mkdir -p logs"
 echo "[3/5] Stopping containers..."
 run_as_deploy sh -c "cd \"$TARGET_DIR\" && /usr/bin/docker compose down" || echo "No containers running"
 
+# Run database migrations
+echo "[3.5/5] Running database migrations..."
+run_as_deploy sh -c "cd \"$TARGET_DIR\" && dotnet ef database update --project src/NinjaBotCore.csproj" || {
+  echo "⚠️  Warning: Migration failed. Container may still be starting or EF tools not available."
+  echo "You can manually run: dotnet ef database update --project src/NinjaBotCore.csproj"
+}
+
 # Build and start new containers
 echo "[4/5] Building and starting containers..."
 run_as_deploy sh -c "cd \"$TARGET_DIR\" && /usr/bin/docker compose up -d --build"
-
-# Wait for container to start
-sleep 5
-
-# Run database migrations
-echo "[4.5/5] Running database migrations..."
-run_as_deploy sh -c "cd \"$TARGET_DIR\" && /usr/bin/docker compose exec -T ninjabot dotnet ef database update --project src/NinjaBotCore.csproj" || {
-  echo "⚠️  Warning: Migration failed. Container may still be starting or EF tools not available."
-  echo "You can manually run: docker compose exec ninjabot dotnet ef database update --project src/NinjaBotCore.csproj"
-}
 
 # Check status
 echo ""
