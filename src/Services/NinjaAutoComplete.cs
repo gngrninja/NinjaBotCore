@@ -75,18 +75,57 @@ namespace NinjaBotCore.Services
                     : savedChars.Where(c => c.CharName.ToLower().Contains(userInput)).ToList();
 
                 // Add saved characters with ★ marker
-                foreach (var savedChar in filteredSavedChars.Take(10)) // Limit saved to 10
+                foreach (var savedChar in filteredSavedChars.Take(8)) // Limit saved to 8 to leave room for history
                 {
                     var displayName = savedChar.IsMain
                         ? $"★ {savedChar.CharName} ({savedChar.WowRealm}) [MAIN]"
                         : $"★ {savedChar.CharName} ({savedChar.WowRealm})";
 
-                    // Return the character name as value (for backward compatibility with existing parsing)
+                    // Include region in value for cross-region support (use ~ delimiter to handle realms with spaces)
                     var value = string.IsNullOrEmpty(savedChar.WowRealm)
                         ? savedChar.CharName
-                        : $"{savedChar.CharName} {savedChar.WowRealm}";
+                        : $"{savedChar.CharName}~{savedChar.WowRealm}~{savedChar.WowRegion ?? "us"}";
 
                     results.Add(new AutocompleteResult(displayName, value));
+                }
+
+                // Step 1.5: Get search history (recent/frequent searches not already in saved chars)
+                try
+                {
+                    List<RioSearchHistory> searchHistory;
+                    using (var db = new NinjaBotEntities())
+                    {
+                        // Get user's search history, excluding already-saved characters
+                        var savedCharKeys = savedChars.Select(c => $"{c.CharName}|{c.WowRealm}".ToLower()).ToHashSet();
+
+                        searchHistory = db.RioSearchHistory
+                            .Where(h => h.DiscordUserId == (long)context.User.Id)
+                            .OrderByDescending(h => h.SearchCount)
+                            .ThenByDescending(h => h.LastSearched)
+                            .Take(5)
+                            .ToList();
+                    }
+
+                    // Filter by user input and exclude saved characters
+                    var filteredHistory = searchHistory
+                        .Where(h => !savedChars.Any(c =>
+                            c.CharName.Equals(h.CharacterName, StringComparison.OrdinalIgnoreCase) &&
+                            c.WowRealm.Equals(h.RealmName, StringComparison.OrdinalIgnoreCase)))
+                        .Where(h => string.IsNullOrWhiteSpace(userInput) || h.CharacterName.ToLower().Contains(userInput))
+                        .Take(3) // Limit to 3 history items
+                        .ToList();
+
+                    foreach (var history in filteredHistory)
+                    {
+                        var displayName = $"🕐 {history.CharacterName} ({history.RealmName}) [{history.Region.ToUpper()}]";
+                        var value = $"{history.CharacterName}~{history.RealmName}~{history.Region}";
+                        results.Add(new AutocompleteResult(displayName, value));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogWarning(ex, "Error fetching search history for autocomplete");
+                    // Continue without history
                 }
 
                 // Step 2: Get guild roster characters (if guild is associated)
@@ -172,7 +211,7 @@ namespace NinjaBotCore.Services
                                 .Take(25 - results.Count) // Fill remaining slots up to Discord's 25 limit
                                 .Select(m => new AutocompleteResult(
                                     $"{m.character.name} ({m.character.realm.slug})",
-                                    $"{m.character.name} {m.character.realm.slug}"))
+                                    $"{m.character.name}~{m.character.realm.slug}~{guildObject.regionName ?? "us"}"))
                                 .ToList();
 
                             results.AddRange(guildCharResults);

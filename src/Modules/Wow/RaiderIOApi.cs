@@ -18,6 +18,7 @@ using Microsoft.Extensions.DependencyInjection;
 using System.Threading;
 using Polly;
 using Polly.Retry;
+using NinjaBotCore.Common;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -32,7 +33,8 @@ namespace NinjaBotCore.Modules.Wow
         {
             try
             {
-                _logger = services.GetRequiredService<ILogger<RaiderIOApi>>();
+                var innerLogger = services.GetRequiredService<ILogger<RaiderIOApi>>();
+                _logger = new SanitizingLogger<RaiderIOApi>(innerLogger);
                 _config = services.GetRequiredService<IConfigurationRoot>();
                 _httpClient = services.GetRequiredService<IHttpClientFactory>().CreateClient();
 
@@ -147,7 +149,19 @@ namespace NinjaBotCore.Modules.Wow
 
         public async Task<RaiderIOModels.RioMythicPlusChar> GetCharMythicPlusInfoAsync(string charName, string realmName, string region = "us", CancellationToken cancellationToken = default)
         {
-            string url = $"/characters/profile?region={region}&realm={realmName}&name={charName}&fields=mythic_plus_scores_by_season:current%2Cmythic_plus_ranks%2Cmythic_plus_scores%2Cmythic_plus_highest_level_runs%2Cmythic_plus_recent_runs%2Cmythic_plus_best_runs%2Craid_progression";
+            string url = $"/characters/profile?region={region}&realm={realmName}&name={charName}" +
+                $"&fields=gear" +
+                $"%2Cmythic_plus_scores_by_season:current" +
+                $"%2Cmythic_plus_ranks" +
+                $"%2Cmythic_plus_scores" +
+                $"%2Cmythic_plus_highest_level_runs" +
+                $"%2Cmythic_plus_recent_runs" +
+                $"%2Cmythic_plus_best_runs" +
+                $"%2Cmythic_plus_weekly_highest_level_runs" +
+                $"%2Cmythic_plus_previous_weekly_highest_level_runs" +
+                $"%2Craid_progression" +
+                $"%2Craid_achievement_curve" +
+                $"%2Craid_achievement_meta";
             var response = await GetApiRequestAsync(url, cancellationToken);
             return JsonConvert.DeserializeObject<RaiderIOModels.RioMythicPlusChar>(response);
         }

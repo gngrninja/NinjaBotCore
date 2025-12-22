@@ -50,7 +50,8 @@ namespace NinjaBotCore.Modules.Wow
             {
                 _client = services.GetRequiredService<IHttpClientFactory>().CreateClient();
                 _config = services.GetRequiredService<IConfigurationRoot>();
-                _logger = services.GetRequiredService<ILogger<WowApi>>();
+                var innerLogger = services.GetRequiredService<ILogger<WowApi>>();
+                _logger = new SanitizingLogger<WowApi>(innerLogger);
 
                 // Configure resilience pipeline for API calls
                 _httpResiliencePipeline = new ResiliencePipelineBuilder<HttpResponseMessage>()
@@ -243,7 +244,7 @@ namespace NinjaBotCore.Modules.Wow
         {
             var normalizedRegion = region.ToLowerInvariant();
             var requestUrl = $"https://{normalizedRegion}.api.blizzard.com{url}";
-            _logger.LogInformation("Wow API request to {RequestUrl}", requestUrl);
+            _logger.LogInformation("WoW API request to {RequestUrl}", requestUrl);
             return SendAuthorizedGet(requestUrl);
         }
 
@@ -251,19 +252,19 @@ namespace NinjaBotCore.Modules.Wow
         {
             var normalizedRegion = region.ToLowerInvariant();
             var requestUrl = $"https://{normalizedRegion}.api.blizzard.com{url}";
-            _logger.LogInformation("Wow API request to {RequestUrl}", requestUrl);
+            _logger.LogInformation("WoW API request to {RequestUrl}", requestUrl);
             return await SendAuthorizedGetAsync(requestUrl, cancellationToken);
         }
 
         public string GetAPIRequest(string url, bool fullUrl)
         {
-            _logger.LogInformation("Wow API request to {RequestUrl}", url);
+            _logger.LogInformation("WoW API request to {RequestUrl}", url);
             return SendAuthorizedGet(url);
         }
 
         public async Task<string> GetAPIRequestAsync(string url, bool fullUrl, CancellationToken cancellationToken = default)
         {
-            _logger.LogInformation("Wow API request to {RequestUrl}", url);
+            _logger.LogInformation("WoW API request to {RequestUrl}", url);
             return await SendAuthorizedGetAsync(url, cancellationToken);
         }
 
@@ -273,7 +274,7 @@ namespace NinjaBotCore.Modules.Wow
             var prefix = $"https://{normalizedRegion}.api.blizzard.com";
             var localeParameter = url.Contains('=') ? $"&locale={locale}" : $"locale={locale}";
             var requestUrl = $"{prefix}{url}{localeParameter}";
-            _logger.LogInformation("Wow API request to {RequestUrl}", requestUrl);
+            _logger.LogInformation("WoW API request to {RequestUrl}", requestUrl);
             return SendAuthorizedGet(requestUrl);
         }
 
@@ -283,33 +284,30 @@ namespace NinjaBotCore.Modules.Wow
             var prefix = $"https://{normalizedRegion}.api.blizzard.com";
             var localeParameter = url.Contains('=') ? $"&locale={locale}" : $"locale={locale}";
             var requestUrl = $"{prefix}{url}{localeParameter}";
-            _logger.LogInformation("Wow API request to {RequestUrl}", requestUrl);
+            _logger.LogInformation("WoW API request to {RequestUrl}", requestUrl);
             return await SendAuthorizedGetAsync(requestUrl, cancellationToken);
         }
 
-        public async Task<string> GetWowToken(string username, string password) 
-        {            
-            string token = string.Empty;                        
+        public async Task<string> GetWowToken(string username, string password)
+        {
+            string token = string.Empty;
             try
-            {                             
+            {
                 var content = new FormUrlEncodedContent(new[]
                 {
                     new KeyValuePair<string, string>("grant_type", "client_credentials"),
                     new KeyValuePair<string, string>("client_id", username),
                     new KeyValuePair<string, string>("client_secret", password)
-                });                
-                var result =  await _client.PostAsync("https://us.battle.net/oauth/token", content).ConfigureAwait(false);                                            
-                var contentString = await result.Content.ReadAsStringAsync().ConfigureAwait(false);                
-                ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString);                
-                token = response.AccessToken;                                                                                                                  
+                });
+                var result =  await _client.PostAsync("https://us.battle.net/oauth/token", content).ConfigureAwait(false);
+                var contentString = await result.Content.ReadAsStringAsync().ConfigureAwait(false);
+                ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString);
+                token = response.AccessToken;
             }
             catch (Exception ex)
             {
-                System.Console.WriteLine($"Error while getting token: [{ex.Message}]!");
-                System.Console.WriteLine($"[{ex.HelpLink}]");
-                System.Console.WriteLine($"[{ex.Source}]");
-                System.Console.WriteLine($"[{ex.StackTrace}]");
-            }    
+                _logger.LogError(ex, "Error while getting WoW API token");
+            }
             _logger.LogInformation("Received new WoW API auth token.");
             return token;
         }

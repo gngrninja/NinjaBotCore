@@ -8,7 +8,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Ensure test database is running
 if ! docker ps | grep -q ninjabot-test-db; then
     echo "Starting test database..."
-    docker-compose -f docker-compose.test.yml up -d
+    docker compose -f docker-compose.test.yml up -d
     sleep 3
 
     echo "Applying migrations..."
