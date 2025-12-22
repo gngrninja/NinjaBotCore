@@ -53,7 +53,7 @@ $SUDO rsync -av --delete \
   --exclude='logs' \
   --exclude='.nuget' \
   --exclude='.env*' \
-  --exclude='config.json'
+  --exclude='config.json' \
   "$RSYNC_SRC" "$DEPLOY_DIR"/
 
 # Set proper permissions
