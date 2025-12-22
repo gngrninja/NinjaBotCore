@@ -18,6 +18,8 @@ using NinjaBotCore.Modules.Wow;
 using NinjaBotCore.Models.Wow;
 using NinjaBotCore.Database;
 using System.Collections.Generic;
+using System.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace NinjaBotCore.Modules.Interactions.Wow
 {
@@ -36,6 +38,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private string _prefix;
         private readonly ILogger _logger;
         private WowUtilities _wowUtils;
+        private readonly NinjaBotEntities _db;
 
         public WowInteract(IServiceProvider services)
         {
@@ -48,230 +51,581 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             _client = services.GetRequiredService<DiscordShardedClient>();            
             _config = services.GetRequiredService<IConfigurationRoot>();
             _wowUtils = services.GetRequiredService<WowUtilities>();
+            _db = services.GetRequiredService<NinjaBotEntities>();
         }
 
-        [SlashCommand("rio", "Get character's raider IO profile")]
-        public async Task GetRioProfile([Autocomplete(typeof(NinjaAutoComplete))] string autoCompleteArgs = null)
+        [SlashCommand("rio", "Get character's Raider.IO profile")]
+        public async Task GetRioProfile(
+            [Summary("character", "Character name (leave empty to use your main character)")]
+            [Autocomplete(typeof(GuildCharAutocomplete))]
+            string character = null,
+
+            [Summary("realm", "Realm name (optional if using autocomplete)")]
+            [Autocomplete(typeof(RealmAutocomplete))]
+            string realm = null,
+
+            [Summary("region", "Region (defaults to US if not specified)")]
+            [Choice("US", "us")]
+            [Choice("EU", "eu")]
+            [Choice("RU", "ru")]
+            string region = null,
+
+            [Summary("public", "Show results publicly (default: private)")]
+            bool publicDisplay = false,
+
+            [Summary("compare", "Compare with another character")]
+            [Autocomplete(typeof(GuildCharAutocomplete))]
+            string compareWith = null,
+
+            [Summary("compare-realm", "Realm for comparison character (optional if using autocomplete)")]
+            [Autocomplete(typeof(RealmAutocomplete))]
+            string compareRealm = null,
+
+            [Summary("compare-region", "Region for comparison character (defaults to same as main character)")]
+            [Choice("US", "us")]
+            [Choice("EU", "eu")]
+            [Choice("RU", "ru")]
+            string compareRegion = null)
         {
-            var charAssociation = new WowCharAssociation();
-            if (!string.IsNullOrEmpty(autoCompleteArgs))
+            try
             {
-                using (var db = new NinjaBotEntities())
-                {
-                    charAssociation = db.WowCharAssociation.Where(c => c.Id == long.Parse(autoCompleteArgs)).FirstOrDefault();
-                }
-            }
-            else
-            {
-                using (var db = new NinjaBotEntities())
-                {
-                    charAssociation = db.WowCharAssociation.Where(c => c.UserId == (long)Context.User.Id && c.IsMain).FirstOrDefault();
-                }
-            }
-            var args = charAssociation.CharName;
-            var sb = new StringBuilder();
-            var embed = new EmbedBuilder();
-            GuildChar charInfo = null;
-            if (string.IsNullOrEmpty(args))
-            {
-                embed.Title = $"M+ Character Info Help";
-                sb.AppendLine($"Usage examples:");
-                sb.AppendLine($":black_small_square: **/rio** charactername");
-                sb.AppendLine($"\t:black_small_square: Search raider.io for *charactername* (first in guild, then in the rest of WoW(US))");
-                sb.AppendLine($":black_small_square: **/rio** charactername realmname");
-                sb.AppendLine($"\t:black_small_square: Search raider.io for *charactername* on *realmname* WoW (US)");
-                sb.AppendLine($":black_small_square: **/rio** charactername realmname region(us or eu)");
-                sb.AppendLine($"\t:black_small_square: Search raider.io for *charactername* on *realmname* WoW (US or EU as specified)");
-                embed.Description = sb.ToString();
-                await ReplyAsync(embed: embed.Build());
-                return;
-            }
-            else
-            {
-                RaiderIOModels.RioMythicPlusChar mPlusInfo = null;
-                charInfo = await _wowUtils.GetCharFromArgs(args, Context);
-                Character armoryInfo = null;
-                string realmSlug = string.Empty;
-                string region = string.Empty;
-                if (!(string.IsNullOrEmpty(charInfo.regionName)))
-                {
-                    mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"), region: charInfo.regionName.ToLower());                    
-                }
-                else
-                {
-                    mPlusInfo = _rioApi.GetCharMythicPlusInfo(charName: charInfo.charName, realmName: charInfo.realmName.Replace(" ","%20"));                    
-                }      
-                var locale = string.Empty;
-                if (!string.IsNullOrEmpty(charInfo.locale))
-                {
-                    locale = charInfo.locale.Substring(3).ToLower();
-                }          
-                else if (!string.IsNullOrEmpty(charInfo.regionName))
-                {
-                    locale = charInfo.regionName;
-                }
-                switch (locale.ToLower())
-                {
-                    case "us":
-                        {
-                            region = "us";
-                            realmSlug = charInfo.realmName;
-                            break;
-                        }
-                    case "ru":
-                        {                 
-                            region = "ru";   
-                            realmSlug = WowApi.RealmInfoRu.realms.Where(r => r.name.Replace("'","").ToLower().Contains(charInfo.realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
-                            break;
-                        }
-                    case "gb":
-                        {
-                            region = "eu";
-                            realmSlug = WowApi.RealmInfoEu.realms.Where(r => r.name.Replace("'","").ToLower().Contains(charInfo.realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
-                            break;
-                        }
-                    default:
-                        {
-                            realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.Replace("'","").ToLower().Contains(charInfo.realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
-                            break;
-                        }
-                }   
-
-                if (mPlusInfo.RaidProgression.ManaforgeOmega != null)
-                {
-                    string normalKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.ManaforgeOmega.NormalBossesKilled);
-                    string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.ManaforgeOmega.HeroicBossesKilled);
-                    string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.ManaforgeOmega.MythicBossesKilled);
-                    string totalBosses  = _wowUtils.GetNumberEmojiFromString((int)mPlusInfo.RaidProgression.ManaforgeOmega.TotalBosses); 
-                    sb.AppendLine($"**__Raid Progression__**");
-                    sb.AppendLine();
-                    sb.AppendLine($"__Manaforge Omega__");                               
-                    sb.AppendLine($"\t **normal** [{normalKilled} / {totalBosses}]");
-                    sb.AppendLine($"\t **heroic** [{heroicKilled} / {totalBosses}]");
-                    sb.AppendLine($"\t **mythic** [{mythicKilled} / {totalBosses}]");
-                    sb.AppendLine();     
-                }
-                                                                  
-                sb.AppendLine($"**__M+ Rankings For Active Role ({mPlusInfo.ActiveSpecRole.ToLower()})__**");
-                switch (mPlusInfo.ActiveSpecRole.ToLower())
-                {
-                    case "dps":
-                    {
-                        sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.Dps.Realm}] Region [{mPlusInfo.MythicPlusRanks.Dps.Region}] World [{mPlusInfo.MythicPlusRanks.Dps.World}]");
-                        break;
-                    }
-                    case "healing":
-                    {
-                        sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.Healer.Realm}] Region [{mPlusInfo.MythicPlusRanks.Healer.Region}] World [{mPlusInfo.MythicPlusRanks.Healer.World}]");
-                        break;
-                    }
-                    case "tank":
-                    {
-                        sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.Tank.Realm}] Region [{mPlusInfo.MythicPlusRanks.Tank.Region}] World [{mPlusInfo.MythicPlusRanks.Tank.World}]");
-                        break;
-                    }
-                }
-                sb.AppendLine($"**__M+ Rankings For Class ({mPlusInfo.Class.ToLower()})__**");
-                sb.AppendLine($"\t Realm [{mPlusInfo.MythicPlusRanks.Class.Realm}] Region [{mPlusInfo.MythicPlusRanks.Class.Region}] World [{mPlusInfo.MythicPlusRanks.Class.World}]");
-                sb.AppendLine();          
-                embed.Title = $"Mythic+ Information For {mPlusInfo.Name} on {mPlusInfo.Realm}";
-                if (mPlusInfo.MythicPlusBestRuns.Count() > 0)
-                {
-                    sb.AppendLine($"**__Best Runs__**");                
-                    foreach (var run in mPlusInfo.MythicPlusBestRuns)
-                    {
-                        sb.AppendLine($"\t [:white_square_button: [{run.ShortName}(**{run.MythicLevel}**)] {run.ClearTimeMs / 60000} minutes]({run.Url.AbsoluteUri})");
-                    } 
-                    sb.AppendLine(); 
-                }
-                  
-                embed.AddField("Raider.IO",$"[{mPlusInfo.Name}]({mPlusInfo.ProfileUrl.AbsoluteUri})", true);
-                //embed.AddField("WoW Armory",$"[{mPlusInfo.Name}]({armoryInfo.armoryURL})", true);
-                embed.AddField("Warcraftlogs",$"[{mPlusInfo.Name}](https://www.warcraftlogs.com/character/{region}/{realmSlug}/{mPlusInfo.Name})", true);
-                embed.ThumbnailUrl = $"{mPlusInfo.ThumbnailUrl.AbsoluteUri}";
-                embed.Description = sb.ToString();
-                embed.WithColor(new Color(0, 200, 150));
-                embed.Footer = new EmbedFooterBuilder{
-                    Text = $"Raider.IO Score {mPlusInfo.MythicPlusScores[0].Scores.All}"
-                };                            
-                await RespondAsync(embed: embed.Build(), ephemeral: true);
-            }
-        }
-
-
-        [SlashCommand("setchar", "associate a character to yourself")]
-        public async Task SetMyChar(string lookupInfo, bool isMain = false)
-        {
-            GuildChar result = new GuildChar();
-            List<WowCharAssociation> getChars = new List<WowCharAssociation>();
-            var nameMatch = false;
-            await DeferAsync(ephemeral: true);
-            try 
-            {
-                getChars = GetCharAssociation(Context);
-                result = await _wowUtils.GetCharFromArgs(lookupInfo, Context);         
+                await DeferAsync(ephemeral: !publicDisplay);
             }
             catch (Exception ex)
             {
-                System.Console.WriteLine($"Unable to lookup char -> {ex.Message}");
-            }                      
-            if (string.IsNullOrEmpty(result.locale))
-            {
-                await FollowupAsync($"Char not found for: {lookupInfo}!");
+                _logger.LogError(ex, "Failed to defer interaction for /rio command");
+                // Try to respond directly if defer failed
+                await RespondAsync("The request took too long to process. Please try again.", ephemeral: true);
                 return;
             }
-            var matched = getChars.Where(c => c.CharName.ToLower() == result.charName.ToLower() && c.WowRealm == result.realmName).FirstOrDefault();
-            if (!string.IsNullOrEmpty(result.charName))
-            {
-                using (var db = new NinjaBotEntities())
-                {                   
-                    if (matched != null)
-                    {
-                        var dbEntry = db.WowCharAssociation.Where(a => a.CharName.ToLower() == matched.CharName.ToLower() && a.WowRealm == matched.WowRealm).FirstOrDefault();
-                        if (dbEntry.IsMain != isMain)
-                        {
-                            dbEntry.IsMain = isMain;
-                            var otherMains = db.WowCharAssociation.Where(a => a.IsMain && a.CharName != matched.CharName).ToList();
-                            if (otherMains.Any())                      
-                            {
-                                foreach (var main in otherMains)
-                                {
-                                    main.IsMain = false;
-                                }
-                            }                            
-                        }                                                
-                    }  
-                    else
-                    {
-                        db.WowCharAssociation.Add(new WowCharAssociation
-                        {
-                            UserId = (long)Context.User.Id,
-                            IsMain = isMain,
-                            CharName = result.charName,
-                            WowRealm = result.realmName,
-                            WowRegion = result.regionName,
-                            Locale = result.locale
-                        });   
-                    }
 
-                    await db.SaveChangesAsync();
+            string charName = null;
+            string realmName = null;
+            string regionName = region;
+            var sb = new StringBuilder();
+            var embed = new EmbedBuilder();
+
+            // If no character specified, use user's main character
+            if (string.IsNullOrEmpty(character))
+            {
+                var charAssociation = _db.WowCharAssociation
+                    .Where(c => c.UserId == (long)Context.User.Id && c.IsMain)
+                    .FirstOrDefault();
+
+                if (charAssociation != null)
+                {
+                    charName = charAssociation.CharName;
+                    realmName = charAssociation.WowRealm;
+                    regionName ??= charAssociation.WowRegion;
                 }
-                await FollowupAsync("Char set!", ephemeral: true);
+                else
+                {
+                    embed.Title = "No Main Character Set";
+                    embed.WithColor(new Color(255, 165, 0));
+                    embed.Description = "You haven't set a main character yet!\n\n" +
+                        "Use `/setchar` with `isMain: true` to set one, or provide a character name to search.";
+                    await FollowupAsync(embed: embed.Build(), ephemeral: true); // Always private for errors
+                    return;
+                }
             }
             else
             {
-                await FollowupAsync($"Unable to find character based on the following: {lookupInfo}", ephemeral: true);
+                // Handle autocomplete format: "CharName~RealmName~Region" (tilde delimiter handles realms with spaces)
+                var parts = character.Split('~', 3);
+                charName = parts[0];
+
+                // Parse realm from autocomplete if not explicitly provided
+                if (string.IsNullOrEmpty(realmName) && parts.Length >= 2)
+                {
+                    realmName = parts[1];
+                }
+                else if (!string.IsNullOrEmpty(realm))
+                {
+                    realmName = realm;
+                }
+
+                // Parse region from autocomplete if not explicitly provided
+                if (string.IsNullOrEmpty(regionName) && parts.Length >= 3)
+                {
+                    regionName = parts[2];
+                }
+            }
+
+            // If still no realm, try to find in guild or fallback to API search
+            if (string.IsNullOrEmpty(realmName))
+            {
+                var guildObject = await _wowUtils.GetGuildName(Context);
+
+                if (!string.IsNullOrEmpty(guildObject.guildName))
+                {
+                    var guildie = _wowApi.GetCharFromGuild(
+                        charName,
+                        guildObject.realmName,
+                        guildObject.guildName,
+                        guildObject.regionName);
+
+                    if (!string.IsNullOrEmpty(guildie.charName))
+                    {
+                        realmName = guildie.realmName;
+                        regionName ??= guildie.regionName;
+                    }
+                }
+
+                // Still no realm? Try API search
+                if (string.IsNullOrEmpty(realmName))
+                {
+                    var chars = _wowApi.SearchArmory(charName);
+                    if (chars != null && chars.Count > 0)
+                    {
+                        realmName = chars[0].realmName;
+                    }
+                    else
+                    {
+                        embed.Title = "Character Not Found";
+                        embed.WithColor(new Color(255, 0, 0));
+                        embed.Description = $"Could not find character **{charName}**.\n\n" +
+                            "Please specify the realm name using the `realm` parameter, or use autocomplete to select your character.";
+                        await FollowupAsync(embed: embed.Build(), ephemeral: true);
+                        return;
+                    }
+                }
+            }
+
+            // Default region to US if not specified
+            regionName ??= "us";
+
+            // Now fetch RaiderIO data
+            RaiderIOModels.RioMythicPlusChar mPlusInfo = null;
+            string realmSlug = string.Empty;
+
+            try
+            {
+                mPlusInfo = await _rioApi.GetCharMythicPlusInfoAsync(
+                    charName: charName,
+                    realmName: realmName.Replace(" ", "%20"),
+                    region: regionName.ToLower());
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Character not found on RaiderIO
+                embed.Title = "Character Not Found";
+                embed.WithColor(new Color(255, 0, 0));
+                embed.Description = $"Could not find **{charName}** on **{realmName}** ({regionName.ToUpper()}) in RaiderIO.\n\n" +
+                    "**Possible reasons:**\n" +
+                    "• Character name or realm is incorrect\n" +
+                    "• Character has no Mythic+ or raid activity this season\n" +
+                    "• Try using autocomplete to select your character\n\n" +
+                    $"*Error: {ex.Message}*";
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+                return;
+            }
+            catch (Exception ex)
+            {
+                // Other errors
+                _logger.LogError(ex, "Error fetching RaiderIO data for {Character} on {Realm}", charName, realmName);
+                embed.Title = "Error Fetching Data";
+                embed.WithColor(new Color(255, 165, 0));
+                embed.Description = $"An error occurred while fetching RaiderIO data for **{charName}**.\n\n" +
+                    "Please try again later.";
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+                return;
+            }
+
+            // Determine realm slug for WarcraftLogs URL
+            switch (regionName.ToLower())
+            {
+                case "us":
+                    realmSlug = WowApi.RealmInfo.realms
+                        .Where(r => r.name.Replace("'", "").ToLower().Contains(realmName.ToLower()))
+                        .Select(s => s.slug)
+                        .FirstOrDefault() ?? realmName;
+                    break;
+                case "ru":
+                    realmSlug = WowApi.RealmInfoRu.realms
+                        .Where(r => r.name.Replace("'", "").ToLower().Contains(realmName.ToLower()))
+                        .Select(s => s.slug)
+                        .FirstOrDefault() ?? realmName;
+                    break;
+                case "eu":
+                    realmSlug = WowApi.RealmInfoEu.realms
+                        .Where(r => r.name.Replace("'", "").ToLower().Contains(realmName.ToLower()))
+                        .Select(s => s.slug)
+                        .FirstOrDefault() ?? realmName;
+                    break;
+                default:
+                    realmSlug = WowApi.RealmInfo.realms
+                        .Where(r => r.name.Replace("'", "").ToLower().Contains(realmName.ToLower()))
+                        .Select(s => s.slug)
+                        .FirstOrDefault() ?? realmName;
+                    break;
+            }
+
+            embed.Title = $"{mPlusInfo.ActiveSpecName} {mPlusInfo.Class} - {mPlusInfo.Name}";
+
+            // Item Level
+            if (mPlusInfo.Gear != null)
+            {
+                if (mPlusInfo.Gear.ItemLevelTotal > mPlusInfo.Gear.ItemLevelEquipped)
+                {
+                    sb.AppendLine($"**Item Level:** {mPlusInfo.Gear.ItemLevelEquipped} (equipped) / {mPlusInfo.Gear.ItemLevelTotal} (max)");
+                }
+                else
+                {
+                    sb.AppendLine($"**Item Level:** {mPlusInfo.Gear.ItemLevelEquipped}");
+                }
+                sb.AppendLine();
+            }
+
+            // Season Scores Breakdown
+            if (mPlusInfo.MythicPlusScores?.Length > 0)
+            {
+                var scores = mPlusInfo.MythicPlusScores[0].Scores;
+                sb.AppendLine($"**__Season M+ Scores__**");
+                sb.AppendLine($"Overall: **{scores.All:F1}**");
+                if (scores.Dps > 0)
+                    sb.AppendLine($"DPS: {scores.Dps:F1}");
+                if (scores.Healer > 0)
+                    sb.AppendLine($"Healer: {scores.Healer:F1}");
+                if (scores.Tank > 0)
+                    sb.AppendLine($"Tank: {scores.Tank:F1}");
+                sb.AppendLine();
+            }
+
+            // Raid Progression
+            if (mPlusInfo.RaidProgression.ManaforgeOmega != null)
+            {
+                var raid = mPlusInfo.RaidProgression.ManaforgeOmega;
+                string normalKilled = _wowUtils.GetNumberEmojiFromString((int)raid.NormalBossesKilled);
+                string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)raid.HeroicBossesKilled);
+                string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)raid.MythicBossesKilled);
+                string totalBosses = _wowUtils.GetNumberEmojiFromString((int)raid.TotalBosses);
+
+                sb.AppendLine($"**__Raid Progression__**");
+                sb.AppendLine($"__Manaforge Omega__");
+                sb.AppendLine($"**Normal** [{normalKilled} / {totalBosses}] {GetProgressBar(raid.NormalBossesKilled, raid.TotalBosses)}");
+                sb.AppendLine($"**Heroic** [{heroicKilled} / {totalBosses}] {GetProgressBar(raid.HeroicBossesKilled, raid.TotalBosses)}");
+                sb.AppendLine($"**Mythic** [{mythicKilled} / {totalBosses}] {GetProgressBar(raid.MythicBossesKilled, raid.TotalBosses)}");
+                sb.AppendLine();
+            }
+
+            // M+ Rankings
+            sb.AppendLine($"**__M+ Rankings For Active Role ({mPlusInfo.ActiveSpecRole})__**");
+            switch (mPlusInfo.ActiveSpecRole.ToLower())
+            {
+                case "dps":
+                    sb.AppendLine($"Realm [**{mPlusInfo.MythicPlusRanks.Dps.Realm}**] Region [**{mPlusInfo.MythicPlusRanks.Dps.Region}**] World [**{mPlusInfo.MythicPlusRanks.Dps.World}**]");
+                    break;
+                case "healing":
+                    sb.AppendLine($"Realm [**{mPlusInfo.MythicPlusRanks.Healer.Realm}**] Region [**{mPlusInfo.MythicPlusRanks.Healer.Region}**] World [**{mPlusInfo.MythicPlusRanks.Healer.World}**]");
+                    break;
+                case "tank":
+                    sb.AppendLine($"Realm [**{mPlusInfo.MythicPlusRanks.Tank.Realm}**] Region [**{mPlusInfo.MythicPlusRanks.Tank.Region}**] World [**{mPlusInfo.MythicPlusRanks.Tank.World}**]");
+                    break;
+            }
+
+            sb.AppendLine($"**__M+ Rankings For Class ({mPlusInfo.Class})__**");
+            sb.AppendLine($"Realm [**{mPlusInfo.MythicPlusRanks.Class.Realm}**] Region [**{mPlusInfo.MythicPlusRanks.Class.Region}**] World [**{mPlusInfo.MythicPlusRanks.Class.World}**]");
+            sb.AppendLine();
+
+            // Best Runs
+            if (mPlusInfo.MythicPlusBestRuns?.Length > 0)
+            {
+                sb.AppendLine($"**__Best Runs__**");
+                foreach (var run in mPlusInfo.MythicPlusBestRuns)
+                {
+                    var keyEmoji = run.MythicLevel >= 20 ? "🔑" : "▪️";
+                    var minutes = run.ClearTimeMs / 60000;
+                    if (run.Url != null)
+                    {
+                        sb.AppendLine($"{keyEmoji} [{run.ShortName}(**+{run.MythicLevel}**) - {minutes}m]({run.Url.AbsoluteUri})");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"{keyEmoji} {run.ShortName}(**+{run.MythicLevel}**) - {minutes}m");
+                    }
+                }
+                sb.AppendLine();
+            }
+
+            // Weekly Progress (if available)
+            if (mPlusInfo.MythicPlusWeeklyHighestLevelRuns?.Length > 0)
+            {
+                sb.AppendLine($"**__This Week's Highest Keys__**");
+                foreach (var run in mPlusInfo.MythicPlusWeeklyHighestLevelRuns.Take(4))
+                {
+                    var keyEmoji = run.MythicLevel >= 15 ? "⭐" : "▪️";
+                    if (run.Url != null)
+                    {
+                        sb.AppendLine($"{keyEmoji} [{run.ShortName} **+{run.MythicLevel}**]({run.Url.AbsoluteUri})");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"{keyEmoji} {run.ShortName} **+{run.MythicLevel}**");
+                    }
+                }
+                sb.AppendLine();
+            }
+
+            embed.AddField("Raider.IO", $"[{mPlusInfo.Name}]({mPlusInfo.ProfileUrl.AbsoluteUri})", true);
+            embed.AddField("Warcraftlogs", $"[{mPlusInfo.Name}](https://www.warcraftlogs.com/character/{regionName}/{realmSlug}/{mPlusInfo.Name})", true);
+            embed.ThumbnailUrl = $"{mPlusInfo.ThumbnailUrl.AbsoluteUri}";
+            embed.Description = sb.ToString();
+
+            // Color based on M+ score
+            var score = mPlusInfo.MythicPlusScores?[0]?.Scores?.All ?? 0;
+            var color = score >= 3000 ? new Color(255, 128, 0) : // Orange for 3000+
+                        score >= 2500 ? new Color(163, 53, 238) : // Purple for 2500+
+                        score >= 2000 ? new Color(0, 112, 221) : // Blue for 2000+
+                        new Color(0, 200, 150); // Teal default
+            embed.WithColor(color);
+
+            embed.Footer = new EmbedFooterBuilder
+            {
+                Text = $"Raider.IO Score: {score:F1} | {mPlusInfo.Realm} ({regionName.ToUpper()})"
+            };
+
+            // Save search history
+            await SaveSearchHistoryAsync(Context.User.Id, charName, realmName, regionName);
+
+            // If compare mode, fetch second character and display comparison
+            if (!string.IsNullOrEmpty(compareWith))
+            {
+                await HandleCompareMode(mPlusInfo, charName, realmName, regionName, realmSlug, compareWith, compareRealm, compareRegion, publicDisplay);
+                return;
+            }
+
+            await FollowupAsync(embed: embed.Build(), ephemeral: !publicDisplay);
+        }
+
+        [SlashCommand("clearhistoryrio", "Clear your RaiderIO search history")]
+        public async Task ClearRioHistory()
+        {
+            await DeferAsync(ephemeral: true);
+
+            try
+            {
+                using (var db = new NinjaBotEntities())
+                {
+                    var userHistory = db.RioSearchHistory
+                        .Where(h => h.DiscordUserId == (long)Context.User.Id)
+                        .ToList();
+
+                    if (userHistory.Any())
+                    {
+                        db.RioSearchHistory.RemoveRange(userHistory);
+                        await db.SaveChangesAsync();
+
+                        await FollowupAsync($"✅ Cleared **{userHistory.Count}** RaiderIO search history entries.", ephemeral: true);
+                    }
+                    else
+                    {
+                        await FollowupAsync("No search history found to clear.", ephemeral: true);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error clearing RIO search history for user {UserId}", Context.User.Id);
+                await FollowupAsync("❌ An error occurred while clearing your search history.", ephemeral: true);
             }
         }
 
-        private List<WowCharAssociation> GetCharAssociation(ShardedInteractionContext context)
+        [SlashCommand("setchar", "Associate a WoW character with your Discord account")]
+        public async Task SetMyChar(
+            [Summary("character", "Character name (use autocomplete to select)")]
+            [Autocomplete(typeof(GuildCharAutocomplete))]
+            string character,
+
+            [Summary("ismain", "Set this as your main character")]
+            bool isMain = false)
         {
-            List<WowCharAssociation> result;
+            await DeferAsync(ephemeral: true);
+
+            string charName = null;
+            string realmName = null;
+            string regionName = null;
+            string locale = null;
+
+            // Handle autocomplete format: "CharName RealmName" or just "CharName"
+            var parts = character.Split(' ', 2);
+            charName = parts[0];
+
+            if (parts.Length > 1)
+            {
+                realmName = parts[1];
+            }
+
+            // If no realm from autocomplete, try to look up the character
+            if (string.IsNullOrEmpty(realmName))
+            {
+                try
+                {
+                    var result = await _wowUtils.GetCharFromArgs(character, Context);
+                    charName = result.charName;
+                    realmName = result.realmName;
+                    regionName = result.regionName;
+                    locale = result.locale;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Unable to lookup character: {Character}", character);
+                    await FollowupAsync($"Unable to find character: **{character}**\n\nPlease use autocomplete to select a character, or make sure the character name is correct.", ephemeral: true);
+                    return;
+                }
+            }
+            else
+            {
+                // Realm provided via autocomplete, look up additional info
+                try
+                {
+                    var guildObject = await _wowUtils.GetGuildName(Context);
+
+                    // Try to get region/locale from guild or default to US
+                    if (!string.IsNullOrEmpty(guildObject.regionName))
+                    {
+                        regionName = guildObject.regionName;
+                        locale = guildObject.locale;
+                    }
+                    else
+                    {
+                        regionName = "us";
+                        locale = "en_US";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Unable to get guild info, defaulting to US region");
+                    regionName = "us";
+                    locale = "en_US";
+                }
+            }
+
+            if (string.IsNullOrEmpty(charName) || string.IsNullOrEmpty(realmName))
+            {
+                await FollowupAsync($"Unable to find character: **{character}**\n\nPlease use autocomplete to select a character.", ephemeral: true);
+                return;
+            }
+
+            // Check if character already exists for this user
             using (var db = new NinjaBotEntities())
             {
-                result = db.WowCharAssociation.Where(c => c.UserId == (long)Context.User.Id).ToList();
+                var existingChar = db.WowCharAssociation
+                    .Where(a => a.UserId == (long)Context.User.Id &&
+                                a.CharName.ToLower() == charName.ToLower() &&
+                                a.WowRealm == realmName)
+                    .FirstOrDefault();
+
+                if (existingChar != null)
+                {
+                    // Update existing character
+                    if (existingChar.IsMain != isMain)
+                    {
+                        existingChar.IsMain = isMain;
+
+                        // If setting as main, unset other mains
+                        if (isMain)
+                        {
+                            var otherMains = db.WowCharAssociation
+                                .Where(a => a.UserId == (long)Context.User.Id &&
+                                           a.IsMain &&
+                                           a.Id != existingChar.Id)
+                                .ToList();
+
+                            foreach (var main in otherMains)
+                            {
+                                main.IsMain = false;
+                            }
+                        }
+                    }
+
+                    await db.SaveChangesAsync();
+
+                    var mainText = isMain ? " as your **main character**" : "";
+                    await FollowupAsync($"Updated **{charName}** on **{realmName}**{mainText}!", ephemeral: true);
+                }
+                else
+                {
+                    // Add new character
+                    db.WowCharAssociation.Add(new WowCharAssociation
+                    {
+                        UserId = (long)Context.User.Id,
+                        IsMain = isMain,
+                        CharName = charName,
+                        WowRealm = realmName,
+                        WowRegion = regionName,
+                        Locale = locale
+                    });
+
+                    // If setting as main, unset other mains
+                    if (isMain)
+                    {
+                        var otherMains = db.WowCharAssociation
+                            .Where(a => a.UserId == (long)Context.User.Id && a.IsMain)
+                            .ToList();
+
+                        foreach (var main in otherMains)
+                        {
+                            main.IsMain = false;
+                        }
+                    }
+
+                    await db.SaveChangesAsync();
+
+                    var mainText = isMain ? " as your **main character**" : "";
+                    await FollowupAsync($"Successfully saved **{charName}** on **{realmName}**{mainText}!\n\nUse `/getchars` to see all your saved characters.", ephemeral: true);
+                }
             }
-            return result;
+        }
+
+
+        [SlashCommand("getchars", "List your saved WoW characters")]
+        public async Task GetChars()
+        {
+            var embed = new EmbedBuilder();
+            var sb = new StringBuilder();
+
+            List<WowCharAssociation> savedChars;
+            using (var db = new NinjaBotEntities())
+            {
+                savedChars = db.WowCharAssociation
+                    .Where(c => c.UserId == (long)Context.User.Id)
+                    .OrderByDescending(c => c.IsMain)
+                    .ThenBy(c => c.CharName)
+                    .ToList();
+            }
+
+            if (savedChars.Any())
+            {
+                embed.Title = $"Your Saved Characters ({savedChars.Count})";
+                embed.WithColor(new Color(0, 200, 150));
+
+                foreach (var character in savedChars)
+                {
+                    var mainIndicator = character.IsMain ? "★ [MAIN]" : "";
+                    var realm = !string.IsNullOrEmpty(character.WowRealm) ? character.WowRealm : "Unknown Realm";
+                    var region = !string.IsNullOrEmpty(character.WowRegion) ? character.WowRegion.ToUpper() : "US";
+
+                    sb.AppendLine($"{mainIndicator} **{character.CharName}** - {realm} ({region})");
+                }
+
+                sb.AppendLine();
+                sb.AppendLine("*Use `/rio` to view RaiderIO profile*");
+                sb.AppendLine("*Use `/setchar` with `isMain: true` to change your main character*");
+            }
+            else
+            {
+                embed.Title = "No Saved Characters";
+                embed.WithColor(new Color(255, 165, 0));
+                sb.AppendLine("You haven't saved any characters yet!");
+                sb.AppendLine();
+                sb.AppendLine("Use `/setchar` to associate a character with your Discord account.");
+                sb.AppendLine("This allows you to quickly look up RaiderIO info with `/rio`.");
+            }
+
+            embed.Description = sb.ToString();
+            embed.ThumbnailUrl = Context.User.GetAvatarUrl();
+
+            await RespondAsync(embed: embed.Build(), ephemeral: true);
         }   
 
         [SlashCommand("ginfo", "Get guild information")]
@@ -762,85 +1116,105 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             }
         }
 
-        [SlashCommand("setguild", "Sets a realm/guild association for a Discord server")]
-        public async Task SetGuild(string args = "")
-        {
-            string realmName = string.Empty;
-            string guildName = string.Empty;
-            string region = string.Empty;
-            string locale = string.Empty;
+        [SlashCommand("setguild", "Associate a WoW guild with this Discord server")]
+        public async Task SetGuild(
+            [Summary("guild", "Guild name")]
+            string guild,
 
-            if (args.Contains(',') && !string.IsNullOrEmpty(args))
+            [Summary("realm", "Realm name (use autocomplete to select)")]
+            [Autocomplete(typeof(RealmAutocomplete))]
+            string realm,
+
+            [Summary("region", "Region (defaults to US if not specified)")]
+            [Choice("US", "us")]
+            [Choice("EU", "eu")]
+            [Choice("RU", "ru")]
+            string region = "us")
+        {
+            await DeferAsync(ephemeral: true);
+
+            // Check permissions
+            if (Context.Channel is IGuildChannel)
             {
-                switch (args.Split(',').Count())
+                if (!((IGuildUser)Context.User).GuildPermissions.KickMembers)
                 {
-                    case 2:
-                        {
-                            realmName = args.Split(',')[0].ToString().Trim();
-                            guildName = args.Split(',')[1].ToString().Trim();
-                            region = "us";                            
-                            break;
-                        }
-                    case 3:
-                        {
-                            realmName = args.Split(',')[0].ToString().Trim();
-                            guildName = args.Split(',')[1].ToString().Trim();
-                            region = args.Split(',')[2].ToString().Trim().ToLower();
-                            break;
-                        }
+                    await FollowupAsync("You need **Kick Members** permission to set the guild association.", ephemeral: true);
+                    return;
                 }
             }
-            else
-            {
-                StringBuilder sb = new StringBuilder();
-                sb.AppendLine("Please specify realm, guild, and locale (supported locales: us (default)/eu/ru)!");
-                sb.AppendLine($"Example: /set-guild Destromath, NinjaBread Men");
-                sb.AppendLine($"Example: /set-guild Silvermoon, Rome in a Day, eu");
-                sb.AppendLine($"Example: /set-guild Ревущий фьорд, Порейдим месяц, ru");
-                await RespondAsync(sb.ToString(), ephemeral: true);
-                return;
-            }
-            locale = _wowUtils.GetLocaleFromRegion(ref region);
-            string discordGuildName = string.Empty;
+
+            string guildName = guild.Trim();
+            string realmName = realm.Trim();
+            string regionName = region.ToLower();
+            string locale = _wowUtils.GetLocaleFromRegion(ref regionName);
+            string discordGuildName = Context.Channel is IDMChannel
+                ? Context.User.Username
+                : Context.Guild.Name;
+
             try
             {
-                if (Context.Channel is IDMChannel)
-                {
-                    discordGuildName = Context.Channel.Name;
-                }
-                else if (Context.Channel is IGuildChannel)
-                {
-                    discordGuildName = Context.Guild.Name;
-                    if (!((IGuildUser)Context.User).GuildPermissions.KickMembers) return;
-                }
+                // Verify guild exists on the realm
+                await FollowupAsync($"Looking up **{guildName}** on **{realmName}** ({regionName.ToUpper()})...", ephemeral: true);
+
                 GuildMembers members = null;
                 try
                 {
-                    await DeferAsync(ephemeral: true);
-                    members = _wowApi.GetGuildMembers(realmName, guildName, locale: locale, regionName: region);
+                    // RealmAutocomplete returns realm slug, so use GetGuildMembersBySlug
+                    members = _wowApi.GetGuildMembersBySlug(realmName, guildName, locale: locale, regionName: regionName);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError($"Error getting guild info -> [{ex.Message}]");
+                    _logger.LogError(ex, "Error getting guild info for {Guild} on {Realm} ({Region})", guildName, realmName, regionName);
                 }
 
-                if (members != null)
+                if (members != null && members.guild != null)
                 {
-                    guildName = members.guild.name;
-                    realmName = members.guild.realm.slug;
-                    await FollowupAsync("Looking up realm information, hang tight!", ephemeral: true);
-                    await _wowUtils.SetGuildAssociation(guildName, realmName, locale: locale, regionName: region, context: Context);
-                    await FollowupAsync("Guild info set! Try /getguild", ephemeral: true);
-                    //await GetGuild();
+                    // Use the official guild/realm names from the API response
+                    string officialGuildName = members.guild.name;
+                    string officialRealmSlug = members.guild.realm.slug;
+
+                    await FollowupAsync($"Found **{officialGuildName}** with **{members.members.Count()}** members!", ephemeral: true);
+
+                    // Save the association
+                    await _wowUtils.SetGuildAssociation(
+                        officialGuildName,
+                        officialRealmSlug,
+                        locale: locale,
+                        regionName: regionName,
+                        context: Context);
+
+                    var embed = new EmbedBuilder();
+                    embed.Title = "Guild Association Set!";
+                    embed.WithColor(new Color(0, 200, 150));
+                    embed.Description = $"**{discordGuildName}** is now associated with:\n\n" +
+                        $"**Guild:** {officialGuildName}\n" +
+                        $"**Realm:** {officialRealmSlug}\n" +
+                        $"**Region:** {regionName.ToUpper()}\n" +
+                        $"**Members:** {members.members.Count()}\n\n" +
+                        $"Use `/getguild` to see the full guild info!";
+
+                    await FollowupAsync(embed: embed.Build(), ephemeral: true);
                 }
                 else
                 {
-                    await RespondAsync($"Unable to associate guild/realm (**{guildName}**/**{realmName}**) (region {region}) to **{discordGuildName}** (typo?)", ephemeral: true);
+                    var embed = new EmbedBuilder();
+                    embed.Title = "Guild Not Found";
+                    embed.WithColor(new Color(255, 0, 0));
+                    embed.Description = $"Unable to find **{guildName}** on **{realmName}** ({regionName.ToUpper()}).\n\n" +
+                        "**Possible reasons:**\n" +
+                        "• Guild name is spelled incorrectly\n" +
+                        "• Realm is incorrect\n" +
+                        "• Wrong region selected\n" +
+                        "• Guild doesn't exist or was recently deleted\n\n" +
+                        "Please double-check and try again using autocomplete for the realm.";
+
+                    await FollowupAsync(embed: embed.Build(), ephemeral: true);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Set-Guild error: {ex.Message}");
+                _logger.LogError(ex, "Set-Guild error for {Guild} on {Realm} ({Region})", guildName, realmName, regionName);
+                await FollowupAsync($"An error occurred while setting the guild association. Please try again later.", ephemeral: true);
             }
         }
 
@@ -848,9 +1222,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         public async Task GetGuild()
         {
             var embed = new EmbedBuilder();
+            var members = new List<WowGuildRosterMember>();
             StringBuilder sb = new StringBuilder();
             string title = string.Empty;
-            GuildMembers members = null;
             string thumbUrl = string.Empty;
             var guildInfo = Context.Guild;
             string discordGuildName = string.Empty;
@@ -872,19 +1246,19 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             embed.Title = title;
             embed.ThumbnailUrl = thumbUrl;
-            if (guildObject.guildName != null || members != null)
+            if (guildObject.guildName != null)
             {
                 try
                 {
                     await DeferAsync(ephemeral: true);
-                    if (!string.IsNullOrEmpty(guildObject.locale))
-                    {
-                        members = _wowApi.GetGuildMembersBySlug(guildObject.realmName, guildObject.guildName, locale: guildObject.locale, regionName: guildObject.regionName);
-                    }
-                    else
-                    {
-                        members = _wowApi.GetGuildMembersBySlug(guildObject.realmName, guildObject.guildName, regionName: guildObject.regionName);
-                    }                                        
+                    await _wowUtils.RefreshGuildRosterAsync(guildObject); 
+                    members = await _db.WowGuildRosterMembers
+                        .Where(x =>
+                            x.GuildName == guildObject.guildName &&
+                            x.GuildRealmSlug  == guildObject.realmSlug &&
+                            x.Region == guildObject.regionName)
+                        .ToListAsync();                        
+
                 }
                 catch (Exception ex)
                 {
@@ -895,8 +1269,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 string guildRegion = string.Empty;
                 string faction = string.Empty;
                 //string battlegroup = members.battlegroup;
-                //int achievementPoints = members.achievementPoints;
-                switch (members.guild.faction.type)
+                //int achievementPoints = members.achievementPoints;                
+                switch (members[0].Faction)
                 {
                     case "ALLIANCE":
                         {
@@ -910,13 +1284,13 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                             embed.WithColor(new Color(255, 0, 0));
                             break;
                         }
-                }
-                guildName = members.guild.name;
-                guildRealm = members.guild.realm.slug;
+                }                
+                guildName = members[0].GuildName;
+                guildRealm = guildObject.realmName;
                 guildRegion = guildObject.regionName;
                 sb.AppendLine($"Guild Name: **{guildName}**");
                 sb.AppendLine($"Realm Name: **{guildRealm}**");
-                sb.AppendLine($"Members: **{members.members.Count().ToString()}**");
+                sb.AppendLine($"Members: **{members.Count().ToString()}**");
                 //sb.AppendLine($"Battlegroup: **{battlegroup}**");
                 sb.AppendLine($"Faction: **{faction}**");
                 sb.AppendLine($"Region: **{guildRegion}**");
@@ -1771,14 +2145,299 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             embed.Color = new Color(0, 255, 0);
             embed.Title = $"Mythic Raiders in [{Context.Guild.Name}]";
             embed.ThumbnailUrl = Context.Guild.IconUrl;
-            embed.Description = sb.ToString();            
+            embed.Description = sb.ToString();
             embed.WithFooter(new EmbedFooterBuilder
                 {
                     Text    = "Message sent from your local, organically grown, NinjaBot!",
                     IconUrl = Context.Guild.IconUrl
-                });   
+                });
 
             await RespondAsync(embed: embed.Build(), ephemeral: true);
-        }            
+        }
+
+        private async Task HandleCompareMode(
+            RaiderIOModels.RioMythicPlusChar char1Data,
+            string char1Name,
+            string char1Realm,
+            string char1Region,
+            string char1RealmSlug,
+            string compareWith,
+            string compareRealm,
+            string compareRegion,
+            bool publicDisplay)
+        {
+            // Parse second character - autocomplete may include realm and region in format "CharName~RealmName~Region" (tilde delimiter handles realms with spaces)
+            var parts = compareWith.Split('~', 3);
+            string char2Name = parts[0];
+            string char2Realm = compareRealm; // Use explicit compareRealm parameter first
+            string char2Region = compareRegion; // Use explicit compareRegion parameter first
+
+            // If no explicit parameters, try parsing from compareWith (autocomplete format)
+            if (string.IsNullOrEmpty(char2Realm) && parts.Length >= 2)
+            {
+                char2Realm = parts[1];
+            }
+
+            if (string.IsNullOrEmpty(char2Region) && parts.Length >= 3)
+            {
+                char2Region = parts[2];
+            }
+
+            // Default region to same as main character if still not specified
+            if (string.IsNullOrEmpty(char2Region))
+            {
+                char2Region = char1Region;
+            }
+
+            char2Region = char2Region.ToLower();
+
+            // Try to find realm for second character if not provided
+            if (string.IsNullOrEmpty(char2Realm))
+            {
+                var guildObject = await _wowUtils.GetGuildName(Context);
+                if (!string.IsNullOrEmpty(guildObject.guildName))
+                {
+                    try
+                    {
+                        // Use Task.Run with timeout to prevent blocking
+                        var guildTask = Task.Run(() => _wowApi.GetCharFromGuild(
+                            char2Name,
+                            guildObject.realmName,
+                            guildObject.guildName,
+                            guildObject.regionName));
+
+                        if (await Task.WhenAny(guildTask, Task.Delay(5000)) == guildTask)
+                        {
+                            // Task completed within timeout
+                            var guildie = await guildTask;
+                            if (!string.IsNullOrEmpty(guildie.charName))
+                            {
+                                char2Realm = guildie.realmName;
+                                char2Region = guildie.regionName;
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogDebug("Guild lookup timed out for {Character}, will try Armory search", char2Name);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Character {Character} not found in guild, will try Armory search", char2Name);
+                        // Continue to Armory search
+                    }
+                }
+
+                // Fallback to API search
+                if (string.IsNullOrEmpty(char2Realm))
+                {
+                    var chars = _wowApi.SearchArmory(char2Name);
+                    if (chars != null && chars.Count > 0)
+                    {
+                        char2Realm = chars[0].realmName;
+                    }
+                    else
+                    {
+                        await FollowupAsync($"Could not find character **{char2Name}** for comparison.", ephemeral: true);
+                        return;
+                    }
+                }
+            }
+
+            // Fetch second character's RaiderIO data
+            RaiderIOModels.RioMythicPlusChar char2Data;
+            try
+            {
+                char2Data = await _rioApi.GetCharMythicPlusInfoAsync(
+                    charName: char2Name,
+                    realmName: char2Realm.Replace(" ", "%20"),
+                    region: char2Region.ToLower());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching RaiderIO data for comparison character {Character} on {Realm}", char2Name, char2Realm);
+                await FollowupAsync($"Could not find **{char2Name}** on **{char2Realm}** ({char2Region.ToUpper()}) in RaiderIO.", ephemeral: true);
+                return;
+            }
+
+            // Save search history for comparison character
+            await SaveSearchHistoryAsync(Context.User.Id, char2Name, char2Realm, char2Region);
+
+            // Get realm slug for second character
+            string char2RealmSlug = char2Region.ToLower() switch
+            {
+                "us" => WowApi.RealmInfo.realms
+                    .Where(r => r.name.Replace("'", "").ToLower().Contains(char2Realm.ToLower()))
+                    .Select(s => s.slug)
+                    .FirstOrDefault() ?? char2Realm,
+                "ru" => WowApi.RealmInfoRu.realms
+                    .Where(r => r.name.Replace("'", "").ToLower().Contains(char2Realm.ToLower()))
+                    .Select(s => s.slug)
+                    .FirstOrDefault() ?? char2Realm,
+                "eu" => WowApi.RealmInfoEu.realms
+                    .Where(r => r.name.Replace("'", "").ToLower().Contains(char2Realm.ToLower()))
+                    .Select(s => s.slug)
+                    .FirstOrDefault() ?? char2Realm,
+                _ => char2Realm
+            };
+
+            // Build comparison embed
+            var embed = new EmbedBuilder();
+            embed.Title = $"⚔️ Character Comparison";
+
+            var sb = new StringBuilder();
+
+            // Character Names and Specs
+            sb.AppendLine($"**{char1Data.ActiveSpecName} {char1Data.Class}** [{char1Data.Name}]({char1Data.ProfileUrl.AbsoluteUri})");
+            sb.AppendLine($"vs");
+            sb.AppendLine($"**{char2Data.ActiveSpecName} {char2Data.Class}** [{char2Data.Name}]({char2Data.ProfileUrl.AbsoluteUri})");
+            sb.AppendLine();
+
+            // M+ Scores
+            var char1Score = char1Data.MythicPlusScores?[0]?.Scores?.All ?? 0;
+            var char2Score = char2Data.MythicPlusScores?[0]?.Scores?.All ?? 0;
+            var scoreDiff = char1Score - char2Score;
+            var scoreWinner = scoreDiff > 0 ? "✓" : (scoreDiff < 0 ? "" : "=");
+            var scoreWinner2 = scoreDiff < 0 ? "✓" : (scoreDiff > 0 ? "" : "=");
+
+            sb.AppendLine($"**__M+ Score__**");
+            sb.AppendLine($"{scoreWinner} {char1Score:F1} | {char2Score:F1} {scoreWinner2}");
+            if (scoreDiff != 0)
+                sb.AppendLine($"*Difference: {Math.Abs(scoreDiff):F1}*");
+            sb.AppendLine();
+
+            // Item Level
+            if (char1Data.Gear != null && char2Data.Gear != null)
+            {
+                var char1Ilvl = char1Data.Gear.ItemLevelEquipped;
+                var char2Ilvl = char2Data.Gear.ItemLevelEquipped;
+                var ilvlDiff = char1Ilvl - char2Ilvl;
+                var ilvlWinner = ilvlDiff > 0 ? "✓" : (ilvlDiff < 0 ? "" : "=");
+                var ilvlWinner2 = ilvlDiff < 0 ? "✓" : (ilvlDiff > 0 ? "" : "=");
+
+                sb.AppendLine($"**__Item Level__**");
+                sb.AppendLine($"{ilvlWinner} {char1Ilvl} | {char2Ilvl} {ilvlWinner2}");
+                sb.AppendLine();
+            }
+
+            // Best Key Levels
+            var char1BestKey = char1Data.MythicPlusBestRuns?.FirstOrDefault()?.MythicLevel ?? 0;
+            var char2BestKey = char2Data.MythicPlusBestRuns?.FirstOrDefault()?.MythicLevel ?? 0;
+            if (char1BestKey > 0 || char2BestKey > 0)
+            {
+                var keyDiff = char1BestKey - char2BestKey;
+                var keyWinner = keyDiff > 0 ? "✓" : (keyDiff < 0 ? "" : "=");
+                var keyWinner2 = keyDiff < 0 ? "✓" : (keyDiff > 0 ? "" : "=");
+
+                sb.AppendLine($"**__Highest Key__**");
+                sb.AppendLine($"{keyWinner} +{char1BestKey} | +{char2BestKey} {keyWinner2}");
+                sb.AppendLine();
+            }
+
+            // Raid Progression (Mythic)
+            if (char1Data.RaidProgression.ManaforgeOmega != null && char2Data.RaidProgression.ManaforgeOmega != null)
+            {
+                var char1Mythic = char1Data.RaidProgression.ManaforgeOmega.MythicBossesKilled;
+                var char2Mythic = char2Data.RaidProgression.ManaforgeOmega.MythicBossesKilled;
+                var raidDiff = char1Mythic - char2Mythic;
+                var raidWinner = raidDiff > 0 ? "✓" : (raidDiff < 0 ? "" : "=");
+                var raidWinner2 = raidDiff < 0 ? "✓" : (raidDiff > 0 ? "" : "=");
+                var totalBosses = char1Data.RaidProgression.ManaforgeOmega.TotalBosses;
+
+                sb.AppendLine($"**__Manaforge Omega (Mythic)__**");
+                sb.AppendLine($"{raidWinner} {char1Mythic}/{totalBosses} | {char2Mythic}/{totalBosses} {raidWinner2}");
+                sb.AppendLine();
+            }
+
+            embed.Description = sb.ToString();
+
+            // Color based on higher score
+            var color = Math.Max(char1Score, char2Score) >= 3000 ? new Color(255, 128, 0) :
+                        Math.Max(char1Score, char2Score) >= 2500 ? new Color(163, 53, 238) :
+                        Math.Max(char1Score, char2Score) >= 2000 ? new Color(0, 112, 221) :
+                        new Color(0, 200, 150);
+            embed.WithColor(color);
+
+            embed.Footer = new EmbedFooterBuilder
+            {
+                Text = $"{char1Data.Realm} ({char1Region.ToUpper()}) vs {char2Data.Realm} ({char2Region.ToUpper()})"
+            };
+
+            await FollowupAsync(embed: embed.Build(), ephemeral: !publicDisplay);
+        }
+
+        private static string GetProgressBar(long current, long total, int length = 10)
+        {
+            if (total == 0) return "";
+
+            double percentage = (double)current / total;
+            int filled = (int)(percentage * length);
+            int empty = length - filled;
+
+            string filledBar = new string('█', filled);
+            string emptyBar = new string('░', empty);
+
+            return $"[{filledBar}{emptyBar}]";
+        }
+
+        /// <summary>
+        /// Save or update search history for a character lookup
+        /// </summary>
+        private async Task SaveSearchHistoryAsync(ulong discordUserId, string characterName, string realmName, string region)
+        {
+            try
+            {
+                using (var db = new NinjaBotEntities())
+                {
+                    // Check if this search already exists
+                    var existingSearch = db.RioSearchHistory
+                        .FirstOrDefault(h =>
+                            h.DiscordUserId == (long)discordUserId &&
+                            h.CharacterName.ToLower() == characterName.ToLower() &&
+                            h.RealmName.ToLower() == realmName.ToLower() &&
+                            h.Region.ToLower() == region.ToLower());
+
+                    if (existingSearch != null)
+                    {
+                        // Update existing record
+                        existingSearch.LastSearched = DateTime.UtcNow;
+                        existingSearch.SearchCount++;
+                    }
+                    else
+                    {
+                        // Create new record
+                        db.RioSearchHistory.Add(new RioSearchHistory
+                        {
+                            DiscordUserId = (long)discordUserId,
+                            CharacterName = characterName,
+                            RealmName = realmName,
+                            Region = region.ToLower(),
+                            LastSearched = DateTime.UtcNow,
+                            SearchCount = 1
+                        });
+                    }
+
+                    await db.SaveChangesAsync();
+
+                    // Cleanup old searches - keep only the 30 most recent per user
+                    var userSearches = db.RioSearchHistory
+                        .Where(h => h.DiscordUserId == (long)discordUserId)
+                        .OrderByDescending(h => h.LastSearched)
+                        .Skip(30)
+                        .ToList();
+
+                    if (userSearches.Any())
+                    {
+                        db.RioSearchHistory.RemoveRange(userSearches);
+                        await db.SaveChangesAsync();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error saving RIO search history for user {UserId}", discordUserId);
+                // Don't throw - search history is not critical
+            }
+        }
     }
 }

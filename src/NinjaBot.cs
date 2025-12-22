@@ -76,6 +76,7 @@ namespace NinjaBotCore
                     CaseSensitiveCommands = false, 
                     ThrowOnError = false 
                 }))  
+                .AddDbContext<NinjaBotEntities>()
                 .AddHttpClient()                
                 .AddSingleton<WowApi>()                                                
                 .AddSingleton<WowUtilities>()

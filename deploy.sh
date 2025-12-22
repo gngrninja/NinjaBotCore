@@ -74,6 +74,13 @@ run_as_deploy sh -c "cd \"$TARGET_DIR\" && /usr/bin/docker compose up -d --build
 # Wait for container to start
 sleep 5
 
+# Run database migrations
+echo "[4.5/5] Running database migrations..."
+run_as_deploy sh -c "cd \"$TARGET_DIR\" && /usr/bin/docker compose exec -T ninjabot dotnet ef database update --project src/NinjaBotCore.csproj" || {
+  echo "⚠️  Warning: Migration failed. Container may still be starting or EF tools not available."
+  echo "You can manually run: docker compose exec ninjabot dotnet ef database update --project src/NinjaBotCore.csproj"
+}
+
 # Check status
 echo ""
 echo "========================================="

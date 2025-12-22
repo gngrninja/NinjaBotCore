@@ -281,6 +281,9 @@ namespace NinjaBotCore.Models.Wow
             [JsonProperty("profile_url")]
             public Uri ProfileUrl { get; set; }
 
+            [JsonProperty("gear")]
+            public Gear Gear { get; set; }
+
             [JsonProperty("mythic_plus_scores_by_season")]
             public MythicPlusScores[] MythicPlusScores { get; set; }
 
@@ -296,8 +299,20 @@ namespace NinjaBotCore.Models.Wow
             [JsonProperty("mythic_plus_highest_level_runs")]
             public MythicPlusRun[] MythicPlusHighestLevelRuns { get; set; }
 
+            [JsonProperty("mythic_plus_weekly_highest_level_runs")]
+            public MythicPlusRun[] MythicPlusWeeklyHighestLevelRuns { get; set; }
+
+            [JsonProperty("mythic_plus_previous_weekly_highest_level_runs")]
+            public MythicPlusRun[] MythicPlusPreviousWeeklyHighestLevelRuns { get; set; }
+
             [JsonProperty("raid_progression")]
             public RaidProgression RaidProgression { get; set; }
+
+            [JsonProperty("raid_achievement_meta")]
+            public object RaidAchievementMeta { get; set; }
+
+            [JsonProperty("raid_achievement_curve")]
+            public object RaidAchievementCurve { get; set; }
         }
 
         public partial class MythicPlusRun
@@ -409,6 +424,165 @@ namespace NinjaBotCore.Models.Wow
 
             [JsonProperty("scores")]
             public MythicPlusScoreBreakout Scores { get; set; }
+        }
+
+        public partial class Gear
+        {
+            [JsonProperty("item_level_equipped")]
+            public long ItemLevelEquipped { get; set; }
+
+            [JsonProperty("item_level_total")]
+            public long ItemLevelTotal { get; set; }
+
+            [JsonProperty("artifact_traits")]
+            public long ArtifactTraits { get; set; }
+
+            [JsonProperty("corruption")]
+            public Corruption Corruption { get; set; }
+
+            [JsonProperty("items")]
+            public GearItem Items { get; set; }
+        }
+
+        public partial class Corruption
+        {
+            [JsonProperty("added")]
+            public long Added { get; set; }
+
+            [JsonProperty("resisted")]
+            public long Resisted { get; set; }
+
+            [JsonProperty("total")]
+            public long Total { get; set; }
+
+            [JsonProperty("cloakRank")]
+            public long CloakRank { get; set; }
+
+            [JsonProperty("spells")]
+            public object[] Spells { get; set; }
+        }
+
+        public partial class GearItem
+        {
+            [JsonProperty("head")]
+            public ItemDetail Head { get; set; }
+
+            [JsonProperty("neck")]
+            public ItemDetail Neck { get; set; }
+
+            [JsonProperty("shoulder")]
+            public ItemDetail Shoulder { get; set; }
+
+            [JsonProperty("back")]
+            public ItemDetail Back { get; set; }
+
+            [JsonProperty("chest")]
+            public ItemDetail Chest { get; set; }
+
+            [JsonProperty("waist")]
+            public ItemDetail Waist { get; set; }
+
+            [JsonProperty("wrist")]
+            public ItemDetail Wrist { get; set; }
+
+            [JsonProperty("hands")]
+            public ItemDetail Hands { get; set; }
+
+            [JsonProperty("legs")]
+            public ItemDetail Legs { get; set; }
+
+            [JsonProperty("feet")]
+            public ItemDetail Feet { get; set; }
+
+            [JsonProperty("finger1")]
+            public ItemDetail Finger1 { get; set; }
+
+            [JsonProperty("finger2")]
+            public ItemDetail Finger2 { get; set; }
+
+            [JsonProperty("trinket1")]
+            public ItemDetail Trinket1 { get; set; }
+
+            [JsonProperty("trinket2")]
+            public ItemDetail Trinket2 { get; set; }
+
+            [JsonProperty("mainhand")]
+            public ItemDetail Mainhand { get; set; }
+
+            [JsonProperty("offhand")]
+            public ItemDetail Offhand { get; set; }
+        }
+
+        public partial class ItemDetail
+        {
+            [JsonProperty("item_id")]
+            public long ItemId { get; set; }
+
+            [JsonProperty("item_level")]
+            public long ItemLevel { get; set; }
+
+            [JsonProperty("icon")]
+            public string Icon { get; set; }
+
+            [JsonProperty("name")]
+            public string Name { get; set; }
+
+            [JsonProperty("item_quality")]
+            public long ItemQuality { get; set; }
+
+            [JsonProperty("is_legendary")]
+            public bool IsLegendary { get; set; }
+
+            [JsonProperty("is_azerite_armor")]
+            public bool IsAzeriteArmor { get; set; }
+
+            [JsonProperty("azerite_powers")]
+            public object[] AzeritePowers { get; set; }
+
+            [JsonProperty("corruption")]
+            public Corruption Corruption { get; set; }
+
+            [JsonProperty("domination_shards")]
+            public object[] DominationShards { get; set; }
+
+            [JsonProperty("tier_set")]
+            public object TierSet { get; set; }
+
+            [JsonProperty("enchant")]
+            public long? Enchant { get; set; }
+
+            [JsonProperty("bonuses")]
+            public long[] Bonuses { get; set; }
+
+            [JsonProperty("gems")]
+            public long[] Gems { get; set; }
+        }
+
+        public partial class RaidAchievementMeta
+        {
+            [JsonProperty("nerubar-palace")]
+            public RaidAchievement NerubarPalace { get; set; }
+
+            [JsonProperty("manaforge-omega")]
+            public RaidAchievement ManaforgeOmega { get; set; }
+        }
+
+        public partial class RaidAchievementCurve
+        {
+            [JsonProperty("nerubar-palace")]
+            public RaidAchievement NerubarPalace { get; set; }
+
+            [JsonProperty("manaforge-omega")]
+            public RaidAchievement ManaforgeOmega { get; set; }
+        }
+
+        public partial class RaidAchievement
+        {
+            [JsonProperty("aotc")]
+            public bool Aotc { get; set; }
+
+            [JsonProperty("cutting_edge")]
+            public bool CuttingEdge { get; set; }
         }
     }
 }

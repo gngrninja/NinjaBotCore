@@ -16,6 +16,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using NinjaBotCore.Common;
 using Discord.Interactions;
+using System.Threading;
+using NinjaBotCore.Models.Wow;
+using Microsoft.EntityFrameworkCore;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -29,6 +32,7 @@ namespace NinjaBotCore.Modules.Wow
         public readonly IConfigurationRoot _config;
         public string _prefix;
         public readonly ILogger _logger;
+        private readonly NinjaBotEntities _db;
         
         public WowUtilities(IServiceProvider services)
         {
@@ -39,6 +43,7 @@ namespace NinjaBotCore.Modules.Wow
             _rioApi = services.GetRequiredService<RaiderIOApi>();
             _client = services.GetRequiredService<DiscordShardedClient>();            
             _config = services.GetRequiredService<IConfigurationRoot>();
+            _db     = services.GetRequiredService<NinjaBotEntities>();
             _prefix = _config["prefix"];
         }
 
@@ -167,176 +172,6 @@ namespace NinjaBotCore.Modules.Wow
             embed.WithColor(new Color(255, 0, 0));
             embed.Description = sb.ToString();
             await _cc.Reply(context, embed);
-        }
-
-        public async Task GetAuctionItems(string args, ICommandContext context)
-        {
-            try
-            {
-                NinjaObjects.GuildObject guildObject = new NinjaObjects.GuildObject();
-                string realmName = string.Empty;
-                string regionName = "us";
-                if (string.IsNullOrEmpty(args))
-                {
-                    guildObject = await GetGuildName(context);
-                    realmName = guildObject.realmName;
-                    regionName = guildObject.regionName;
-                }
-                else
-                {
-                    int i = 0;
-                    do
-                    {
-                        if (i == args.Split(' ').Count() - 1)
-                        {
-                            realmName += $"{args.Split(' ')[i]}".Replace("\"", "");
-                        }
-                        else
-                        {
-                            realmName += $"{args.Split(' ')[i]} ".Replace("\"", "");
-                        }
-                        i++;
-                    }
-                    while (i <= args.Split(' ').Count() - 1);
-                    realmName = realmName.Trim();
-                }
-                if (string.IsNullOrEmpty(realmName))
-                {
-                    await _cc.Reply(context, $"Unable to find realm \nTry {_prefix}wow auctions realmName");
-                    return;
-                }
-                _logger.LogInformation($"Looking up auctions for realm {realmName.ToUpper()}");
-                List<WowAuctions> auctions = await _wowApi.GetAuctionsByRealm(realmName.ToLower(), guildObject.regionName);
-                StringBuilder sb = new StringBuilder();
-                var auctionList = GetAuctionItemIDs();
-                var embed = new EmbedBuilder();
-                embed.WithColor(new Color(0, 255, 0));
-                embed.Title = $":scales:Auction prices on **{realmName.ToUpper()}**";
-                foreach (var item in auctionList)
-                {
-                    var auction = auctions.Where(auc => auc.AuctionItemId == item.ItemID).ToList();
-                    long lowestPrice = GetLowestBuyoutPrice(auction.Where(r => r.AuctionBuyout != 0));
-                    if (auction.Count() != 0)
-                    {
-                        sb.AppendLine($":black_small_square:__**{item.Name}**__ / Found **{auction.Count()}** / Lowest price **{ lowestPrice / 10000}g**");
-                    }
-                    else
-                    {
-                        sb.AppendLine($":black_small_square:__**{item.Name}**__ / None found :(");
-                    }
-                }
-                sb.AppendLine();
-                sb.AppendLine($"Last updated: **{auctions[0].DateModified}**");
-                embed.Description = sb.ToString();
-                await _cc.Reply(context, embed);
-                
-                using (var db = new NinjaBotEntities())
-                {
-                    foreach (var item in auctionList)
-                    {                        
-                        var items = auctions.Where(auc => auc.AuctionItemId == item.ItemID).ToList();
-                        long lowestPrice = GetLowestBuyoutPrice(items.Where(r => r.AuctionBuyout != 0));
-                        long highestPrice = GetHighestBuyoutPrice(items.Where(r => r.AuctionBuyout != 0));
-                        long averagePrice = GetAveragePrice(items.Where(r => r.AuctionBuyout != 0));
-                        if (items.Count() > 0)
-                        {
-                            db.WowAuctionPrices.Add(new WowAuctionPrice
-                            {
-                                AuctionItemId = (long)items[0].AuctionItemId,
-                                AuctionRealm = items[0].RealmSlug,
-                                AvgPrice = averagePrice,
-                                MinPrice = lowestPrice,
-                                MaxPrice = highestPrice,
-                                Seen = items.Count()
-                            });
-                        }
-                    }
-                    await db.SaveChangesAsync();
-                }                                
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Auction error: [{ex.Message}]");
-                await _cc.Reply(context, "Error getting auctions :(");
-            }
-        }
-
-        public List<AuctionList> GetAuctionItemIDs()
-        {
-            List<AuctionList> auctionItems = new List<AuctionList>();
-            using (var db = new NinjaBotEntities())
-            {
-                var auctionItemList = db.AuctionItemMappings.ToList();
-                foreach (var item in auctionItemList)
-                {
-                    auctionItems.Add(new AuctionList
-                    {
-                        ItemID = (int)item.ItemId,
-                        Name = item.Name
-                    });
-                }
-            }
-            return auctionItems;
-        }
-
-        public long GetLowestBuyoutPrice(IEnumerable<WowAuctions> auctions)
-        {
-            long lowestBuyoutPrice = long.MaxValue;
-            try
-            {
-                foreach (var item in auctions)
-                {
-                    if ((item.AuctionBuyout / item.AuctionQuantity) < lowestBuyoutPrice)
-                    {
-                        lowestBuyoutPrice = Math.Min(lowestBuyoutPrice, ((long)item.AuctionBuyout / (long)item.AuctionQuantity));
-                    }
-                }
-            }
-            catch (DivideByZeroException ex)
-            {
-                _logger.LogError($"Get Lowest Buyout Error -> [{ex.Message}]");
-            }
-            return lowestBuyoutPrice;
-        }
-
-        public long GetHighestBuyoutPrice(IEnumerable<WowAuctions> auctions)
-        {
-            long highestBuyoutPrice = long.MinValue;
-            try
-            {
-                foreach (var item in auctions)
-                {
-                    if ((item.AuctionBuyout / item.AuctionQuantity) > highestBuyoutPrice)
-                    {
-                        highestBuyoutPrice = Math.Max(highestBuyoutPrice, ((long)item.AuctionBuyout / (long)item.AuctionQuantity));
-                    }
-                }
-            }
-            catch (DivideByZeroException ex)
-            {
-                _logger.LogError($"Get Highest Buyout Error -> [{ex.Message}]");
-            }
-            return highestBuyoutPrice;
-        }
-
-        public long GetAveragePrice(IEnumerable<WowAuctions> auctions)
-        {
-            long averageBuyoutPrice = 0;
-            long? total = 0;
-            int totalAuctions = auctions.Count();
-            try
-            {
-                foreach (var item in auctions)
-                {
-                    total += item.AuctionBuyout / (long)item.AuctionQuantity;
-                }
-                averageBuyoutPrice = (long)total / totalAuctions;
-            }
-            catch (DivideByZeroException ex)
-            {
-                _logger.LogError($"Get Average Buyout Error -> [{ex.Message}]");
-            }
-            return averageBuyoutPrice;
         }
 
         public async Task<NinjaObjects.GuildObject> GetGuildName(ICommandContext context)
@@ -976,5 +811,67 @@ namespace NinjaBotCore.Modules.Wow
                 }
             }
         }
+        
+        public async Task RefreshGuildRosterAsync(
+            NinjaBotCore.Models.Wow.NinjaObjects.GuildObject guildObject,
+            CancellationToken cancellationToken = default)
+        {
+            var now = DateTime.UtcNow;
+
+            // 🔹 Cache guard
+            var lastFetch = await _db.WowGuildRosterMembers
+                .Where(x =>
+                    x.GuildName == guildObject.guildName &&
+                    x.GuildRealmSlug == guildObject.realmSlug &&
+                    x.Region == guildObject.regionName)
+                .MaxAsync(x => (DateTime?)x.LastUpdated, cancellationToken);
+
+            if (lastFetch.HasValue && lastFetch > now.AddMinutes(-60))
+                return;
+
+            // 🔹 Fetch API first
+            var apiResult = _wowApi.GetGuildMembersBySlug(
+                guildObject.realmSlug,
+                guildObject.guildName,
+                locale: guildObject.locale,
+                regionName: guildObject.regionName);
+
+            using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
+
+            try
+            {
+                // 🔹 Clear old snapshot
+                await _db.WowGuildRosterMembers
+                    .Where(x =>
+                        x.GuildName == guildObject.guildName &&
+                        x.GuildRealmSlug == guildObject.realmSlug &&
+                        x.Region == guildObject.regionName)
+                    .ExecuteDeleteAsync(cancellationToken);
+
+                // 🔹 Insert new snapshot
+                var rows = apiResult.members.Select(m => new WowGuildRosterMember
+                {
+                    GuildName = guildObject.guildName,
+                    RealmSlug = m.character.realm.slug,
+                    GuildRealmSlug = guildObject.realmSlug,
+                    Region = guildObject.regionName,
+                    CharacterName = m.character.name,
+                    Level = m.character.level,
+                    Rank = m.rank,
+                    Faction = m.character.faction.type,
+                    LastUpdated = now
+                });
+
+                await _db.WowGuildRosterMembers.AddRangeAsync(rows, cancellationToken);
+                await _db.SaveChangesAsync(cancellationToken);
+
+                await tx.CommitAsync(cancellationToken);
+            }
+            catch
+            {
+                await tx.RollbackAsync(cancellationToken);
+                throw;
+            }
+        }    
     }
 }
