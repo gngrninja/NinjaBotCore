@@ -34,6 +34,7 @@ namespace NinjaBotCore.Tests
                 .AddSingleton<DiscordShardedClient>()
                 .AddSingleton<WowUtilities>()
                 .AddSingleton<NinjaBotEntities>()
+                .AddSingleton<WarcraftLogsV2Client>()
                 .AddSingleton<ILoggerFactory, NullLoggerFactory>()
                 .AddSingleton(_config);    
 
