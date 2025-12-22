@@ -72,9 +72,7 @@ run_as_deploy sh -c "cd \"$TARGET_DIR\" && /usr/bin/docker compose down" || echo
 # Run database migrations
 echo "[3.5/5] Running database migrations..."
 
-DOTNET="/usr/local/share/dotnet/dotnet"
-
-$SUDO -u "$NINJABOT_DEPLOY_USER" -H env \
+$SUDO -u "$DEPLOY_USER" -H env \
   DOTNET_ROOT="/usr/local/share/dotnet" \
   PATH="/usr/local/share/dotnet:$PATH" \
   sh -c "
