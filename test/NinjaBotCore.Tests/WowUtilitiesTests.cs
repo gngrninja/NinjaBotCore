@@ -9,6 +9,7 @@ using Serilog;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Collections.Generic;
+using NinjaBotCore.Database;
 
 namespace NinjaBotCore.Tests
 {
@@ -24,14 +25,15 @@ namespace NinjaBotCore.Tests
             var _builder = new ConfigurationBuilder()
                 .SetBasePath(AppContext.BaseDirectory);         
             _config = _builder.Build();    
-            var services = new ServiceCollection()              
-                .AddHttpClient() 
-                .AddSingleton<WowApi>()                                                                
+            var services = new ServiceCollection()
+                .AddHttpClient()
+                .AddSingleton<WowApi>()
                 .AddSingleton<WarcraftLogs>()
-                .AddSingleton<ChannelCheck>()            
-                .AddSingleton<RaiderIOApi>()    
-                .AddSingleton<DiscordShardedClient>()                   
-                .AddSingleton<WowUtilities>()               
+                .AddSingleton<ChannelCheck>()
+                .AddSingleton<RaiderIOApi>()
+                .AddSingleton<DiscordShardedClient>()
+                .AddSingleton<WowUtilities>()
+                .AddSingleton<NinjaBotEntities>()
                 .AddSingleton<ILoggerFactory, NullLoggerFactory>()
                 .AddSingleton(_config);    
 
