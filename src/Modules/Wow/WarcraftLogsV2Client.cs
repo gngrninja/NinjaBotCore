@@ -225,28 +225,61 @@ namespace NinjaBotCore.Modules.Wow
             if (guilds == null || guilds.Count == 0)
                 return new Dictionary<string, WclV2Report>();
 
-            // Build batched query with aliases
-            var queryBuilder = new StringBuilder();
-            queryBuilder.AppendLine("query {");
-
+            // Validate and sanitize input
+            var validatedGuilds = new List<(string guildName, string serverSlug, string serverRegion, string guildKey, int index)>();
             for (int i = 0; i < guilds.Count; i++)
             {
-                var (guildName, serverSlug, serverRegion, _) = guilds[i];
+                var (guildName, serverSlug, serverRegion, guildKey) = guilds[i];
+
+                if (string.IsNullOrWhiteSpace(guildName) || string.IsNullOrWhiteSpace(serverSlug) || string.IsNullOrWhiteSpace(serverRegion))
+                {
+                    _logger.LogWarning($"Skipping invalid guild entry at index {i}: guildName='{guildName}', serverSlug='{serverSlug}', serverRegion='{serverRegion}'");
+                    continue;
+                }
+
+                validatedGuilds.Add((guildName, serverSlug, serverRegion, guildKey, i));
+            }
+
+            if (validatedGuilds.Count == 0)
+            {
+                _logger.LogWarning("No valid guilds to query after validation");
+                return new Dictionary<string, WclV2Report>();
+            }
+
+            // Build batched query with GraphQL fragment for reusability
+            var queryBuilder = new StringBuilder();
+
+            // Define reusable fragment
+            queryBuilder.AppendLine(@"
+                fragment ReportFields on Report {
+                    code
+                    title
+                    owner { name }
+                    startTime
+                    endTime
+                    zone { id name }
+                }");
+
+            queryBuilder.AppendLine("query {");
+
+            // Build dynamic aliases for each guild
+            foreach (var (guildName, serverSlug, serverRegion, _, index) in validatedGuilds)
+            {
+                // Escape quotes in parameters to prevent GraphQL injection
+                var escapedGuildName = EscapeGraphQLString(guildName);
+                var escapedServerSlug = EscapeGraphQLString(serverSlug);
+                var escapedServerRegion = EscapeGraphQLString(serverRegion);
+
                 queryBuilder.AppendLine($@"
-                    guild_{i}: reportData {{
+                    guild_{index}: reportData {{
                         reports(
-                            guildName: ""{guildName}"",
-                            guildServerSlug: ""{serverSlug}"",
-                            guildServerRegion: ""{serverRegion}"",
+                            guildName: ""{escapedGuildName}"",
+                            guildServerSlug: ""{escapedServerSlug}"",
+                            guildServerRegion: ""{escapedServerRegion}"",
                             limit: 1
                         ) {{
                             data {{
-                                code
-                                title
-                                owner {{ name }}
-                                startTime
-                                endTime
-                                zone {{ id name }}
+                                ...ReportFields
                             }}
                         }}
                     }}");
@@ -254,54 +287,144 @@ namespace NinjaBotCore.Modules.Wow
 
             queryBuilder.AppendLine("}");
 
+            var query = queryBuilder.ToString();
+            _logger.LogDebug($"[v2 Batch] Querying {validatedGuilds.Count} guilds");
+
             try
             {
-                var result = await ExecuteGraphQLAsync<Newtonsoft.Json.Linq.JObject>(queryBuilder.ToString());
+                var result = await ExecuteGraphQLAsync<Newtonsoft.Json.Linq.JObject>(query);
 
                 if (result.Data == null)
                 {
-                    _logger.LogWarning("Batched query returned no data");
+                    _logger.LogWarning("[v2 Batch] Query returned no data");
                     return new Dictionary<string, WclV2Report>();
                 }
 
                 var batchResults = new Dictionary<string, WclV2Report>();
+                var parseErrors = new List<string>();
 
-                // Parse each guild's results
-                for (int i = 0; i < guilds.Count; i++)
+                // Parse each guild's results with type-safe validation
+                foreach (var (guildName, serverSlug, serverRegion, guildKey, index) in validatedGuilds)
                 {
-                    var guildKey = guilds[i].guildKey;
-                    var aliasKey = $"guild_{i}";
+                    var aliasKey = $"guild_{index}";
+                    var guildIdentifier = $"{guildName}-{serverSlug} ({serverRegion})";
 
                     try
                     {
                         var guildData = result.Data[aliasKey];
-                        if (guildData != null)
+                        if (guildData == null || guildData.Type == Newtonsoft.Json.Linq.JTokenType.Null)
                         {
-                            var reports = guildData["reports"]?["data"];
-                            if (reports != null && reports.HasValues)
-                            {
-                                var report = reports[0].ToObject<WclV2Report>();
-                                if (report != null)
-                                {
-                                    batchResults[guildKey] = report;
-                                }
-                            }
+                            _logger.LogWarning($"[v2 Batch] No data returned for {guildIdentifier}");
+                            continue;
                         }
+
+                        var reportsContainer = guildData["reports"];
+                        if (reportsContainer == null)
+                        {
+                            _logger.LogWarning($"[v2 Batch] Missing 'reports' field for {guildIdentifier}");
+                            continue;
+                        }
+
+                        var reportsData = reportsContainer["data"];
+                        if (reportsData == null)
+                        {
+                            _logger.LogWarning($"[v2 Batch] Missing 'data' field for {guildIdentifier}");
+                            continue;
+                        }
+
+                        // Type-safe array validation
+                        if (!(reportsData is Newtonsoft.Json.Linq.JArray reportsArray))
+                        {
+                            _logger.LogWarning($"[v2 Batch] 'data' is not an array for {guildIdentifier}, got {reportsData.Type}");
+                            continue;
+                        }
+
+                        if (reportsArray.Count == 0)
+                        {
+                            _logger.LogDebug($"[v2 Batch] No reports found for {guildIdentifier}");
+                            continue;
+                        }
+
+                        var firstReport = reportsArray[0];
+                        if (firstReport == null || firstReport.Type == Newtonsoft.Json.Linq.JTokenType.Null)
+                        {
+                            _logger.LogWarning($"[v2 Batch] First report is null for {guildIdentifier}");
+                            continue;
+                        }
+
+                        var report = firstReport.ToObject<WclV2Report>();
+                        if (report == null)
+                        {
+                            _logger.LogWarning($"[v2 Batch] Failed to deserialize report for {guildIdentifier}");
+                            continue;
+                        }
+
+                        // Validate required fields
+                        if (string.IsNullOrEmpty(report.Code))
+                        {
+                            _logger.LogWarning($"[v2 Batch] Report missing code for {guildIdentifier}");
+                            continue;
+                        }
+
+                        batchResults[guildKey] = report;
+                        _logger.LogDebug($"[v2 Batch] Successfully parsed report {report.Code} for {guildIdentifier}");
+                    }
+                    catch (JsonException jsonEx)
+                    {
+                        var error = $"{guildIdentifier}: JSON parsing failed - {jsonEx.Message}";
+                        parseErrors.Add(error);
+                        _logger.LogError($"[v2 Batch] {error}");
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning($"Failed to parse result for {guildKey}: {ex.Message}");
+                        var error = $"{guildIdentifier}: {ex.GetType().Name} - {ex.Message}";
+                        parseErrors.Add(error);
+                        _logger.LogError($"[v2 Batch] Failed to parse result for {error}");
                     }
                 }
 
-                _logger.LogInformation($"[v2 Batch] Retrieved reports for {batchResults.Count}/{guilds.Count} guilds");
+                // Summary logging
+                var successRate = validatedGuilds.Count > 0 ? (batchResults.Count * 100.0 / validatedGuilds.Count) : 0;
+                _logger.LogInformation($"[v2 Batch] Retrieved reports for {batchResults.Count}/{validatedGuilds.Count} guilds ({successRate:F1}% success rate)");
+
+                if (parseErrors.Count > 0)
+                {
+                    _logger.LogWarning($"[v2 Batch] Encountered {parseErrors.Count} parsing errors");
+                }
+
                 return batchResults;
+            }
+            catch (HttpRequestException httpEx)
+            {
+                _logger.LogError($"[v2 Batch] HTTP request failed: {httpEx.Message}");
+                throw;
+            }
+            catch (JsonException jsonEx)
+            {
+                _logger.LogError($"[v2 Batch] Response parsing failed: {jsonEx.Message}");
+                throw;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Batched guild reports query failed: {ex.Message}");
+                _logger.LogError($"[v2 Batch] Unexpected error: {ex.GetType().Name} - {ex.Message}");
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Escapes special characters in GraphQL string literals to prevent injection
+        /// </summary>
+        private string EscapeGraphQLString(string input)
+        {
+            if (string.IsNullOrEmpty(input))
+                return input;
+
+            return input
+                .Replace("\\", "\\\\")  // Backslash must be first
+                .Replace("\"", "\\\"")  // Escape quotes
+                .Replace("\n", "\\n")   // Escape newlines
+                .Replace("\r", "\\r")   // Escape carriage returns
+                .Replace("\t", "\\t");  // Escape tabs
         }
 
         /// <summary>

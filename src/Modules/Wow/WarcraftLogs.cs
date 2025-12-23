@@ -678,7 +678,7 @@ namespace NinjaBotCore.Modules.Wow
 
                 if (guildsToMonitor.Count == 0)
                 {
-                    _logger.LogInformation("No retail guilds to monitor");
+                    _logger.LogInformation("[v2 Batch] No retail guilds to monitor");
                     return;
                 }
 
@@ -690,7 +690,7 @@ namespace NinjaBotCore.Modules.Wow
                     guildKey: $"{g.ServerId}"
                 )).ToList();
 
-                _logger.LogInformation($"[v2 Batch] Querying {batchRequest.Count} guilds in single request");
+                _logger.LogInformation($"[v2 Batch] Querying {batchRequest.Count} retail guilds in single request");
 
                 Dictionary<string, WclV2Report> batchResults = null;
 
@@ -701,7 +701,7 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 catch (Exception v2Ex)
                 {
-                    _logger.LogWarning($"[v2 Batch] Failed, falling back to individual v1 requests: {v2Ex.Message}");
+                    _logger.LogError($"[v2 Batch] API call failed, falling back to individual v1 requests: {v2Ex.Message}");
 
                     // Fallback to individual requests using the existing method
                     foreach (var guild in guildsToMonitor)
@@ -711,6 +711,19 @@ namespace NinjaBotCore.Modules.Wow
                     return;
                 }
 
+                if (batchResults == null)
+                {
+                    _logger.LogError("[v2 Batch] Received null batch results, cannot process guilds");
+                    return;
+                }
+
+                // Track statistics
+                int processedCount = 0;
+                int postedCount = 0;
+                int duplicateCount = 0;
+                int missingCount = 0;
+                var failedGuilds = new List<string>();
+
                 // Process results
                 foreach (var guild in guildsToMonitor)
                 {
@@ -718,76 +731,129 @@ namespace NinjaBotCore.Modules.Wow
                     {
                         var watchGuild = logWatchList.FirstOrDefault(w => w.ServerId == guild.ServerId);
                         if (watchGuild == null)
+                        {
+                            _logger.LogWarning($"[v2 Batch] No monitoring config found for guild {guild.WowGuild} (ServerId: {guild.ServerId})");
                             continue;
+                        }
 
                         var guildKey = $"{guild.ServerId}";
+                        var guildIdentifier = $"{guild.WowGuild}-{guild.WowRealm} ({guild.WowRegion})";
+
                         if (!batchResults.TryGetValue(guildKey, out var v2Report))
                         {
-                            _logger.LogWarning($"No report found in batch for {guild.WowGuild}");
+                            _logger.LogDebug($"[v2 Batch] No report found for {guildIdentifier} (may not have uploaded logs recently)");
+                            missingCount++;
                             continue;
                         }
 
                         var latestLog = ConvertV2ToV1Report(v2Report);
-                        DateTime startTime = UnixTimeStampToDateTime(latestLog.start);
 
-                        if (latestLog.id != watchGuild.RetailReportId)
+                        // Validate conversion produced valid data
+                        if (string.IsNullOrEmpty(latestLog.id))
                         {
-                            var checkId = _db.WclPosted.FirstOrDefault(p => p.ServerId == guild.ServerId && p.ReportId == latestLog.id);
-                            if (checkId != null)
-                            {
-                                _logger.LogInformation($"Latest report id {latestLog.id} found in database, cancelling post for {guild.ServerName}");
-                                continue;
-                            }
+                            _logger.LogWarning($"[v2 Batch] Conversion produced invalid report ID for {guildIdentifier}");
+                            failedGuilds.Add(guildIdentifier);
+                            continue;
+                        }
 
+                        if (string.IsNullOrEmpty(latestLog.zoneName))
+                        {
+                            _logger.LogWarning($"[v2 Batch] Could not resolve zone name for report {latestLog.id} (zone ID: {latestLog.zone})");
+                        }
+
+                        DateTime startTime = UnixTimeStampToDateTime(latestLog.start);
+                        processedCount++;
+
+                        // Check if this is a new report
+                        if (latestLog.id == watchGuild.RetailReportId)
+                        {
+                            _logger.LogDebug($"[v2 Batch] Report {latestLog.id} already tracked for {guildIdentifier}");
+                            continue;
+                        }
+
+                        // Check if already posted
+                        var checkId = _db.WclPosted.FirstOrDefault(p => p.ServerId == guild.ServerId && p.ReportId == latestLog.id);
+                        if (checkId != null)
+                        {
+                            _logger.LogInformation($"[v2 Batch] Report {latestLog.id} already posted for {guild.ServerName}, updating tracking");
+                            duplicateCount++;
+
+                            // Update tracking even if already posted
                             var latestForGuild = _db.LogMonitoring.FirstOrDefault(l => l.ServerId == guild.ServerId);
                             if (latestForGuild != null)
                             {
                                 latestForGuild.LatestLogRetail = startTime;
                                 latestForGuild.RetailReportId = latestLog.id;
-                                _db.WclPosted.Add(new WclPosted
-                                {
-                                    ServerId = (long)guild.ServerId,
-                                    ChannelId = latestForGuild.ChannelId,
-                                    ChannelName = latestForGuild.ChannelName,
-                                    ServerName = latestForGuild.ServerName,
-                                    ReportId = latestLog.id
-                                });
                                 await _db.SaveChangesAsync();
-
-                                ISocketMessageChannel channel = _client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
-                                if (channel != null)
-                                {
-                                    var tz = GetLocalTz(guild);
-                                    DateTime logStart = GetLocalTime(latestLog, tz);
-
-                                    _logger.LogInformation($"Posting log for [{guild.WowGuild}] on [{guild.WowRealm}] for server [{guild.ServerName}]");
-
-                                    var embed = new EmbedBuilder();
-                                    embed.Title = $"New log found for [{guild.WowGuild}]!";
-                                    StringBuilder sb = new StringBuilder();
-                                    sb.AppendLine($"[__**{latestLog.title}** **/** **{latestLog.zoneName}**__]({latestLog.reportURL})");
-                                    sb.AppendLine($"\t:timer: Start time: **{logStart}**");
-                                    sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{latestLog.id}) | :sob: [WipeFest](https://www.wipefest.net/report/{latestLog.id}) ");
-                                    sb.AppendLine($"\t:pencil2: Created by [**{latestLog.owner}**]");
-                                    sb.AppendLine();
-                                    embed.Description = sb.ToString();
-                                    embed.WithColor(new Color(0, 0, 255));
-                                    await channel.SendMessageAsync("", false, embed.Build());
-                                }
                             }
+                            continue;
                         }
+
+                        // New report - post it
+                        var latestForGuild2 = _db.LogMonitoring.FirstOrDefault(l => l.ServerId == guild.ServerId);
+                        if (latestForGuild2 == null)
+                        {
+                            _logger.LogWarning($"[v2 Batch] Cannot update monitoring record for {guildIdentifier} - record not found");
+                            continue;
+                        }
+
+                        latestForGuild2.LatestLogRetail = startTime;
+                        latestForGuild2.RetailReportId = latestLog.id;
+                        _db.WclPosted.Add(new WclPosted
+                        {
+                            ServerId = (long)guild.ServerId,
+                            ChannelId = latestForGuild2.ChannelId,
+                            ChannelName = latestForGuild2.ChannelName,
+                            ServerName = latestForGuild2.ServerName,
+                            ReportId = latestLog.id
+                        });
+                        await _db.SaveChangesAsync();
+
+                        ISocketMessageChannel channel = _client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
+                        if (channel == null)
+                        {
+                            _logger.LogWarning($"[v2 Batch] Could not find Discord channel {watchGuild.ChannelId} for {guild.ServerName}");
+                            continue;
+                        }
+
+                        var tz = GetLocalTz(guild);
+                        DateTime logStart = GetLocalTime(latestLog, tz);
+
+                        _logger.LogInformation($"[v2 Batch] Posting new log {latestLog.id} for {guildIdentifier} to {guild.ServerName}");
+
+                        var embed = new EmbedBuilder();
+                        embed.Title = $"New log found for [{guild.WowGuild}]!";
+                        StringBuilder sb = new StringBuilder();
+                        sb.AppendLine($"[__**{latestLog.title}** **/** **{latestLog.zoneName ?? "Unknown Zone"}**__]({latestLog.reportURL})");
+                        sb.AppendLine($"\t:timer: Start time: **{logStart}**");
+                        sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{latestLog.id}) | :sob: [WipeFest](https://www.wipefest.net/report/{latestLog.id}) ");
+                        sb.AppendLine($"\t:pencil2: Created by [**{latestLog.owner}**]");
+                        sb.AppendLine();
+                        embed.Description = sb.ToString();
+                        embed.WithColor(new Color(0, 0, 255));
+
+                        await channel.SendMessageAsync("", false, embed.Build());
+                        postedCount++;
                     }
                     catch (Exception guildEx)
                     {
-                        _logger.LogError($"Error processing batched result for {guild.WowGuild}: {guildEx.Message}");
+                        var guildIdent = $"{guild.WowGuild}-{guild.WowRealm}";
+                        _logger.LogError($"[v2 Batch] Error processing {guildIdent}: {guildEx.GetType().Name} - {guildEx.Message}");
+                        failedGuilds.Add(guildIdent);
                     }
                 }
 
-                _logger.LogInformation($"[v2 Batch] Processed {guildsToMonitor.Count} guilds");
+                // Summary logging
+                _logger.LogInformation($"[v2 Batch] Batch complete: {batchRequest.Count} queried, {processedCount} processed, {postedCount} posted, {duplicateCount} duplicates, {missingCount} no reports");
+
+                if (failedGuilds.Count > 0)
+                {
+                    _logger.LogWarning($"[v2 Batch] Failed to process {failedGuilds.Count} guilds: {string.Join(", ", failedGuilds)}");
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Batched log check failed: {ex.Message}");
+                _logger.LogError($"[v2 Batch] Critical failure in batched log check: {ex.GetType().Name} - {ex.Message}\n{ex.StackTrace}");
             }
         }
 
