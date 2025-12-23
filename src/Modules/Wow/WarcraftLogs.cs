@@ -459,7 +459,8 @@ namespace NinjaBotCore.Modules.Wow
                 owner = v2Report.OwnerName,
                 start = v2Report.StartTime,
                 end = v2Report.EndTime,
-                zone = v2Report.Zone?.Id ?? 0
+                zone = v2Report.Zone?.Id ?? 0,
+                zoneName = v2Report.Zone?.Name  // Use zone name from v2 API directly (avoids lookup)
             };
         }
 
@@ -756,10 +757,7 @@ namespace NinjaBotCore.Modules.Wow
                             continue;
                         }
 
-                        if (string.IsNullOrEmpty(latestLog.zoneName))
-                        {
-                            _logger.LogWarning($"[v2 Batch] Could not resolve zone name for report {latestLog.id} (zone ID: {latestLog.zone})");
-                        }
+                        // Note: zoneName is now set directly from v2 API, no lookup needed
 
                         DateTime startTime = UnixTimeStampToDateTime(latestLog.start);
                         processedCount++;
@@ -824,7 +822,7 @@ namespace NinjaBotCore.Modules.Wow
                         var embed = new EmbedBuilder();
                         embed.Title = $"New log found for [{guild.WowGuild}]!";
                         StringBuilder sb = new StringBuilder();
-                        sb.AppendLine($"[__**{latestLog.title}** **/** **{latestLog.zoneName ?? "Unknown Zone"}**__]({latestLog.reportURL})");
+                        sb.AppendLine($"[__**{latestLog.title}** **/** **{latestLog.zoneName}**__]({latestLog.reportURL})");
                         sb.AppendLine($"\t:timer: Start time: **{logStart}**");
                         sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{latestLog.id}) | :sob: [WipeFest](https://www.wipefest.net/report/{latestLog.id}) ");
                         sb.AppendLine($"\t:pencil2: Created by [**{latestLog.owner}**]");

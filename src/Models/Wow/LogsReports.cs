@@ -17,12 +17,25 @@ namespace NinjaBotCore.Models.Wow
         public long start { get; set; }
         public long end { get; set; }
         public int zone { get; set; }
+
+        // Backing field for zone name (used by v2 API to avoid lookup)
+        private string _zoneNameOverride;
+
         public string zoneName
         {
             get
-            {             
+            {
+                // If zone name was explicitly set (v2 API), use that
+                if (!string.IsNullOrEmpty(_zoneNameOverride))
+                    return _zoneNameOverride;
+
+                // Otherwise, look up by zone ID (v1 API compatibility)
                 string theZone = WarcraftLogs.Zones.Where(r => r.id == this.zone).Select(r => r.name).FirstOrDefault();
                 return theZone;
+            }
+            set
+            {
+                _zoneNameOverride = value;
             }
         }
         public string reportURL
