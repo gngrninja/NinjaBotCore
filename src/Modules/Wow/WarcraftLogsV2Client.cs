@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -183,7 +184,16 @@ namespace NinjaBotCore.Modules.Wow
 
             if (result.Errors != null && result.Errors.Count > 0)
             {
-                _logger.LogWarning($"GraphQL returned errors: {JsonConvert.SerializeObject(result.Errors)}");
+                // Group errors by message for cleaner logging
+                var errorGroups = result.Errors
+                    .GroupBy(e => e.Message)
+                    .Select(g => new { Message = g.Key, Count = g.Count() })
+                    .ToList();
+
+                foreach (var group in errorGroups)
+                {
+                    _logger.LogWarning($"GraphQL error: {group.Message} (occurred {group.Count} time{(group.Count > 1 ? "s" : "")})");
+                }
             }
 
             return result;
@@ -302,6 +312,7 @@ namespace NinjaBotCore.Modules.Wow
 
                 var batchResults = new Dictionary<string, WclV2Report>();
                 var parseErrors = new List<string>();
+                var noReportsGuilds = new List<string>();
 
                 // Parse each guild's results with type-safe validation
                 foreach (var (guildName, serverSlug, serverRegion, guildKey, index) in validatedGuilds)
@@ -314,33 +325,46 @@ namespace NinjaBotCore.Modules.Wow
                         var guildData = result.Data[aliasKey];
                         if (guildData == null || guildData.Type == Newtonsoft.Json.Linq.JTokenType.Null)
                         {
-                            _logger.LogWarning($"[v2 Batch] No data returned for {guildIdentifier}");
+                            noReportsGuilds.Add(guildIdentifier);
+                            _logger.LogDebug($"[v2 Batch] No data returned for {guildIdentifier}");
                             continue;
                         }
 
                         var reportsContainer = guildData["reports"];
                         if (reportsContainer == null)
                         {
-                            _logger.LogWarning($"[v2 Batch] Missing 'reports' field for {guildIdentifier}");
+                            noReportsGuilds.Add(guildIdentifier);
+                            _logger.LogDebug($"[v2 Batch] Missing 'reports' field for {guildIdentifier}");
                             continue;
                         }
 
-                        var reportsData = reportsContainer["data"];
+                        // Type-safe object validation before accessing child properties
+                        if (!(reportsContainer is Newtonsoft.Json.Linq.JObject reportsObject))
+                        {
+                            noReportsGuilds.Add(guildIdentifier);
+                            _logger.LogDebug($"[v2 Batch] Reports field is not an object for {guildIdentifier}, got {reportsContainer.Type}");
+                            continue;
+                        }
+
+                        var reportsData = reportsObject["data"];
                         if (reportsData == null)
                         {
-                            _logger.LogWarning($"[v2 Batch] Missing 'data' field for {guildIdentifier}");
+                            noReportsGuilds.Add(guildIdentifier);
+                            _logger.LogDebug($"[v2 Batch] Missing 'data' field for {guildIdentifier}");
                             continue;
                         }
 
                         // Type-safe array validation
                         if (!(reportsData is Newtonsoft.Json.Linq.JArray reportsArray))
                         {
-                            _logger.LogWarning($"[v2 Batch] 'data' is not an array for {guildIdentifier}, got {reportsData.Type}");
+                            noReportsGuilds.Add(guildIdentifier);
+                            _logger.LogDebug($"[v2 Batch] 'data' is not an array for {guildIdentifier}, got {reportsData.Type}");
                             continue;
                         }
 
                         if (reportsArray.Count == 0)
                         {
+                            noReportsGuilds.Add(guildIdentifier);
                             _logger.LogDebug($"[v2 Batch] No reports found for {guildIdentifier}");
                             continue;
                         }
@@ -390,6 +414,24 @@ namespace NinjaBotCore.Modules.Wow
                 if (parseErrors.Count > 0)
                 {
                     _logger.LogWarning($"[v2 Batch] Encountered {parseErrors.Count} parsing errors");
+                }
+
+                if (noReportsGuilds.Count > 0)
+                {
+                    _logger.LogInformation($"[v2 Batch] {noReportsGuilds.Count} guilds with no reports");
+
+                    // Log first 5 guilds with no reports for troubleshooting
+                    if (noReportsGuilds.Count <= 5)
+                    {
+                        foreach (var guild in noReportsGuilds)
+                        {
+                            _logger.LogDebug($"  - {guild}");
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogDebug($"  First 5: {string.Join(", ", noReportsGuilds.Take(5))}");
+                    }
                 }
 
                 return batchResults;

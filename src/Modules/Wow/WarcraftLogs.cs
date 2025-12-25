@@ -35,10 +35,10 @@ namespace NinjaBotCore.Modules.Wow
         private readonly ILogger _logger;
         private static CurrentRaidTier _currentRaidTier;
         private readonly WclApiRequestor _apiClassic;
-        private readonly WclApiRequestor _apiVanilla;        
+        private readonly WclApiRequestor _apiVanilla;
         private readonly WclApiRequestor _apiVanillaCmd;
         private readonly WowApi _wowApi;
-        private readonly NinjaBotEntities _db;
+        private readonly IServiceScopeFactory _scopeFactory;
         private readonly WarcraftLogsV2Client _v2Client;
 
         public WarcraftLogs(IServiceProvider services)
@@ -46,7 +46,7 @@ namespace NinjaBotCore.Modules.Wow
             _logger = services.GetRequiredService<ILogger<WarcraftLogs>>();
             _client = services.GetRequiredService<DiscordShardedClient>();
             _config = services.GetRequiredService<IConfigurationRoot>();
-            _db     = services.GetRequiredService<NinjaBotEntities>();
+            _scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
             _wowApi = services.GetRequiredService<WowApi>();
             _v2Client = services.GetRequiredService<WarcraftLogsV2Client>();
                         
@@ -531,10 +531,13 @@ namespace NinjaBotCore.Modules.Wow
                     bool flip = true;
                     try
                     {
-                        guildList = _db.WowGuildAssociations.ToList();
-                        logWatchList = _db.LogMonitoring.ToList();
-                        cGuildList = _db.WowClassicGuild.ToList();
-                        vGuildList = _db.WowVanillaGuild.ToList();
+                        using var scope = _scopeFactory.CreateScope();
+                        var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                        guildList = db.WowGuildAssociations.ToList();
+                        logWatchList = db.LogMonitoring.ToList();
+                        cGuildList = db.WowClassicGuild.ToList();
+                        vGuildList = db.WowVanillaGuild.ToList();
                     }
                     catch (Exception ex)
                     {
@@ -618,17 +621,20 @@ namespace NinjaBotCore.Modules.Wow
                             DateTime startTime = UnixTimeStampToDateTime(latestLog.start);
                             //System.Console.WriteLine($"local id [{watchGuild.RetailReportId}] -> remote id [{latestLog.id}] for [{guild.WowGuild}] on [{guild.WowRealm}].");
                             if (latestLog.id != watchGuild.RetailReportId)
-                            {          
-                                var checkId = _db.WclPosted.Where(p => p.ServerId == guild.ServerId && p.ReportId == latestLog.id).FirstOrDefault();
+                            {
+                                using var scope = _scopeFactory.CreateScope();
+                                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                                var checkId = db.WclPosted.Where(p => p.ServerId == guild.ServerId && p.ReportId == latestLog.id).FirstOrDefault();
                                 if (checkId != null)
                                 {
                                     _logger.LogInformation($"latest report id {latestLog.id} found in database, cancelling post for {guild.ServerName}!");
                                     return;
-                                }                                                  
-                                var latestForGuild = _db.LogMonitoring.Where(l => l.ServerId == guild.ServerId).FirstOrDefault();
+                                }
+                                var latestForGuild = db.LogMonitoring.Where(l => l.ServerId == guild.ServerId).FirstOrDefault();
                                 latestForGuild.LatestLogRetail = startTime;
                                 latestForGuild.RetailReportId = latestLog.id;
-                                _db.WclPosted.Add(new WclPosted
+                                db.WclPosted.Add(new WclPosted
                                 {
                                     ServerId = (long)guild.ServerId,
                                     ChannelId = latestForGuild.ChannelId,
@@ -636,7 +642,7 @@ namespace NinjaBotCore.Modules.Wow
                                     ServerName = latestForGuild.ServerName,
                                     ReportId = latestLog.id
                                 });
-                                await _db.SaveChangesAsync();
+                                await db.SaveChangesAsync();
                                 ISocketMessageChannel channel = _client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
                                 if (channel != null)
                                 {
@@ -769,26 +775,29 @@ namespace NinjaBotCore.Modules.Wow
                             continue;
                         }
 
-                        // Check if already posted
-                        var checkId = _db.WclPosted.FirstOrDefault(p => p.ServerId == guild.ServerId && p.ReportId == latestLog.id);
+                        // Check if already posted and handle database operations
+                        using var scope = _scopeFactory.CreateScope();
+                        var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                        var checkId = db.WclPosted.FirstOrDefault(p => p.ServerId == guild.ServerId && p.ReportId == latestLog.id);
                         if (checkId != null)
                         {
                             _logger.LogInformation($"[v2 Batch] Report {latestLog.id} already posted for {guild.ServerName}, updating tracking");
                             duplicateCount++;
 
                             // Update tracking even if already posted
-                            var latestForGuild = _db.LogMonitoring.FirstOrDefault(l => l.ServerId == guild.ServerId);
+                            var latestForGuild = db.LogMonitoring.FirstOrDefault(l => l.ServerId == guild.ServerId);
                             if (latestForGuild != null)
                             {
                                 latestForGuild.LatestLogRetail = startTime;
                                 latestForGuild.RetailReportId = latestLog.id;
-                                await _db.SaveChangesAsync();
+                                await db.SaveChangesAsync();
                             }
                             continue;
                         }
 
                         // New report - post it
-                        var latestForGuild2 = _db.LogMonitoring.FirstOrDefault(l => l.ServerId == guild.ServerId);
+                        var latestForGuild2 = db.LogMonitoring.FirstOrDefault(l => l.ServerId == guild.ServerId);
                         if (latestForGuild2 == null)
                         {
                             _logger.LogWarning($"[v2 Batch] Cannot update monitoring record for {guildIdentifier} - record not found");
@@ -797,7 +806,7 @@ namespace NinjaBotCore.Modules.Wow
 
                         latestForGuild2.LatestLogRetail = startTime;
                         latestForGuild2.RetailReportId = latestLog.id;
-                        _db.WclPosted.Add(new WclPosted
+                        db.WclPosted.Add(new WclPosted
                         {
                             ServerId = (long)guild.ServerId,
                             ChannelId = latestForGuild2.ChannelId,
@@ -805,7 +814,7 @@ namespace NinjaBotCore.Modules.Wow
                             ServerName = latestForGuild2.ServerName,
                             ReportId = latestLog.id
                         });
-                        await _db.SaveChangesAsync();
+                        await db.SaveChangesAsync();
 
                         ISocketMessageChannel channel = _client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
                         if (channel == null)
@@ -933,10 +942,13 @@ namespace NinjaBotCore.Modules.Wow
                             //System.Console.WriteLine($"local id [{watchGuild.VanillaReportId}] -> remote id [{latestLog.id}] for [{guild.WowGuild}] on [{guild.WowRealm}].");
                             if (latestLog.id != watchGuild.VanillaReportId)
                             {
-                                var latestForGuild = _db.LogMonitoring.Where(l => l.ServerId == guild.ServerId).FirstOrDefault();
+                                using var scope = _scopeFactory.CreateScope();
+                                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                                var latestForGuild = db.LogMonitoring.Where(l => l.ServerId == guild.ServerId).FirstOrDefault();
                                 latestForGuild.LatestLogVanilla = startTime;
                                 latestForGuild.VanillaReportId = latestLog.id;
-                                await _db.SaveChangesAsync();
+                                await db.SaveChangesAsync();
                                 ISocketMessageChannel channel = _client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
                                 if (channel != null)
                                 {
@@ -991,10 +1003,13 @@ namespace NinjaBotCore.Modules.Wow
                             //System.Console.WriteLine($"local id [{watchGuild.ClassicReportId}] -> remote id [{latestLog.id}] for [{guild.WowGuild}] on [{guild.WowRealm}].");
                             if (latestLog.id != watchGuild.ClassicReportId)
                             {
-                                var latestForGuild = _db.LogMonitoring.Where(l => l.ServerId == guild.ServerId).FirstOrDefault();
+                                using var scope = _scopeFactory.CreateScope();
+                                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                                var latestForGuild = db.LogMonitoring.Where(l => l.ServerId == guild.ServerId).FirstOrDefault();
                                 latestForGuild.LatestLogClassic = startTime;
                                 latestForGuild.ClassicReportId = latestLog.id;
-                                await _db.SaveChangesAsync();
+                                await db.SaveChangesAsync();
                                 ISocketMessageChannel channel = _client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
                                 if (channel != null)
                                 {
@@ -1024,7 +1039,11 @@ namespace NinjaBotCore.Modules.Wow
         private CurrentRaidTier SetCurrentTier()
         {
             var currentTier = new CurrentRaidTier();
-            var tierFromDb = _db.CurrentRaidTier.FirstOrDefault();
+
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+            var tierFromDb = db.CurrentRaidTier.FirstOrDefault();
             if (tierFromDb != null)
             {
                 currentTier = tierFromDb;
@@ -1037,7 +1056,10 @@ namespace NinjaBotCore.Modules.Wow
             List<LogMonitoring> logWatchList = null;
             try
             {
-                logWatchList = _db.LogMonitoring.ToList();
+                using var scope = _scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                logWatchList = db.LogMonitoring.ToList();
                 foreach (var entry in logWatchList.Where(r => !string.IsNullOrEmpty(r.ReportId)))
                 {
                     var oldReportId = entry.ReportId;
@@ -1046,7 +1068,7 @@ namespace NinjaBotCore.Modules.Wow
                     entry.RetailReportId = oldReportId;
                     entry.ReportId = string.Empty;
                     System.Console.WriteLine($"Updating [{entry.ServerName}]...");
-                    _db.SaveChanges();
+                    db.SaveChanges();
                 }
             }
             catch (Exception ex)
