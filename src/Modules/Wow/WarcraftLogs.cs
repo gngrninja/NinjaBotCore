@@ -30,8 +30,8 @@ namespace NinjaBotCore.Modules.Wow
         private readonly IConfigurationRoot _config;
         private DiscordShardedClient _client;
         private readonly WclApiRequestor _api;
-        private readonly WclApiRequestor _apiCmd;        
-        private readonly WclApiRequestor _apiClassicCmd;        
+        private readonly WclApiRequestor _apiCmd;
+        private readonly WclApiRequestor _apiClassicCmd;
         private readonly ILogger _logger;
         private static CurrentRaidTier _currentRaidTier;
         private readonly WclApiRequestor _apiClassic;
@@ -41,6 +41,20 @@ namespace NinjaBotCore.Modules.Wow
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly WarcraftLogsV2Client _v2Client;
 
+        // Tier tracking - when each tier was last checked
+        private DateTime _tier1LastCheck = DateTime.MinValue;
+        private DateTime _tier2LastCheck = DateTime.MinValue;
+        private DateTime _tier3LastCheck = DateTime.MinValue;
+
+        // Tier thresholds (days since last report)
+        private readonly int _tier1ThresholdDays;  // Active threshold
+        private readonly int _tier2ThresholdDays;  // Semi-active threshold
+
+        // Tier intervals (how often to check each tier)
+        private readonly TimeSpan _tier1Interval;  // Active check interval
+        private readonly TimeSpan _tier2Interval;  // Semi-active check interval
+        private readonly TimeSpan _tier3Interval;  // Inactive check interval
+
         public WarcraftLogs(IServiceProvider services)
         {
             _logger = services.GetRequiredService<ILogger<WarcraftLogs>>();
@@ -49,11 +63,22 @@ namespace NinjaBotCore.Modules.Wow
             _scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
             _wowApi = services.GetRequiredService<WowApi>();
             _v2Client = services.GetRequiredService<WarcraftLogsV2Client>();
-                        
+
+            // Load tier configuration from config with fallback defaults
+            _tier1ThresholdDays = int.TryParse(_config["WCL:Tier1ThresholdDays"], out var t1) ? t1 : 14;
+            _tier2ThresholdDays = int.TryParse(_config["WCL:Tier2ThresholdDays"], out var t2) ? t2 : 30;
+
+            _tier1Interval = TimeSpan.FromMinutes(int.TryParse(_config["WCL:Tier1IntervalMinutes"], out var i1) ? i1 : 20);
+            _tier2Interval = TimeSpan.FromHours(int.TryParse(_config["WCL:Tier2IntervalHours"], out var i2) ? i2 : 3);
+            _tier3Interval = TimeSpan.FromHours(int.TryParse(_config["WCL:Tier3IntervalHours"], out var i3) ? i3 : 24);
+
+            _logger.LogInformation("WCL Tier Config: T1={Tier1Days}d/{Tier1Minutes}m, T2={Tier2Days}d/{Tier2Hours}h, T3={Tier3Hours}h",
+                _tier1ThresholdDays, _tier1Interval.TotalMinutes, _tier2ThresholdDays, _tier2Interval.TotalHours, _tier3Interval.TotalHours);
+
             try
             {
                 _api = new ApiRequestorThrottle(_config["WarcraftLogsApi"], baseUrl: "https://www.warcraftlogs.com:443/v1/", services.GetRequiredService<IHttpClientFactory>().CreateClient());
-                _apiCmd = new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"], baseUrl: "https://www.warcraftlogs.com:443/v1/", services.GetRequiredService<IHttpClientFactory>().CreateClient()); 
+                _apiCmd = new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"], baseUrl: "https://www.warcraftlogs.com:443/v1/", services.GetRequiredService<IHttpClientFactory>().CreateClient());
                 _apiClassic = new ApiRequestorThrottle(_config["WarcraftLogsApi"], baseUrl: "https://classic.warcraftlogs.com:443/v1/" , services.GetRequiredService<IHttpClientFactory>().CreateClient());
                 _apiClassicCmd = new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"], baseUrl: "https://classic.warcraftlogs.com:443/v1/", services.GetRequiredService<IHttpClientFactory>().CreateClient());
                 _apiVanilla = new ApiRequestorThrottle(_config["WarcraftLogsApi"], baseUrl: "https://vanilla.warcraftlogs.com:443/v1/" , services.GetRequiredService<IHttpClientFactory>().CreateClient());
@@ -464,6 +489,75 @@ namespace NinjaBotCore.Modules.Wow
             };
         }
 
+        /// <summary>
+        /// Guild activity tiers for optimized checking (configurable via WCL:Tier*ThresholdDays and WCL:Tier*Interval*)
+        /// </summary>
+        private enum GuildActivityTier
+        {
+            Tier1_Active,      // Recent reports - checked frequently
+            Tier2_SemiActive,  // Moderate reports - checked periodically
+            Tier3_Inactive     // Old/no reports - checked infrequently
+        }
+
+        /// <summary>
+        /// Determines guild tier based on last report date
+        /// </summary>
+        private GuildActivityTier DetermineGuildTier(DateTime? lastReportDate)
+        {
+            if (lastReportDate == null)
+                return GuildActivityTier.Tier3_Inactive;
+
+            var daysSinceReport = (DateTime.UtcNow - lastReportDate.Value).TotalDays;
+
+            if (daysSinceReport <= _tier1ThresholdDays)
+                return GuildActivityTier.Tier1_Active;
+            else if (daysSinceReport <= _tier2ThresholdDays)
+                return GuildActivityTier.Tier2_SemiActive;
+            else
+                return GuildActivityTier.Tier3_Inactive;
+        }
+
+        /// <summary>
+        /// Checks if a tier should be checked based on its interval
+        /// </summary>
+        private bool ShouldCheckTier(GuildActivityTier tier)
+        {
+            var now = DateTime.UtcNow;
+
+            switch (tier)
+            {
+                case GuildActivityTier.Tier1_Active:
+                    return (now - _tier1LastCheck) >= _tier1Interval;
+                case GuildActivityTier.Tier2_SemiActive:
+                    return (now - _tier2LastCheck) >= _tier2Interval;
+                case GuildActivityTier.Tier3_Inactive:
+                    return (now - _tier3LastCheck) >= _tier3Interval;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Updates the last check time for a tier
+        /// </summary>
+        private void UpdateTierCheckTime(GuildActivityTier tier)
+        {
+            var now = DateTime.UtcNow;
+
+            switch (tier)
+            {
+                case GuildActivityTier.Tier1_Active:
+                    _tier1LastCheck = now;
+                    break;
+                case GuildActivityTier.Tier2_SemiActive:
+                    _tier2LastCheck = now;
+                    break;
+                case GuildActivityTier.Tier3_Inactive:
+                    _tier3LastCheck = now;
+                    break;
+            }
+        }
+
         public DateTime ConvTimeToLocalTimezone(DateTime time, string timezone = "America/Los_Angeles")
         {
             TimeZoneInfo tzInfo;
@@ -495,9 +589,10 @@ namespace NinjaBotCore.Modules.Wow
             try
             {
                 while (!token.IsCancellationRequested)
-                {                             
-                    action();   
-                    await Task.Delay(TimeSpan.FromSeconds(1800),token);                                     
+                {
+                    action();
+                    // Check every 10 minutes - tier logic will determine which guilds to actually check
+                    await Task.Delay(TimeSpan.FromMinutes(10), token);
                 }
             }
             catch (TaskCanceledException ex)
@@ -547,8 +642,41 @@ namespace NinjaBotCore.Modules.Wow
                     {
                         _logger.LogInformation("Starting WCL Auto Posting...");
 
-                        // Batched approach for Retail guilds (v2 API)
-                        await PerformBatchedLogCheck(logWatchList, guildList).ConfigureAwait(false);
+                        // Check which tiers are due for checking
+                        var tier1Due = ShouldCheckTier(GuildActivityTier.Tier1_Active);
+                        var tier2Due = ShouldCheckTier(GuildActivityTier.Tier2_SemiActive);
+                        var tier3Due = ShouldCheckTier(GuildActivityTier.Tier3_Inactive);
+
+                        if (!tier1Due && !tier2Due && !tier3Due)
+                        {
+                            _logger.LogInformation("No tiers due for checking at this time");
+                        }
+                        else
+                        {
+                            _logger.LogInformation($"Tiers due: Tier1={tier1Due}, Tier2={tier2Due}, Tier3={tier3Due}");
+
+                            // Process each tier that's due
+                            if (tier1Due)
+                            {
+                                _logger.LogInformation("[Tier 1] Checking active guilds...");
+                                await PerformBatchedLogCheck(logWatchList, guildList, GuildActivityTier.Tier1_Active).ConfigureAwait(false);
+                                UpdateTierCheckTime(GuildActivityTier.Tier1_Active);
+                            }
+
+                            if (tier2Due)
+                            {
+                                _logger.LogInformation("[Tier 2] Checking semi-active guilds...");
+                                await PerformBatchedLogCheck(logWatchList, guildList, GuildActivityTier.Tier2_SemiActive).ConfigureAwait(false);
+                                UpdateTierCheckTime(GuildActivityTier.Tier2_SemiActive);
+                            }
+
+                            if (tier3Due)
+                            {
+                                _logger.LogInformation("[Tier 3] Checking inactive guilds...");
+                                await PerformBatchedLogCheck(logWatchList, guildList, GuildActivityTier.Tier3_Inactive).ConfigureAwait(false);
+                                UpdateTierCheckTime(GuildActivityTier.Tier3_Inactive);
+                            }
+                        }
 
                         // Classic and Vanilla still use individual requests (v1 API)
                         foreach (var guild in cGuildList)
@@ -674,20 +802,38 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
-        private async Task PerformBatchedLogCheck(List<LogMonitoring> logWatchList, List<WowGuildAssociations> guildList)
+        private async Task PerformBatchedLogCheck(List<LogMonitoring> logWatchList, List<WowGuildAssociations> guildList, GuildActivityTier tier)
         {
             try
             {
-                // Filter guilds that need monitoring
+                // Filter guilds that need monitoring AND match the specified tier
                 var guildsToMonitor = guildList
                     .Where(g => logWatchList.Any(w => w.ServerId == g.ServerId && w.MonitorLogs))
+                    .Select(g => new
+                    {
+                        Guild = g,
+                        Monitoring = logWatchList.First(w => w.ServerId == g.ServerId),
+                        Tier = DetermineGuildTier(logWatchList.First(w => w.ServerId == g.ServerId).LatestLogRetail)
+                    })
+                    .Where(x => x.Tier == tier)
+                    .Select(x => x.Guild)
                     .ToList();
 
                 if (guildsToMonitor.Count == 0)
                 {
-                    _logger.LogInformation("[v2 Batch] No retail guilds to monitor");
+                    _logger.LogInformation($"[v2 Batch] [Tier {(int)tier + 1}] No guilds to monitor");
                     return;
                 }
+
+                var tierName = tier switch
+                {
+                    GuildActivityTier.Tier1_Active => $"Active (<{_tier1ThresholdDays} days)",
+                    GuildActivityTier.Tier2_SemiActive => $"Semi-Active ({_tier1ThresholdDays}-{_tier2ThresholdDays} days)",
+                    GuildActivityTier.Tier3_Inactive => $"Inactive ({_tier2ThresholdDays}+ days)",
+                    _ => "Unknown"
+                };
+
+                _logger.LogInformation($"[v2 Batch] [Tier {(int)tier + 1}] Processing {guildsToMonitor.Count} {tierName} guilds");
 
                 // Build batch request list
                 var batchRequest = guildsToMonitor.Select(g => (
@@ -699,12 +845,12 @@ namespace NinjaBotCore.Modules.Wow
 
                 _logger.LogInformation($"[v2 Batch] Querying {batchRequest.Count} retail guilds in single request");
 
-                Dictionary<string, WclV2Report> batchResults = null;
+                WclV2BatchResult batchResult = null;
 
                 // Try v2 batched API first
                 try
                 {
-                    batchResults = await _v2Client.GetBatchGuildReportsAsync(batchRequest);
+                    batchResult = await _v2Client.GetBatchGuildReportsAsync(batchRequest);
                 }
                 catch (Exception v2Ex)
                 {
@@ -718,11 +864,14 @@ namespace NinjaBotCore.Modules.Wow
                     return;
                 }
 
-                if (batchResults == null)
+                if (batchResult == null)
                 {
-                    _logger.LogError("[v2 Batch] Received null batch results, cannot process guilds");
+                    _logger.LogError("[v2 Batch] Received null batch result, cannot process guilds");
                     return;
                 }
+
+                // Log batch result categorization
+                _logger.LogInformation($"[v2 Batch] Result breakdown: {batchResult.Reports.Count} with reports, {batchResult.NonExistentGuilds.Count} not found, {batchResult.GuildsWithNoReports.Count} no reports, {guildsToMonitor.Count - (batchResult.Reports.Count + batchResult.NonExistentGuilds.Count + batchResult.GuildsWithNoReports.Count)} uncategorized");
 
                 // Track statistics
                 int processedCount = 0;
@@ -746,9 +895,16 @@ namespace NinjaBotCore.Modules.Wow
                         var guildKey = $"{guild.ServerId}";
                         var guildIdentifier = $"{guild.WowGuild}-{guild.WowRealm} ({guild.WowRegion})";
 
-                        if (!batchResults.TryGetValue(guildKey, out var v2Report))
+                        if (!batchResult.Reports.TryGetValue(guildKey, out var v2Report))
                         {
-                            _logger.LogDebug($"[v2 Batch] No report found for {guildIdentifier} (may not have uploaded logs recently)");
+                            // Determine why this guild has no report
+                            var reason = "unknown";
+                            if (batchResult.NonExistentGuilds.Contains(guildKey))
+                                reason = "guild doesn't exist on WCL";
+                            else if (batchResult.GuildsWithNoReports.Contains(guildKey))
+                                reason = "guild has no reports";
+
+                            _logger.LogDebug($"[v2 Batch] No report found for {guildIdentifier} - {reason}");
                             missingCount++;
                             continue;
                         }
@@ -851,7 +1007,8 @@ namespace NinjaBotCore.Modules.Wow
                 }
 
                 // Summary logging
-                _logger.LogInformation($"[v2 Batch] Batch complete: {batchRequest.Count} queried, {processedCount} processed, {postedCount} posted, {duplicateCount} duplicates, {missingCount} no reports");
+                _logger.LogDebug($"[v2 Batch] [Tier {(int)tier + 1}] Counter values: processedCount={processedCount}, missingCount={missingCount}, postedCount={postedCount}, duplicateCount={duplicateCount}");
+                _logger.LogInformation($"[v2 Batch] [Tier {(int)tier + 1}] Batch complete: {batchRequest.Count} queried, {processedCount} processed, {postedCount} posted, {duplicateCount} duplicates, {missingCount} no reports");
 
                 if (failedGuilds.Count > 0)
                 {

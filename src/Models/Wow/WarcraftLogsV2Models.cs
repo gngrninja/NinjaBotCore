@@ -49,6 +49,9 @@ namespace NinjaBotCore.Models.Wow
 
         [JsonProperty("locations")]
         public List<GraphQLErrorLocation> Locations { get; set; }
+
+        [JsonProperty("path")]
+        public List<object> Path { get; set; }
     }
 
     public class GraphQLErrorLocation
@@ -141,6 +144,25 @@ namespace NinjaBotCore.Models.Wow
 
         [JsonProperty("name")]
         public string Name { get; set; }
+    }
+
+    // Batch Query Result with Error Information
+    public class WclV2BatchResult
+    {
+        /// <summary>
+        /// Successfully retrieved reports (guild key -> report)
+        /// </summary>
+        public Dictionary<string, WclV2Report> Reports { get; set; } = new Dictionary<string, WclV2Report>();
+
+        /// <summary>
+        /// Guild keys for guilds that don't exist on WarcraftLogs (returned GraphQL error)
+        /// </summary>
+        public HashSet<string> NonExistentGuilds { get; set; } = new HashSet<string>();
+
+        /// <summary>
+        /// Guild keys for guilds that exist but have no reports (empty data array)
+        /// </summary>
+        public HashSet<string> GuildsWithNoReports { get; set; } = new HashSet<string>();
     }
 
     // Rate Limit Data

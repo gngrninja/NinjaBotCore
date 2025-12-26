@@ -229,14 +229,18 @@ namespace NinjaBotCore.Modules.Wow
 
         /// <summary>
         /// Gets latest reports for multiple guilds in a single batched GraphQL query
+        /// Returns detailed information including which guilds don't exist vs have no reports
         /// </summary>
-        public async Task<Dictionary<string, WclV2Report>> GetBatchGuildReportsAsync(List<(string guildName, string serverSlug, string serverRegion, string guildKey)> guilds)
+        public async Task<WclV2BatchResult> GetBatchGuildReportsAsync(List<(string guildName, string serverSlug, string serverRegion, string guildKey)> guilds)
         {
             if (guilds == null || guilds.Count == 0)
-                return new Dictionary<string, WclV2Report>();
+                return new WclV2BatchResult();
 
             // Validate and sanitize input
             var validatedGuilds = new List<(string guildName, string serverSlug, string serverRegion, string guildKey, int index)>();
+            var seenKeys = new HashSet<string>();
+            var duplicateKeys = new List<(string guildKey, string guild1, string guild2)>();
+
             for (int i = 0; i < guilds.Count; i++)
             {
                 var (guildName, serverSlug, serverRegion, guildKey) = guilds[i];
@@ -247,13 +251,29 @@ namespace NinjaBotCore.Modules.Wow
                     continue;
                 }
 
+                // Check for duplicate guild keys
+                if (!seenKeys.Add(guildKey))
+                {
+                    var existingGuild = validatedGuilds.First(g => g.guildKey == guildKey);
+                    var currentGuild = $"{guildName}-{serverSlug} ({serverRegion})";
+                    var existing = $"{existingGuild.guildName}-{existingGuild.serverSlug} ({existingGuild.serverRegion})";
+                    duplicateKeys.Add((guildKey, existing, currentGuild));
+                    _logger.LogWarning($"[v2 Batch] DUPLICATE GUILD KEY '{guildKey}': '{existing}' and '{currentGuild}' - skipping duplicate!");
+                    continue; // Skip the duplicate entry
+                }
+
                 validatedGuilds.Add((guildName, serverSlug, serverRegion, guildKey, i));
+            }
+
+            if (duplicateKeys.Count > 0)
+            {
+                _logger.LogWarning($"[v2 Batch] Found and skipped {duplicateKeys.Count} duplicate guild key(s) in batch. Run /wow-cleanup-duplicates to fix the database.");
             }
 
             if (validatedGuilds.Count == 0)
             {
                 _logger.LogWarning("No valid guilds to query after validation");
-                return new Dictionary<string, WclV2Report>();
+                return new WclV2BatchResult();
             }
 
             // Build batched query with GraphQL fragment for reusability
@@ -307,25 +327,61 @@ namespace NinjaBotCore.Modules.Wow
                 if (result.Data == null)
                 {
                     _logger.LogWarning("[v2 Batch] Query returned no data");
-                    return new Dictionary<string, WclV2Report>();
+                    return new WclV2BatchResult();
                 }
 
-                var batchResults = new Dictionary<string, WclV2Report>();
+                var batchResult = new WclV2BatchResult();
                 var parseErrors = new List<string>();
-                var noReportsGuilds = new List<string>();
+                var uncategorizedGuilds = new List<(string guildKey, string guildName, string reason)>();
+
+                // Parse GraphQL errors to identify non-existent guilds
+                var nonExistentAliases = new HashSet<string>();
+                if (result.Errors != null && result.Errors.Count > 0)
+                {
+                    foreach (var error in result.Errors)
+                    {
+                        // Check if this is a "guild doesn't exist" error
+                        if (error.Message != null && error.Message.Contains("No guild exists for this name/server/region"))
+                        {
+                            // Extract the guild alias from the error path (e.g., ["guild_0", "reports"])
+                            if (error.Path != null && error.Path.Count > 0)
+                            {
+                                var aliasFromPath = error.Path[0]?.ToString();
+                                if (!string.IsNullOrEmpty(aliasFromPath))
+                                {
+                                    nonExistentAliases.Add(aliasFromPath);
+                                    _logger.LogDebug($"[v2 Batch] Identified non-existent guild at {aliasFromPath}");
+                                }
+                            }
+                        }
+                    }
+                }
 
                 // Parse each guild's results with type-safe validation
                 foreach (var (guildName, serverSlug, serverRegion, guildKey, index) in validatedGuilds)
                 {
                     var aliasKey = $"guild_{index}";
                     var guildIdentifier = $"{guildName}-{serverSlug} ({serverRegion})";
+                    var wasCategorized = false;
+
+                    _logger.LogDebug($"[v2 Batch] Processing guild {guildIdentifier} (Key: {guildKey}, Alias: {aliasKey})");
 
                     try
                     {
+                        // Check if this guild was identified as non-existent from GraphQL errors
+                        if (nonExistentAliases.Contains(aliasKey))
+                        {
+                            batchResult.NonExistentGuilds.Add(guildKey);
+                            _logger.LogDebug($"[v2 Batch] {guildIdentifier} does not exist on WarcraftLogs");
+                            wasCategorized = true;
+                            continue;
+                        }
+
                         var guildData = result.Data[aliasKey];
                         if (guildData == null || guildData.Type == Newtonsoft.Json.Linq.JTokenType.Null)
                         {
-                            noReportsGuilds.Add(guildIdentifier);
+                            batchResult.GuildsWithNoReports.Add(guildKey);
+                            wasCategorized = true;
                             _logger.LogDebug($"[v2 Batch] No data returned for {guildIdentifier}");
                             continue;
                         }
@@ -333,7 +389,8 @@ namespace NinjaBotCore.Modules.Wow
                         var reportsContainer = guildData["reports"];
                         if (reportsContainer == null)
                         {
-                            noReportsGuilds.Add(guildIdentifier);
+                            batchResult.GuildsWithNoReports.Add(guildKey);
+                            wasCategorized = true;
                             _logger.LogDebug($"[v2 Batch] Missing 'reports' field for {guildIdentifier}");
                             continue;
                         }
@@ -341,7 +398,8 @@ namespace NinjaBotCore.Modules.Wow
                         // Type-safe object validation before accessing child properties
                         if (!(reportsContainer is Newtonsoft.Json.Linq.JObject reportsObject))
                         {
-                            noReportsGuilds.Add(guildIdentifier);
+                            batchResult.GuildsWithNoReports.Add(guildKey);
+                            wasCategorized = true;
                             _logger.LogDebug($"[v2 Batch] Reports field is not an object for {guildIdentifier}, got {reportsContainer.Type}");
                             continue;
                         }
@@ -349,7 +407,8 @@ namespace NinjaBotCore.Modules.Wow
                         var reportsData = reportsObject["data"];
                         if (reportsData == null)
                         {
-                            noReportsGuilds.Add(guildIdentifier);
+                            batchResult.GuildsWithNoReports.Add(guildKey);
+                            wasCategorized = true;
                             _logger.LogDebug($"[v2 Batch] Missing 'data' field for {guildIdentifier}");
                             continue;
                         }
@@ -357,14 +416,16 @@ namespace NinjaBotCore.Modules.Wow
                         // Type-safe array validation
                         if (!(reportsData is Newtonsoft.Json.Linq.JArray reportsArray))
                         {
-                            noReportsGuilds.Add(guildIdentifier);
+                            batchResult.GuildsWithNoReports.Add(guildKey);
+                            wasCategorized = true;
                             _logger.LogDebug($"[v2 Batch] 'data' is not an array for {guildIdentifier}, got {reportsData.Type}");
                             continue;
                         }
 
                         if (reportsArray.Count == 0)
                         {
-                            noReportsGuilds.Add(guildIdentifier);
+                            batchResult.GuildsWithNoReports.Add(guildKey);
+                            wasCategorized = true;
                             _logger.LogDebug($"[v2 Batch] No reports found for {guildIdentifier}");
                             continue;
                         }
@@ -373,6 +434,8 @@ namespace NinjaBotCore.Modules.Wow
                         if (firstReport == null || firstReport.Type == Newtonsoft.Json.Linq.JTokenType.Null)
                         {
                             _logger.LogWarning($"[v2 Batch] First report is null for {guildIdentifier}");
+                            uncategorizedGuilds.Add((guildKey, guildIdentifier, "First report is null"));
+                            wasCategorized = true;
                             continue;
                         }
 
@@ -380,6 +443,8 @@ namespace NinjaBotCore.Modules.Wow
                         if (report == null)
                         {
                             _logger.LogWarning($"[v2 Batch] Failed to deserialize report for {guildIdentifier}");
+                            uncategorizedGuilds.Add((guildKey, guildIdentifier, "Deserialization failed"));
+                            wasCategorized = true;
                             continue;
                         }
 
@@ -387,54 +452,114 @@ namespace NinjaBotCore.Modules.Wow
                         if (string.IsNullOrEmpty(report.Code))
                         {
                             _logger.LogWarning($"[v2 Batch] Report missing code for {guildIdentifier}");
+                            uncategorizedGuilds.Add((guildKey, guildIdentifier, "Missing report code"));
+                            wasCategorized = true;
                             continue;
                         }
 
-                        batchResults[guildKey] = report;
+                        batchResult.Reports[guildKey] = report;
+                        wasCategorized = true;
                         _logger.LogDebug($"[v2 Batch] Successfully parsed report {report.Code} for {guildIdentifier}");
                     }
                     catch (JsonException jsonEx)
                     {
                         var error = $"{guildIdentifier}: JSON parsing failed - {jsonEx.Message}";
                         parseErrors.Add(error);
+                        uncategorizedGuilds.Add((guildKey, guildIdentifier, $"JSON exception: {jsonEx.Message}"));
+                        wasCategorized = true;  // Categorized as exception
                         _logger.LogError($"[v2 Batch] {error}");
                     }
                     catch (Exception ex)
                     {
                         var error = $"{guildIdentifier}: {ex.GetType().Name} - {ex.Message}";
                         parseErrors.Add(error);
+                        uncategorizedGuilds.Add((guildKey, guildIdentifier, $"Exception: {ex.GetType().Name}"));
+                        wasCategorized = true;  // Categorized as exception
                         _logger.LogError($"[v2 Batch] Failed to parse result for {error}");
                     }
+
+                    // Track guilds that didn't get categorized anywhere
+                    if (!wasCategorized)
+                    {
+                        uncategorizedGuilds.Add((guildKey, guildIdentifier, "UNKNOWN - no categorization path taken"));
+                        _logger.LogWarning($"[v2 Batch] Guild {guildIdentifier} (Key: {guildKey}) was not categorized by any code path!");
+                    }
+
+                    // Log final categorization for this guild
+                    var category = "UNKNOWN";
+                    if (batchResult.Reports.ContainsKey(guildKey)) category = "Reports";
+                    else if (batchResult.NonExistentGuilds.Contains(guildKey)) category = "NonExistent";
+                    else if (batchResult.GuildsWithNoReports.Contains(guildKey)) category = "NoReports";
+                    else if (uncategorizedGuilds.Any(u => u.guildKey == guildKey)) category = "Uncategorized";
+
+                    _logger.LogDebug($"[v2 Batch] Guild {guildIdentifier} final category: {category}");
                 }
 
                 // Summary logging
-                var successRate = validatedGuilds.Count > 0 ? (batchResults.Count * 100.0 / validatedGuilds.Count) : 0;
-                _logger.LogInformation($"[v2 Batch] Retrieved reports for {batchResults.Count}/{validatedGuilds.Count} guilds ({successRate:F1}% success rate)");
+                _logger.LogDebug($"[v2 Batch] Pre-summary counts: Reports={batchResult.Reports.Count}, NonExistent={batchResult.NonExistentGuilds.Count}, NoReports={batchResult.GuildsWithNoReports.Count}, Uncategorized={uncategorizedGuilds.Count}, ValidatedTotal={validatedGuilds.Count}");
+
+                var successRate = validatedGuilds.Count > 0 ? (batchResult.Reports.Count * 100.0 / validatedGuilds.Count) : 0;
+                _logger.LogInformation($"[v2 Batch] Retrieved reports for {batchResult.Reports.Count}/{validatedGuilds.Count} guilds ({successRate:F1}% success rate)");
 
                 if (parseErrors.Count > 0)
                 {
                     _logger.LogWarning($"[v2 Batch] Encountered {parseErrors.Count} parsing errors");
                 }
 
-                if (noReportsGuilds.Count > 0)
+                if (batchResult.NonExistentGuilds.Count > 0)
                 {
-                    _logger.LogInformation($"[v2 Batch] {noReportsGuilds.Count} guilds with no reports");
+                    _logger.LogInformation($"[v2 Batch] {batchResult.NonExistentGuilds.Count} guilds don't exist on WarcraftLogs");
+                }
 
-                    // Log first 5 guilds with no reports for troubleshooting
-                    if (noReportsGuilds.Count <= 5)
+                if (batchResult.GuildsWithNoReports.Count > 0)
+                {
+                    _logger.LogInformation($"[v2 Batch] {batchResult.GuildsWithNoReports.Count} guilds exist but have no reports");
+                }
+
+                if (uncategorizedGuilds.Count > 0)
+                {
+                    _logger.LogInformation($"[v2 Batch] {uncategorizedGuilds.Count} uncategorized guilds (validation failures):");
+                    foreach (var (guildKey, guildName, reason) in uncategorizedGuilds)
                     {
-                        foreach (var guild in noReportsGuilds)
-                        {
-                            _logger.LogDebug($"  - {guild}");
-                        }
-                    }
-                    else
-                    {
-                        _logger.LogDebug($"  First 5: {string.Join(", ", noReportsGuilds.Take(5))}");
+                        _logger.LogInformation($"[v2 Batch]   - {guildName} (Key: {guildKey}): {reason}");
                     }
                 }
 
-                return batchResults;
+                // Sanity check: detect guilds that aren't in any category
+                var categorizedCount = batchResult.Reports.Count + batchResult.NonExistentGuilds.Count + batchResult.GuildsWithNoReports.Count;
+                if (categorizedCount < validatedGuilds.Count)
+                {
+                    var missingCount = validatedGuilds.Count - categorizedCount;
+                    _logger.LogWarning($"[v2 Batch] COUNT MISMATCH: {missingCount} guilds not in any category (Reports={batchResult.Reports.Count}, NonExistent={batchResult.NonExistentGuilds.Count}, NoReports={batchResult.GuildsWithNoReports.Count}, Validated={validatedGuilds.Count})");
+
+                    // Find and log the missing guilds
+                    var foundMissing = 0;
+                    foreach (var (guildName, serverSlug, serverRegion, guildKey, index) in validatedGuilds)
+                    {
+                        var inReports = batchResult.Reports.ContainsKey(guildKey);
+                        var inNonExistent = batchResult.NonExistentGuilds.Contains(guildKey);
+                        var inNoReports = batchResult.GuildsWithNoReports.Contains(guildKey);
+
+                        if (!inReports && !inNonExistent && !inNoReports)
+                        {
+                            foundMissing++;
+                            _logger.LogWarning($"[v2 Batch] MISSING GUILD #{foundMissing}: {guildName}-{serverSlug} ({serverRegion}) - Key: '{guildKey}'");
+                        }
+                    }
+
+                    if (foundMissing == 0)
+                    {
+                        _logger.LogWarning($"[v2 Batch] BUG: Expected to find {missingCount} missing guilds, but loop found 0!");
+                        _logger.LogWarning($"[v2 Batch] Reports keys sample: {string.Join(", ", batchResult.Reports.Keys.Take(5))}");
+                        _logger.LogWarning($"[v2 Batch] ValidatedGuilds keys sample: {string.Join(", ", validatedGuilds.Take(5).Select(g => g.guildKey))}");
+                    }
+                    else if (foundMissing != missingCount)
+                    {
+                        _logger.LogWarning($"[v2 Batch] BUG: Expected {missingCount} missing guilds, but found {foundMissing}!");
+                    }
+                }
+
+                return batchResult;
             }
             catch (HttpRequestException httpEx)
             {
