@@ -643,8 +643,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 thumbUrl = Context.Guild.IconUrl;
             }
 
-            var guildObject = await _wowUtils.GetGuildName(Context); 
-            var guildStats = _rioApi.GetRioGuildInfo(guildName: guildObject.guildName, realmName: guildObject.realmSlug, region: guildObject.regionName);
+            var guildObject = await _wowUtils.GetGuildName(Context);
+            var guildStats = await _rioApi.GetRioGuildInfoAsync(guildName: guildObject.guildName, realmName: guildObject.realmSlug, region: guildObject.regionName);
                         
             string normalKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.ManaforgeOmega.NormalBossesKilled);
             string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.ManaforgeOmega.HeroicBossesKilled);
@@ -718,7 +718,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 }
             }
 
-            affixes = _rioApi.GetCurrentAffix(region: region);
+            affixes = await _rioApi.GetCurrentAffixAsync(region: region);
 
             title = $"Current M+ Affixes ({region})";
            
@@ -779,6 +779,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 updateGuild.ChannelId = (long)Context.Channel.Id;
                 updateGuild.ChannelName = Context.Channel.Name;
                 updateGuild.MonitorLogs = enable;
+
+                // When enabling, set LatestLogRetail to now so guild starts in Tier 1 (Active)
+                if (enable && updateGuild.LatestLogRetail == null)
+                {
+                    updateGuild.LatestLogRetail = DateTime.UtcNow;
+                }
             }
             else
             {
@@ -789,9 +795,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     ChannelId = (long)Context.Channel.Id,
                     ChannelName = Context.Channel.Name,
                     MonitorLogs = enable,
-                    LatestLog = DateTime.UtcNow
+                    LatestLog = DateTime.UtcNow,
+                    // Initialize LatestLogRetail so guild starts in Tier 1 (Active - highest priority)
+                    LatestLogRetail = enable ? DateTime.UtcNow : null
                 });
             }
+
             await _db.SaveChangesAsync();
             embed.Description = sb.ToString();
             await RespondAsync(embed: embed.Build(), ephemeral: true);

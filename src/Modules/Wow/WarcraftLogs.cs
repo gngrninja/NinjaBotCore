@@ -633,6 +633,23 @@ namespace NinjaBotCore.Modules.Wow
                         logWatchList = db.LogMonitoring.ToList();
                         cGuildList = db.WowClassicGuild.ToList();
                         vGuildList = db.WowVanillaGuild.ToList();
+
+                        // Auto-initialize LatestLogRetail for existing guilds with monitoring enabled
+                        // This ensures guilds aren't stuck in Tier 3 due to null LatestLogRetail
+                        var uninitializedGuilds = logWatchList
+                            .Where(l => l.MonitorLogs && l.LatestLogRetail == null && l.LatestLog.HasValue)
+                            .ToList();
+
+                        if (uninitializedGuilds.Count > 0)
+                        {
+                            _logger.LogInformation("Initializing LatestLogRetail for {Count} existing guilds with monitoring enabled", uninitializedGuilds.Count);
+                            foreach (var guild in uninitializedGuilds)
+                            {
+                                guild.LatestLogRetail = guild.LatestLog;
+                                _logger.LogDebug("  Initialized {ServerName}: LatestLog={LatestLog:yyyy-MM-dd} → LatestLogRetail", guild.ServerName, guild.LatestLog);
+                            }
+                            db.SaveChanges();
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -771,10 +788,15 @@ namespace NinjaBotCore.Modules.Wow
                                     ReportId = latestLog.id
                                 });
                                 await db.SaveChangesAsync();
-                                ISocketMessageChannel channel = _client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
-                                if (channel != null)
+
+                                // Get guild and channel to avoid cache issues
+                                var discordGuild = _client.GetGuild((ulong)guild.ServerId);
+                                if (discordGuild != null)
                                 {
-                                    var tz = GetLocalTz(guild);
+                                    var channel = discordGuild.GetTextChannel((ulong)watchGuild.ChannelId);
+                                    if (channel != null)
+                                    {
+                                        var tz = GetLocalTz(guild);
                                     DateTime logStart = GetLocalTime(latestLog, tz);
 
                                     _logger.LogInformation($"Posting log for [{guild.WowGuild}] on [{guild.WowRealm}] for server [{guild.ServerName}]");
@@ -790,6 +812,7 @@ namespace NinjaBotCore.Modules.Wow
                                     embed.Description = sb.ToString();
                                     embed.WithColor(new Color(0, 0, 255));
                                     await channel.SendMessageAsync("", false, embed.Build());
+                                    }
                                 }
                             }
                         }
@@ -972,10 +995,18 @@ namespace NinjaBotCore.Modules.Wow
                         });
                         await db.SaveChangesAsync();
 
-                        ISocketMessageChannel channel = _client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
+                        // Get guild and channel via API to avoid cache issues
+                        var discordGuild = _client.GetGuild((ulong)guild.ServerId);
+                        if (discordGuild == null)
+                        {
+                            _logger.LogWarning("[v2 Batch] Could not find Discord guild {ServerId} ({ServerName})", guild.ServerId, guild.ServerName);
+                            continue;
+                        }
+
+                        var channel = discordGuild.GetTextChannel((ulong)watchGuild.ChannelId);
                         if (channel == null)
                         {
-                            _logger.LogWarning($"[v2 Batch] Could not find Discord channel {watchGuild.ChannelId} for {guild.ServerName}");
+                            _logger.LogWarning("[v2 Batch] Could not find Discord channel {ChannelId} in guild {ServerName} - channel may be deleted or bot lacks access", watchGuild.ChannelId, guild.ServerName);
                             continue;
                         }
 
@@ -1106,10 +1137,15 @@ namespace NinjaBotCore.Modules.Wow
                                 latestForGuild.LatestLogVanilla = startTime;
                                 latestForGuild.VanillaReportId = latestLog.id;
                                 await db.SaveChangesAsync();
-                                ISocketMessageChannel channel = _client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
-                                if (channel != null)
+
+                                // Get guild and channel to avoid cache issues
+                                var discordGuild = _client.GetGuild((ulong)guild.ServerId);
+                                if (discordGuild != null)
                                 {
-                                    _logger.LogInformation($"Posting log for [{guild.WowGuild}] on [{guild.WowRealm}] for server [{guild.ServerName}]");
+                                    var channel = discordGuild.GetTextChannel((ulong)watchGuild.ChannelId);
+                                    if (channel != null)
+                                    {
+                                        _logger.LogInformation($"Posting log for [{guild.WowGuild}] on [{guild.WowRealm}] for server [{guild.ServerName}]");
                                     var embed = new EmbedBuilder();
                                     embed.Title = $"New log found for [{guild.WowGuild}]!";
                                     StringBuilder sb = new StringBuilder();
@@ -1120,6 +1156,7 @@ namespace NinjaBotCore.Modules.Wow
                                     embed.Description = sb.ToString();
                                     embed.WithColor(new Color(0, 0, 255));
                                     await channel.SendMessageAsync("", false, embed.Build());
+                                    }
                                 }
                             }
                         }
@@ -1167,10 +1204,15 @@ namespace NinjaBotCore.Modules.Wow
                                 latestForGuild.LatestLogClassic = startTime;
                                 latestForGuild.ClassicReportId = latestLog.id;
                                 await db.SaveChangesAsync();
-                                ISocketMessageChannel channel = _client.GetChannel((ulong)watchGuild.ChannelId) as ISocketMessageChannel;
-                                if (channel != null)
+
+                                // Get guild and channel to avoid cache issues
+                                var discordGuild = _client.GetGuild((ulong)guild.ServerId);
+                                if (discordGuild != null)
                                 {
-                                    _logger.LogInformation($"Posting log for [{guild.WowGuild}] on [{guild.WowRealm}] for server [{guild.ServerName}]");
+                                    var channel = discordGuild.GetTextChannel((ulong)watchGuild.ChannelId);
+                                    if (channel != null)
+                                    {
+                                        _logger.LogInformation($"Posting log for [{guild.WowGuild}] on [{guild.WowRealm}] for server [{guild.ServerName}]");
                                     var embed = new EmbedBuilder();
                                     embed.Title = $"New log found for [{guild.WowGuild}]!";
                                     StringBuilder sb = new StringBuilder();
@@ -1181,6 +1223,7 @@ namespace NinjaBotCore.Modules.Wow
                                     embed.Description = sb.ToString();
                                     embed.WithColor(new Color(0, 0, 255));
                                     await channel.SendMessageAsync("", false, embed.Build());
+                                    }
                                 }
                             }
                         }
