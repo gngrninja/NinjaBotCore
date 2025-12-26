@@ -89,7 +89,7 @@ namespace NinjaBotCore.Modules.Wow
                 
                 _currentRaidTier = this.SetCurrentTier();
                 //this.MigrateOldReports();
-                this.StartTimer();                
+                _ = StartTimer(); // Fire-and-forget background timer
             }
             catch (Exception ex)
             {
@@ -595,8 +595,8 @@ namespace NinjaBotCore.Modules.Wow
                     await Task.Delay(TimeSpan.FromMinutes(10), token);
                 }
             }
-            catch (TaskCanceledException ex)
-            {                            
+            catch (TaskCanceledException)
+            {
             }
         }
 
@@ -796,7 +796,7 @@ namespace NinjaBotCore.Modules.Wow
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 //_logger.LogError($"Error checking for logs [{guild.WowGuild}]:[{guild.WowRealm}]:[{guild.WowRealm}]! -> [{ex.Message}]");
             }
@@ -1126,10 +1126,10 @@ namespace NinjaBotCore.Modules.Wow
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 //_logger.LogError($"Error checking for logs [{guild.WowGuild}]:[{guild.WowRealm}]:[{guild.WowRealm}]! -> [{ex.Message}]");
-            }                   
+            }
         }
 
         private async Task PerformLogCheck(List<LogMonitoring> logWatchList, bool flip, WowClassicGuild guild)
@@ -1187,10 +1187,10 @@ namespace NinjaBotCore.Modules.Wow
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 //_logger.LogError($"Error checking for logs [{guild.WowGuild}]:[{guild.WowRealm}]:[{guild.WowRealm}]! -> [{ex.Message}]");
-            }            
+            }
         }
 
         private CurrentRaidTier SetCurrentTier()
@@ -1228,10 +1228,10 @@ namespace NinjaBotCore.Modules.Wow
                     db.SaveChanges();
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 //_logger.LogError($"Error getting log watch list -> [{ex.Message}]");
             }
-        }        
+        }
     }
 }

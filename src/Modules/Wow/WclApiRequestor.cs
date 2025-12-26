@@ -22,7 +22,6 @@ namespace NinjaBotCore.Modules.Wow
     {
         private readonly HttpClient _client;
         private readonly string _apiKey;
-        private string apiKey;
         private string _baseUrl;
 
         public WclApiRequestor(string apiKey, string baseUrl, HttpClient client)

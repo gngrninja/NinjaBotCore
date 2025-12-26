@@ -12,7 +12,6 @@ namespace NinjaBotCore.Models.Wow
     public class Character
     {
         private string _thumbNailUrl;
-        private string _region;
         private string _insetUrl;
         private string _profilePicUrl;
         private string _armoryUrl;

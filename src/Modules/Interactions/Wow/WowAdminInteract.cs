@@ -30,7 +30,6 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private DiscordShardedClient _client;
         private RaiderIOApi _rioApi;
         private readonly IConfigurationRoot _config;
-        private string _prefix;
         private readonly ILogger _logger;
         private WowUtilities _wowUtils;
         private readonly WarcraftLogsV2Client _v2Client;

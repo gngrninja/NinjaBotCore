@@ -12,7 +12,6 @@ namespace NinjaBotCore.Services
     public class StartupService
     {
         private readonly DiscordShardedClient _discord;
-        private readonly CommandService _commands;
         private readonly IConfigurationRoot _config;
         private readonly IServiceProvider _services;
 

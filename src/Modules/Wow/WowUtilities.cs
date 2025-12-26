@@ -17,7 +17,6 @@ using Microsoft.Extensions.DependencyInjection;
 using NinjaBotCore.Common;
 using Discord.Interactions;
 using System.Threading;
-using NinjaBotCore.Models.Wow;
 using Microsoft.EntityFrameworkCore;
 
 namespace NinjaBotCore.Modules.Wow
