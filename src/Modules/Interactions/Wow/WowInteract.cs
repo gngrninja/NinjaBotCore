@@ -780,8 +780,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 updateGuild.ChannelName = Context.Channel.Name;
                 updateGuild.MonitorLogs = enable;
 
-                // When enabling, set LatestLogRetail to now so guild starts in Tier 1 (Active)
-                if (enable && updateGuild.LatestLogRetail == null)
+                // When enabling, always set LatestLogRetail to now so guild starts in Tier 1 (Active)
+                // This handles both new guilds and guilds with stale timestamps from previous monitoring
+                if (enable)
                 {
                     updateGuild.LatestLogRetail = DateTime.UtcNow;
                 }
