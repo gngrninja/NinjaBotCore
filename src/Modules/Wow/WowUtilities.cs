@@ -318,6 +318,16 @@ namespace NinjaBotCore.Modules.Wow
                         foundGuild.TimeSet        = DateTime.UtcNow;
                     }
                     await db.SaveChangesAsync();
+
+                    // If log monitoring is enabled, update LatestLogRetail to force into Tier 1
+                    // This ensures the new guild starts in the active tier for immediate checking
+                    var logMonitoring = db.LogMonitoring.FirstOrDefault(l => l.ServerId == (long)guildId);
+                    if (logMonitoring != null && logMonitoring.MonitorLogs)
+                    {
+                        logMonitoring.LatestLogRetail = DateTime.UtcNow;
+                        await db.SaveChangesAsync();
+                        _logger.LogInformation("Updated LatestLogRetail for {GuildName} to force into Tier 1 after guild change", guildName);
+                    }
                 }
             }
             catch (Exception ex)
@@ -795,6 +805,16 @@ namespace NinjaBotCore.Modules.Wow
                         foundGuild.TimeSet        = DateTime.UtcNow;
                     }
                     await db.SaveChangesAsync();
+
+                    // If log monitoring is enabled, update LatestLogRetail to force into Tier 1
+                    // This ensures the new guild starts in the active tier for immediate checking
+                    var logMonitoring = db.LogMonitoring.FirstOrDefault(l => l.ServerId == (long)guildId);
+                    if (logMonitoring != null && logMonitoring.MonitorLogs)
+                    {
+                        logMonitoring.LatestLogRetail = DateTime.UtcNow;
+                        await db.SaveChangesAsync();
+                        _logger.LogInformation("Updated LatestLogRetail for {GuildName} to force into Tier 1 after guild change", guildName);
+                    }
                 }
             }
             catch (Exception ex)
