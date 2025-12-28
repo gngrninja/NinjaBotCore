@@ -732,21 +732,8 @@ namespace NinjaBotCore.Modules.Wow
             return g;
         }
 
-        public DateTime UnixTimeStampToDateTime(long unixTimeStamp)
-        {
-            // Unix timestamp is seconds past epoch
-            System.DateTime dtDateTime = new DateTime(1970, 1, 1, 0, 0, 0, 0, System.DateTimeKind.Utc);
-            dtDateTime = dtDateTime.AddMilliseconds(unixTimeStamp).ToLocalTime();
-            return dtDateTime;
-        }
-
-        public DateTime UnixTimeStampToDateTimeSeconds(long unixTimeStamp)
-        {
-            // Unix timestamp is seconds past epoch
-            System.DateTime dtDateTime = new DateTime(1970, 1, 1, 0, 0, 0, 0, System.DateTimeKind.Utc);
-            dtDateTime = dtDateTime.AddSeconds(unixTimeStamp).ToLocalTime();
-            return dtDateTime;
-        }
+        // UnixTimeStampToDateTime methods moved to NinjaExtensions.cs as extension methods
+        // Use: timestamp.UnixTimeStampToDateTime() or timestamp.UnixTimeStampToDateTimeSeconds()
 
         public GuildChar GetCharFromGuild(string findName, string realmName, string guildName, string regionName = "us")
         {

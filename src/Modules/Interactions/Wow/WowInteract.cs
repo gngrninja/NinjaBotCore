@@ -964,8 +964,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     sb.AppendLine();
                     for (int i = 0; i <= (guildLogs.Count - 1) && i <= maxReturn; i++)
                     {
-                        var startTime = _logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].start);
-                        var endTime   =  _logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].end);
+                        var startTime = guildLogs[arrayCount].start.UnixTimeStampToDateTime();
+                        var endTime   =  guildLogs[arrayCount].end.UnixTimeStampToDateTime();
                         var wfUrl     = $"https://www.wipefest.net/report/{guildLogs[arrayCount].id}";
                         var wowAnUrl  = $"https://wowanalyzer.com/report/{guildLogs[arrayCount].id}";
 
@@ -987,8 +987,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 else if (guildLogs.Count == 1)
                 {
                     sb.AppendLine($"[__**{guildLogs[0].title}** **/** **{guildLogs[0].zoneName}**__]({guildLogs[0].reportURL})");
-                    sb.AppendLine($"\t:timer: Start time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].start)}**");
-                    sb.AppendLine($"\t:stopwatch: End time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].end)}**");
+                    sb.AppendLine($"\t:timer: Start time: **{guildLogs[0].start.UnixTimeStampToDateTime()}**");
+                    sb.AppendLine($"\t:stopwatch: End time: **{guildLogs[0].end.UnixTimeStampToDateTime()}**");
                     sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[0].id}) | :sob: [WipeFest](https://www.wipefest.net/report/{guildLogs[arrayCount].id})");
                     sb.AppendLine();
                     _logger.LogInformation($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
@@ -1089,14 +1089,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         DateTime endTime = DateTime.UtcNow;
 
                         if (realmInfo != null && !string.IsNullOrEmpty(realmInfo.timezone))
-                        {                            
-                            startTime = _logsApi.ConvTimeToLocalTimezone(_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].start), realmInfo.timezone);
-                            endTime =  _logsApi.ConvTimeToLocalTimezone(_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].end), realmInfo.timezone);
-                        }
-                        else 
                         {
-                            startTime = _logsApi.ConvTimeToLocalTimezone(_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].start));
-                            endTime =  _logsApi.ConvTimeToLocalTimezone(_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].end));
+                            startTime = _logsApi.ConvTimeToLocalTimezone(guildLogs[arrayCount].start.UnixTimeStampToDateTime(), realmInfo.timezone);
+                            endTime =  _logsApi.ConvTimeToLocalTimezone(guildLogs[arrayCount].end.UnixTimeStampToDateTime(), realmInfo.timezone);
+                        }
+                        else
+                        {
+                            startTime = _logsApi.ConvTimeToLocalTimezone(guildLogs[arrayCount].start.UnixTimeStampToDateTime());
+                            endTime =  _logsApi.ConvTimeToLocalTimezone(guildLogs[arrayCount].end.UnixTimeStampToDateTime());
                         }
 
                         sb.AppendLine($"[__**{guildLogs[arrayCount].title}** **/** **{guildLogs[arrayCount].zoneName}**__]({guildLogs[arrayCount].reportURL})");
@@ -1115,8 +1115,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 else if (guildLogs.Count == 1)
                 {
                     sb.AppendLine($"[__**{guildLogs[0].title}** **/** **{guildLogs[0].zoneName}**__]({guildLogs[0].reportURL})");
-                    sb.AppendLine($"\t:timer: Start time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].start)}**");
-                    sb.AppendLine($"\t:stopwatch: End time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].end)}**");
+                    sb.AppendLine($"\t:timer: Start time: **{guildLogs[0].start.UnixTimeStampToDateTime()}**");
+                    sb.AppendLine($"\t:stopwatch: End time: **{guildLogs[0].end.UnixTimeStampToDateTime()}**");
                     sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[0].id}) | :sob: [WipeFest](https://www.wipefest.net/report/{guildLogs[arrayCount].id})");
                     sb.AppendLine($"\t");
                     sb.AppendLine();

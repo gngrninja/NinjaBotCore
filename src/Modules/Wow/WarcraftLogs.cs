@@ -464,16 +464,12 @@ namespace NinjaBotCore.Modules.Wow
             return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
 
-        public DateTime UnixTimeStampToDateTime(long unixTimeStamp)
-        {
-            // Unix timestamp is seconds past epoch
-            System.DateTime dtDateTime = new DateTime(1970, 1, 1, 0, 0, 0, 0, System.DateTimeKind.Utc);
-            dtDateTime = dtDateTime.AddMilliseconds(unixTimeStamp).ToUniversalTime();
-            return dtDateTime;
-        }
+        // UnixTimeStampToDateTime method moved to NinjaExtensions.cs as extension method
+        // Use: timestamp.UnixTimeStampToDateTime()
 
         /// <summary>
         /// Converts v2 API report model to v1 format for compatibility
+        /// v2 API returns timestamps in milliseconds, v1 uses seconds
         /// </summary>
         private Reports ConvertV2ToV1Report(WclV2Report v2Report)
         {
@@ -482,8 +478,8 @@ namespace NinjaBotCore.Modules.Wow
                 id = v2Report.Code,
                 title = v2Report.Title,
                 owner = v2Report.OwnerName,
-                start = v2Report.StartTime,
-                end = v2Report.EndTime,
+                start = v2Report.StartTime / 1000,  // Convert ms to seconds for v1 compatibility
+                end = v2Report.EndTime / 1000,      // Convert ms to seconds for v1 compatibility
                 zone = v2Report.Zone?.Id ?? 0,
                 zoneName = v2Report.Zone?.Name  // Use zone name from v2 API directly (avoids lookup)
             };
@@ -623,7 +619,6 @@ namespace NinjaBotCore.Modules.Wow
                     List<LogMonitoring> logWatchList = null;
                     List<WowClassicGuild> cGuildList = null;
                     List<WowVanillaGuild> vGuildList = null;
-                    bool flip = true;
                     try
                     {
                         using var scope = _scopeFactory.CreateScope();
@@ -695,15 +690,20 @@ namespace NinjaBotCore.Modules.Wow
                             }
                         }
 
-                        // Classic and Vanilla still use individual requests (v1 API)
-                        foreach (var guild in cGuildList)
+                        // Classic guilds - using v2 API with batched requests
+                        if (cGuildList != null && cGuildList.Count > 0)
                         {
-                            await this.PerformLogCheck(logWatchList, flip, guild).ConfigureAwait(false);
+                            _logger.LogInformation($"[v2 Batch Classic] Processing {cGuildList.Count} Classic guilds");
+                            await PerformBatchedLogCheckClassic(logWatchList, cGuildList).ConfigureAwait(false);
                         }
-                        foreach (var guild in vGuildList)
+
+                        // Vanilla guilds - using v2 API with batched requests
+                        if (vGuildList != null && vGuildList.Count > 0)
                         {
-                            await this.PerformLogCheck(logWatchList, flip, guild).ConfigureAwait(false);
+                            _logger.LogInformation($"[v2 Batch Vanilla] Processing {vGuildList.Count} Vanilla guilds");
+                            await PerformBatchedLogCheckVanilla(logWatchList, vGuildList).ConfigureAwait(false);
                         }
+
                         _logger.LogInformation("Finished WCL Auto Posting...");
                     }
                 }
@@ -763,7 +763,7 @@ namespace NinjaBotCore.Modules.Wow
                         if (logs != null && logs.Count > 0)
                         {
                             var latestLog = logs[0];
-                            DateTime startTime = UnixTimeStampToDateTime(latestLog.start);
+                            DateTime startTime = latestLog.start.UnixTimeStampToDateTimeSeconds();
                             //System.Console.WriteLine($"local id [{watchGuild.RetailReportId}] -> remote id [{latestLog.id}] for [{guild.WowGuild}] on [{guild.WowRealm}].");
                             if (latestLog.id != watchGuild.RetailReportId)
                             {
@@ -944,7 +944,7 @@ namespace NinjaBotCore.Modules.Wow
 
                         // Note: zoneName is now set directly from v2 API, no lookup needed
 
-                        DateTime startTime = UnixTimeStampToDateTime(latestLog.start);
+                        DateTime startTime = latestLog.start.UnixTimeStampToDateTimeSeconds();
                         processedCount++;
 
                         // Check if this is a new report
@@ -1052,17 +1052,315 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
+        private async Task PerformBatchedLogCheckClassic(List<LogMonitoring> logWatchList, List<WowClassicGuild> classicGuildList)
+        {
+            try
+            {
+                // Filter guilds that need monitoring
+                var guildsToMonitor = classicGuildList
+                    .Where(g => logWatchList.Any(w => w.ServerId == g.ServerId && w.MonitorLogs))
+                    .ToList();
+
+                if (guildsToMonitor.Count == 0)
+                {
+                    _logger.LogInformation("[v2 Batch Classic] No guilds to monitor");
+                    return;
+                }
+
+                _logger.LogInformation("[v2 Batch Classic] Processing {Count} Classic guilds", guildsToMonitor.Count);
+
+                // Build batch request list (no realm slug manipulation - use as-is)
+                var batchRequest = guildsToMonitor.Select(g => (
+                    guildName: g.WowGuild,
+                    serverSlug: g.WowRealm.ToLower().Replace(" ", "-").Replace("'", ""),
+                    serverRegion: g.WowRegion,
+                    guildKey: $"{g.ServerId}"
+                )).ToList();
+
+                WclV2BatchResult batchResult = null;
+
+                try
+                {
+                    batchResult = await _v2Client.GetBatchGuildReportsAsync(batchRequest, WowGameVersion.Classic);
+                }
+                catch (Exception v2Ex)
+                {
+                    _logger.LogError("[v2 Batch Classic] API call failed, falling back to individual v1 requests: {Message}", v2Ex.Message);
+
+                    // Fallback to individual v1 requests
+                    bool flip = true;
+                    foreach (var guild in guildsToMonitor)
+                    {
+                        await this.PerformLogCheck(logWatchList, flip, guild).ConfigureAwait(false);
+                        flip = !flip;
+                    }
+                    return;
+                }
+
+                if (batchResult == null)
+                {
+                    _logger.LogError("[v2 Batch Classic] Received null batch result");
+                    return;
+                }
+
+                _logger.LogInformation("[v2 Batch Classic] Result: {Reports} with reports, {NotFound} not found, {NoReports} no reports",
+                    batchResult.Reports.Count, batchResult.NonExistentGuilds.Count, batchResult.GuildsWithNoReports.Count);
+
+                int postedCount = 0;
+                int duplicateCount = 0;
+
+                // Process results
+                foreach (var guild in guildsToMonitor)
+                {
+                    try
+                    {
+                        var watchGuild = logWatchList.FirstOrDefault(w => w.ServerId == guild.ServerId);
+                        if (watchGuild == null) continue;
+
+                        var guildKey = $"{guild.ServerId}";
+
+                        if (!batchResult.Reports.TryGetValue(guildKey, out var v2Report))
+                        {
+                            continue;
+                        }
+
+                        var latestLog = ConvertV2ToV1Report(v2Report);
+                        if (string.IsNullOrEmpty(latestLog.id)) continue;
+
+                        DateTime startTime = latestLog.start.UnixTimeStampToDateTimeSeconds();
+
+                        if (latestLog.id == watchGuild.ClassicReportId)
+                        {
+                            continue;
+                        }
+
+                        using var scope = _scopeFactory.CreateScope();
+                        var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                        var checkId = db.WclPosted.FirstOrDefault(p => p.ServerId == guild.ServerId && p.ReportId == latestLog.id);
+                        if (checkId != null)
+                        {
+                            duplicateCount++;
+                            var latestForGuild = db.LogMonitoring.FirstOrDefault(l => l.ServerId == guild.ServerId);
+                            if (latestForGuild != null)
+                            {
+                                latestForGuild.LatestLogClassic = startTime;
+                                latestForGuild.ClassicReportId = latestLog.id;
+                                await db.SaveChangesAsync();
+                            }
+                            continue;
+                        }
+
+                        var latestForGuild2 = db.LogMonitoring.FirstOrDefault(l => l.ServerId == guild.ServerId);
+                        if (latestForGuild2 == null) continue;
+
+                        latestForGuild2.LatestLogClassic = startTime;
+                        latestForGuild2.ClassicReportId = latestLog.id;
+                        db.WclPosted.Add(new WclPosted
+                        {
+                            ServerId = (long)guild.ServerId,
+                            ChannelId = latestForGuild2.ChannelId,
+                            ChannelName = latestForGuild2.ChannelName,
+                            ServerName = latestForGuild2.ServerName,
+                            ReportId = latestLog.id
+                        });
+                        await db.SaveChangesAsync();
+
+                        var discordGuild = _client.GetGuild((ulong)guild.ServerId);
+                        if (discordGuild == null) continue;
+
+                        var channel = discordGuild.GetTextChannel((ulong)watchGuild.ChannelId);
+                        if (channel == null) continue;
+
+                        _logger.LogInformation("[v2 Batch Classic] Posting log {ReportId} for {Guild}-{Realm}", latestLog.id, guild.WowGuild, guild.WowRealm);
+
+                        var embed = new EmbedBuilder();
+                        embed.Title = $"New log found for [{guild.WowGuild}]!";
+                        StringBuilder sb = new StringBuilder();
+                        sb.AppendLine($"[__**{latestLog.title}** **/** **{latestLog.zoneName}**__]({latestLog.reportURL})");
+                        sb.AppendLine($"\t:timer: Start time: **{latestLog.start.UnixTimeStampToDateTimeSeconds().ToLocalTime()}**");
+                        sb.AppendLine($"\t:pencil2: Created by [**{latestLog.owner}**]");
+                        sb.AppendLine();
+                        embed.Description = sb.ToString();
+                        embed.WithColor(new Color(0, 0, 255));
+
+                        await channel.SendMessageAsync("", false, embed.Build());
+                        postedCount++;
+                    }
+                    catch (Exception guildEx)
+                    {
+                        _logger.LogError("[v2 Batch Classic] Error processing {Guild}: {Error}", $"{guild.WowGuild}-{guild.WowRealm}", guildEx.Message);
+                    }
+                }
+
+                _logger.LogInformation("[v2 Batch Classic] Complete: {Posted} posted, {Duplicates} duplicates", postedCount, duplicateCount);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("[v2 Batch Classic] Critical failure: {Type} - {Message}", ex.GetType().Name, ex.Message);
+            }
+        }
+
+        private async Task PerformBatchedLogCheckVanilla(List<LogMonitoring> logWatchList, List<WowVanillaGuild> vanillaGuildList)
+        {
+            try
+            {
+                // Filter guilds that need monitoring
+                var guildsToMonitor = vanillaGuildList
+                    .Where(g => logWatchList.Any(w => w.ServerId == g.ServerId && w.MonitorLogs))
+                    .ToList();
+
+                if (guildsToMonitor.Count == 0)
+                {
+                    _logger.LogInformation("[v2 Batch Vanilla] No guilds to monitor");
+                    return;
+                }
+
+                _logger.LogInformation("[v2 Batch Vanilla] Processing {Count} Vanilla guilds", guildsToMonitor.Count);
+
+                // Build batch request list (no realm slug manipulation - use as-is)
+                var batchRequest = guildsToMonitor.Select(g => (
+                    guildName: g.WowGuild,
+                    serverSlug: g.WowRealm.ToLower().Replace(" ", "-").Replace("'", ""),
+                    serverRegion: g.WowRegion,
+                    guildKey: $"{g.ServerId}"
+                )).ToList();
+
+                WclV2BatchResult batchResult = null;
+
+                try
+                {
+                    batchResult = await _v2Client.GetBatchGuildReportsAsync(batchRequest, WowGameVersion.Vanilla);
+                }
+                catch (Exception v2Ex)
+                {
+                    _logger.LogError("[v2 Batch Vanilla] API call failed, falling back to individual v1 requests: {Message}", v2Ex.Message);
+
+                    // Fallback to individual v1 requests
+                    bool flip = true;
+                    foreach (var guild in guildsToMonitor)
+                    {
+                        await this.PerformLogCheck(logWatchList, flip, guild).ConfigureAwait(false);
+                        flip = !flip;
+                    }
+                    return;
+                }
+
+                if (batchResult == null)
+                {
+                    _logger.LogError("[v2 Batch Vanilla] Received null batch result");
+                    return;
+                }
+
+                _logger.LogInformation("[v2 Batch Vanilla] Result: {Reports} with reports, {NotFound} not found, {NoReports} no reports",
+                    batchResult.Reports.Count, batchResult.NonExistentGuilds.Count, batchResult.GuildsWithNoReports.Count);
+
+                int postedCount = 0;
+                int duplicateCount = 0;
+
+                // Process results
+                foreach (var guild in guildsToMonitor)
+                {
+                    try
+                    {
+                        var watchGuild = logWatchList.FirstOrDefault(w => w.ServerId == guild.ServerId);
+                        if (watchGuild == null) continue;
+
+                        var guildKey = $"{guild.ServerId}";
+
+                        if (!batchResult.Reports.TryGetValue(guildKey, out var v2Report))
+                        {
+                            continue;
+                        }
+
+                        var latestLog = ConvertV2ToV1Report(v2Report);
+                        if (string.IsNullOrEmpty(latestLog.id)) continue;
+
+                        DateTime startTime = latestLog.start.UnixTimeStampToDateTimeSeconds();
+
+                        if (latestLog.id == watchGuild.VanillaReportId)
+                        {
+                            continue;
+                        }
+
+                        using var scope = _scopeFactory.CreateScope();
+                        var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                        var checkId = db.WclPosted.FirstOrDefault(p => p.ServerId == guild.ServerId && p.ReportId == latestLog.id);
+                        if (checkId != null)
+                        {
+                            duplicateCount++;
+                            var latestForGuild = db.LogMonitoring.FirstOrDefault(l => l.ServerId == guild.ServerId);
+                            if (latestForGuild != null)
+                            {
+                                latestForGuild.LatestLogVanilla = startTime;
+                                latestForGuild.VanillaReportId = latestLog.id;
+                                await db.SaveChangesAsync();
+                            }
+                            continue;
+                        }
+
+                        var latestForGuild2 = db.LogMonitoring.FirstOrDefault(l => l.ServerId == guild.ServerId);
+                        if (latestForGuild2 == null) continue;
+
+                        latestForGuild2.LatestLogVanilla = startTime;
+                        latestForGuild2.VanillaReportId = latestLog.id;
+                        db.WclPosted.Add(new WclPosted
+                        {
+                            ServerId = (long)guild.ServerId,
+                            ChannelId = latestForGuild2.ChannelId,
+                            ChannelName = latestForGuild2.ChannelName,
+                            ServerName = latestForGuild2.ServerName,
+                            ReportId = latestLog.id
+                        });
+                        await db.SaveChangesAsync();
+
+                        var discordGuild = _client.GetGuild((ulong)guild.ServerId);
+                        if (discordGuild == null) continue;
+
+                        var channel = discordGuild.GetTextChannel((ulong)watchGuild.ChannelId);
+                        if (channel == null) continue;
+
+                        _logger.LogInformation("[v2 Batch Vanilla] Posting log {ReportId} for {Guild}-{Realm}", latestLog.id, guild.WowGuild, guild.WowRealm);
+
+                        var embed = new EmbedBuilder();
+                        embed.Title = $"New log found for [{guild.WowGuild}]!";
+                        StringBuilder sb = new StringBuilder();
+                        sb.AppendLine($"[__**{latestLog.title}** **/** **{latestLog.zoneName}**__]({latestLog.reportURL})");
+                        sb.AppendLine($"\t:timer: Start time: **{latestLog.start.UnixTimeStampToDateTimeSeconds().ToLocalTime()}**");
+                        sb.AppendLine($"\t:pencil2: Created by [**{latestLog.owner}**]");
+                        sb.AppendLine();
+                        embed.Description = sb.ToString();
+                        embed.WithColor(new Color(0, 0, 255));
+
+                        await channel.SendMessageAsync("", false, embed.Build());
+                        postedCount++;
+                    }
+                    catch (Exception guildEx)
+                    {
+                        _logger.LogError("[v2 Batch Vanilla] Error processing {Guild}: {Error}", $"{guild.WowGuild}-{guild.WowRealm}", guildEx.Message);
+                    }
+                }
+
+                _logger.LogInformation("[v2 Batch Vanilla] Complete: {Posted} posted, {Duplicates} duplicates", postedCount, duplicateCount);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("[v2 Batch Vanilla] Critical failure: {Type} - {Message}", ex.GetType().Name, ex.Message);
+            }
+        }
+
         private DateTime GetLocalTime(Reports latestLog, string tz = null)
         {
             DateTime logStart = DateTime.UtcNow;
             if (!string.IsNullOrEmpty(tz))
             {
-                logStart = ConvTimeToLocalTimezone(UnixTimeStampToDateTime(latestLog.start), tz);
+                logStart = ConvTimeToLocalTimezone(latestLog.start.UnixTimeStampToDateTimeSeconds(), tz);
 
             }
             else
             {
-                logStart = ConvTimeToLocalTimezone(UnixTimeStampToDateTime(latestLog.start));
+                logStart = ConvTimeToLocalTimezone(latestLog.start.UnixTimeStampToDateTimeSeconds());
             }
             return logStart;
         }
@@ -1126,7 +1424,7 @@ namespace NinjaBotCore.Modules.Wow
                         if (logs != null)
                         {
                             var latestLog = logs[0];
-                            DateTime startTime = UnixTimeStampToDateTime(latestLog.start);
+                            DateTime startTime = latestLog.start.UnixTimeStampToDateTimeSeconds();
                             //System.Console.WriteLine($"local id [{watchGuild.VanillaReportId}] -> remote id [{latestLog.id}] for [{guild.WowGuild}] on [{guild.WowRealm}].");
                             if (latestLog.id != watchGuild.VanillaReportId)
                             {
@@ -1150,7 +1448,7 @@ namespace NinjaBotCore.Modules.Wow
                                     embed.Title = $"New log found for [{guild.WowGuild}]!";
                                     StringBuilder sb = new StringBuilder();
                                     sb.AppendLine($"[__**{latestLog.title}** **/** **{latestLog.zoneName}**__]({latestLog.reportURL})");
-                                    sb.AppendLine($"\t:timer: Start time: **{UnixTimeStampToDateTime(latestLog.start).ToLocalTime()}**");
+                                    sb.AppendLine($"\t:timer: Start time: **{latestLog.start.UnixTimeStampToDateTimeSeconds().ToLocalTime()}**");
                                     sb.AppendLine($"\t:pencil2: Created by [**{latestLog.owner}**]");                                                                        
                                     sb.AppendLine();
                                     embed.Description = sb.ToString();
@@ -1193,7 +1491,7 @@ namespace NinjaBotCore.Modules.Wow
                         if (logs != null)
                         {
                             var latestLog = logs[0];
-                            DateTime startTime = UnixTimeStampToDateTime(latestLog.start);
+                            DateTime startTime = latestLog.start.UnixTimeStampToDateTimeSeconds();
                             //System.Console.WriteLine($"local id [{watchGuild.ClassicReportId}] -> remote id [{latestLog.id}] for [{guild.WowGuild}] on [{guild.WowRealm}].");
                             if (latestLog.id != watchGuild.ClassicReportId)
                             {
@@ -1217,7 +1515,7 @@ namespace NinjaBotCore.Modules.Wow
                                     embed.Title = $"New log found for [{guild.WowGuild}]!";
                                     StringBuilder sb = new StringBuilder();
                                     sb.AppendLine($"[__**{latestLog.title}** **/** **{latestLog.zoneName}**__]({latestLog.reportURL})");
-                                    sb.AppendLine($"\t:timer: Start time: **{UnixTimeStampToDateTime(latestLog.start).ToLocalTime()}**");
+                                    sb.AppendLine($"\t:timer: Start time: **{latestLog.start.UnixTimeStampToDateTimeSeconds().ToLocalTime()}**");
                                     sb.AppendLine($"\t:pencil2: Created by [**{latestLog.owner}**]");                                                                        
                                     sb.AppendLine();
                                     embed.Description = sb.ToString();

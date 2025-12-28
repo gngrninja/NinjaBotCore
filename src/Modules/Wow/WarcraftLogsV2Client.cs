@@ -12,6 +12,21 @@ using NinjaBotCore.Models.Wow;
 
 namespace NinjaBotCore.Modules.Wow
 {
+    /// <summary>
+    /// Specifies which WoW game version API to query
+    /// </summary>
+    public enum WowGameVersion
+    {
+        /// <summary>Retail/Live WoW (default)</summary>
+        Retail,
+        /// <summary>Classic WoW (current iteration)</summary>
+        Classic,
+        /// <summary>Classic Fresh</summary>
+        ClassicFresh,
+        /// <summary>Vanilla Classic</summary>
+        Vanilla
+    }
+
     public class WarcraftLogsV2Client
     {
         private readonly ILogger _logger;
@@ -27,7 +42,10 @@ namespace NinjaBotCore.Modules.Wow
         private int _requestCounter = 0;
 
         private const string TokenUrl = "https://www.warcraftlogs.com/oauth/token";
-        private const string ApiUrl = "https://www.warcraftlogs.com/api/v2/client";
+        private const string ApiUrlRetail = "https://www.warcraftlogs.com/api/v2/client";
+        private const string ApiUrlClassic = "https://classic.warcraftlogs.com/api/v2/client";
+        private const string ApiUrlClassicFresh = "https://fresh.warcraftlogs.com/api/v2/client";
+        private const string ApiUrlVanilla = "https://vanilla.warcraftlogs.com/api/v2/client";
         private const int RateLimitCheckInterval = 10; // Check every 10 requests
         private const double WarningThreshold = 80.0; // Warn at 80% usage
         private const double CriticalThreshold = 95.0; // Stop at 95% usage
@@ -44,6 +62,21 @@ namespace NinjaBotCore.Modules.Wow
             {
                 _logger.LogWarning("WarcraftLogs v2 API credentials not configured. Set WclClientId and WclClientSecret.");
             }
+        }
+
+        /// <summary>
+        /// Gets the appropriate API endpoint URL based on game version
+        /// </summary>
+        private static string GetApiUrl(WowGameVersion gameVersion)
+        {
+            return gameVersion switch
+            {
+                WowGameVersion.Retail => ApiUrlRetail,
+                WowGameVersion.Classic => ApiUrlClassic,
+                WowGameVersion.ClassicFresh => ApiUrlClassicFresh,
+                WowGameVersion.Vanilla => ApiUrlVanilla,
+                _ => ApiUrlRetail
+            };
         }
 
         /// <summary>
@@ -92,7 +125,7 @@ namespace NinjaBotCore.Modules.Wow
         /// <summary>
         /// Fetches current rate limit data from the API
         /// </summary>
-        private async Task<WclV2RateLimitData> GetRateLimitDataAsync()
+        private async Task<WclV2RateLimitData> GetRateLimitDataAsync(WowGameVersion gameVersion = WowGameVersion.Retail)
         {
             var query = @"
                 query {
@@ -106,7 +139,7 @@ namespace NinjaBotCore.Modules.Wow
 
             try
             {
-                var result = await ExecuteGraphQLInternalAsync<WclV2RateLimitResponse>(query);
+                var result = await ExecuteGraphQLInternalAsync<WclV2RateLimitResponse>(query, null, gameVersion);
                 return result.Data?.RateLimitData;
             }
             catch (Exception ex)
@@ -155,11 +188,12 @@ namespace NinjaBotCore.Modules.Wow
         /// <summary>
         /// Internal GraphQL execution without rate limit checking (to avoid recursion)
         /// </summary>
-        private async Task<GraphQLResponse<T>> ExecuteGraphQLInternalAsync<T>(string query, object variables = null)
+        private async Task<GraphQLResponse<T>> ExecuteGraphQLInternalAsync<T>(string query, object variables = null, WowGameVersion gameVersion = WowGameVersion.Retail)
         {
             var token = await GetAccessTokenAsync();
+            var apiUrl = GetApiUrl(gameVersion);
 
-            var request = new HttpRequestMessage(HttpMethod.Post, ApiUrl);
+            var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
             var graphqlRequest = new GraphQLRequest
@@ -202,7 +236,7 @@ namespace NinjaBotCore.Modules.Wow
         /// <summary>
         /// Executes a GraphQL query against the WarcraftLogs v2 API with rate limit monitoring
         /// </summary>
-        private async Task<GraphQLResponse<T>> ExecuteGraphQLAsync<T>(string query, object variables = null)
+        private async Task<GraphQLResponse<T>> ExecuteGraphQLAsync<T>(string query, object variables = null, WowGameVersion gameVersion = WowGameVersion.Retail)
         {
             // Check if we're approaching rate limits
             if (_lastRateLimitData != null && _lastRateLimitData.UsagePercent >= CriticalThreshold)
@@ -213,7 +247,7 @@ namespace NinjaBotCore.Modules.Wow
 
             try
             {
-                var result = await ExecuteGraphQLInternalAsync<T>(query, variables);
+                var result = await ExecuteGraphQLInternalAsync<T>(query, variables, gameVersion);
 
                 // Check rate limits after successful requests (not on every request to avoid spam)
                 await CheckRateLimitAsync();
@@ -231,7 +265,7 @@ namespace NinjaBotCore.Modules.Wow
         /// Gets latest reports for multiple guilds in a single batched GraphQL query
         /// Returns detailed information including which guilds don't exist vs have no reports
         /// </summary>
-        public async Task<WclV2BatchResult> GetBatchGuildReportsAsync(List<(string guildName, string serverSlug, string serverRegion, string guildKey)> guilds)
+        public async Task<WclV2BatchResult> GetBatchGuildReportsAsync(List<(string guildName, string serverSlug, string serverRegion, string guildKey)> guilds, WowGameVersion gameVersion = WowGameVersion.Retail)
         {
             if (guilds == null || guilds.Count == 0)
                 return new WclV2BatchResult();
@@ -322,7 +356,7 @@ namespace NinjaBotCore.Modules.Wow
 
             try
             {
-                var result = await ExecuteGraphQLAsync<Newtonsoft.Json.Linq.JObject>(query);
+                var result = await ExecuteGraphQLAsync<Newtonsoft.Json.Linq.JObject>(query, null, gameVersion);
 
                 if (result.Data == null)
                 {
@@ -597,7 +631,7 @@ namespace NinjaBotCore.Modules.Wow
         /// <summary>
         /// Gets reports for a guild using the v2 GraphQL API
         /// </summary>
-        public async Task<List<WclV2Report>> GetGuildReportsAsync(string guildName, string serverSlug, string serverRegion, int limit = 5)
+        public async Task<List<WclV2Report>> GetGuildReportsAsync(string guildName, string serverSlug, string serverRegion, int limit = 5, WowGameVersion gameVersion = WowGameVersion.Retail)
         {
             var query = @"
                 query($guildName: String!, $serverSlug: String!, $serverRegion: String!, $limit: Int!) {
@@ -636,7 +670,7 @@ namespace NinjaBotCore.Modules.Wow
 
             try
             {
-                var result = await ExecuteGraphQLAsync<WclV2GuildReportsResponse>(query, variables);
+                var result = await ExecuteGraphQLAsync<WclV2GuildReportsResponse>(query, variables, gameVersion);
 
                 if (result.Data?.ReportData?.Reports?.Data != null)
                 {
@@ -657,11 +691,11 @@ namespace NinjaBotCore.Modules.Wow
         /// <summary>
         /// Test method to compare v2 API response with v1
         /// </summary>
-        public async Task<string> TestGuildReportsAsync(string guildName, string serverSlug, string serverRegion)
+        public async Task<string> TestGuildReportsAsync(string guildName, string serverSlug, string serverRegion, WowGameVersion gameVersion = WowGameVersion.Retail)
         {
             try
             {
-                var reports = await GetGuildReportsAsync(guildName, serverSlug, serverRegion, 3);
+                var reports = await GetGuildReportsAsync(guildName, serverSlug, serverRegion, 3, gameVersion);
 
                 var sb = new StringBuilder();
                 sb.AppendLine($"=== WarcraftLogs v2 API Test ===");

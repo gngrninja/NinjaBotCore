@@ -6,6 +6,11 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace NinjaBotCore.Migrations
 {
     /// <inheritdoc />
+    /// <remarks>
+    /// This migration removes fields added in WclActivityTracking (20251225070749).
+    /// Net effect: No schema changes from the two migrations combined.
+    /// These migrations are kept for databases that already applied them.
+    /// </remarks>
     public partial class RemoveUnusedWclActivityFields : Migration
     {
         /// <inheritdoc />

@@ -82,7 +82,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                                     if (logs != null)
                                     {
                                         var latestLog = logs[logs.Count - 1];
-                                        DateTime startTime = _wowApi.UnixTimeStampToDateTime(latestLog.start);
+                                        DateTime startTime = latestLog.start.UnixTimeStampToDateTimeSeconds();
                                         {
                                             using (var db = new NinjaBotEntities())
                                             {

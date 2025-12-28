@@ -4,6 +4,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using NinjaBotCore.Services;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -54,7 +55,7 @@ namespace NinjaBotCore.Modules.Wow
                     sb.AppendLine($"  Title: {latest.title}");
                     sb.AppendLine($"  Owner: {latest.owner}");
                     sb.AppendLine($"  Zone: {latest.zoneName}");
-                    sb.AppendLine($"  Start: {_v1Client.UnixTimeStampToDateTime(latest.start)}");
+                    sb.AppendLine($"  Start: {latest.start.UnixTimeStampToDateTime()}");
                     sb.AppendLine($"  URL: {latest.reportURL}");
                 }
                 else
