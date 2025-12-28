@@ -40,6 +40,7 @@ namespace NinjaBotCore.Modules.Wow
         private readonly WowApi _wowApi;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly WarcraftLogsV2Client _v2Client;
+        private readonly StartupService _startupService;
 
         // Tier tracking - when each tier was last checked
         private DateTime _tier1LastCheck = DateTime.MinValue;
@@ -63,6 +64,7 @@ namespace NinjaBotCore.Modules.Wow
             _scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
             _wowApi = services.GetRequiredService<WowApi>();
             _v2Client = services.GetRequiredService<WarcraftLogsV2Client>();
+            _startupService = services.GetRequiredService<StartupService>();
 
             // Load tier configuration from config with fallback defaults
             _tier1ThresholdDays = int.TryParse(_config["WCL:Tier1ThresholdDays"], out var t1) ? t1 : 14;
@@ -597,7 +599,12 @@ namespace NinjaBotCore.Modules.Wow
         }
 
         public async Task StartTimer()
-        {            
+        {
+            // Wait for all shards to be ready before starting the timer
+            _logger.LogInformation("[WarcraftLogs] Waiting for all shards to be ready...");
+            await _startupService.AllShardsReady;
+            _logger.LogInformation("[WarcraftLogs] All shards ready - starting timer");
+
             TokenSource = new CancellationTokenSource();
             var timerAction = new Action(CheckForNewLogs);
             await WarcraftLogsTimer(timerAction, TokenSource.Token);
@@ -789,8 +796,8 @@ namespace NinjaBotCore.Modules.Wow
                                 });
                                 await db.SaveChangesAsync();
 
-                                // Get guild and channel to avoid cache issues
-                                var discordGuild = _client.GetGuild((ulong)guild.ServerId);
+                                // Get guild from all shards (not just local cache)
+                                var discordGuild = _client.Guilds.FirstOrDefault(g => g.Id == (ulong)guild.ServerId);
                                 if (discordGuild != null)
                                 {
                                     var channel = discordGuild.GetTextChannel((ulong)watchGuild.ChannelId);
@@ -995,8 +1002,8 @@ namespace NinjaBotCore.Modules.Wow
                         });
                         await db.SaveChangesAsync();
 
-                        // Get guild and channel via API to avoid cache issues
-                        var discordGuild = _client.GetGuild((ulong)guild.ServerId);
+                        // Get guild from all shards (not just local cache)
+                        var discordGuild = _client.Guilds.FirstOrDefault(g => g.Id == (ulong)guild.ServerId);
                         if (discordGuild == null)
                         {
                             _logger.LogWarning("[v2 Batch] Could not find Discord guild {ServerId} ({ServerName})", guild.ServerId, guild.ServerName);
@@ -1166,7 +1173,8 @@ namespace NinjaBotCore.Modules.Wow
                         });
                         await db.SaveChangesAsync();
 
-                        var discordGuild = _client.GetGuild((ulong)guild.ServerId);
+                        // Get guild from all shards (not just local cache)
+                        var discordGuild = _client.Guilds.FirstOrDefault(g => g.Id == (ulong)guild.ServerId);
                         if (discordGuild == null) continue;
 
                         var channel = discordGuild.GetTextChannel((ulong)watchGuild.ChannelId);
@@ -1315,7 +1323,8 @@ namespace NinjaBotCore.Modules.Wow
                         });
                         await db.SaveChangesAsync();
 
-                        var discordGuild = _client.GetGuild((ulong)guild.ServerId);
+                        // Get guild from all shards (not just local cache)
+                        var discordGuild = _client.Guilds.FirstOrDefault(g => g.Id == (ulong)guild.ServerId);
                         if (discordGuild == null) continue;
 
                         var channel = discordGuild.GetTextChannel((ulong)watchGuild.ChannelId);
@@ -1436,8 +1445,8 @@ namespace NinjaBotCore.Modules.Wow
                                 latestForGuild.VanillaReportId = latestLog.id;
                                 await db.SaveChangesAsync();
 
-                                // Get guild and channel to avoid cache issues
-                                var discordGuild = _client.GetGuild((ulong)guild.ServerId);
+                                // Get guild from all shards (not just local cache)
+                                var discordGuild = _client.Guilds.FirstOrDefault(g => g.Id == (ulong)guild.ServerId);
                                 if (discordGuild != null)
                                 {
                                     var channel = discordGuild.GetTextChannel((ulong)watchGuild.ChannelId);
@@ -1503,8 +1512,8 @@ namespace NinjaBotCore.Modules.Wow
                                 latestForGuild.ClassicReportId = latestLog.id;
                                 await db.SaveChangesAsync();
 
-                                // Get guild and channel to avoid cache issues
-                                var discordGuild = _client.GetGuild((ulong)guild.ServerId);
+                                // Get guild from all shards (not just local cache)
+                                var discordGuild = _client.Guilds.FirstOrDefault(g => g.Id == (ulong)guild.ServerId);
                                 if (discordGuild != null)
                                 {
                                     var channel = discordGuild.GetTextChannel((ulong)watchGuild.ChannelId);
