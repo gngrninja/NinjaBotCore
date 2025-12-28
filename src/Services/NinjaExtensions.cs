@@ -6,6 +6,19 @@ namespace NinjaBotCore.Services
 {
     public static class NinjaExtensions
     {
+        /// <summary>
+        /// Converts Unix timestamp in MILLISECONDS (long) to UTC DateTime
+        /// Used by WarcraftLogs v2 API which returns timestamps in milliseconds
+        /// </summary>
+        public static DateTime UnixTimeStampToDateTime(this long unixTimeStampMs)
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(unixTimeStampMs).UtcDateTime;
+        }
+
+        /// <summary>
+        /// Converts Unix timestamp in MILLISECONDS (uint) to local DateTime
+        /// Legacy method for backwards compatibility
+        /// </summary>
         public static DateTime UnixTimeStampToDateTime(this uint unixTimeStamp)
         {
             // Unix timestamp is seconds past epoch
@@ -14,6 +27,19 @@ namespace NinjaBotCore.Services
             return dtDateTime;
         }
 
+        /// <summary>
+        /// Converts Unix timestamp in SECONDS (long) to UTC DateTime
+        /// Used by WarcraftLogs v1 API which returns timestamps in seconds
+        /// </summary>
+        public static DateTime UnixTimeStampToDateTimeSeconds(this long unixTimeStampSec)
+        {
+            return DateTimeOffset.FromUnixTimeSeconds(unixTimeStampSec).UtcDateTime;
+        }
+
+        /// <summary>
+        /// Converts Unix timestamp in SECONDS (uint) to local DateTime
+        /// Legacy method for backwards compatibility
+        /// </summary>
         public static DateTime UnixTimeStampToDateTimeSeconds(this uint unixTimeStamp)
         {
             // Unix timestamp is seconds past epoch

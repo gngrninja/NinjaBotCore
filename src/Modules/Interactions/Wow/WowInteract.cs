@@ -31,11 +31,11 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private InteractionHandler _handler;
         private ChannelCheck _cc;
         private WarcraftLogs _logsApi;
+        private WarcraftLogsV2Client _logsApiV2;
         private WowApi _wowApi;
         private DiscordShardedClient _client;
         private RaiderIOApi _rioApi;
         private readonly IConfigurationRoot _config;
-        private string _prefix;
         private readonly ILogger _logger;
         private WowUtilities _wowUtils;
         private readonly NinjaBotEntities _db;
@@ -45,10 +45,11 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             _handler = services.GetRequiredService<InteractionHandler>();
             _logger = services.GetRequiredService<ILogger<WowInteract>>();
             _cc = services.GetRequiredService<ChannelCheck>();
-            _logsApi = services.GetRequiredService<WarcraftLogs>();            
+            _logsApi = services.GetRequiredService<WarcraftLogs>();
+            _logsApiV2 = services.GetRequiredService<WarcraftLogsV2Client>();
             _wowApi = services.GetRequiredService<WowApi>();
             _rioApi = services.GetRequiredService<RaiderIOApi>();
-            _client = services.GetRequiredService<DiscordShardedClient>();            
+            _client = services.GetRequiredService<DiscordShardedClient>();
             _config = services.GetRequiredService<IConfigurationRoot>();
             _wowUtils = services.GetRequiredService<WowUtilities>();
             _db = services.GetRequiredService<NinjaBotEntities>();
@@ -394,7 +395,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 return;
             }
 
-            await FollowupAsync(embed: embed.Build(), ephemeral: !publicDisplay);
+            var components = BuildRioComponents(Context.User.Id);
+            await FollowupAsync(embed: embed.Build(), components: components.Build(), ephemeral: !publicDisplay);
         }
 
         [SlashCommand("clearhistoryrio", "Clear your RaiderIO search history")]
@@ -404,23 +406,20 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             try
             {
-                using (var db = new NinjaBotEntities())
+                var userHistory = _db.RioSearchHistory
+                    .Where(h => h.DiscordUserId == (long)Context.User.Id)
+                    .ToList();
+
+                if (userHistory.Any())
                 {
-                    var userHistory = db.RioSearchHistory
-                        .Where(h => h.DiscordUserId == (long)Context.User.Id)
-                        .ToList();
+                    _db.RioSearchHistory.RemoveRange(userHistory);
+                    await _db.SaveChangesAsync();
 
-                    if (userHistory.Any())
-                    {
-                        db.RioSearchHistory.RemoveRange(userHistory);
-                        await db.SaveChangesAsync();
-
-                        await FollowupAsync($"✅ Cleared **{userHistory.Count}** RaiderIO search history entries.", ephemeral: true);
-                    }
-                    else
-                    {
-                        await FollowupAsync("No search history found to clear.", ephemeral: true);
-                    }
+                    await FollowupAsync($"✅ Cleared **{userHistory.Count}** RaiderIO search history entries.", ephemeral: true);
+                }
+                else
+                {
+                    await FollowupAsync("No search history found to clear.", ephemeral: true);
                 }
             }
             catch (Exception ex)
@@ -507,60 +506,26 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             }
 
             // Check if character already exists for this user
-            using (var db = new NinjaBotEntities())
+            var existingChar = _db.WowCharAssociation
+                .Where(a => a.UserId == (long)Context.User.Id &&
+                            a.CharName.ToLower() == charName.ToLower() &&
+                            a.WowRealm == realmName)
+                .FirstOrDefault();
+
+            if (existingChar != null)
             {
-                var existingChar = db.WowCharAssociation
-                    .Where(a => a.UserId == (long)Context.User.Id &&
-                                a.CharName.ToLower() == charName.ToLower() &&
-                                a.WowRealm == realmName)
-                    .FirstOrDefault();
-
-                if (existingChar != null)
+                // Update existing character
+                if (existingChar.IsMain != isMain)
                 {
-                    // Update existing character
-                    if (existingChar.IsMain != isMain)
-                    {
-                        existingChar.IsMain = isMain;
-
-                        // If setting as main, unset other mains
-                        if (isMain)
-                        {
-                            var otherMains = db.WowCharAssociation
-                                .Where(a => a.UserId == (long)Context.User.Id &&
-                                           a.IsMain &&
-                                           a.Id != existingChar.Id)
-                                .ToList();
-
-                            foreach (var main in otherMains)
-                            {
-                                main.IsMain = false;
-                            }
-                        }
-                    }
-
-                    await db.SaveChangesAsync();
-
-                    var mainText = isMain ? " as your **main character**" : "";
-                    await FollowupAsync($"Updated **{charName}** on **{realmName}**{mainText}!", ephemeral: true);
-                }
-                else
-                {
-                    // Add new character
-                    db.WowCharAssociation.Add(new WowCharAssociation
-                    {
-                        UserId = (long)Context.User.Id,
-                        IsMain = isMain,
-                        CharName = charName,
-                        WowRealm = realmName,
-                        WowRegion = regionName,
-                        Locale = locale
-                    });
+                    existingChar.IsMain = isMain;
 
                     // If setting as main, unset other mains
                     if (isMain)
                     {
-                        var otherMains = db.WowCharAssociation
-                            .Where(a => a.UserId == (long)Context.User.Id && a.IsMain)
+                        var otherMains = _db.WowCharAssociation
+                            .Where(a => a.UserId == (long)Context.User.Id &&
+                                        a.IsMain &&
+                                        a.Id != existingChar.Id)
                             .ToList();
 
                         foreach (var main in otherMains)
@@ -568,13 +533,45 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                             main.IsMain = false;
                         }
                     }
-
-                    await db.SaveChangesAsync();
-
-                    var mainText = isMain ? " as your **main character**" : "";
-                    await FollowupAsync($"Successfully saved **{charName}** on **{realmName}**{mainText}!\n\nUse `/getchars` to see all your saved characters.", ephemeral: true);
                 }
+
+                await _db.SaveChangesAsync();
+
+                var mainText = isMain ? " as your **main character**" : "";
+                await FollowupAsync($"Updated **{charName}** on **{realmName}**{mainText}!", ephemeral: true);
             }
+            else
+            {
+                // Add new character
+                _db.WowCharAssociation.Add(new WowCharAssociation
+                {
+                    UserId = (long)Context.User.Id,
+                    IsMain = isMain,
+                    CharName = charName,
+                    WowRealm = realmName,
+                    WowRegion = regionName,
+                    Locale = locale
+                });
+
+                // If setting as main, unset other mains
+                if (isMain)
+                {
+                    var otherMains = _db.WowCharAssociation
+                        .Where(a => a.UserId == (long)Context.User.Id && a.IsMain)
+                        .ToList();
+
+                    foreach (var main in otherMains)
+                    {
+                        main.IsMain = false;
+                    }
+                }
+
+                await _db.SaveChangesAsync();
+
+                var mainText = isMain ? " as your **main character**" : "";
+                await FollowupAsync($"Successfully saved **{charName}** on **{realmName}**{mainText}!\n\nUse `/getchars` to see all your saved characters.", ephemeral: true);
+            }
+            
         }
 
 
@@ -583,17 +580,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         {
             var embed = new EmbedBuilder();
             var sb = new StringBuilder();
-
             List<WowCharAssociation> savedChars;
-            using (var db = new NinjaBotEntities())
-            {
-                savedChars = db.WowCharAssociation
+                savedChars = _db.WowCharAssociation
                     .Where(c => c.UserId == (long)Context.User.Id)
                     .OrderByDescending(c => c.IsMain)
                     .ThenBy(c => c.CharName)
                     .ToList();
-            }
-
             if (savedChars.Any())
             {
                 embed.Title = $"Your Saved Characters ({savedChars.Count})";
@@ -651,8 +643,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 thumbUrl = Context.Guild.IconUrl;
             }
 
-            var guildObject = await _wowUtils.GetGuildName(Context); 
-            var guildStats = _rioApi.GetRioGuildInfo(guildName: guildObject.guildName, realmName: guildObject.realmSlug, region: guildObject.regionName);
+            var guildObject = await _wowUtils.GetGuildName(Context);
+            var guildStats = await _rioApi.GetRioGuildInfoAsync(guildName: guildObject.guildName, realmName: guildObject.realmSlug, region: guildObject.regionName);
                         
             string normalKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.ManaforgeOmega.NormalBossesKilled);
             string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.ManaforgeOmega.HeroicBossesKilled);
@@ -726,7 +718,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 }
             }
 
-            affixes = _rioApi.GetCurrentAffix(region: region);
+            affixes = await _rioApi.GetCurrentAffixAsync(region: region);
 
             title = $"Current M+ Affixes ({region})";
            
@@ -754,10 +746,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var embed = new EmbedBuilder();
             List<LogMonitoring> logMonitorList = null;
             StringBuilder sb = new StringBuilder();
-            using (var db = new NinjaBotEntities())
-            {
-                logMonitorList = db.LogMonitoring.ToList();
-            }
+            logMonitorList = _db.LogMonitoring.ToList();
             if (logMonitorList != null)
             {
                 var getGuild = logMonitorList.Where(l => l.ServerId == (long)Context.Guild.Id).FirstOrDefault();
@@ -784,42 +773,46 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 embed.Title = $"Disabling log watching for {Context.Guild.Name}!";
                 sb.AppendLine($"Use the command again to enable log watching!");
             }
-            using (var db = new NinjaBotEntities())
+            var updateGuild = _db.LogMonitoring.Where(l => l.ServerId == (long)Context.Guild.Id).FirstOrDefault();
+            if (updateGuild != null)
             {
-                var getGuild = db.LogMonitoring.Where(l => l.ServerId == (long)Context.Guild.Id).FirstOrDefault();
-                if (getGuild != null)
+                updateGuild.ChannelId = (long)Context.Channel.Id;
+                updateGuild.ChannelName = Context.Channel.Name;
+                updateGuild.MonitorLogs = enable;
+
+                // When enabling, set LatestLogRetail to now so guild starts in Tier 1 (Active)
+                if (enable && updateGuild.LatestLogRetail == null)
                 {
-                    getGuild.ChannelId = (long)Context.Channel.Id;
-                    getGuild.ChannelName = Context.Channel.Name;
-                    getGuild.MonitorLogs = enable;
+                    updateGuild.LatestLogRetail = DateTime.UtcNow;
                 }
-                else
-                {
-                    db.LogMonitoring.Add(new LogMonitoring
-                    {
-                        ServerId = (long)Context.Guild.Id,
-                        ServerName = Context.Guild.Name,
-                        ChannelId = (long)Context.Channel.Id,
-                        ChannelName = Context.Channel.Name,
-                        MonitorLogs = enable,
-                        LatestLog = DateTime.UtcNow
-                    });
-                }
-                await db.SaveChangesAsync();
             }
+            else
+            {
+                _db.LogMonitoring.Add(new LogMonitoring
+                {
+                    ServerId = (long)Context.Guild.Id,
+                    ServerName = Context.Guild.Name,
+                    ChannelId = (long)Context.Channel.Id,
+                    ChannelName = Context.Channel.Name,
+                    MonitorLogs = enable,
+                    LatestLog = DateTime.UtcNow,
+                    // Initialize LatestLogRetail so guild starts in Tier 1 (Active - highest priority)
+                    LatestLogRetail = enable ? DateTime.UtcNow : null
+                });
+            }
+
+            await _db.SaveChangesAsync();
             embed.Description = sb.ToString();
             await RespondAsync(embed: embed.Build(), ephemeral: true);
         }
+        
         [SlashCommand("wowdiscord", "list class discord servers")]
         public async Task ListWowDiscordServers()
         {
             try
             {
                 List<WowResources> resourceList = null;
-                using (var db = new NinjaBotEntities())
-                {
-                    resourceList = db.WowResources.Where(r => r.ResourceDescription == "Discord").ToList();
-                }
+                resourceList = _db.WowResources.Where(r => r.ResourceDescription == "Discord").ToList();
                 if (resourceList != null)
                 {
                     var embed = new EmbedBuilder();
@@ -971,8 +964,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     sb.AppendLine();
                     for (int i = 0; i <= (guildLogs.Count - 1) && i <= maxReturn; i++)
                     {
-                        var startTime = _logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].start);
-                        var endTime   =  _logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].end);
+                        var startTime = guildLogs[arrayCount].start.UnixTimeStampToDateTime();
+                        var endTime   =  guildLogs[arrayCount].end.UnixTimeStampToDateTime();
                         var wfUrl     = $"https://www.wipefest.net/report/{guildLogs[arrayCount].id}";
                         var wowAnUrl  = $"https://wowanalyzer.com/report/{guildLogs[arrayCount].id}";
 
@@ -994,8 +987,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 else if (guildLogs.Count == 1)
                 {
                     sb.AppendLine($"[__**{guildLogs[0].title}** **/** **{guildLogs[0].zoneName}**__]({guildLogs[0].reportURL})");
-                    sb.AppendLine($"\t:timer: Start time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].start)}**");
-                    sb.AppendLine($"\t:stopwatch: End time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].end)}**");
+                    sb.AppendLine($"\t:timer: Start time: **{guildLogs[0].start.UnixTimeStampToDateTime()}**");
+                    sb.AppendLine($"\t:stopwatch: End time: **{guildLogs[0].end.UnixTimeStampToDateTime()}**");
                     sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[0].id}) | :sob: [WipeFest](https://www.wipefest.net/report/{guildLogs[arrayCount].id})");
                     sb.AppendLine();
                     _logger.LogInformation($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
@@ -1044,15 +1037,41 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 }
                 try
                 {
-                    if (string.IsNullOrEmpty(locale))
+                    // Try v2 API first (faster, only fetches what we need)
+                    try
                     {
-                        guildLogs = await _logsApi.GetReportsFromGuild(guildName: guildName, realm: realmName, region: guildRegion);
+                        string realmSlug = guildObject.realmSlug ?? realmName.ToLower().Replace(" ", "-").Replace("'", "");
+                        var v2Reports = await _logsApiV2.GetGuildReportsAsync(guildName, realmSlug, guildRegion, limit: 3);
+
+                        if (v2Reports != null && v2Reports.Count > 0)
+                        {
+                            guildLogs = v2Reports.Select(r => new Reports
+                            {
+                                id = r.Code,
+                                title = r.Title,
+                                owner = r.OwnerName,
+                                start = r.StartTime,
+                                end = r.EndTime,
+                                zone = r.Zone?.Id ?? 0
+                            }).ToList();
+                            _logger.LogInformation($"[v2] Retrieved {guildLogs.Count} reports for {guildName}");
+                        }
                     }
-                    else
+                    catch (Exception v2Ex)
                     {
-                        guildLogs = await _logsApi.GetReportsFromGuild(guildName: guildName, realm: realmName, region: guildRegion, locale: locale, realmSlug: guildObject.realmSlug);
+                        _logger.LogWarning($"[v2] Failed for {guildName}, falling back to v1: {v2Ex.Message}");
+
+                        // Fallback to v1 API
+                        if (string.IsNullOrEmpty(locale))
+                        {
+                            guildLogs = await _logsApi.GetReportsFromGuild(guildName: guildName, realm: realmName, region: guildRegion);
+                        }
+                        else
+                        {
+                            guildLogs = await _logsApi.GetReportsFromGuild(guildName: guildName, realm: realmName, region: guildRegion, locale: locale, realmSlug: guildObject.realmSlug);
+                        }
+                        _logger.LogInformation($"[v1] Retrieved {guildLogs?.Count ?? 0} reports for {guildName}");
                     }
-                    //arrayCount = guildLogs.Count - 1;
                 }
                 catch (Exception ex)
                 {
@@ -1070,14 +1089,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         DateTime endTime = DateTime.UtcNow;
 
                         if (realmInfo != null && !string.IsNullOrEmpty(realmInfo.timezone))
-                        {                            
-                            startTime = _logsApi.ConvTimeToLocalTimezone(_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].start), realmInfo.timezone);
-                            endTime =  _logsApi.ConvTimeToLocalTimezone(_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].end), realmInfo.timezone);
-                        }
-                        else 
                         {
-                            startTime = _logsApi.ConvTimeToLocalTimezone(_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].start));
-                            endTime =  _logsApi.ConvTimeToLocalTimezone(_logsApi.UnixTimeStampToDateTime(guildLogs[arrayCount].end));
+                            startTime = _logsApi.ConvTimeToLocalTimezone(guildLogs[arrayCount].start.UnixTimeStampToDateTime(), realmInfo.timezone);
+                            endTime =  _logsApi.ConvTimeToLocalTimezone(guildLogs[arrayCount].end.UnixTimeStampToDateTime(), realmInfo.timezone);
+                        }
+                        else
+                        {
+                            startTime = _logsApi.ConvTimeToLocalTimezone(guildLogs[arrayCount].start.UnixTimeStampToDateTime());
+                            endTime =  _logsApi.ConvTimeToLocalTimezone(guildLogs[arrayCount].end.UnixTimeStampToDateTime());
                         }
 
                         sb.AppendLine($"[__**{guildLogs[arrayCount].title}** **/** **{guildLogs[arrayCount].zoneName}**__]({guildLogs[arrayCount].reportURL})");
@@ -1096,8 +1115,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 else if (guildLogs.Count == 1)
                 {
                     sb.AppendLine($"[__**{guildLogs[0].title}** **/** **{guildLogs[0].zoneName}**__]({guildLogs[0].reportURL})");
-                    sb.AppendLine($"\t:timer: Start time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].start)}**");
-                    sb.AppendLine($"\t:stopwatch: End time: **{_logsApi.UnixTimeStampToDateTime(guildLogs[0].end)}**");
+                    sb.AppendLine($"\t:timer: Start time: **{guildLogs[0].start.UnixTimeStampToDateTime()}**");
+                    sb.AppendLine($"\t:stopwatch: End time: **{guildLogs[0].end.UnixTimeStampToDateTime()}**");
                     sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[0].id}) | :sob: [WipeFest](https://www.wipefest.net/report/{guildLogs[arrayCount].id})");
                     sb.AppendLine($"\t");
                     sb.AppendLine();
@@ -1862,10 +1881,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 .Select(z => z.encounters)
                 .FirstOrDefault();                
             embed.Title = $"Raid Videos for {WarcraftLogs.CurrentRaidTier.RaidName}";
-            using (var db = new NinjaBotEntities())
-            {
-                vids = db.WowResources.Where(r => r.ResourceDescription == "raidvid").ToList();
-            }
+            vids = _db.WowResources.Where(r => r.ResourceDescription == "raidvid").ToList();
             if (vids != null)
             {
                 foreach (var vid in vids)
@@ -2387,56 +2403,354 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         {
             try
             {
-                using (var db = new NinjaBotEntities())
+                // Check if this search already exists
+                var existingSearch = _db.RioSearchHistory
+                    .FirstOrDefault(h =>
+                        h.DiscordUserId == (long)discordUserId &&
+                        h.CharacterName.ToLower() == characterName.ToLower() &&
+                        h.RealmName.ToLower() == realmName.ToLower() &&
+                        h.Region.ToLower() == region.ToLower());
+
+                if (existingSearch != null)
                 {
-                    // Check if this search already exists
-                    var existingSearch = db.RioSearchHistory
-                        .FirstOrDefault(h =>
-                            h.DiscordUserId == (long)discordUserId &&
-                            h.CharacterName.ToLower() == characterName.ToLower() &&
-                            h.RealmName.ToLower() == realmName.ToLower() &&
-                            h.Region.ToLower() == region.ToLower());
-
-                    if (existingSearch != null)
-                    {
-                        // Update existing record
-                        existingSearch.LastSearched = DateTime.UtcNow;
-                        existingSearch.SearchCount++;
-                    }
-                    else
-                    {
-                        // Create new record
-                        db.RioSearchHistory.Add(new RioSearchHistory
-                        {
-                            DiscordUserId = (long)discordUserId,
-                            CharacterName = characterName,
-                            RealmName = realmName,
-                            Region = region.ToLower(),
-                            LastSearched = DateTime.UtcNow,
-                            SearchCount = 1
-                        });
-                    }
-
-                    await db.SaveChangesAsync();
-
-                    // Cleanup old searches - keep only the 30 most recent per user
-                    var userSearches = db.RioSearchHistory
-                        .Where(h => h.DiscordUserId == (long)discordUserId)
-                        .OrderByDescending(h => h.LastSearched)
-                        .Skip(30)
-                        .ToList();
-
-                    if (userSearches.Any())
-                    {
-                        db.RioSearchHistory.RemoveRange(userSearches);
-                        await db.SaveChangesAsync();
-                    }
+                    // Update existing record
+                    existingSearch.LastSearched = DateTime.UtcNow;
+                    existingSearch.SearchCount++;
                 }
+                else
+                {
+                    // Create new record
+                    _db.RioSearchHistory.Add(new RioSearchHistory
+                    {
+                        DiscordUserId = (long)discordUserId,
+                        CharacterName = characterName,
+                        RealmName = realmName,
+                        Region = region.ToLower(),
+                        LastSearched = DateTime.UtcNow,
+                        SearchCount = 1
+                    });
+                }
+
+                await _db.SaveChangesAsync();
+
+                // Cleanup old searches - keep only the 30 most recent per user
+                var userSearches = _db.RioSearchHistory
+                    .Where(h => h.DiscordUserId == (long)discordUserId)
+                    .OrderByDescending(h => h.LastSearched)
+                    .Skip(30)
+                    .ToList();
+
+                if (userSearches.Any())
+                {
+                    _db.RioSearchHistory.RemoveRange(userSearches);
+                    await _db.SaveChangesAsync();
+                }
+            
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error saving RIO search history for user {UserId}", discordUserId);
                 // Don't throw - search history is not critical
+            }
+        }
+
+        /// <summary>
+        /// Build component with recent searches select menu
+        /// </summary>
+        private ComponentBuilder BuildRioComponents(ulong userId)
+        {
+            var builder = new ComponentBuilder();
+            try
+            {
+                var recentSearches = _db.RioSearchHistory
+                    .Where(h => h.DiscordUserId == (long)userId)
+                    .OrderByDescending(h => h.LastSearched)
+                    .Take(10)
+                    .ToList();
+
+                if (recentSearches.Any())
+                {
+                    var selectMenuBuilder = new SelectMenuBuilder()
+                        .WithPlaceholder("🔍 Quick search recent characters...")
+                        .WithCustomId("rio_recent_search")
+                        .WithMinValues(1)
+                        .WithMaxValues(1);
+
+                    foreach (var search in recentSearches)
+                    {
+                        // Format: "CharName - RealmName (REGION)"
+                        var label = $"{search.CharacterName} - {search.RealmName} ({search.Region.ToUpper()})";
+
+                        // Truncate label if too long (max 100 chars for Discord)
+                        if (label.Length > 100)
+                        {
+                            label = label.Substring(0, 97) + "...";
+                        }
+
+                        // Value encodes character info: "CharName~RealmName~Region"
+                        var value = $"{search.CharacterName}~{search.RealmName}~{search.Region}";
+
+                        // Description shows search count or last searched
+                        var description = search.SearchCount > 1
+                            ? $"Searched {search.SearchCount} times"
+                            : "Searched once";
+
+                        selectMenuBuilder.AddOption(label, value, description);
+                    }
+
+                    builder.WithSelectMenu(selectMenuBuilder);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error building RIO components for user {UserId}", userId);
+                // Return empty builder if there's an error
+            }
+
+            return builder;
+        }
+
+        /// <summary>
+        /// Handle recent search selection from component interaction
+        /// </summary>
+        [ComponentInteraction("rio_recent_search")]
+        public async Task HandleRecentSearchSelection(string[] selections)
+        {
+            try
+            {
+                // Defer the interaction to acknowledge it
+                await DeferAsync();
+
+                // Parse the selected character info: "CharName~RealmName~Region"
+                var parts = selections[0].Split('~', 3);
+
+                if (parts.Length < 3)
+                {
+                    await FollowupAsync("Invalid character selection. Please try again.", ephemeral: true);
+                    return;
+                }
+
+                string charName = parts[0];
+                string realmName = parts[1];
+                string regionName = parts[2];
+
+                _logger.LogInformation(
+                    "User {UserId} selected recent search: {Character} - {Realm} ({Region})",
+                    Context.User.Id, charName, realmName, regionName);
+
+                var sb = new StringBuilder();
+                var embed = new EmbedBuilder();
+
+                // Fetch RaiderIO data
+                RaiderIOModels.RioMythicPlusChar mPlusInfo = null;
+                string realmSlug = string.Empty;
+
+                try
+                {
+                    mPlusInfo = await _rioApi.GetCharMythicPlusInfoAsync(
+                        charName: charName,
+                        realmName: realmName.Replace(" ", "%20"),
+                        region: regionName.ToLower());
+                }
+                catch (InvalidOperationException ex)
+                {
+                    embed.Title = "Character Not Found";
+                    embed.WithColor(new Color(255, 0, 0));
+                    embed.Description = $"Could not find **{charName}** on **{realmName}** ({regionName.ToUpper()}) in RaiderIO.\n\n" +
+                        "The character may have been deleted or has no recent activity.\n\n" +
+                        $"*Error: {ex.Message}*";
+
+                    // Update the message with error
+                    await ModifyOriginalResponseAsync(msg =>
+                    {
+                        msg.Embed = embed.Build();
+                        msg.Components = BuildRioComponents(Context.User.Id).Build();
+                    });
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error fetching RaiderIO data for {Character} on {Realm}", charName, realmName);
+                    embed.Title = "Error Fetching Data";
+                    embed.WithColor(new Color(255, 165, 0));
+                    embed.Description = $"An error occurred while fetching RaiderIO data for **{charName}**.\n\n" +
+                        "Please try again later.";
+
+                    await ModifyOriginalResponseAsync(msg =>
+                    {
+                        msg.Embed = embed.Build();
+                        msg.Components = BuildRioComponents(Context.User.Id).Build();
+                    });
+                    return;
+                }
+
+                // Determine realm slug for WarcraftLogs URL
+                switch (regionName.ToLower())
+                {
+                    case "us":
+                        realmSlug = WowApi.RealmInfo.realms
+                            .Where(r => r.name.Replace("'", "").ToLower().Contains(realmName.ToLower()))
+                            .Select(s => s.slug)
+                            .FirstOrDefault() ?? realmName;
+                        break;
+                    case "ru":
+                        realmSlug = WowApi.RealmInfoRu.realms
+                            .Where(r => r.name.Replace("'", "").ToLower().Contains(realmName.ToLower()))
+                            .Select(s => s.slug)
+                            .FirstOrDefault() ?? realmName;
+                        break;
+                    case "eu":
+                        realmSlug = WowApi.RealmInfoEu.realms
+                            .Where(r => r.name.Replace("'", "").ToLower().Contains(realmName.ToLower()))
+                            .Select(s => s.slug)
+                            .FirstOrDefault() ?? realmName;
+                        break;
+                    default:
+                        realmSlug = WowApi.RealmInfo.realms
+                            .Where(r => r.name.Replace("'", "").ToLower().Contains(realmName.ToLower()))
+                            .Select(s => s.slug)
+                            .FirstOrDefault() ?? realmName;
+                        break;
+                }
+
+                embed.Title = $"{mPlusInfo.ActiveSpecName} {mPlusInfo.Class} - {mPlusInfo.Name}";
+
+                // Item Level
+                if (mPlusInfo.Gear != null)
+                {
+                    if (mPlusInfo.Gear.ItemLevelTotal > mPlusInfo.Gear.ItemLevelEquipped)
+                    {
+                        sb.AppendLine($"**Item Level:** {mPlusInfo.Gear.ItemLevelEquipped} (equipped) / {mPlusInfo.Gear.ItemLevelTotal} (max)");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"**Item Level:** {mPlusInfo.Gear.ItemLevelEquipped}");
+                    }
+                    sb.AppendLine();
+                }
+
+                // Season Scores Breakdown
+                if (mPlusInfo.MythicPlusScores?.Length > 0)
+                {
+                    var scores = mPlusInfo.MythicPlusScores[0].Scores;
+                    sb.AppendLine($"**__Season M+ Scores__**");
+                    sb.AppendLine($"Overall: **{scores.All:F1}**");
+                    if (scores.Dps > 0)
+                        sb.AppendLine($"DPS: {scores.Dps:F1}");
+                    if (scores.Healer > 0)
+                        sb.AppendLine($"Healer: {scores.Healer:F1}");
+                    if (scores.Tank > 0)
+                        sb.AppendLine($"Tank: {scores.Tank:F1}");
+                    sb.AppendLine();
+                }
+
+                // Raid Progression
+                if (mPlusInfo.RaidProgression.ManaforgeOmega != null)
+                {
+                    var raid = mPlusInfo.RaidProgression.ManaforgeOmega;
+                    string normalKilled = _wowUtils.GetNumberEmojiFromString((int)raid.NormalBossesKilled);
+                    string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)raid.HeroicBossesKilled);
+                    string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)raid.MythicBossesKilled);
+                    string totalBosses = _wowUtils.GetNumberEmojiFromString((int)raid.TotalBosses);
+
+                    sb.AppendLine($"**__Raid Progression__**");
+                    sb.AppendLine($"__Manaforge Omega__");
+                    sb.AppendLine($"**Normal** [{normalKilled} / {totalBosses}] {GetProgressBar(raid.NormalBossesKilled, raid.TotalBosses)}");
+                    sb.AppendLine($"**Heroic** [{heroicKilled} / {totalBosses}] {GetProgressBar(raid.HeroicBossesKilled, raid.TotalBosses)}");
+                    sb.AppendLine($"**Mythic** [{mythicKilled} / {totalBosses}] {GetProgressBar(raid.MythicBossesKilled, raid.TotalBosses)}");
+                    sb.AppendLine();
+                }
+
+                // M+ Rankings
+                sb.AppendLine($"**__M+ Rankings For Active Role ({mPlusInfo.ActiveSpecRole})__**");
+                switch (mPlusInfo.ActiveSpecRole.ToLower())
+                {
+                    case "dps":
+                        sb.AppendLine($"Realm [**{mPlusInfo.MythicPlusRanks.Dps.Realm}**] Region [**{mPlusInfo.MythicPlusRanks.Dps.Region}**] World [**{mPlusInfo.MythicPlusRanks.Dps.World}**]");
+                        break;
+                    case "healing":
+                        sb.AppendLine($"Realm [**{mPlusInfo.MythicPlusRanks.Healer.Realm}**] Region [**{mPlusInfo.MythicPlusRanks.Healer.Region}**] World [**{mPlusInfo.MythicPlusRanks.Healer.World}**]");
+                        break;
+                    case "tank":
+                        sb.AppendLine($"Realm [**{mPlusInfo.MythicPlusRanks.Tank.Realm}**] Region [**{mPlusInfo.MythicPlusRanks.Tank.Region}**] World [**{mPlusInfo.MythicPlusRanks.Tank.World}**]");
+                        break;
+                }
+
+                sb.AppendLine($"**__M+ Rankings For Class ({mPlusInfo.Class})__**");
+                sb.AppendLine($"Realm [**{mPlusInfo.MythicPlusRanks.Class.Realm}**] Region [**{mPlusInfo.MythicPlusRanks.Class.Region}**] World [**{mPlusInfo.MythicPlusRanks.Class.World}**]");
+                sb.AppendLine();
+
+                // Best Runs
+                if (mPlusInfo.MythicPlusBestRuns?.Length > 0)
+                {
+                    sb.AppendLine($"**__Best Runs__**");
+                    foreach (var run in mPlusInfo.MythicPlusBestRuns)
+                    {
+                        var keyEmoji = run.MythicLevel >= 20 ? "🔑" : "▪️";
+                        var minutes = run.ClearTimeMs / 60000;
+                        if (run.Url != null)
+                        {
+                            sb.AppendLine($"{keyEmoji} [{run.ShortName}(**+{run.MythicLevel}**) - {minutes}m]({run.Url.AbsoluteUri})");
+                        }
+                        else
+                        {
+                            sb.AppendLine($"{keyEmoji} {run.ShortName}(**+{run.MythicLevel}**) - {minutes}m");
+                        }
+                    }
+                    sb.AppendLine();
+                }
+
+                // Weekly Progress (if available)
+                if (mPlusInfo.MythicPlusWeeklyHighestLevelRuns?.Length > 0)
+                {
+                    sb.AppendLine($"**__This Week's Highest Keys__**");
+                    foreach (var run in mPlusInfo.MythicPlusWeeklyHighestLevelRuns.Take(4))
+                    {
+                        var keyEmoji = run.MythicLevel >= 15 ? "⭐" : "▪️";
+                        if (run.Url != null)
+                        {
+                            sb.AppendLine($"{keyEmoji} [{run.ShortName} **+{run.MythicLevel}**]({run.Url.AbsoluteUri})");
+                        }
+                        else
+                        {
+                            sb.AppendLine($"{keyEmoji} {run.ShortName} **+{run.MythicLevel}**");
+                        }
+                    }
+                    sb.AppendLine();
+                }
+
+                embed.AddField("Raider.IO", $"[{mPlusInfo.Name}]({mPlusInfo.ProfileUrl.AbsoluteUri})", true);
+                embed.AddField("Warcraftlogs", $"[{mPlusInfo.Name}](https://www.warcraftlogs.com/character/{regionName}/{realmSlug}/{mPlusInfo.Name})", true);
+                embed.ThumbnailUrl = $"{mPlusInfo.ThumbnailUrl.AbsoluteUri}";
+                embed.Description = sb.ToString();
+
+                // Color based on M+ score
+                var score = mPlusInfo.MythicPlusScores?[0]?.Scores?.All ?? 0;
+                var color = score >= 3000 ? new Color(255, 128, 0) : // Orange for 3000+
+                            score >= 2500 ? new Color(163, 53, 238) : // Purple for 2500+
+                            score >= 2000 ? new Color(0, 112, 221) : // Blue for 2000+
+                            new Color(0, 200, 150); // Teal default
+                embed.WithColor(color);
+
+                embed.Footer = new EmbedFooterBuilder
+                {
+                    Text = $"Raider.IO Score: {score:F1} | {mPlusInfo.Realm} ({regionName.ToUpper()})"
+                };
+
+                // Update search history
+                await SaveSearchHistoryAsync(Context.User.Id, charName, realmName, regionName);
+
+                // Update the original message with the new character data
+                await ModifyOriginalResponseAsync(msg =>
+                {
+                    msg.Embed = embed.Build();
+                    msg.Components = BuildRioComponents(Context.User.Id).Build();
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling recent search selection for user {UserId}", Context.User.Id);
+                await FollowupAsync("An error occurred while processing your selection. Please try again.", ephemeral: true);
             }
         }
     }

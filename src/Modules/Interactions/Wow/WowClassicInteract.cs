@@ -25,14 +25,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
     {
         private readonly ILogger<WowClassicInteract> _logger;
         private readonly List<String> _wclRegions = new List<String>{"US", "EU", "KR", "TW", "CN"};
-        private readonly ChannelCheck _cc;
-        private WarcraftLogs _wclLogsApi;        
+        private WarcraftLogs _wclLogsApi;    
+        private WarcraftLogsV2Client _wclLogsV2Api;    
         
         public WowClassicInteract(IServiceProvider services) 
         {
             _logger = services.GetRequiredService<ILogger<WowClassicInteract>>();
-            _cc = services.GetRequiredService<ChannelCheck>();
             _wclLogsApi = services.GetRequiredService<WarcraftLogs>();
+            _wclLogsV2Api = services.GetRequiredService<WarcraftLogsV2Client>();
         }
 
         [SlashCommand("getclassicguild", "get classic guild info")]
@@ -143,16 +143,18 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             }
             if (wowClassicGuild != null)
             {
-                var guildLogs = await _wclLogsApi.GetReportsFromGuildClassic(wowClassicGuild.WowGuild, wowClassicGuild.WowRealm, wowClassicGuild.WowRegion);
+                var guildLogs = await _wclLogsV2Api.GetGuildReportsAsync(
+                    wowClassicGuild.WowGuild, wowClassicGuild.WowRealm, wowClassicGuild.WowRegion, gameVersion: WowGameVersion.Classic);
+
                 if (guildLogs.Count > 0)
                 {
                     sb.AppendLine();
                     for (int i = 0; i <= (guildLogs.Count) && i <= maxReturn ; i++)
                     {
-                        sb.AppendLine($"[__**{guildLogs[i].title}** **/** **{guildLogs[i].zoneName}**__]({guildLogs[i].reportURL})");
-                        sb.AppendLine($"\t:timer: Start time: **{_wclLogsApi.UnixTimeStampToDateTime(guildLogs[i].start).ToLocalTime()}**");
-                        sb.AppendLine($"\t:stopwatch: End time: **{_wclLogsApi.UnixTimeStampToDateTime(guildLogs[i].end).ToLocalTime()}**");
-                        sb.AppendLine($"\t:pencil2: Created by [**{guildLogs[i].owner}**]"); 
+                        sb.AppendLine($"[__**{guildLogs[i].Title}** **/** **{guildLogs[i].ZoneName}**__]({guildLogs[i].ReportURL})");
+                        sb.AppendLine($"\t:timer: Start time: **{guildLogs[i].StartTime.UnixTimeStampToDateTime().ToLocalTime()}**");
+                        sb.AppendLine($"\t:stopwatch: End time: **{guildLogs[i].EndTime.UnixTimeStampToDateTime().ToLocalTime()}**");
+                        sb.AppendLine($"\t:pencil2: Created by [**{guildLogs[i].Owner.Name}**]"); 
                         sb.AppendLine();
                     }
                     _logger.LogInformation($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");

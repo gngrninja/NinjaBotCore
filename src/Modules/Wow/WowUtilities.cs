@@ -17,7 +17,6 @@ using Microsoft.Extensions.DependencyInjection;
 using NinjaBotCore.Common;
 using Discord.Interactions;
 using System.Threading;
-using NinjaBotCore.Models.Wow;
 using Microsoft.EntityFrameworkCore;
 
 namespace NinjaBotCore.Modules.Wow
@@ -32,18 +31,18 @@ namespace NinjaBotCore.Modules.Wow
         public readonly IConfigurationRoot _config;
         public string _prefix;
         public readonly ILogger _logger;
-        private readonly NinjaBotEntities _db;
-        
+        private readonly IServiceScopeFactory _scopeFactory;
+
         public WowUtilities(IServiceProvider services)
         {
             _logger = services.GetRequiredService<ILogger<WowUtilities>>();
             _cc = services.GetRequiredService<ChannelCheck>();
-            _logsApi = services.GetRequiredService<WarcraftLogs>();            
+            _logsApi = services.GetRequiredService<WarcraftLogs>();
             _wowApi = services.GetRequiredService<WowApi>();
             _rioApi = services.GetRequiredService<RaiderIOApi>();
-            _client = services.GetRequiredService<DiscordShardedClient>();            
+            _client = services.GetRequiredService<DiscordShardedClient>();
             _config = services.GetRequiredService<IConfigurationRoot>();
-            _db     = services.GetRequiredService<NinjaBotEntities>();
+            _scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
             _prefix = _config["prefix"];
         }
 
@@ -816,10 +815,13 @@ namespace NinjaBotCore.Modules.Wow
             NinjaBotCore.Models.Wow.NinjaObjects.GuildObject guildObject,
             CancellationToken cancellationToken = default)
         {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
             var now = DateTime.UtcNow;
 
             // 🔹 Cache guard
-            var lastFetch = await _db.WowGuildRosterMembers
+            var lastFetch = await db.WowGuildRosterMembers
                 .Where(x =>
                     x.GuildName == guildObject.guildName &&
                     x.GuildRealmSlug == guildObject.realmSlug &&
@@ -836,12 +838,12 @@ namespace NinjaBotCore.Modules.Wow
                 locale: guildObject.locale,
                 regionName: guildObject.regionName);
 
-            using var tx = await _db.Database.BeginTransactionAsync(cancellationToken);
+            using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
 
             try
             {
                 // 🔹 Clear old snapshot
-                await _db.WowGuildRosterMembers
+                await db.WowGuildRosterMembers
                     .Where(x =>
                         x.GuildName == guildObject.guildName &&
                         x.GuildRealmSlug == guildObject.realmSlug &&
@@ -862,8 +864,8 @@ namespace NinjaBotCore.Modules.Wow
                     LastUpdated = now
                 });
 
-                await _db.WowGuildRosterMembers.AddRangeAsync(rows, cancellationToken);
-                await _db.SaveChangesAsync(cancellationToken);
+                await db.WowGuildRosterMembers.AddRangeAsync(rows, cancellationToken);
+                await db.SaveChangesAsync(cancellationToken);
 
                 await tx.CommitAsync(cancellationToken);
             }

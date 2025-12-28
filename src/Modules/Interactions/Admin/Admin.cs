@@ -231,11 +231,11 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             string reason = "Buy bye!";            
             if (args != null)
             {
-                try 
+                try
                 {
                     pruneDays = int.Parse(args.Split(" ")[0]);
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
                     pruneDays = 0;
                 }

@@ -30,10 +30,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private DiscordShardedClient _client;
         private RaiderIOApi _rioApi;
         private readonly IConfigurationRoot _config;
-        private string _prefix;
         private readonly ILogger _logger;
         private WowUtilities _wowUtils;
-        
+        private readonly WarcraftLogsV2Client _v2Client;
+
         public WowAdminInteract(IServiceProvider services)
         {
             _logger = services.GetRequiredService<ILogger<WowAdminInteract>>();
@@ -42,8 +42,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             _logsApi = services.GetRequiredService<WarcraftLogs>();
             _wowApi = services.GetRequiredService<WowApi>();
             _rioApi = services.GetRequiredService<RaiderIOApi>();
-            _client = services.GetRequiredService<DiscordShardedClient>(); 
-            _config = services.GetRequiredService<IConfigurationRoot>();            
+            _client = services.GetRequiredService<DiscordShardedClient>();
+            _config = services.GetRequiredService<IConfigurationRoot>();
+            _v2Client = services.GetRequiredService<WarcraftLogsV2Client>();
         }
 
         [SlashCommand("populatelogs", "populate logs")]
@@ -81,7 +82,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                                     if (logs != null)
                                     {
                                         var latestLog = logs[logs.Count - 1];
-                                        DateTime startTime = _wowApi.UnixTimeStampToDateTime(latestLog.start);
+                                        DateTime startTime = latestLog.start.UnixTimeStampToDateTimeSeconds();
                                         {
                                             using (var db = new NinjaBotEntities())
                                             {
@@ -269,7 +270,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             await RespondAsync(embed: embed.Build());
         }
 
-        [SlashCommand("set-partition", "set partition")]        
+        [SlashCommand("set-partition", "set partition")]
         [Discord.Interactions.RequireOwner]
         public async Task SetPartition(string args = null)
         {
@@ -277,7 +278,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             embed.Title = "Parition setter for NinjaBot";
             int? partition = int.Parse(args.Trim());
             try
-            {               
+            {
                 if (partition != null)
                 {
                     using (var db = new NinjaBotEntities())
@@ -296,6 +297,854 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             }
             await RespondAsync(embed: embed.Build());
             WarcraftLogs.CurrentRaidTier.Partition = partition;
-        }        
+        }
+
+        [SlashCommand("wcl-guild-cleanup", "List or remove problematic guild associations from WarcraftLogs monitoring")]
+        [Discord.Interactions.RequireOwner]
+        public async Task WclGuildCleanup(
+            [Summary("type", "Type of guilds to find: inactive, not-found, no-reports, or all")] string cleanupType = "inactive",
+            [Summary("days-threshold", "For inactive: days without reports to consider inactive (default: 90)")] int daysThreshold = 90,
+            [Summary("action", "Action to perform: list or unflag")] string action = "list")
+        {
+            await DeferAsync(ephemeral: true);
+
+            var type = cleanupType.ToLower();
+            if (type != "inactive" && type != "not-found" && type != "no-reports" && type != "all")
+            {
+                await FollowupAsync($"Invalid cleanup type '{cleanupType}'. Use 'inactive', 'not-found', 'no-reports', or 'all'.", ephemeral: true);
+                return;
+            }
+
+            try
+            {
+                List<WowGuildAssociations> guildList;
+                List<LogMonitoring> logWatchList;
+
+                using (var db = new NinjaBotEntities())
+                {
+                    guildList = db.WowGuildAssociations.ToList();
+                    logWatchList = db.LogMonitoring.Where(w => w.MonitorLogs).ToList();
+                }
+
+                var problemGuilds = new List<(WowGuildAssociations Guild, LogMonitoring Monitoring, int? DaysSinceReport, string Reason)>();
+
+                // Find inactive guilds
+                if (type == "inactive" || type == "all")
+                {
+                    var thresholdDate = DateTime.UtcNow.AddDays(-daysThreshold);
+
+                    foreach (var monitoring in logWatchList)
+                    {
+                        var guild = guildList.FirstOrDefault(g => g.ServerId == monitoring.ServerId);
+                        if (guild == null) continue;
+
+                        int? daysSinceReport = null;
+                        if (monitoring.LatestLogRetail.HasValue)
+                        {
+                            daysSinceReport = (int)(DateTime.UtcNow - monitoring.LatestLogRetail.Value).TotalDays;
+                        }
+
+                        // Include if: no reports ever, or reports older than threshold
+                        if (!monitoring.LatestLogRetail.HasValue || monitoring.LatestLogRetail.Value < thresholdDate)
+                        {
+                            var reason = daysSinceReport.HasValue
+                                ? $"Inactive: {daysSinceReport} days"
+                                : "Inactive: never";
+                            problemGuilds.Add((guild, monitoring, daysSinceReport, reason));
+                        }
+                    }
+                }
+
+                // Find not-found guilds (guilds that don't exist on WarcraftLogs) or no-reports guilds
+                if (type == "not-found" || type == "no-reports" || type == "all")
+                {
+                    await FollowupAsync("Checking WarcraftLogs... This may take a moment.", ephemeral: true);
+
+                    var guildsToCheck = guildList
+                        .Where(g => logWatchList.Any(w => w.ServerId == g.ServerId && w.MonitorLogs))
+                        .ToList();
+
+                    var batchRequest = guildsToCheck.Select(g => (
+                        guildName: g.WowGuild,
+                        serverSlug: g.LocalRealmSlug ?? g.WowRealm.ToLower().Replace(" ", "-").Replace("'", ""),
+                        serverRegion: g.WowRegion,
+                        guildKey: $"{g.ServerId}"
+                    )).ToList();
+
+                    try
+                    {
+                        // Use the WarcraftLogsV2 batch method - now distinguishes between non-existent and no-reports guilds
+                        var batchResult = await _v2Client.GetBatchGuildReportsAsync(batchRequest);
+
+                        foreach (var guild in guildsToCheck)
+                        {
+                            var guildKey = $"{guild.ServerId}";
+                            var monitoring = logWatchList.FirstOrDefault(w => w.ServerId == guild.ServerId);
+                            if (monitoring == null) continue;
+
+                            int? daysSinceReport = monitoring.LatestLogRetail.HasValue
+                                ? (int)(DateTime.UtcNow - monitoring.LatestLogRetail.Value).TotalDays
+                                : null;
+
+                            // Check for not-found guilds (guilds that don't exist on WarcraftLogs)
+                            if ((type == "not-found" || type == "all") && batchResult.NonExistentGuilds.Contains(guildKey))
+                            {
+                                // Don't add duplicates if we already found it as inactive
+                                if (!problemGuilds.Any(p => p.Guild.ServerId == guild.ServerId))
+                                {
+                                    problemGuilds.Add((guild, monitoring, daysSinceReport, "Not found on WCL"));
+                                }
+                                else
+                                {
+                                    // Update reason to include both issues
+                                    var index = problemGuilds.FindIndex(p => p.Guild.ServerId == guild.ServerId);
+                                    if (index >= 0)
+                                    {
+                                        var existing = problemGuilds[index];
+                                        problemGuilds[index] = (existing.Guild, existing.Monitoring, existing.DaysSinceReport, $"{existing.Reason} + Not found");
+                                    }
+                                }
+                            }
+
+                            // Check for guilds with no reports (guilds that exist but have no reports)
+                            if ((type == "no-reports" || type == "all") && batchResult.GuildsWithNoReports.Contains(guildKey))
+                            {
+                                if (!problemGuilds.Any(p => p.Guild.ServerId == guild.ServerId))
+                                {
+                                    problemGuilds.Add((guild, monitoring, daysSinceReport, "No reports on WCL"));
+                                }
+                                else
+                                {
+                                    // Update reason to include both issues
+                                    var index = problemGuilds.FindIndex(p => p.Guild.ServerId == guild.ServerId);
+                                    if (index >= 0)
+                                    {
+                                        var existing = problemGuilds[index];
+                                        problemGuilds[index] = (existing.Guild, existing.Monitoring, existing.DaysSinceReport, $"{existing.Reason} + No reports");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error checking guilds on WarcraftLogs");
+                        await FollowupAsync($"Error checking WarcraftLogs: {ex.Message}", ephemeral: true);
+                        return;
+                    }
+                }
+
+                if (problemGuilds.Count == 0)
+                {
+                    var typeDesc = type == "all" ? "problematic" : type;
+                    await FollowupAsync($"No {typeDesc} guilds found!", ephemeral: true);
+                    return;
+                }
+
+                // Sort by reason, then by days since report (nulls last)
+                problemGuilds = problemGuilds
+                    .OrderBy(x => x.Reason)
+                    .ThenByDescending(x => x.DaysSinceReport ?? int.MaxValue)
+                    .ToList();
+
+                if (action.ToLower() == "list")
+                {
+                    // List mode - show with pagination
+                    await ShowProblematicGuildsPage(problemGuilds, 0, daysThreshold, type);
+                }
+                else if (action.ToLower() == "unflag")
+                {
+                    // Unflag mode - actually disable monitoring
+                    int unflaggedCount = 0;
+                    var unflaggedServers = new List<string>();
+
+                    using (var db = new NinjaBotEntities())
+                    {
+                        foreach (var (guild, monitoring, _, reason) in problemGuilds)
+                        {
+                            var dbMonitoring = db.LogMonitoring.FirstOrDefault(m => m.ServerId == monitoring.ServerId);
+                            if (dbMonitoring != null && dbMonitoring.MonitorLogs)
+                            {
+                                dbMonitoring.MonitorLogs = false;
+                                unflaggedCount++;
+                                unflaggedServers.Add($"{guild.WowGuild}-{guild.WowRealm}");
+                            }
+                        }
+
+                        await db.SaveChangesAsync();
+                    }
+
+                    var resultEmbed = new EmbedBuilder();
+                    resultEmbed.WithTitle("Cleanup Complete");
+                    resultEmbed.WithDescription($"Disabled monitoring for {unflaggedCount} inactive guilds");
+                    resultEmbed.WithColor(Color.Green);
+
+                    var resultSb = new StringBuilder();
+                    foreach (var server in unflaggedServers.Take(20))
+                    {
+                        resultSb.AppendLine($"• {server}");
+                    }
+                    if (unflaggedServers.Count > 20)
+                    {
+                        resultSb.AppendLine($"*...and {unflaggedServers.Count - 20} more*");
+                    }
+
+                    resultEmbed.AddField("Unflagged Guilds", resultSb.ToString());
+
+                    _logger.LogInformation("WCL Cleanup: Unflagged {Count} inactive guilds (threshold: {Days} days)", unflaggedCount, daysThreshold);
+
+                    await FollowupAsync(embed: resultEmbed.Build(), ephemeral: true);
+                }
+                else
+                {
+                    await FollowupAsync($"Invalid action '{action}'. Use 'list' or 'unflag'.", ephemeral: true);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in WCL cleanup command");
+                await FollowupAsync($"Error: {ex.Message}", ephemeral: true);
+            }
+        }
+
+        private async Task ShowProblematicGuildsPage(
+            List<(WowGuildAssociations Guild, LogMonitoring Monitoring, int? DaysSinceReport, string Reason)> problemGuilds,
+            int page,
+            int daysThreshold,
+            string cleanupType)
+        {
+            const int itemsPerPage = 10;
+            int totalPages = (int)Math.Ceiling(problemGuilds.Count / (double)itemsPerPage);
+            page = Math.Max(0, Math.Min(page, totalPages - 1)); // Clamp page
+
+            var embed = new EmbedBuilder();
+            var typeDesc = cleanupType switch
+            {
+                "inactive" => "Inactive",
+                "not-found" => "Not Found",
+                "no-reports" => "No Reports",
+                "all" => "Problematic",
+                _ => "Problematic"
+            };
+            embed.WithTitle($"{typeDesc} Guilds ({problemGuilds.Count} found)");
+
+            var description = cleanupType switch
+            {
+                "inactive" => $"Guilds with no reports in the last {daysThreshold} days",
+                "not-found" => "Guilds that don't exist on WarcraftLogs",
+                "no-reports" => "Guilds that exist on WarcraftLogs but have no reports",
+                "all" => $"Guilds with issues (inactive, not found, or no reports)",
+                _ => "Problematic guilds"
+            };
+            embed.WithDescription(description);
+            embed.WithColor(Color.Orange);
+
+            var sb = new StringBuilder();
+            var pageItems = problemGuilds.Skip(page * itemsPerPage).Take(itemsPerPage);
+
+            foreach (var (guild, monitoring, daysSince, reason) in pageItems)
+            {
+                // Build WarcraftLogs guild URL for spot checking
+                var realmSlug = guild.LocalRealmSlug ?? guild.WowRealm.ToLower().Replace(" ", "-").Replace("'", "");
+                var wclUrl = $"https://www.warcraftlogs.com/guild/{guild.WowRegion.ToLower()}/{realmSlug}/{Uri.EscapeDataString(guild.WowGuild)}";
+
+                sb.AppendLine($"**[{guild.WowGuild}]({wclUrl})** ({guild.WowRealm}-{guild.WowRegion})");
+                sb.AppendLine($"└─ Server: {guild.ServerName} | {reason}");
+            }
+
+            if (sb.Length > 0)
+            {
+                // Ensure field value doesn't exceed Discord's 1024 char limit
+                var fieldValue = sb.ToString();
+                if (fieldValue.Length > 1020)
+                {
+                    // Truncate at last complete line to avoid breaking markdown links
+                    var lastNewline = fieldValue.LastIndexOf('\n', 1020);
+                    if (lastNewline > 0)
+                    {
+                        fieldValue = fieldValue.Substring(0, lastNewline) + "\n...";
+                    }
+                    else
+                    {
+                        fieldValue = fieldValue.Substring(0, 1020) + "...";
+                    }
+                }
+                embed.AddField($"Page {page + 1} of {totalPages}", fieldValue);
+            }
+            else
+            {
+                embed.AddField("Inactive Guilds", "*No guilds to display*");
+            }
+
+            embed.WithFooter($"Use action='unflag' to disable monitoring for these guilds");
+
+            // Build component buttons
+            var componentBuilder = new ComponentBuilder();
+
+            var prevButton = new ButtonBuilder()
+                .WithLabel("Previous")
+                .WithCustomId($"wcl-cleanup-prev:{page}:{daysThreshold}:{cleanupType}")
+                .WithStyle(ButtonStyle.Primary)
+                .WithDisabled(page == 0);
+
+            var nextButton = new ButtonBuilder()
+                .WithLabel("Next")
+                .WithCustomId($"wcl-cleanup-next:{page}:{daysThreshold}:{cleanupType}")
+                .WithStyle(ButtonStyle.Primary)
+                .WithDisabled(page >= totalPages - 1);
+
+            componentBuilder.WithButton(prevButton);
+            componentBuilder.WithButton(nextButton);
+
+            await FollowupAsync(embed: embed.Build(), components: componentBuilder.Build(), ephemeral: true);
+        }
+
+        [ComponentInteraction("wcl-cleanup-prev:*:*:*")]
+        [Discord.Interactions.RequireOwner]
+        public async Task WclCleanupPrevPage(int currentPage, int daysThreshold, string cleanupType)
+        {
+            await DeferAsync(ephemeral: true);
+            await NavigateCleanupPage(currentPage - 1, daysThreshold, cleanupType);
+        }
+
+        [ComponentInteraction("wcl-cleanup-next:*:*:*")]
+        [Discord.Interactions.RequireOwner]
+        public async Task WclCleanupNextPage(int currentPage, int daysThreshold, string cleanupType)
+        {
+            await DeferAsync(ephemeral: true);
+            await NavigateCleanupPage(currentPage + 1, daysThreshold, cleanupType);
+        }
+
+        private async Task NavigateCleanupPage(int page, int daysThreshold, string cleanupType)
+        {
+            try
+            {
+                List<WowGuildAssociations> guildList;
+                List<LogMonitoring> logWatchList;
+
+                using (var db = new NinjaBotEntities())
+                {
+                    guildList = db.WowGuildAssociations.ToList();
+                    logWatchList = db.LogMonitoring.Where(w => w.MonitorLogs).ToList();
+                }
+
+                var problemGuilds = new List<(WowGuildAssociations Guild, LogMonitoring Monitoring, int? DaysSinceReport, string Reason)>();
+                var type = cleanupType.ToLower();
+
+                // Find inactive guilds
+                if (type == "inactive" || type == "all")
+                {
+                    var thresholdDate = DateTime.UtcNow.AddDays(-daysThreshold);
+
+                    foreach (var monitoring in logWatchList)
+                    {
+                        var guild = guildList.FirstOrDefault(g => g.ServerId == monitoring.ServerId);
+                        if (guild == null) continue;
+
+                        int? daysSinceReport = null;
+                        if (monitoring.LatestLogRetail.HasValue)
+                        {
+                            daysSinceReport = (int)(DateTime.UtcNow - monitoring.LatestLogRetail.Value).TotalDays;
+                        }
+
+                        if (!monitoring.LatestLogRetail.HasValue || monitoring.LatestLogRetail.Value < thresholdDate)
+                        {
+                            var reason = daysSinceReport.HasValue
+                                ? $"Inactive: {daysSinceReport} days"
+                                : "Inactive: never";
+                            problemGuilds.Add((guild, monitoring, daysSinceReport, reason));
+                        }
+                    }
+                }
+
+                // Find not-found guilds (guilds that don't exist on WarcraftLogs) or no-reports guilds
+                if (type == "not-found" || type == "no-reports" || type == "all")
+                {
+                    var guildsToCheck = guildList
+                        .Where(g => logWatchList.Any(w => w.ServerId == g.ServerId && w.MonitorLogs))
+                        .ToList();
+
+                    var batchRequest = guildsToCheck.Select(g => (
+                        guildName: g.WowGuild,
+                        serverSlug: g.LocalRealmSlug ?? g.WowRealm.ToLower().Replace(" ", "-").Replace("'", ""),
+                        serverRegion: g.WowRegion,
+                        guildKey: $"{g.ServerId}"
+                    )).ToList();
+
+                    var batchResult = await _v2Client.GetBatchGuildReportsAsync(batchRequest);
+
+                    foreach (var guild in guildsToCheck)
+                    {
+                        var guildKey = $"{guild.ServerId}";
+                        var monitoring = logWatchList.FirstOrDefault(w => w.ServerId == guild.ServerId);
+                        if (monitoring == null) continue;
+
+                        int? daysSinceReport = monitoring.LatestLogRetail.HasValue
+                            ? (int)(DateTime.UtcNow - monitoring.LatestLogRetail.Value).TotalDays
+                            : null;
+
+                        // Check for not-found guilds (guilds that don't exist on WarcraftLogs)
+                        if ((type == "not-found" || type == "all") && batchResult.NonExistentGuilds.Contains(guildKey))
+                        {
+                            if (!problemGuilds.Any(p => p.Guild.ServerId == guild.ServerId))
+                            {
+                                problemGuilds.Add((guild, monitoring, daysSinceReport, "Not found on WCL"));
+                            }
+                            else
+                            {
+                                var index = problemGuilds.FindIndex(p => p.Guild.ServerId == guild.ServerId);
+                                if (index >= 0)
+                                {
+                                    var existing = problemGuilds[index];
+                                    problemGuilds[index] = (existing.Guild, existing.Monitoring, existing.DaysSinceReport, $"{existing.Reason} + Not found");
+                                }
+                            }
+                        }
+
+                        // Check for guilds with no reports (guilds that exist but have no reports)
+                        if ((type == "no-reports" || type == "all") && batchResult.GuildsWithNoReports.Contains(guildKey))
+                        {
+                            if (!problemGuilds.Any(p => p.Guild.ServerId == guild.ServerId))
+                            {
+                                problemGuilds.Add((guild, monitoring, daysSinceReport, "No reports on WCL"));
+                            }
+                            else
+                            {
+                                var index = problemGuilds.FindIndex(p => p.Guild.ServerId == guild.ServerId);
+                                if (index >= 0)
+                                {
+                                    var existing = problemGuilds[index];
+                                    problemGuilds[index] = (existing.Guild, existing.Monitoring, existing.DaysSinceReport, $"{existing.Reason} + No reports");
+                                }
+                            }
+                        }
+                    }
+                }
+
+                problemGuilds = problemGuilds
+                    .OrderBy(x => x.Reason)
+                    .ThenByDescending(x => x.DaysSinceReport ?? int.MaxValue)
+                    .ToList();
+
+                // Update the message with new page
+                var embed = BuildProblematicGuildsEmbed(problemGuilds, page, daysThreshold, cleanupType);
+                var components = BuildPaginationComponents(page, problemGuilds.Count, daysThreshold, cleanupType);
+
+                await ModifyOriginalResponseAsync(msg =>
+                {
+                    msg.Embed = embed;
+                    msg.Components = components;
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error navigating cleanup page");
+                await FollowupAsync($"Error: {ex.Message}", ephemeral: true);
+            }
+        }
+
+        private Embed BuildProblematicGuildsEmbed(
+            List<(WowGuildAssociations Guild, LogMonitoring Monitoring, int? DaysSinceReport, string Reason)> problemGuilds,
+            int page,
+            int daysThreshold,
+            string cleanupType)
+        {
+            const int itemsPerPage = 10;
+            int totalPages = (int)Math.Ceiling(problemGuilds.Count / (double)itemsPerPage);
+            page = Math.Max(0, Math.Min(page, totalPages - 1));
+
+            var embed = new EmbedBuilder();
+            var typeDesc = cleanupType switch
+            {
+                "inactive" => "Inactive",
+                "not-found" => "Not Found",
+                "no-reports" => "No Reports",
+                "all" => "Problematic",
+                _ => "Problematic"
+            };
+            embed.WithTitle($"{typeDesc} Guilds ({problemGuilds.Count} found)");
+
+            var description = cleanupType switch
+            {
+                "inactive" => $"Guilds with no reports in the last {daysThreshold} days",
+                "not-found" => "Guilds that don't exist on WarcraftLogs",
+                "no-reports" => "Guilds that exist on WarcraftLogs but have no reports",
+                "all" => $"Guilds with issues (inactive, not found, or no reports)",
+                _ => "Problematic guilds"
+            };
+            embed.WithDescription(description);
+            embed.WithColor(Color.Orange);
+
+            var sb = new StringBuilder();
+            var pageItems = problemGuilds.Skip(page * itemsPerPage).Take(itemsPerPage);
+
+            foreach (var (guild, monitoring, daysSince, reason) in pageItems)
+            {
+                // Build WarcraftLogs guild URL for spot checking
+                var realmSlug = guild.LocalRealmSlug ?? guild.WowRealm.ToLower().Replace(" ", "-").Replace("'", "");
+                var wclUrl = $"https://www.warcraftlogs.com/guild/{guild.WowRegion.ToLower()}/{realmSlug}/{Uri.EscapeDataString(guild.WowGuild)}";
+
+                sb.AppendLine($"**[{guild.WowGuild}]({wclUrl})** ({guild.WowRealm}-{guild.WowRegion})");
+                sb.AppendLine($"└─ Server: {guild.ServerName} | {reason}");
+            }
+
+            if (sb.Length > 0)
+            {
+                var fieldValue = sb.ToString();
+                if (fieldValue.Length > 1020)
+                {
+                    // Truncate at last complete line to avoid breaking markdown links
+                    var lastNewline = fieldValue.LastIndexOf('\n', 1020);
+                    if (lastNewline > 0)
+                    {
+                        fieldValue = fieldValue.Substring(0, lastNewline) + "\n...";
+                    }
+                    else
+                    {
+                        fieldValue = fieldValue.Substring(0, 1020) + "...";
+                    }
+                }
+                embed.AddField($"Page {page + 1} of {totalPages}", fieldValue);
+            }
+            else
+            {
+                embed.AddField("Inactive Guilds", "*No guilds to display*");
+            }
+
+            embed.WithFooter($"Use action='unflag' to disable monitoring for these guilds");
+
+            return embed.Build();
+        }
+
+        [SlashCommand("wow-list-duplicates", "List WoW guild associations with duplicate ServerIds")]
+        [RequireUserPermission(GuildPermission.Administrator)]
+        public async Task ListDuplicateGuilds()
+        {
+            await DeferAsync();
+
+            try
+            {
+                List<WowGuildAssociations> allGuilds;
+                using (var db = new NinjaBotEntities())
+                {
+                    allGuilds = db.WowGuildAssociations.ToList();
+                }
+
+                // Group by ServerId and find duplicates
+                var duplicates = allGuilds
+                    .GroupBy(g => g.ServerId)
+                    .Where(group => group.Count() > 1)
+                    .ToList();
+
+                if (duplicates.Count == 0)
+                {
+                    await FollowupAsync("No duplicate guild associations found!");
+                    return;
+                }
+
+                var embed = new EmbedBuilder()
+                    .WithTitle("Duplicate WoW Guild Associations")
+                    .WithDescription($"Found {duplicates.Count} server(s) with duplicate guild associations")
+                    .WithColor(Color.Orange)
+                    .WithCurrentTimestamp();
+
+                foreach (var duplicateGroup in duplicates.Take(10)) // Limit to 10 to avoid embed size limits
+                {
+                    var serverId = duplicateGroup.Key;
+                    var guilds = duplicateGroup.ToList();
+
+                    var fieldValue = new StringBuilder();
+                    fieldValue.AppendLine($"**ServerId:** {serverId}");
+
+                    for (int i = 0; i < guilds.Count; i++)
+                    {
+                        var g = guilds[i];
+                        var hasSlug = !string.IsNullOrWhiteSpace(g.LocalRealmSlug);
+                        var slugInfo = hasSlug ? $"Slug: `{g.LocalRealmSlug}`" : "**Slug: [null]**";
+
+                        fieldValue.AppendLine($"{i + 1}. {g.WowGuild}-{g.WowRealm} ({g.WowRegion})");
+                        fieldValue.AppendLine($"   {slugInfo}, Set by: {g.SetBy ?? "Unknown"}");
+                    }
+
+                    embed.AddField($"Duplicate #{duplicates.IndexOf(duplicateGroup) + 1}", fieldValue.ToString());
+                }
+
+                if (duplicates.Count > 10)
+                {
+                    embed.WithFooter($"Showing 10 of {duplicates.Count} duplicates. Use /wow-cleanup-null-slugs to clean up entries with null realm slugs.");
+                }
+                else
+                {
+                    embed.WithFooter("Use /wow-cleanup-null-slugs to clean up entries with null realm slugs.");
+                }
+
+                await FollowupAsync(embed: embed.Build());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error listing duplicate guilds: {ex.Message}");
+                await FollowupAsync($"Error listing duplicates: {ex.Message}");
+            }
+        }
+
+        [SlashCommand("wow-cleanup-duplicates", "Remove duplicate guild associations, keeping only the latest entry per ServerId")]
+        [RequireUserPermission(GuildPermission.Administrator)]
+        public async Task CleanupDuplicates(
+            [Summary("confirm", "Type 'DELETE' to confirm permanent deletion")] string confirm = "")
+        {
+            // Require explicit confirmation
+            if (confirm?.ToUpper() != "DELETE")
+            {
+                var warningEmbed = new EmbedBuilder()
+                    .WithTitle("⚠️ Confirmation Required")
+                    .WithDescription("This command will **permanently delete** duplicate guild associations from the database.")
+                    .WithColor(Color.Orange)
+                    .AddField("What will happen:",
+                        "• All duplicate ServerIds will be identified\n" +
+                        "• Entries with LocalRealmSlug are preferred, then most recent\n" +
+                        "• All other duplicates will be permanently deleted\n" +
+                        "• This action **cannot be undone**")
+                    .AddField("To proceed:", "Run the command again with `confirm:DELETE`")
+                    .WithFooter("Use /wow-list-duplicates to preview what will be removed")
+                    .Build();
+
+                await RespondAsync(embed: warningEmbed);
+                return;
+            }
+
+            await DeferAsync();
+
+            try
+            {
+                List<WowGuildAssociations> allGuilds;
+                using (var db = new NinjaBotEntities())
+                {
+                    allGuilds = db.WowGuildAssociations.ToList();
+                }
+
+                // Group by ServerId and find duplicates
+                var duplicateGroups = allGuilds
+                    .GroupBy(g => g.ServerId)
+                    .Where(group => group.Count() > 1)
+                    .ToList();
+
+                if (duplicateGroups.Count == 0)
+                {
+                    await FollowupAsync("No duplicate guild associations found!");
+                    return;
+                }
+
+                var toRemove = new List<WowGuildAssociations>();
+                var keptGuilds = new List<(WowGuildAssociations kept, int removedCount)>();
+
+                foreach (var duplicateGroup in duplicateGroups)
+                {
+                    // Prefer entries with LocalRealmSlug, then by most recent TimeSet
+                    var guilds = duplicateGroup
+                        .OrderByDescending(g => !string.IsNullOrWhiteSpace(g.LocalRealmSlug)) // Prefer with slug
+                        .ThenByDescending(g => g.TimeSet ?? DateTime.MinValue)
+                        .ToList();
+                    var keep = guilds.First(); // Keep the preferred entry (slug + most recent)
+                    var remove = guilds.Skip(1).ToList(); // Remove all others
+
+                    toRemove.AddRange(remove);
+                    keptGuilds.Add((keep, remove.Count));
+                }
+
+                // Remove the duplicates
+                int removedCount = 0;
+                using (var db = new NinjaBotEntities())
+                {
+                    foreach (var guild in toRemove)
+                    {
+                        var toDelete = db.WowGuildAssociations.FirstOrDefault(g => g.Id == guild.Id);
+                        if (toDelete != null)
+                        {
+                            db.WowGuildAssociations.Remove(toDelete);
+                            removedCount++;
+                        }
+                    }
+                    await db.SaveChangesAsync();
+                }
+
+                var embed = new EmbedBuilder()
+                    .WithTitle("Cleanup Duplicate Guild Associations")
+                    .WithDescription($"Removed {removedCount} duplicate entries from {duplicateGroups.Count} server(s)")
+                    .WithColor(Color.Green)
+                    .WithCurrentTimestamp();
+
+                if (keptGuilds.Count > 0)
+                {
+                    var keptList = new StringBuilder();
+                    int itemsShown = 0;
+                    const int maxFieldLength = 1020; // Leave some room for safety
+
+                    foreach (var (kept, removed) in keptGuilds)
+                    {
+                        var timeSetInfo = kept.TimeSet.HasValue ? $"set {kept.TimeSet.Value:yyyy-MM-dd}" : "no date";
+                        var slugInfo = !string.IsNullOrWhiteSpace(kept.LocalRealmSlug) ? $"slug: `{kept.LocalRealmSlug}`" : "**no slug**";
+
+                        var entry = $"**{kept.WowGuild}-{kept.WowRealm}** ({kept.WowRegion})\n" +
+                                   $"  ServerId: {kept.ServerId}, {slugInfo}, {timeSetInfo}\n" +
+                                   $"  Removed {removed} older duplicate{(removed > 1 ? "s" : "")}\n\n";
+
+                        // Check if adding this entry would exceed the limit
+                        if (keptList.Length + entry.Length > maxFieldLength)
+                        {
+                            keptList.AppendLine($"... and {keptGuilds.Count - itemsShown} more (truncated to fit Discord limits)");
+                            break;
+                        }
+
+                        keptList.Append(entry);
+                        itemsShown++;
+                    }
+
+                    embed.AddField($"Kept Latest Entries ({keptGuilds.Count} servers)", keptList.ToString());
+                }
+
+                embed.WithFooter("Kept entries with LocalRealmSlug preferred, then most recent TimeSet. Run /wow-list-duplicates to verify.");
+
+                await FollowupAsync(embed: embed.Build());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error cleaning up duplicates: {ex.Message}");
+                await FollowupAsync($"Error during cleanup: {ex.Message}");
+            }
+        }
+
+        [SlashCommand("wow-cleanup-null-slugs", "Remove WoW guild associations with null LocalRealmSlug")]
+        [RequireUserPermission(GuildPermission.Administrator)]
+        public async Task CleanupNullSlugs()
+        {
+            await DeferAsync();
+
+            try
+            {
+                List<WowGuildAssociations> nullSlugGuilds;
+                using (var db = new NinjaBotEntities())
+                {
+                    nullSlugGuilds = db.WowGuildAssociations
+                        .Where(g => string.IsNullOrWhiteSpace(g.LocalRealmSlug))
+                        .ToList();
+                }
+
+                if (nullSlugGuilds.Count == 0)
+                {
+                    await FollowupAsync("No guild associations with null LocalRealmSlug found!");
+                    return;
+                }
+
+                // Check which ones are duplicates (have another entry with the same ServerId that has a slug)
+                List<WowGuildAssociations> allGuilds;
+                using (var db = new NinjaBotEntities())
+                {
+                    allGuilds = db.WowGuildAssociations.ToList();
+                }
+
+                var safeToRemove = new List<WowGuildAssociations>();
+                var notSafeToRemove = new List<WowGuildAssociations>();
+
+                foreach (var nullSlugGuild in nullSlugGuilds)
+                {
+                    var hasAlternative = allGuilds.Any(g =>
+                        g.ServerId == nullSlugGuild.ServerId &&
+                        !string.IsNullOrWhiteSpace(g.LocalRealmSlug));
+
+                    if (hasAlternative)
+                    {
+                        safeToRemove.Add(nullSlugGuild);
+                    }
+                    else
+                    {
+                        notSafeToRemove.Add(nullSlugGuild);
+                    }
+                }
+
+                var embed = new EmbedBuilder()
+                    .WithTitle("Cleanup Null LocalRealmSlug Entries")
+                    .WithColor(Color.Blue)
+                    .WithCurrentTimestamp();
+
+                if (safeToRemove.Count > 0)
+                {
+                    // Remove the safe ones
+                    using (var db = new NinjaBotEntities())
+                    {
+                        foreach (var guild in safeToRemove)
+                        {
+                            var toRemove = db.WowGuildAssociations
+                                .FirstOrDefault(g => g.ServerId == guild.ServerId &&
+                                                    string.IsNullOrWhiteSpace(g.LocalRealmSlug));
+                            if (toRemove != null)
+                            {
+                                db.WowGuildAssociations.Remove(toRemove);
+                            }
+                        }
+                        await db.SaveChangesAsync();
+                    }
+
+                    var removedList = string.Join("\n", safeToRemove.Take(20).Select(g =>
+                        $"- {g.WowGuild}-{g.WowRealm} ({g.WowRegion}) [ServerId: {g.ServerId}]"));
+
+                    if (safeToRemove.Count > 20)
+                    {
+                        removedList += $"\n... and {safeToRemove.Count - 20} more";
+                    }
+
+                    embed.AddField($"✅ Removed {safeToRemove.Count} duplicate(s) with null slugs", removedList);
+                }
+                else
+                {
+                    embed.AddField("No Safe Removals", "No duplicate entries with null slugs found that have valid alternatives.");
+                }
+
+                if (notSafeToRemove.Count > 0)
+                {
+                    var notSafeList = string.Join("\n", notSafeToRemove.Take(10).Select(g =>
+                        $"- {g.WowGuild}-{g.WowRealm} ({g.WowRegion}) [ServerId: {g.ServerId}]"));
+
+                    if (notSafeToRemove.Count > 10)
+                    {
+                        notSafeList += $"\n... and {notSafeToRemove.Count - 10} more";
+                    }
+
+                    embed.AddField($"⚠️ Skipped {notSafeToRemove.Count} entry/entries (no alternative found)",
+                        notSafeList + "\n\nThese entries were not removed because no valid alternative exists. Consider setting the realm slug for these.");
+                }
+
+                await FollowupAsync(embed: embed.Build());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error cleaning up null slugs: {ex.Message}");
+                await FollowupAsync($"Error during cleanup: {ex.Message}");
+            }
+        }
+
+        private MessageComponent BuildPaginationComponents(int page, int totalItems, int daysThreshold, string cleanupType)
+        {
+            const int itemsPerPage = 10;
+            int totalPages = (int)Math.Ceiling(totalItems / (double)itemsPerPage);
+
+            var componentBuilder = new ComponentBuilder();
+
+            var prevButton = new ButtonBuilder()
+                .WithLabel("Previous")
+                .WithCustomId($"wcl-cleanup-prev:{page}:{daysThreshold}:{cleanupType}")
+                .WithStyle(ButtonStyle.Primary)
+                .WithDisabled(page == 0);
+
+            var nextButton = new ButtonBuilder()
+                .WithLabel("Next")
+                .WithCustomId($"wcl-cleanup-next:{page}:{daysThreshold}:{cleanupType}")
+                .WithStyle(ButtonStyle.Primary)
+                .WithDisabled(page >= totalPages - 1);
+
+            componentBuilder.WithButton(prevButton);
+            componentBuilder.WithButton(nextButton);
+
+            return componentBuilder.Build();
+        }
     }
 }
