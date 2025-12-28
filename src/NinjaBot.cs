@@ -176,12 +176,28 @@ namespace NinjaBotCore
                         break;
                     }
                 }
-            }                                 
-            Log.Logger = new LoggerConfiguration()
+            }
+
+            // Read NINJABOT_SuppressEFLogs environment variable
+            var suppressEFLogs = false;
+            if (bool.TryParse(Environment.GetEnvironmentVariable("NINJABOT_SuppressEFLogs"), out var suppressEF))
+            {
+                suppressEFLogs = suppressEF;
+            }
+
+            // Configure Serilog with optional EF Core log suppression
+            var logConfig = new LoggerConfiguration()
                     .WriteTo.File("logs/njabot.log", rollingInterval: RollingInterval.Day)
-                    .WriteTo.Console()             
-                    .MinimumLevel.Is(level)                                                                          
-                    .CreateLogger();  
+                    .WriteTo.Console()
+                    .MinimumLevel.Is(level);
+
+            if (suppressEFLogs)
+            {
+                logConfig.MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command",
+                    Serilog.Events.LogEventLevel.Warning);
+            }
+
+            Log.Logger = logConfig.CreateLogger();  
         }
          public static bool IsDebug()
         {
