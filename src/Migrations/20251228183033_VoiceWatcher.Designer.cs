@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NinjaBotCore.Database;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace NinjaBotCore.Migrations
 {
     [DbContext(typeof(NinjaBotEntities))]
-    partial class NinjaBotEntitiesModelSnapshot : ModelSnapshot
+    [Migration("20251228183033_VoiceWatcher")]
+    partial class VoiceWatcher
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -328,58 +331,6 @@ namespace NinjaBotCore.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("LogMonitoring");
-                });
-
-            modelBuilder.Entity("NinjaBotCore.Database.ModerationWatcher", b =>
-                {
-                    b.Property<long>("DiscordGuildId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("DiscordGuildId"));
-
-                    b.Property<long?>("ChannelId")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("ChannelName")
-                        .HasColumnType("text");
-
-                    b.Property<long?>("SetById")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("SetByName")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("TimeSet")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool?>("WatchAudit")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool?>("WatchBans")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool?>("WatchMessages")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool?>("WatchNicknames")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool?>("WatchProfiles")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool?>("WatchRoles")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool?>("WatchServer")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool?>("WatchVoice")
-                        .HasColumnType("boolean");
-
-                    b.HasKey("DiscordGuildId");
-
-                    b.ToTable("ModerationWatcher");
                 });
 
             modelBuilder.Entity("NinjaBotCore.Database.Note", b =>

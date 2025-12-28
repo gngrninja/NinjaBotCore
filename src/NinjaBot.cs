@@ -63,7 +63,8 @@ namespace NinjaBotCore
                 .AddSingleton(new DiscordShardedClient(new DiscordSocketConfig
                 {
                     GatewayIntents = GatewayIntents.AllUnprivileged |
-                    GatewayIntents.GuildMembers,
+                    GatewayIntents.GuildMembers |
+                    GatewayIntents.MessageContent,  // Required for message edit/delete content
                     LogLevel = LogSeverity.Error,
                     MessageCacheSize = 1000,
                     AlwaysDownloadUsers = true,
@@ -88,6 +89,7 @@ namespace NinjaBotCore
                 .AddSingleton<ChannelCheck>()   
                 .AddSingleton<AwayCommands>()
                 .AddSingleton<UserInteraction>()
+                .AddSingleton<ModerationWatcherService>()
                 .AddSingleton<CommandHandler>()
                 .AddSingleton(x => new InteractionService(x.GetRequiredService<DiscordShardedClient>()))
                 .AddSingleton<InteractionHandler>()
@@ -127,7 +129,8 @@ namespace NinjaBotCore
 
             //Load up services
             serviceProvider.GetRequiredService<CommandHandler>();
-            serviceProvider.GetRequiredService<UserInteraction>();            
+            serviceProvider.GetRequiredService<UserInteraction>();
+            serviceProvider.GetRequiredService<ModerationWatcherService>();            
                                                       
             //Block this program until it is closed.
             await Task.Delay(-1);

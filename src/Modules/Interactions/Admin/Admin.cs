@@ -19,9 +19,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
     {                
         private static bool _isLinked = false;        
         private static DiscordShardedClient _client;
-        private static ChannelCheck _cc;
         private readonly IConfigurationRoot _config;
-        private string _prefix;
         private readonly ILogger<Admin> _logger;
 
         public Admin(IServiceProvider services)
@@ -34,9 +32,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                 _logger.LogInformation("Hooked into MessageReceived for Admin word filter.");
             }
             _isLinked = true;            
-            _cc     = services.GetRequiredService<ChannelCheck>();
-            _config = services.GetRequiredService<IConfigurationRoot>();            
-            _prefix = _config["prefix"];                       
+            _config = services.GetRequiredService<IConfigurationRoot>();                                   
             _logger.LogInformation("Admin module loaded!");
         }
 
@@ -775,7 +771,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                 var note = db.Notes.FirstOrDefault(n => n.ServerId == (long)Context.Guild.Id);
                 if (note == null)
                 {
-                    sb.AppendLine($"Unable to find a note for server [{Context.Guild.Name}], perhaps try adding one by using {_prefix}set-note \"Note goes here!\"");
+                    sb.AppendLine($"Unable to find a note for server [{Context.Guild.Name}], perhaps try adding one by using /set-note \"Note goes here!\"");
                 }
                 else
                 {

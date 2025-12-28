@@ -46,6 +46,8 @@ namespace NinjaBotCore.Database
         public virtual DbSet<WowCharAssociation> WowCharAssociation { get; set; }
         public virtual DbSet<WowGuildRosterMember> WowGuildRosterMembers { get; set; }
         public virtual DbSet<RioSearchHistory> RioSearchHistory { get; set; }
+        public virtual DbSet<VoiceWatcher> VoiceWatcher { get; set; }
+        public virtual DbSet<ModerationWatcher> ModerationWatcher { get; set; }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
