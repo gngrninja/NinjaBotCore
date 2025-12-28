@@ -63,10 +63,12 @@ namespace NinjaBotCore
                 .AddSingleton(new DiscordShardedClient(new DiscordSocketConfig
                 {
                     GatewayIntents = GatewayIntents.AllUnprivileged |
-                    GatewayIntents.GuildMembers,                           
-                    LogLevel = LogSeverity.Error,                     
-                    MessageCacheSize = 1000,    
-                    AlwaysDownloadUsers = true               
+                    GatewayIntents.GuildMembers,
+                    LogLevel = LogSeverity.Error,
+                    MessageCacheSize = 1000,
+                    AlwaysDownloadUsers = true,
+                    ConnectionTimeout = 60000,  // Increase from default 30s to 60s for shard connections
+                    HandlerTimeout = null       // Disable handler timeout warnings
                 }))
                 .AddSingleton(_config)
                 .AddSingleton(new CommandService(new CommandServiceConfig 

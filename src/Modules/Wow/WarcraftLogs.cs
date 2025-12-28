@@ -600,10 +600,20 @@ namespace NinjaBotCore.Modules.Wow
 
         public async Task StartTimer()
         {
-            // Wait for all shards to be ready before starting the timer
+            // Wait for all shards to be ready before starting the timer (with timeout)
             _logger.LogInformation("[WarcraftLogs] Waiting for all shards to be ready...");
-            await _startupService.AllShardsReady;
-            _logger.LogInformation("[WarcraftLogs] All shards ready - starting timer");
+
+            var timeout = Task.Delay(TimeSpan.FromSeconds(90));
+            var completedTask = await Task.WhenAny(_startupService.AllShardsReady, timeout);
+
+            if (completedTask == timeout)
+            {
+                _logger.LogWarning("[WarcraftLogs] Timeout waiting for all shards (90s) - starting timer anyway. Some guilds may not be accessible yet.");
+            }
+            else
+            {
+                _logger.LogInformation("[WarcraftLogs] All shards ready - starting timer");
+            }
 
             TokenSource = new CancellationTokenSource();
             var timerAction = new Action(CheckForNewLogs);

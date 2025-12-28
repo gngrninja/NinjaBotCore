@@ -31,8 +31,23 @@ namespace NinjaBotCore.Services
             _discord = _services.GetRequiredService<DiscordShardedClient>();
             _logger = _services.GetRequiredService<ILogger<StartupService>>();
 
-            // Subscribe to shard ready events
+            // Subscribe to shard events for monitoring
             _discord.ShardReady += OnShardReady;
+            _discord.ShardConnected += OnShardConnected;
+            _discord.ShardDisconnected += OnShardDisconnected;
+        }
+
+        private Task OnShardConnected(DiscordSocketClient shard)
+        {
+            _logger.LogInformation("Shard {ShardId} connected to gateway", shard.ShardId);
+            return Task.CompletedTask;
+        }
+
+        private Task OnShardDisconnected(Exception exception, DiscordSocketClient shard)
+        {
+            _logger.LogError("Shard {ShardId} disconnected: {Error}",
+                shard.ShardId, exception?.Message ?? "Unknown reason");
+            return Task.CompletedTask;
         }
 
         private Task OnShardReady(DiscordSocketClient shard)
