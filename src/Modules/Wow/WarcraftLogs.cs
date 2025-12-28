@@ -40,6 +40,7 @@ namespace NinjaBotCore.Modules.Wow
         private readonly WowApi _wowApi;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly WarcraftLogsV2Client _v2Client;
+        private readonly StartupService _startupService;
 
         // Tier tracking - when each tier was last checked
         private DateTime _tier1LastCheck = DateTime.MinValue;
@@ -63,6 +64,7 @@ namespace NinjaBotCore.Modules.Wow
             _scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
             _wowApi = services.GetRequiredService<WowApi>();
             _v2Client = services.GetRequiredService<WarcraftLogsV2Client>();
+            _startupService = services.GetRequiredService<StartupService>();
 
             // Load tier configuration from config with fallback defaults
             _tier1ThresholdDays = int.TryParse(_config["WCL:Tier1ThresholdDays"], out var t1) ? t1 : 14;
@@ -597,7 +599,12 @@ namespace NinjaBotCore.Modules.Wow
         }
 
         public async Task StartTimer()
-        {            
+        {
+            // Wait for all shards to be ready before starting the timer
+            _logger.LogInformation("[WarcraftLogs] Waiting for all shards to be ready...");
+            await _startupService.AllShardsReady;
+            _logger.LogInformation("[WarcraftLogs] All shards ready - starting timer");
+
             TokenSource = new CancellationTokenSource();
             var timerAction = new Action(CheckForNewLogs);
             await WarcraftLogsTimer(timerAction, TokenSource.Token);
@@ -789,15 +796,14 @@ namespace NinjaBotCore.Modules.Wow
                                 });
                                 await db.SaveChangesAsync();
 
-                                // Resolve the target channel directly (works even if guild isn't cached)
-                                var messageChannel = await _client.GetChannelAsync((ulong)watchGuild.ChannelId) as IMessageChannel;
-                                if (messageChannel == null)
+                                // Get guild from all shards (not just local cache)
+                                var discordGuild = _client.Guilds.FirstOrDefault(g => g.Id == (ulong)guild.ServerId);
+                                if (discordGuild != null)
                                 {
-                                    _logger.LogWarning($"[LogCheck] Could not resolve channel {watchGuild.ChannelId} for guild {guild.WowGuild}-{guild.WowRealm} ({guild.ServerName})");
-                                }
-                                else
-                                {
-                                    var tz = GetLocalTz(guild);
+                                    var channel = discordGuild.GetTextChannel((ulong)watchGuild.ChannelId);
+                                    if (channel != null)
+                                    {
+                                        var tz = GetLocalTz(guild);
                                     DateTime logStart = GetLocalTime(latestLog, tz);
 
                                     _logger.LogInformation($"Posting log for [{guild.WowGuild}] on [{guild.WowRealm}] for server [{guild.ServerName}]");
@@ -812,7 +818,8 @@ namespace NinjaBotCore.Modules.Wow
                                     sb.AppendLine();
                                     embed.Description = sb.ToString();
                                     embed.WithColor(new Color(0, 0, 255));
-                                    await messageChannel.SendMessageAsync("", false, embed.Build());
+                                    await channel.SendMessageAsync("", false, embed.Build());
+                                    }
                                 }
                             }
                         }
@@ -995,11 +1002,18 @@ namespace NinjaBotCore.Modules.Wow
                         });
                         await db.SaveChangesAsync();
 
-                        // Resolve the target channel directly (works even if guild isn't cached)
-                        var messageChannel = await _client.GetChannelAsync((ulong)latestForGuild2.ChannelId) as IMessageChannel;
-                        if (messageChannel == null)
+                        // Get guild from all shards (not just local cache)
+                        var discordGuild = _client.Guilds.FirstOrDefault(g => g.Id == (ulong)guild.ServerId);
+                        if (discordGuild == null)
                         {
-                            _logger.LogWarning("[v2 Batch] Could not resolve channel {ChannelId} for server {ServerName}", latestForGuild2.ChannelId, guild.ServerName);
+                            _logger.LogWarning("[v2 Batch] Could not find Discord guild {ServerId} ({ServerName})", guild.ServerId, guild.ServerName);
+                            continue;
+                        }
+
+                        var channel = discordGuild.GetTextChannel((ulong)watchGuild.ChannelId);
+                        if (channel == null)
+                        {
+                            _logger.LogWarning("[v2 Batch] Could not find Discord channel {ChannelId} in guild {ServerName} - channel may be deleted or bot lacks access", watchGuild.ChannelId, guild.ServerName);
                             continue;
                         }
 
@@ -1019,7 +1033,7 @@ namespace NinjaBotCore.Modules.Wow
                         embed.Description = sb.ToString();
                         embed.WithColor(new Color(0, 0, 255));
 
-                        await messageChannel.SendMessageAsync("", false, embed.Build());
+                        await channel.SendMessageAsync("", false, embed.Build());
                         postedCount++;
                     }
                     catch (Exception guildEx)
@@ -1159,12 +1173,12 @@ namespace NinjaBotCore.Modules.Wow
                         });
                         await db.SaveChangesAsync();
 
-                        var messageChannel = await _client.GetChannelAsync((ulong)latestForGuild2.ChannelId) as IMessageChannel;
-                        if (messageChannel == null)
-                        {
-                            _logger.LogWarning("[v2 Batch Classic] Could not resolve channel {ChannelId} for server {ServerName}", latestForGuild2.ChannelId, guild.ServerName);
-                            continue;
-                        }
+                        // Get guild from all shards (not just local cache)
+                        var discordGuild = _client.Guilds.FirstOrDefault(g => g.Id == (ulong)guild.ServerId);
+                        if (discordGuild == null) continue;
+
+                        var channel = discordGuild.GetTextChannel((ulong)watchGuild.ChannelId);
+                        if (channel == null) continue;
 
                         _logger.LogInformation("[v2 Batch Classic] Posting log {ReportId} for {Guild}-{Realm}", latestLog.id, guild.WowGuild, guild.WowRealm);
 
@@ -1178,7 +1192,7 @@ namespace NinjaBotCore.Modules.Wow
                         embed.Description = sb.ToString();
                         embed.WithColor(new Color(0, 0, 255));
 
-                        await messageChannel.SendMessageAsync("", false, embed.Build());
+                        await channel.SendMessageAsync("", false, embed.Build());
                         postedCount++;
                     }
                     catch (Exception guildEx)
@@ -1309,12 +1323,12 @@ namespace NinjaBotCore.Modules.Wow
                         });
                         await db.SaveChangesAsync();
 
-                        var messageChannel = await _client.GetChannelAsync((ulong)latestForGuild2.ChannelId) as IMessageChannel;
-                        if (messageChannel == null)
-                        {
-                            _logger.LogWarning("[v2 Batch Vanilla] Could not resolve channel {ChannelId} for server {ServerName}", latestForGuild2.ChannelId, guild.ServerName);
-                            continue;
-                        }
+                        // Get guild from all shards (not just local cache)
+                        var discordGuild = _client.Guilds.FirstOrDefault(g => g.Id == (ulong)guild.ServerId);
+                        if (discordGuild == null) continue;
+
+                        var channel = discordGuild.GetTextChannel((ulong)watchGuild.ChannelId);
+                        if (channel == null) continue;
 
                         _logger.LogInformation("[v2 Batch Vanilla] Posting log {ReportId} for {Guild}-{Realm}", latestLog.id, guild.WowGuild, guild.WowRealm);
 
@@ -1328,7 +1342,7 @@ namespace NinjaBotCore.Modules.Wow
                         embed.Description = sb.ToString();
                         embed.WithColor(new Color(0, 0, 255));
 
-                        await messageChannel.SendMessageAsync("", false, embed.Build());
+                        await channel.SendMessageAsync("", false, embed.Build());
                         postedCount++;
                     }
                     catch (Exception guildEx)
@@ -1431,15 +1445,14 @@ namespace NinjaBotCore.Modules.Wow
                                 latestForGuild.VanillaReportId = latestLog.id;
                                 await db.SaveChangesAsync();
 
-                                // Resolve the channel directly to avoid relying on cached guilds
-                                var messageChannel = await _client.GetChannelAsync((ulong)watchGuild.ChannelId) as IMessageChannel;
-                                if (messageChannel == null)
+                                // Get guild from all shards (not just local cache)
+                                var discordGuild = _client.Guilds.FirstOrDefault(g => g.Id == (ulong)guild.ServerId);
+                                if (discordGuild != null)
                                 {
-                                    _logger.LogWarning($"[LogCheck Vanilla] Could not resolve channel {watchGuild.ChannelId} for server {guild.ServerName}");
-                                }
-                                else
-                                {
-                                    _logger.LogInformation($"Posting log for [{guild.WowGuild}] on [{guild.WowRealm}] for server [{guild.ServerName}]");
+                                    var channel = discordGuild.GetTextChannel((ulong)watchGuild.ChannelId);
+                                    if (channel != null)
+                                    {
+                                        _logger.LogInformation($"Posting log for [{guild.WowGuild}] on [{guild.WowRealm}] for server [{guild.ServerName}]");
                                     var embed = new EmbedBuilder();
                                     embed.Title = $"New log found for [{guild.WowGuild}]!";
                                     StringBuilder sb = new StringBuilder();
@@ -1449,7 +1462,8 @@ namespace NinjaBotCore.Modules.Wow
                                     sb.AppendLine();
                                     embed.Description = sb.ToString();
                                     embed.WithColor(new Color(0, 0, 255));
-                                    await messageChannel.SendMessageAsync("", false, embed.Build());
+                                    await channel.SendMessageAsync("", false, embed.Build());
+                                    }
                                 }
                             }
                         }
@@ -1498,15 +1512,14 @@ namespace NinjaBotCore.Modules.Wow
                                 latestForGuild.ClassicReportId = latestLog.id;
                                 await db.SaveChangesAsync();
 
-                                // Resolve the channel directly to avoid relying on cached guilds
-                                var messageChannel = await _client.GetChannelAsync((ulong)watchGuild.ChannelId) as IMessageChannel;
-                                if (messageChannel == null)
+                                // Get guild from all shards (not just local cache)
+                                var discordGuild = _client.Guilds.FirstOrDefault(g => g.Id == (ulong)guild.ServerId);
+                                if (discordGuild != null)
                                 {
-                                    _logger.LogWarning($"[LogCheck Classic] Could not resolve channel {watchGuild.ChannelId} for server {guild.ServerName}");
-                                }
-                                else
-                                {
-                                    _logger.LogInformation($"Posting log for [{guild.WowGuild}] on [{guild.WowRealm}] for server [{guild.ServerName}]");
+                                    var channel = discordGuild.GetTextChannel((ulong)watchGuild.ChannelId);
+                                    if (channel != null)
+                                    {
+                                        _logger.LogInformation($"Posting log for [{guild.WowGuild}] on [{guild.WowRealm}] for server [{guild.ServerName}]");
                                     var embed = new EmbedBuilder();
                                     embed.Title = $"New log found for [{guild.WowGuild}]!";
                                     StringBuilder sb = new StringBuilder();
@@ -1516,7 +1529,8 @@ namespace NinjaBotCore.Modules.Wow
                                     sb.AppendLine();
                                     embed.Description = sb.ToString();
                                     embed.WithColor(new Color(0, 0, 255));
-                                    await messageChannel.SendMessageAsync("", false, embed.Build());
+                                    await channel.SendMessageAsync("", false, embed.Build());
+                                    }
                                 }
                             }
                         }
