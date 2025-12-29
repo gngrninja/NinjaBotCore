@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -14,16 +15,21 @@ namespace NinjaBotCore.Services
     {
         private readonly ILogger _logger;
         private readonly DiscordShardedClient _client;
+        private readonly HashSet<ulong> _recentBulkDeletes;
+        private readonly object _bulkDeleteLock;
 
         public ModerationWatcherService(IServiceProvider services)
         {
             _logger = services.GetRequiredService<ILogger<ModerationWatcherService>>();
             _client = services.GetRequiredService<DiscordShardedClient>();
+            _recentBulkDeletes = new HashSet<ulong>();
+            _bulkDeleteLock = new object();
 
             // Subscribe to all moderation events
             _client.UserVoiceStateUpdated += HandleVoiceStateUpdate;
             _client.MessageUpdated += HandleMessageUpdate;
             _client.MessageDeleted += HandleMessageDelete;
+            _client.MessagesBulkDeleted += HandleMessagesBulkDelete;
             _client.GuildMemberUpdated += HandleMemberUpdate;
             _client.UserBanned += HandleBan;
             _client.UserUnbanned += HandleUnban;
@@ -241,8 +247,23 @@ namespace NinjaBotCore.Services
         {
             await Task.Run(async () =>
             {
+                // Skip if this message was part of a bulk delete
+                bool isBulkDelete;
+                lock (_bulkDeleteLock)
+                {
+                    isBulkDelete = _recentBulkDeletes.Contains(message.Id);
+                }
+
+                if (isBulkDelete) return;
+
                 var msg = await message.GetOrDownloadAsync();
+
+                // Skip bot messages
                 if (msg?.Author.IsBot == true) return;
+
+                // Skip messages not in cache (usually slash commands or very old messages)
+                // These aren't useful to log since we can't show content
+                if (msg == null) return;
 
                 var guildChannel = (await channel.GetOrDownloadAsync()) as SocketGuildChannel;
                 if (guildChannel == null) return;
@@ -257,27 +278,103 @@ namespace NinjaBotCore.Services
                 var sb = new StringBuilder();
 
                 embed.Title = "Message Deleted";
+                sb.AppendLine($"{msg.Author.Mention} ({msg.Author.Username})");
+                sb.AppendLine($"Channel: <#{guildChannel.Id}>");
+                sb.AppendLine($"\n**Content:**");
+                sb.AppendLine(msg.Content?.Length > 1000
+                    ? msg.Content.Substring(0, 1000) + "..."
+                    : msg.Content ?? "*No content (may have been embeds/attachments)*");
 
-                if (msg != null)
+                embed.ThumbnailUrl = msg.Author.GetAvatarUrl() ?? msg.Author.GetDefaultAvatarUrl();
+                embed.Description = sb.ToString();
+                embed.WithColor(new Color(255, 0, 0)); // Red
+                embed.WithCurrentTimestamp();
+
+                await PostNotification(notificationChannel, embed);
+            });
+        }
+
+        private async Task HandleMessagesBulkDelete(
+            IReadOnlyCollection<Cacheable<IMessage, ulong>> messages,
+            Cacheable<IMessageChannel, ulong> channel)
+        {
+            await Task.Run(async () =>
+            {
+                var guildChannel = (await channel.GetOrDownloadAsync()) as SocketGuildChannel;
+                if (guildChannel == null) return;
+
+                var settings = GetSettings((long)guildChannel.Guild.Id);
+                if (settings?.WatchMessages != true) return;
+
+                var notificationChannel = await GetNotificationChannel(guildChannel.Guild, settings);
+                if (notificationChannel == null) return;
+
+                // Add all message IDs to the bulk delete set to prevent duplicate notifications
+                lock (_bulkDeleteLock)
                 {
-                    sb.AppendLine($"{msg.Author.Mention} ({msg.Author.Username})");
-                    sb.AppendLine($"Channel: <#{guildChannel.Id}>");
-                    sb.AppendLine($"\n**Content:**");
-                    sb.AppendLine(msg.Content?.Length > 1000
-                        ? msg.Content.Substring(0, 1000) + "..."
-                        : msg.Content ?? "*No content (may have been embeds/attachments)*");
+                    foreach (var message in messages)
+                    {
+                        _recentBulkDeletes.Add(message.Id);
+                    }
+                }
 
-                    embed.ThumbnailUrl = msg.Author.GetAvatarUrl() ?? msg.Author.GetDefaultAvatarUrl();
+                // Clean up the set after 5 seconds (messages should have already triggered individual events by then)
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(5000);
+                    lock (_bulkDeleteLock)
+                    {
+                        foreach (var message in messages)
+                        {
+                            _recentBulkDeletes.Remove(message.Id);
+                        }
+                    }
+                });
+
+                // Count messages and filter out bot messages
+                var cachedMessages = new List<IMessage>();
+                foreach (var msg in messages)
+                {
+                    var cached = await msg.GetOrDownloadAsync();
+                    if (cached != null && !cached.Author.IsBot)
+                    {
+                        cachedMessages.Add(cached);
+                    }
+                }
+
+                var embed = new EmbedBuilder();
+                var sb = new StringBuilder();
+
+                embed.Title = "Bulk Message Delete";
+                sb.AppendLine($"Channel: <#{guildChannel.Id}>");
+                sb.AppendLine($"**Messages deleted:** {messages.Count}");
+
+                if (cachedMessages.Count > 0)
+                {
+                    sb.AppendLine($"\n**Affected users:**");
+                    var userGroups = cachedMessages
+                        .GroupBy(m => m.Author.Id)
+                        .OrderByDescending(g => g.Count())
+                        .Take(10);
+
+                    foreach (var group in userGroups)
+                    {
+                        var user = group.First().Author;
+                        sb.AppendLine($"• {user.Mention} ({user.Username}): {group.Count()} message{(group.Count() != 1 ? "s" : "")}");
+                    }
+
+                    if (cachedMessages.GroupBy(m => m.Author.Id).Count() > 10)
+                    {
+                        sb.AppendLine($"• *...and {cachedMessages.GroupBy(m => m.Author.Id).Count() - 10} more user{(cachedMessages.GroupBy(m => m.Author.Id).Count() - 10 != 1 ? "s" : "")}*");
+                    }
                 }
                 else
                 {
-                    sb.AppendLine($"Channel: <#{guildChannel.Id}>");
-                    sb.AppendLine($"Message ID: {message.Id}");
-                    sb.AppendLine($"\n*Message not in cache - unable to retrieve content*");
+                    sb.AppendLine($"\n*Messages not in cache - unable to retrieve details*");
                 }
 
                 embed.Description = sb.ToString();
-                embed.WithColor(new Color(255, 0, 0)); // Red
+                embed.WithColor(new Color(255, 100, 0)); // Dark Orange
                 embed.WithCurrentTimestamp();
 
                 await PostNotification(notificationChannel, embed);
