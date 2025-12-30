@@ -14,20 +14,15 @@ namespace NinjaBotCore.Modules.Interactions.Fun
 {
     public class FunCommands : InteractionModuleBase<ShardedInteractionContext>
     {
-        private static ChannelCheck _cc = null;
-    
         private DiscordShardedClient _client;        
         private readonly IConfigurationRoot _config;
-        private string _prefix;
 
         public FunCommands(DiscordShardedClient client, ChannelCheck cc, IConfigurationRoot config)
         {
             try
-            {            
-                _cc = cc;                                         
+            {                                                  
                 _client = client;
-                _config = config;          
-                _prefix = _config["prefix"];      
+                _config = config;               
             }
             catch (Exception ex)
             {
@@ -40,6 +35,7 @@ namespace NinjaBotCore.Modules.Interactions.Fun
         public async Task SetStatus(string args = null)
         {                        
             await _client.SetGameAsync(args);
+            await RespondAsync(text: $"Status set to {args}", ephemeral: true);
         }
 
         [SlashCommand("donate", "donate!")]        
@@ -62,7 +58,6 @@ namespace NinjaBotCore.Modules.Interactions.Fun
             await RespondAsync(embed: embed.Build(), ephemeral: true);
         }
 
-      
         [SlashCommand("8ball", "Ask Ninja 8-ball a question!")]            
         public async Task AskQuestion(string args)
         {
@@ -121,28 +116,7 @@ namespace NinjaBotCore.Modules.Interactions.Fun
         {
             string pingTime = string.Empty;
             pingTime = $"Ping time for bot is **{_client.Latency}**ms";
-            await RespondAsync(pingTime);            
-        }
-
-        [SlashCommand("help", "get ninjabot help")]                
-        public async Task Help()
-        {           
-            var embed = new EmbedBuilder();
-            StringBuilder sb = new StringBuilder();
-
-            embed.Title = $"NinjaBot Help!";            
-            embed.ThumbnailUrl = Context.User.GetAvatarUrl();
-            embed.WithColor(new Color(0, 0, 255));
-
-            var helpTxt = await System.IO.File.ReadAllLinesAsync("help.txt");            
-
-            foreach (var line in helpTxt)
-            {
-                sb.AppendLine(line).Replace('!',Char.Parse(_prefix));
-            }            
-
-            embed.Description = sb.ToString();
-            await RespondAsync(embed: embed.Build(), ephemeral: true);
+            await RespondAsync(pingTime);
         }
     }
 }
