@@ -16,7 +16,6 @@ namespace NinjaBotCore.Tests
     public class WowUtilitiesTests
     {        
         WowUtilities _utils;
-        Microsoft.Extensions.Logging.ILogger logger;
         IConfigurationRoot _config;
         IServiceProvider _provider;
 

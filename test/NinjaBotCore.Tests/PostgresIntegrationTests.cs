@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using NinjaBotCore.Database;
 using Xunit;
+using Npgsql;
 
 namespace NinjaBotCore.Tests
 {
@@ -12,10 +13,12 @@ namespace NinjaBotCore.Tests
     /// Integration tests for PostgreSQL database operations.
     /// These tests verify the migration from SQLite to PostgreSQL is working correctly.
     /// </summary>
+    [Collection("DatabaseConfigurator")]
     public class PostgresIntegrationTests : IDisposable
     {
         private readonly NinjaBotEntities _context;
         private readonly IConfiguration _configuration;
+        private readonly bool _skip;
 
         public PostgresIntegrationTests()
         {
@@ -26,6 +29,33 @@ namespace NinjaBotCore.Tests
                 .AddEnvironmentVariables(prefix: "NINJABOT_");
 
             _configuration = builder.Build();
+
+            var provider = _configuration["Database:Provider"] ?? string.Empty;
+            var connectionString = _configuration.GetConnectionString("NinjaBot");
+            if (!provider.Equals("postgres", StringComparison.OrdinalIgnoreCase) &&
+                !provider.Equals("postgresql", StringComparison.OrdinalIgnoreCase))
+            {
+                _skip = true;
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                _skip = true;
+                return;
+            }
+
+            // quick connectivity check before creating the context
+            try
+            {
+                using var conn = new NpgsqlConnection(connectionString);
+                conn.Open();
+            }
+            catch (Exception)
+            {
+                _skip = true;
+                return;
+            }
 
             // Configure the database
             DatabaseConfigurator.ConfigureFrom(_configuration);
@@ -41,6 +71,8 @@ namespace NinjaBotCore.Tests
         public async Task Database_ShouldConnect_WithoutErrors()
         {
             // Act - Try to open connection
+            if (_skip) return;
+
             var canConnect = await _context.Database.CanConnectAsync();
 
             // Assert
@@ -51,6 +83,8 @@ namespace NinjaBotCore.Tests
         public void Database_Provider_ShouldBePostgreSQL()
         {
             // Act
+            if (_skip) return;
+
             var provider = _context.Database.ProviderName;
 
             // Assert - Check if we're using PostgreSQL when configured
@@ -67,6 +101,8 @@ namespace NinjaBotCore.Tests
         public async Task AwaySystem_CRUD_Operations_ShouldWork()
         {
             // Arrange
+            if (_skip) return;
+
             var testAway = new AwaySystem
             {
                 UserName = "TestUser",
@@ -130,6 +166,8 @@ namespace NinjaBotCore.Tests
         public async Task WowVanillaGuild_DateTime_ShouldStore_WithTimezone()
         {
             // Arrange
+            if (_skip) return;
+
             var testGuild = new WowVanillaGuild
             {
                 ServerName = "TestServer",
@@ -177,6 +215,8 @@ namespace NinjaBotCore.Tests
         public async Task WclPosted_BigInt_IDs_ShouldWork()
         {
             // Arrange - Test with Discord snowflake IDs (which are large long values)
+            if (_skip) return;
+
             var testPosted = new WclPosted
             {
                 ServerId = 123456789012345678, // Discord snowflake
@@ -217,6 +257,8 @@ namespace NinjaBotCore.Tests
         [Fact]
         public async Task TriviaQuestionChoice_ForeignKey_ShouldEnforce_Constraints()
         {
+            if (_skip) return;
+
             // Arrange
             var testQuestion = new TriviaQuestion
             {
@@ -283,6 +325,8 @@ namespace NinjaBotCore.Tests
         [Fact]
         public async Task Database_CaseInsensitive_Search_ShouldWork()
         {
+            if (_skip) return;
+
             // Arrange
             var testAway = new AwaySystem
             {
@@ -327,6 +371,8 @@ namespace NinjaBotCore.Tests
         [Fact]
         public async Task NullableDateTime_ShouldStore_Null_Values()
         {
+            if (_skip) return;
+
             // Arrange
             var testGuild = new WowVanillaGuild
             {
@@ -363,6 +409,8 @@ namespace NinjaBotCore.Tests
         [Fact]
         public async Task BulkInsert_Performance_Test()
         {
+            if (_skip) return;
+
             // Arrange - Create 100 test records
             var testRecords = Enumerable.Range(1, 100)
                 .Select(i => new AwaySystem

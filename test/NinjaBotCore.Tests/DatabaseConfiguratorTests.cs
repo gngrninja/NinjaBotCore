@@ -1,14 +1,15 @@
-using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using NinjaBotCore.Database;
 using Xunit;
+using System;
 
 namespace NinjaBotCore.Tests
 {
     /// <summary>
     /// Unit tests for DatabaseConfigurator to ensure proper provider selection.
     /// </summary>
+    [Collection("DatabaseConfigurator")]
     public class DatabaseConfiguratorTests
     {
         [Fact]
@@ -32,12 +33,8 @@ namespace NinjaBotCore.Tests
             DatabaseConfigurator.Apply(optionsBuilder);
 
             // Assert
-            var options = optionsBuilder.Options;
-            Assert.NotNull(options);
-
-            // Verify Npgsql is configured
-            var extension = options.FindExtension<Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.Internal.NpgsqlOptionsExtension>();
-            Assert.NotNull(extension);
+            using var context = new NinjaBotEntities(optionsBuilder.Options);
+            Assert.Contains("Npgsql", context.Database.ProviderName, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -61,9 +58,8 @@ namespace NinjaBotCore.Tests
             DatabaseConfigurator.Apply(optionsBuilder);
 
             // Assert
-            var options = optionsBuilder.Options;
-            var extension = options.FindExtension<Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.Internal.NpgsqlOptionsExtension>();
-            Assert.NotNull(extension);
+            using var context = new NinjaBotEntities(optionsBuilder.Options);
+            Assert.Contains("Npgsql", context.Database.ProviderName, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -87,9 +83,8 @@ namespace NinjaBotCore.Tests
             DatabaseConfigurator.Apply(optionsBuilder);
 
             // Assert
-            var options = optionsBuilder.Options;
-            var extension = options.FindExtension<Microsoft.EntityFrameworkCore.Sqlite.Infrastructure.Internal.SqliteOptionsExtension>();
-            Assert.NotNull(extension);
+            using var context = new NinjaBotEntities(optionsBuilder.Options);
+            Assert.Contains("Sqlite", context.Database.ProviderName, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -112,9 +107,8 @@ namespace NinjaBotCore.Tests
             DatabaseConfigurator.Apply(optionsBuilder);
 
             // Assert - Should default to SQLite
-            var options = optionsBuilder.Options;
-            var extension = options.FindExtension<Microsoft.EntityFrameworkCore.Sqlite.Infrastructure.Internal.SqliteOptionsExtension>();
-            Assert.NotNull(extension);
+            using var context = new NinjaBotEntities(optionsBuilder.Options);
+            Assert.Contains("Sqlite", context.Database.ProviderName, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -138,9 +132,8 @@ namespace NinjaBotCore.Tests
             DatabaseConfigurator.Apply(optionsBuilder);
 
             // Assert - Should default to SQLite
-            var options = optionsBuilder.Options;
-            var extension = options.FindExtension<Microsoft.EntityFrameworkCore.Sqlite.Infrastructure.Internal.SqliteOptionsExtension>();
-            Assert.NotNull(extension);
+            using var context = new NinjaBotEntities(optionsBuilder.Options);
+            Assert.Contains("Sqlite", context.Database.ProviderName, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -222,12 +215,9 @@ namespace NinjaBotCore.Tests
             DatabaseConfigurator.Apply(optionsBuilder);
 
             // Assert - Should use default "ninjabot.db"
-            var options = optionsBuilder.Options;
-            var extension = options.FindExtension<Microsoft.EntityFrameworkCore.Sqlite.Infrastructure.Internal.SqliteOptionsExtension>();
-            Assert.NotNull(extension);
-
-            // Verify it contains the default database name
-            var connectionString = extension.ConnectionString;
+            using var context = new NinjaBotEntities(optionsBuilder.Options);
+            Assert.Contains("Sqlite", context.Database.ProviderName, StringComparison.OrdinalIgnoreCase);
+            var connectionString = context.Database.GetConnectionString();
             Assert.Contains("ninjabot.db", connectionString);
         }
 
@@ -273,10 +263,51 @@ namespace NinjaBotCore.Tests
                 DatabaseConfigurator.Apply(optionsBuilder);
 
                 // Assert
-                var options = optionsBuilder.Options;
-                var extension = options.FindExtension<Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.Internal.NpgsqlOptionsExtension>();
-                Assert.NotNull(extension);
+                using var context = new NinjaBotEntities(optionsBuilder.Options);
+                Assert.Contains("Npgsql", context.Database.ProviderName, StringComparison.OrdinalIgnoreCase);
             }
+        }
+
+        [Fact]
+        public void ConfigureFrom_CanSwitchBetweenProviders()
+        {
+            // First configure as Postgres
+            var configDataPg = new System.Collections.Generic.Dictionary<string, string>
+            {
+                ["Database:Provider"] = "postgres",
+                ["ConnectionStrings:NinjaBot"] = "Host=localhost;Database=test;Username=test;Password=test"
+            };
+
+            var configurationPg = new ConfigurationBuilder()
+                .AddInMemoryCollection(configDataPg)
+                .Build();
+
+            DatabaseConfigurator.ConfigureFrom(configurationPg);
+
+            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>();
+            DatabaseConfigurator.Apply(optionsBuilder);
+            using (var context = new NinjaBotEntities(optionsBuilder.Options))
+            {
+                Assert.Contains("Npgsql", context.Database.ProviderName, StringComparison.OrdinalIgnoreCase);
+            }
+
+            // Now configure as SQLite and ensure provider switches
+            var configDataSqlite = new System.Collections.Generic.Dictionary<string, string>
+            {
+                ["Database:Provider"] = "sqlite",
+                ["ConnectionStrings:NinjaBot"] = "Data Source=test-switch.db"
+            };
+
+            var configurationSqlite = new ConfigurationBuilder()
+                .AddInMemoryCollection(configDataSqlite)
+                .Build();
+
+            DatabaseConfigurator.ConfigureFrom(configurationSqlite);
+
+            var optionsBuilderSqlite = new DbContextOptionsBuilder<NinjaBotEntities>();
+            DatabaseConfigurator.Apply(optionsBuilderSqlite);
+            using var sqliteContext = new NinjaBotEntities(optionsBuilderSqlite.Options);
+            Assert.Contains("Sqlite", sqliteContext.Database.ProviderName, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
