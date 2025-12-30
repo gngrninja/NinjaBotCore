@@ -152,42 +152,116 @@ namespace NinjaBotCore.Services
                     {
                         // Create cache key based on guild+realm+region
                         var cacheKey = $"guild_roster_{guildObject.regionName}_{guildObject.realmName}_{guildObject.guildName}".ToLower();
+                        var staleCacheKey = $"{cacheKey}_stale";
 
-                        // Try to get from cache first
+                        // Try to get from cache first (primary cache)
                         GuildMembers guildMembers = _cache.Get<GuildMembers>(cacheKey);
 
                         if (guildMembers == null)
                         {
-                            // Cache miss - fetch from API
-                            logger?.LogInformation("Cache miss for guild roster: {CacheKey}. Fetching from WoW API.", cacheKey);
+                            // Primary cache miss - try stale cache (allows serving expired data)
+                            guildMembers = _cache.Get<GuildMembers>(staleCacheKey);
 
-                            // Fetch guild members based on locale/region
-                            if (!string.IsNullOrEmpty(guildObject.locale))
+                            if (guildMembers == null)
                             {
-                                guildMembers = wowApi.GetGuildMembersBySlug(
-                                    guildObject.realmName,
-                                    guildObject.guildName,
-                                    locale: guildObject.locale,
-                                    regionName: guildObject.regionName);
+                                // No cache at all (cold start) - must fetch synchronously
+                                logger?.LogInformation("Cold cache miss for guild roster: {CacheKey}. Fetching from WoW API.", cacheKey);
+
+                                try
+                                {
+                                    // Fetch guild members based on locale/region
+                                    if (!string.IsNullOrEmpty(guildObject.locale))
+                                    {
+                                        guildMembers = wowApi.GetGuildMembersBySlug(
+                                            guildObject.realmName,
+                                            guildObject.guildName,
+                                            locale: guildObject.locale,
+                                            regionName: guildObject.regionName);
+                                    }
+                                    else
+                                    {
+                                        guildMembers = wowApi.GetGuildMembersBySlug(
+                                            guildObject.realmName,
+                                            guildObject.guildName,
+                                            regionName: guildObject.regionName);
+                                    }
+
+                                    // Cache for 12 hours in both primary and stale caches
+                                    if (guildMembers != null)
+                                    {
+                                        var primaryCacheOptions = new MemoryCacheEntryOptions
+                                        {
+                                            AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(12),
+                                            Size = 1
+                                        };
+                                        var staleCacheOptions = new MemoryCacheEntryOptions
+                                        {
+                                            AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(7), // Keep stale data for 7 days
+                                            Size = 1
+                                        };
+
+                                        _cache.Set(cacheKey, guildMembers, primaryCacheOptions);
+                                        _cache.Set(staleCacheKey, guildMembers, staleCacheOptions);
+                                        logger?.LogInformation("Cached guild roster: {CacheKey} (expires in 12 hours)", cacheKey);
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    logger?.LogWarning(ex, "Failed to fetch guild roster from API for {CacheKey}", cacheKey);
+                                    // Continue without guild roster data
+                                }
                             }
                             else
                             {
-                                guildMembers = wowApi.GetGuildMembersBySlug(
-                                    guildObject.realmName,
-                                    guildObject.guildName,
-                                    regionName: guildObject.regionName);
-                            }
+                                // Serving stale data while we refresh in the background
+                                logger?.LogInformation("Serving stale cache for {CacheKey}, refreshing in background", cacheKey);
 
-                            // Cache for 15 minutes
-                            if (guildMembers != null)
-                            {
-                                var cacheOptions = new MemoryCacheEntryOptions
+                                // Trigger background refresh (fire and forget)
+                                _ = Task.Run(async () =>
                                 {
-                                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(15),
-                                    Size = 1 // Count each entry as size 1 for the size limit
-                                };
-                                _cache.Set(cacheKey, guildMembers, cacheOptions);
-                                logger?.LogInformation("Cached guild roster: {CacheKey} (expires in 15 minutes)", cacheKey);
+                                    try
+                                    {
+                                        GuildMembers freshData = null;
+
+                                        if (!string.IsNullOrEmpty(guildObject.locale))
+                                        {
+                                            freshData = wowApi.GetGuildMembersBySlug(
+                                                guildObject.realmName,
+                                                guildObject.guildName,
+                                                locale: guildObject.locale,
+                                                regionName: guildObject.regionName);
+                                        }
+                                        else
+                                        {
+                                            freshData = wowApi.GetGuildMembersBySlug(
+                                                guildObject.realmName,
+                                                guildObject.guildName,
+                                                regionName: guildObject.regionName);
+                                        }
+
+                                        if (freshData != null)
+                                        {
+                                            var primaryCacheOptions = new MemoryCacheEntryOptions
+                                            {
+                                                AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(12),
+                                                Size = 1
+                                            };
+                                            var staleCacheOptions = new MemoryCacheEntryOptions
+                                            {
+                                                AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(7),
+                                                Size = 1
+                                            };
+
+                                            _cache.Set(cacheKey, freshData, primaryCacheOptions);
+                                            _cache.Set(staleCacheKey, freshData, staleCacheOptions);
+                                            logger?.LogInformation("Background refresh complete for {CacheKey}", cacheKey);
+                                        }
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        logger?.LogWarning(ex, "Background refresh failed for {CacheKey}", cacheKey);
+                                    }
+                                });
                             }
                         }
                         else
