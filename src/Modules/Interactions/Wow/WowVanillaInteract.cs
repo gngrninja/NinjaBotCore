@@ -9,6 +9,7 @@ using System.Text;
 using Discord.Net;
 using Discord.WebSocket;
 using System.Text.RegularExpressions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,14 +22,15 @@ using System.Collections.Generic;
 
 namespace NinjaBotCore.Modules.Interactions.Wow
 {
-    public class WowVanillaInteract : InteractionModuleBase<ShardedInteractionContext>
+    public class WowVanillaInteract : NinjaBotBaseModule
     {
         private readonly ILogger<WowVanillaInteract> _logger;
         private readonly List<String> _wclRegions = new List<String>{"US", "EU", "KR", "TW", "CN"};
         private readonly ChannelCheck _cc;
-        private WarcraftLogs _wclLogsApi;        
-        
-        public WowVanillaInteract(IServiceProvider services) 
+        private WarcraftLogs _wclLogsApi;
+
+        public WowVanillaInteract(IServiceProvider services)
+            : base(services.GetRequiredService<IServiceScopeFactory>())
         {
             _logger = services.GetRequiredService<ILogger<WowVanillaInteract>>();
             _cc = services.GetRequiredService<ChannelCheck>();
@@ -40,24 +42,25 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         {
             var sb = new StringBuilder();
             var embed = new EmbedBuilder();
-            WowVanillaGuild wowvanillaGuild = null;
 
             embed.Title = $"[{Context.Guild.Name}] WoW Vanilla Guild Association";
             embed.ThumbnailUrl = Context.Guild.IconUrl;
-            using (var db = new NinjaBotEntities())
+
+            var wowvanillaGuild = await WithDbAsync(async db =>
             {
-                wowvanillaGuild = db.WowVanillaGuild.Where(g => g.ServerId == (long)Context.Guild.Id).FirstOrDefault();
-            }
+                return await db.WowVanillaGuild.Where(g => g.ServerId == (long)Context.Guild.Id).FirstOrDefaultAsync();
+            });
+
             if (wowvanillaGuild != null)
-            {                
+            {
                 sb.AppendLine($"**Guild Name:** {wowvanillaGuild.WowGuild}");
                 sb.AppendLine($"**Realm:** {wowvanillaGuild.WowRealm}");
-                sb.AppendLine($"**Region:** {wowvanillaGuild.WowRegion}");                
+                sb.AppendLine($"**Region:** {wowvanillaGuild.WowRegion}");
             }
             else
             {
                 sb.AppendLine($"There is no guild associated to this server!");
-            } 
+            }
             embed.WithColor(0, 255, 155);
             embed.Description = sb.ToString();
             await RespondAsync(embed: embed.Build(), ephemeral: true);
@@ -79,7 +82,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 embed.WithColor(255, 0 , 0);
                 sb.AppendLine("Please specify a valid region.");
                 sb.AppendLine();
-                sb.AppendLine("**Possible regions:**");            
+                sb.AppendLine("**Possible regions:**");
                 foreach (var reg in _wclRegions)
                 {
                     sb.AppendLine(reg);
@@ -87,7 +90,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 embed.Description = sb.ToString();
                 await RespondAsync(embed: embed.Build(), ephemeral: true);
                 return;
-            } 
+            }
 
             wowvanillaGuild.ServerId = (long)Context.Guild.Id;
             wowvanillaGuild.SetById = (long)Context.User.Id;
@@ -95,21 +98,22 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             wowvanillaGuild.WowRealm = realm;
             wowvanillaGuild.WowRegion = region;
             wowvanillaGuild.SetBy = Context.User.Username;
-            wowvanillaGuild.TimeSet = DateTime.UtcNow;  
-            wowvanillaGuild.ServerName = Context.Guild.Name;          
+            wowvanillaGuild.TimeSet = DateTime.UtcNow;
+            wowvanillaGuild.ServerName = Context.Guild.Name;
 
             try
             {
-                using (var db = new NinjaBotEntities())
+                await WithDbAsync(async db =>
                 {
-                    var currentGuild = db.WowVanillaGuild.Where(g => g.ServerId == (long)Context.Guild.Id).FirstOrDefault();
+                    var currentGuild = await db.WowVanillaGuild.Where(g => g.ServerId == (long)Context.Guild.Id).FirstOrDefaultAsync();
                     if (currentGuild != null)
                     {
-                        db.Remove(currentGuild);                                    
+                        db.Remove(currentGuild);
                     }
                     db.WowVanillaGuild.Add(wowvanillaGuild);
                     await db.SaveChangesAsync();
-                }   
+                });
+
                 embed.Title = $"[{Context.Guild.Name}] WoW Vanilla Guild Association";
                 sb.AppendLine($"**Guild Name:** {wowvanillaGuild.WowGuild}");
                 sb.AppendLine($"**Realm:** {wowvanillaGuild.WowRealm}");
@@ -118,7 +122,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 embed.WithFooter(new EmbedFooterBuilder
                 {
                     Text = $"Change made by [{Context.User.Username}]",
-                    IconUrl = Context.User.GetAvatarUrl()                    
+                    IconUrl = Context.User.GetAvatarUrl()
                 });
                 embed.WithColor(0, 255, 155);
                 await RespondAsync(embed: embed.Build(), ephemeral: true);
@@ -126,8 +130,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             catch (Exception ex)
             {
                 _logger.LogError($"Error setting vanilla guild for {Context.Guild.Name} -> [{ex.Message}]");
-            }     
-            
+            }
         }
 
         [SlashCommand("logsvanilla", "get vanilla logs")]
@@ -135,31 +138,32 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         {
             var embed = new EmbedBuilder();
             var sb = new StringBuilder();
-            int maxReturn = 2;
-            WowVanillaGuild wowvanillaGuild = null;
-            using (var db = new NinjaBotEntities())
-            {                
-                wowvanillaGuild = db.WowVanillaGuild.Where(g => g.ServerId == (long)Context.Guild.Id).FirstOrDefault();                
-            }
+            int maxReturn = 3;
+
+            var wowvanillaGuild = await WithDbAsync(async db =>
+            {
+                return await db.WowVanillaGuild.Where(g => g.ServerId == (long)Context.Guild.Id).FirstOrDefaultAsync();
+            });
+
             if (wowvanillaGuild != null)
             {
                 var guildLogs = await _wclLogsApi.GetReportsFromGuildVanilla(wowvanillaGuild.WowGuild, wowvanillaGuild.WowRealm, wowvanillaGuild.WowRegion);
                 if (guildLogs.Count > 0)
                 {
                     sb.AppendLine();
-                    for (int i = 0; i <= (guildLogs.Count) && i <= maxReturn ; i++)
+                    for (int i = 0; i < guildLogs.Count && i < maxReturn ; i++)
                     {
                         sb.AppendLine($"[__**{guildLogs[i].title}** **/** **{guildLogs[i].zoneName}**__]({guildLogs[i].reportURL})");
                         sb.AppendLine($"\t:timer: Start time: **{guildLogs[i].start.UnixTimeStampToDateTime().ToLocalTime()}**");
                         sb.AppendLine($"\t:stopwatch: End time: **{guildLogs[i].end.UnixTimeStampToDateTime().ToLocalTime()}**");
-                        sb.AppendLine($"\t:pencil2: Created by [**{guildLogs[i].owner}**]"); 
+                        sb.AppendLine($"\t:pencil2: Created by [**{guildLogs[i].owner}**]");
                         sb.AppendLine();
                     }
                     _logger.LogInformation($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
                     embed.Title = $":1234: __Logs for **{wowvanillaGuild.WowGuild}** on **{wowvanillaGuild.WowRealm}**__:1234: ";
                     embed.Description = sb.ToString();
                     embed.WithColor(0, 255, 100);
-                    await RespondAsync(embed: embed.Build(), ephemeral: true);                    
+                    await RespondAsync(embed: embed.Build(), ephemeral: true);
                 }
             }
         }

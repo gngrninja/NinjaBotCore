@@ -12,16 +12,18 @@ using Microsoft.Extensions.Configuration;
 using NinjaBotCore.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
 
 namespace NinjaBotCore.Modules.Interactions.Admin
 {
-    public class DiscordHelpers : InteractionModuleBase<ShardedInteractionContext>
+    public class DiscordHelpers : NinjaBotBaseModule
     {
         private readonly DiscordShardedClient _client;
         private readonly IConfigurationRoot _config;
         private readonly ILogger<DiscordHelpers> _logger;
 
         public DiscordHelpers(DiscordShardedClient client, IServiceProvider services)
+            : base(services.GetRequiredService<IServiceScopeFactory>())
         {
             _client = client;
             _config = services.GetRequiredService<IConfigurationRoot>();
@@ -49,13 +51,13 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             var embed = new EmbedBuilder();
             var sb = new StringBuilder();
 
-            using (var db = new NinjaBotEntities())
+            try
             {
-                try
+                await WithDbAsync(async db =>
                 {
-                    var currentSetting = db.ModerationWatcher
+                    var currentSetting = await db.ModerationWatcher
                         .Where(m => m.DiscordGuildId == (long)Context.Guild.Id)
-                        .FirstOrDefault();
+                        .FirstOrDefaultAsync();
 
                     switch (action.ToLower())
                     {
@@ -194,12 +196,12 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                     }
 
                     await db.SaveChangesAsync();
-                }
-                catch (Exception ex)
-                {
-                    sb.AppendLine($"Error: {ex.Message}");
-                    _logger.LogError($"Error in watch command: {ex.Message}");
-                }
+                });
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine($"Error: {ex.Message}");
+                _logger.LogError($"Error in watch command: {ex.Message}");
             }
 
             embed.Title = $"Moderation Watchers - {Context.Guild.Name}";
@@ -218,13 +220,13 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             var embed = new EmbedBuilder();
             var sb = new StringBuilder();
 
-            using (var db = new NinjaBotEntities())
+            try
             {
-                try
+                await WithDbAsync(async db =>
                 {
-                    var oldVoiceWatcher = db.VoiceWatcher
+                    var oldVoiceWatcher = await db.VoiceWatcher
                         .Where(v => v.DiscordGuildId == (long)Context.Guild.Id)
-                        .FirstOrDefault();
+                        .FirstOrDefaultAsync();
 
                     if (oldVoiceWatcher == null)
                     {
@@ -232,9 +234,9 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                     }
                     else
                     {
-                        var existingModWatcher = db.ModerationWatcher
+                        var existingModWatcher = await db.ModerationWatcher
                             .Where(m => m.DiscordGuildId == (long)Context.Guild.Id)
-                            .FirstOrDefault();
+                            .FirstOrDefaultAsync();
 
                         if (existingModWatcher != null)
                         {
@@ -264,12 +266,12 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                             sb.AppendLine($"\nYou can now use `/watch` commands to manage all watchers!");
                         }
                     }
-                }
-                catch (Exception ex)
-                {
-                    sb.AppendLine($"Error during migration: {ex.Message}");
-                    _logger.LogError($"Error in migrate-watchers command: {ex.Message}");
-                }
+                });
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine($"Error during migration: {ex.Message}");
+                _logger.LogError(ex, "Error in migrate-watchers command");
             }
 
             embed.Title = $"Watcher Migration - {Context.Guild.Name}";
@@ -451,19 +453,18 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         [RequireUserPermission(GuildPermission.KickMembers)]
         public async Task ChangeGreeting()
         {
-            string curGreeting = string.Empty;
-            using (var db = new NinjaBotEntities())
+            string curGreeting = await WithDbAsync(async db =>
             {
-                var guildGreetingInfo = db.ServerGreetings.Where(g => g.DiscordGuildId == (long)Context.Guild.Id).FirstOrDefault();
-                if (guildGreetingInfo != null)
-                {
-                    curGreeting = guildGreetingInfo.Greeting;
-                }                
-            }
+                var guildGreetingInfo = await db.ServerGreetings
+                    .Where(g => g.DiscordGuildId == (long)Context.Guild.Id)
+                    .FirstOrDefaultAsync();
+                return guildGreetingInfo?.Greeting ?? string.Empty;
+            });
+
             if (string.IsNullOrEmpty(curGreeting))
             {
                 curGreeting = "Hello!";
-            }            
+            }
             var mb = new ModalBuilder()
                 .WithTitle("Greeting message")
                 .WithCustomId("joining_message")
@@ -471,23 +472,22 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             await Context.Interaction.RespondWithModalAsync(mb.Build());
         }
 
-        [SlashCommand("set-part-message", "set a message to display when users leave the server")]        
+        [SlashCommand("set-part-message", "set a message to display when users leave the server")]
         [RequireUserPermission(GuildPermission.KickMembers)]
         public async Task ChangeParting()
         {
-            string curParting = string.Empty;
-            using (var db = new NinjaBotEntities())
+            string curParting = await WithDbAsync(async db =>
             {
-                var guildGreetingInfo = db.ServerGreetings.Where(g => g.DiscordGuildId == (long)Context.Guild.Id).FirstOrDefault();
-                if (guildGreetingInfo != null)
-                {
-                    curParting = guildGreetingInfo.PartingMessage;
-                }                
-            }
+                var guildGreetingInfo = await db.ServerGreetings
+                    .Where(g => g.DiscordGuildId == (long)Context.Guild.Id)
+                    .FirstOrDefaultAsync();
+                return guildGreetingInfo?.PartingMessage ?? string.Empty;
+            });
+
             if (string.IsNullOrEmpty(curParting))
             {
                 curParting = "Goodbye!";
-            }                        
+            }
             var mb = new ModalBuilder()
                 .WithTitle("Parting message")
                 .WithCustomId("parting_message")
@@ -503,16 +503,18 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
-            using (var db = new NinjaBotEntities())
+            try
             {
-                try
+                await WithDbAsync(async db =>
                 {
-                    var currentSetting = db.ServerGreetings.Where(g => g.DiscordGuildId == (long)Context.Guild.Id).FirstOrDefault();
+                    var currentSetting = await db.ServerGreetings
+                        .Where(g => g.DiscordGuildId == (long)Context.Guild.Id)
+                        .FirstOrDefaultAsync();
                     if (currentSetting != null)
                     {
                         if (currentSetting.GreetUsers == true)
                         {
-                            currentSetting.GreetUsers = false;                            
+                            currentSetting.GreetUsers = false;
                             sb.AppendLine("Greetings have been disabled!");
                         }
                         else
@@ -535,11 +537,11 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                         sb.AppendLine("Greetings have been enabled!");
                     }
                     await db.SaveChangesAsync();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error toggling greetings in {GuildName}", Context.Guild.Name);
-                }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error toggling greetings in {GuildName}", Context.Guild.Name);
             }
             embed.Title = $"User greeting settings for {Context.Guild.Name}";
             embed.Description = sb.ToString();
@@ -556,16 +558,18 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
-            using (var db = new NinjaBotEntities())
+            try
             {
-                try
+                await WithDbAsync(async db =>
                 {
-                    var currentSetting = db.ServerGreetings.Where(g => g.DiscordGuildId == (long)Context.Guild.Id).FirstOrDefault();
+                    var currentSetting = await db.ServerGreetings
+                        .Where(g => g.DiscordGuildId == (long)Context.Guild.Id)
+                        .FirstOrDefaultAsync();
                     if (currentSetting != null)
                     {
                         if (currentSetting.GreetUsers == true)
                         {
-                            currentSetting.PartingChannelId = (long)Context.Channel.Id;                            
+                            currentSetting.PartingChannelId = (long)Context.Channel.Id;
                             sb.AppendLine($"Parting messages channel set to {Context.Channel.Name}!");
                         }
                         else
@@ -574,11 +578,11 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                         }
                     }
                     await db.SaveChangesAsync();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error setting parting channel in {GuildName}", Context.Guild.Name);
-                }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error setting parting channel in {GuildName}", Context.Guild.Name);
             }
             embed.Title = $"User greeting settings for {Context.Guild.Name}";
             embed.Description = sb.ToString();
@@ -587,7 +591,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             await FollowupAsync(embed: embed.Build(), ephemeral: true);
         }
 
-        [SlashCommand("blacklist", "blacklist a user from using the bot")]        
+        [SlashCommand("blacklist", "blacklist a user from using the bot")]
         [RequireOwner]
         public async Task BlackList(IGuildUser user, string reason = null)
         {
@@ -595,37 +599,35 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             StringBuilder sb = new StringBuilder();
             try
             {
-                using (var db = new NinjaBotEntities())
+                await WithDbAsync(async db =>
                 {
-                    var blacklist = db.Blacklist;
-                    if (blacklist != null)
+                    var getUser = await db.Blacklist
+                        .Where(b => b.DiscordUserId == (long)user.Id)
+                        .FirstOrDefaultAsync();
+                    if (getUser != null)
                     {
-                        var getUser = blacklist.Where(b => b.DiscordUserId == (long)user.Id).FirstOrDefault();
-                        if (getUser != null)
-                        {
-                            sb.AppendLine($"Unblacklisting {user.Username}");
-                            blacklist.Remove(getUser);
-                        }
-                        else
-                        {
-                            if (string.IsNullOrEmpty(reason))
-                            {
-                                reason = "just because";
-                            }
-                            blacklist.Add(new Blacklist
-                            {
-                                DiscordUserId = (long)user.Id,
-                                DiscordUserName = user.Username,
-                                Reason = reason,
-                                WhenBlacklisted = DateTime.UtcNow
-                            });
-                            sb.AppendLine($"Blacklisting [**{user.Username}**] -> [*{reason}*]");
-                        }
-                        embed.Title = "[Blacklist]";
-                        embed.Description = sb.ToString();
-                        await db.SaveChangesAsync();
+                        sb.AppendLine($"Unblacklisting {user.Username}");
+                        db.Blacklist.Remove(getUser);
                     }
-                }
+                    else
+                    {
+                        if (string.IsNullOrEmpty(reason))
+                        {
+                            reason = "just because";
+                        }
+                        db.Blacklist.Add(new Blacklist
+                        {
+                            DiscordUserId = (long)user.Id,
+                            DiscordUserName = user.Username,
+                            Reason = reason,
+                            WhenBlacklisted = DateTime.UtcNow
+                        });
+                        sb.AppendLine($"Blacklisting [**{user.Username}**] -> [*{reason}*]");
+                    }
+                    embed.Title = "[Blacklist]";
+                    embed.Description = sb.ToString();
+                    await db.SaveChangesAsync();
+                });
             }
             catch (Exception ex)
             {
@@ -907,9 +909,11 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         
         private async Task AddWarning(ShardedInteractionContext context, IGuildUser userWarned)
         {
-            using (var db = new NinjaBotEntities())
+            await WithDbAsync(async db =>
             {
-                var warnings = db.Warnings.Where(w => w.ServerId == (long)context.Guild.Id && w.UserWarnedId == (long)userWarned.Id).FirstOrDefault();
+                var warnings = await db.Warnings
+                    .Where(w => w.ServerId == (long)context.Guild.Id && w.UserWarnedId == (long)userWarned.Id)
+                    .FirstOrDefaultAsync();
                 if (warnings != null)
                 {
                     warnings.NumWarnings = warnings.NumWarnings + 1;
@@ -929,38 +933,41 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                     });
                 }
                 await db.SaveChangesAsync();
-            }
+            });
         }
 
         private async Task ResetWarnings(Warnings warning)
         {
-            using (var db = new NinjaBotEntities())
+            await WithDbAsync(async db =>
             {
-                var currentWarning = db.Warnings.Where(w => w.Warnid == warning.Warnid).FirstOrDefault();
+                var currentWarning = await db.Warnings
+                    .Where(w => w.Warnid == warning.Warnid)
+                    .FirstOrDefaultAsync();
                 if (currentWarning != null)
                 {
                     db.Warnings.Remove(currentWarning);
                     await db.SaveChangesAsync();
                 }
-            }
+            });
         }
 
         private async Task<Warnings> GetWarning(ShardedInteractionContext context, IGuildUser userWarned)
         {
-            Warnings warning = null;
-            using (var db = new NinjaBotEntities())
+            return await WithDbAsync(async db =>
             {
-                warning = db.Warnings.Where(w => w.ServerId == (long)context.Guild.Id && w.UserWarnedId == (long)userWarned.Id).FirstOrDefault();
-            }
-            return warning;
+                return await db.Warnings
+                    .Where(w => w.ServerId == (long)context.Guild.Id && w.UserWarnedId == (long)userWarned.Id)
+                    .FirstOrDefaultAsync();
+            });
         }
 
         private async Task<string> GetNoteInfo(ShardedInteractionContext Context)
         {
             StringBuilder sb = new StringBuilder();
-            using (var db = new NinjaBotEntities())
+            await WithDbAsync(async db =>
             {
-                var note = db.Notes.FirstOrDefault(n => n.ServerId == (long)Context.Guild.Id);
+                var note = await db.Notes
+                    .FirstOrDefaultAsync(n => n.ServerId == (long)Context.Guild.Id);
                 if (note == null)
                 {
                     sb.AppendLine($"Unable to find a note for server [{Context.Guild.Name}], perhaps try adding one by using /set-note \"Note goes here!\"");
@@ -971,7 +978,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                     sb.AppendLine();
                     sb.Append($"*Note set by [**{note.SetBy}**] on [**{note.TimeSet}**]*");
                 }
-            }
+            });
             return sb.ToString();
         }
     }

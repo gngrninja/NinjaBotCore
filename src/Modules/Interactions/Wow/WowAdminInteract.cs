@@ -18,11 +18,12 @@ using NinjaBotCore.Modules.Wow;
 using NinjaBotCore.Models.Wow;
 using NinjaBotCore.Database;
 using System.Collections.Generic;
+using Microsoft.EntityFrameworkCore;
 
 namespace NinjaBotCore.Modules.Interactions.Wow
 {
     // Interaction modules must be public and inherit from an IInteractionModuleBase
-    public class WowAdminInteract : InteractionModuleBase<ShardedInteractionContext>
+    public class WowAdminInteract : NinjaBotBaseModule
     {
         private ChannelCheck _cc;
         private WarcraftLogs _logsApi;
@@ -35,6 +36,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private readonly WarcraftLogsV2Client _v2Client;
 
         public WowAdminInteract(IServiceProvider services)
+            : base(services.GetRequiredService<IServiceScopeFactory>())
         {
             _logger = services.GetRequiredService<ILogger<WowAdminInteract>>();
             _wowUtils = services.GetRequiredService<WowUtilities>();
@@ -56,11 +58,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 List<LogMonitoring> logWatchList = null;
                 try
                 {
-                    using (var db = new NinjaBotEntities())
+                    var result = await WithDbAsync(async db =>
                     {
-                        guildList = db.WowGuildAssociations.ToList();
-                        logWatchList = db.LogMonitoring.ToList();
-                    }
+                        var guilds = await db.WowGuildAssociations.ToListAsync();
+                        var logWatch = await db.LogMonitoring.ToListAsync();
+                        return (guilds, logWatch);
+                    });
+                    guildList = result.guilds;
+                    logWatchList = result.logWatch;
                 }
                 catch (Exception ex)
                 {
@@ -84,13 +89,13 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                                         var latestLog = logs[logs.Count - 1];
                                         DateTime startTime = latestLog.start.UnixTimeStampToDateTimeSeconds();
                                         {
-                                            using (var db = new NinjaBotEntities())
+                                            await WithDbAsync(async db =>
                                             {
-                                                var latestForGuild = db.LogMonitoring.Where(l => l.ServerId == guild.ServerId).FirstOrDefault();
+                                                var latestForGuild = await db.LogMonitoring.Where(l => l.ServerId == guild.ServerId).FirstOrDefaultAsync();
                                                 latestForGuild.LatestLogRetail = startTime;
                                                 latestForGuild.RetailReportId = latestLog.id;
                                                 await db.SaveChangesAsync();
-                                            }
+                                            });
                                             //System._logger.LogInformation($"Updated [{watchGuild.ServerName}] -> [{latestLog.id}] [{latestLog.owner}]!");
                                         }
                                     }
@@ -110,32 +115,34 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         [Discord.Interactions.RequireOwner]
         public async Task RemoveAchieve(long id)
         {
-            using (var db = new NinjaBotEntities())
+            var message = await WithDbAsync(async db =>
             {
-                var foundCheeve = db.FindWowCheeves.Where(c => c.AchId == id).FirstOrDefault();
+                var foundCheeve = await db.FindWowCheeves.Where(c => c.AchId == id).FirstOrDefaultAsync();
                 if (foundCheeve != null)
                 {
                     db.Remove(foundCheeve);
                     await db.SaveChangesAsync();
-                    await RespondAsync($"Removed achievement id {id} from the database!");
+                    return $"Removed achievement id {id} from the database!";
                 }
                 else
                 {
-                    await RespondAsync($"Sorry, unable to find achievement ID {id} in the database!");
+                    return $"Sorry, unable to find achievement ID {id} in the database!";
                 }
-            }
+            });
+
+            await RespondAsync(message);
         }
 
         [SlashCommand("addachievement", "add achivement")]
         [Discord.Interactions.RequireOwner]
         public async Task AddAchieve(long id, int cat)
         {
-            using (var db = new NinjaBotEntities())
+            var (success, message, categoryName) = await WithDbAsync(async db =>
             {
-                var foundCheeve = db.FindWowCheeves.Where(c => c.AchId == id);
-                if (foundCheeve != null)
+                var foundCheeve = await db.FindWowCheeves.Where(c => c.AchId == id).FirstOrDefaultAsync();
+                if (foundCheeve == null)
                 {
-                    var category = db.AchCategories.Where(c => c.CatId == cat).FirstOrDefault();
+                    var category = await db.AchCategories.Where(c => c.CatId == cat).FirstOrDefaultAsync();
                     if (category != null)
                     {
                         try
@@ -146,24 +153,27 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                                 AchCategory = category
                             });
                             await db.SaveChangesAsync();
-                            await RespondAsync($"Added achievement ID {id} with category {category.CatName} to the database!");
+                            return (true, $"Added achievement ID {id} with category {category.CatName} to the database!", category.CatName);
                         }
                         catch (Exception ex)
                         {
                             _logger.LogError($"{ex.Message}");
+                            return (false, $"Error adding achievement: {ex.Message}", null);
                         }
                     }
                     else
                     {
-                        await RespondAsync($"Unable to find category with ID {cat} in the database!");
+                        return (false, $"Unable to find category with ID {cat} in the database!", null);
                     }
 
                 }
                 else
                 {
-                    await RespondAsync($"Sorry, achievement {id} already exists in the database!");
+                    return (false, $"Sorry, achievement {id} already exists in the database!", null);
                 }
-            }
+            });
+
+            await RespondAsync(message);
         }
 
         [SlashCommand("listachievements", "list achivements")]
@@ -171,11 +181,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         public async Task ListCheeves()
         {
             StringBuilder sb = new StringBuilder();
-            List<FindWowCheeve> cheeves = new List<FindWowCheeve>();
-            using (var db = new NinjaBotEntities())
+            var cheeves = await WithDbAsync(async db =>
             {
-                cheeves = db.FindWowCheeves.ToList();
-            }
+                return await db.FindWowCheeves.ToListAsync();
+            });
             if (cheeves.Count > 0)
             {
                 foreach (var cheeve in cheeves)
@@ -281,12 +290,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             {
                 if (partition != null)
                 {
-                    using (var db = new NinjaBotEntities())
+                    await WithDbAsync(async db =>
                     {
-                        var curTier = db.CurrentRaidTier.FirstOrDefault();
+                        var curTier = await db.CurrentRaidTier.FirstOrDefaultAsync();
                         curTier.Partition = partition;
                         await db.SaveChangesAsync();
-                    }
+                    });
                 }
                 embed.Description = $"Parition set to {partition}";
             }
@@ -320,11 +329,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 List<WowGuildAssociations> guildList;
                 List<LogMonitoring> logWatchList;
 
-                using (var db = new NinjaBotEntities())
+                var result = await WithDbAsync(async db =>
                 {
-                    guildList = db.WowGuildAssociations.ToList();
-                    logWatchList = db.LogMonitoring.Where(w => w.MonitorLogs).ToList();
-                }
+                    var guilds = await db.WowGuildAssociations.ToListAsync();
+                    var logWatch = await db.LogMonitoring.Where(w => w.MonitorLogs).ToListAsync();
+                    return (guilds, logWatch);
+                });
+                guildList = result.guilds;
+                logWatchList = result.logWatch;
 
                 var problemGuilds = new List<(WowGuildAssociations Guild, LogMonitoring Monitoring, int? DaysSinceReport, string Reason)>();
 
@@ -455,14 +467,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 else if (action.ToLower() == "unflag")
                 {
                     // Unflag mode - actually disable monitoring
-                    int unflaggedCount = 0;
-                    var unflaggedServers = new List<string>();
-
-                    using (var db = new NinjaBotEntities())
+                    var unflagResult = await WithDbAsync(async db =>
                     {
+                        int unflaggedCount = 0;
+                        var unflaggedServers = new List<string>();
+
                         foreach (var (guild, monitoring, _, reason) in problemGuilds)
                         {
-                            var dbMonitoring = db.LogMonitoring.FirstOrDefault(m => m.ServerId == monitoring.ServerId);
+                            var dbMonitoring = await db.LogMonitoring.FirstOrDefaultAsync(m => m.ServerId == monitoring.ServerId);
                             if (dbMonitoring != null && dbMonitoring.MonitorLogs)
                             {
                                 dbMonitoring.MonitorLogs = false;
@@ -472,7 +484,11 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         }
 
                         await db.SaveChangesAsync();
-                    }
+                        return (unflaggedCount, unflaggedServers);
+                    });
+
+                    int unflaggedCount = unflagResult.unflaggedCount;
+                    var unflaggedServers = unflagResult.unflaggedServers;
 
                     var resultEmbed = new EmbedBuilder();
                     resultEmbed.WithTitle("Cleanup Complete");
@@ -622,11 +638,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 List<WowGuildAssociations> guildList;
                 List<LogMonitoring> logWatchList;
 
-                using (var db = new NinjaBotEntities())
+                var result = await WithDbAsync(async db =>
                 {
-                    guildList = db.WowGuildAssociations.ToList();
-                    logWatchList = db.LogMonitoring.Where(w => w.MonitorLogs).ToList();
-                }
+                    var guilds = await db.WowGuildAssociations.ToListAsync();
+                    var logWatch = await db.LogMonitoring.Where(w => w.MonitorLogs).ToListAsync();
+                    return (guilds, logWatch);
+                });
+                guildList = result.guilds;
+                logWatchList = result.logWatch;
 
                 var problemGuilds = new List<(WowGuildAssociations Guild, LogMonitoring Monitoring, int? DaysSinceReport, string Reason)>();
                 var type = cleanupType.ToLower();
@@ -824,11 +843,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             try
             {
-                List<WowGuildAssociations> allGuilds;
-                using (var db = new NinjaBotEntities())
+                var allGuilds = await WithDbAsync(async db =>
                 {
-                    allGuilds = db.WowGuildAssociations.ToList();
-                }
+                    return await db.WowGuildAssociations.ToListAsync();
+                });
 
                 // Group by ServerId and find duplicates
                 var duplicates = allGuilds
@@ -916,11 +934,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             try
             {
-                List<WowGuildAssociations> allGuilds;
-                using (var db = new NinjaBotEntities())
+                var allGuilds = await WithDbAsync(async db =>
                 {
-                    allGuilds = db.WowGuildAssociations.ToList();
-                }
+                    return await db.WowGuildAssociations.ToListAsync();
+                });
 
                 // Group by ServerId and find duplicates
                 var duplicateGroups = allGuilds
@@ -952,20 +969,21 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 }
 
                 // Remove the duplicates
-                int removedCount = 0;
-                using (var db = new NinjaBotEntities())
+                int removedCount = await WithDbAsync(async db =>
                 {
+                    int count = 0;
                     foreach (var guild in toRemove)
                     {
-                        var toDelete = db.WowGuildAssociations.FirstOrDefault(g => g.Id == guild.Id);
+                        var toDelete = await db.WowGuildAssociations.FirstOrDefaultAsync(g => g.Id == guild.Id);
                         if (toDelete != null)
                         {
                             db.WowGuildAssociations.Remove(toDelete);
-                            removedCount++;
+                            count++;
                         }
                     }
                     await db.SaveChangesAsync();
-                }
+                    return count;
+                });
 
                 var embed = new EmbedBuilder()
                     .WithTitle("Cleanup Duplicate Guild Associations")
@@ -1021,25 +1039,19 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             try
             {
-                List<WowGuildAssociations> nullSlugGuilds;
-                using (var db = new NinjaBotEntities())
+                var (nullSlugGuilds, allGuilds) = await WithDbAsync(async db =>
                 {
-                    nullSlugGuilds = db.WowGuildAssociations
+                    var nullSlugs = await db.WowGuildAssociations
                         .Where(g => string.IsNullOrWhiteSpace(g.LocalRealmSlug))
-                        .ToList();
-                }
+                        .ToListAsync();
+                    var all = await db.WowGuildAssociations.ToListAsync();
+                    return (nullSlugs, all);
+                });
 
                 if (nullSlugGuilds.Count == 0)
                 {
                     await FollowupAsync("No guild associations with null LocalRealmSlug found!");
                     return;
-                }
-
-                // Check which ones are duplicates (have another entry with the same ServerId that has a slug)
-                List<WowGuildAssociations> allGuilds;
-                using (var db = new NinjaBotEntities())
-                {
-                    allGuilds = db.WowGuildAssociations.ToList();
                 }
 
                 var safeToRemove = new List<WowGuildAssociations>();
@@ -1069,12 +1081,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 if (safeToRemove.Count > 0)
                 {
                     // Remove the safe ones
-                    using (var db = new NinjaBotEntities())
+                    await WithDbAsync(async db =>
                     {
                         foreach (var guild in safeToRemove)
                         {
-                            var toRemove = db.WowGuildAssociations
-                                .FirstOrDefault(g => g.ServerId == guild.ServerId &&
+                            var toRemove = await db.WowGuildAssociations
+                                .FirstOrDefaultAsync(g => g.ServerId == guild.ServerId &&
                                                     string.IsNullOrWhiteSpace(g.LocalRealmSlug));
                             if (toRemove != null)
                             {
@@ -1082,7 +1094,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                             }
                         }
                         await db.SaveChangesAsync();
-                    }
+                    });
 
                     var removedList = string.Join("\n", safeToRemove.Take(20).Select(g =>
                         $"- {g.WowGuild}-{g.WowRealm} ({g.WowRegion}) [ServerId: {g.ServerId}]"));

@@ -6,28 +6,31 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using NinjaBotCore.Services;
 using Discord.Interactions;
 
 namespace NinjaBotCore.Modules.Interactions.Fun
 {
-    public class FunCommands : InteractionModuleBase<ShardedInteractionContext>
+    public class FunCommands : NinjaBotBaseModule
     {
-        private DiscordShardedClient _client;        
+        private DiscordShardedClient _client;
         private readonly IConfigurationRoot _config;
 
-        public FunCommands(DiscordShardedClient client, ChannelCheck cc, IConfigurationRoot config)
+        public FunCommands(DiscordShardedClient client, ChannelCheck cc, IConfigurationRoot config, IServiceScopeFactory scopeFactory)
+            : base(scopeFactory)
         {
             try
-            {                                                  
+            {
                 _client = client;
-                _config = config;               
+                _config = config;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Something went wrong creating the fun class: {ex.Message}");
-            }        
+            }
         }
 
         [SlashCommand("setstatus", "set status of the bot")]
@@ -58,24 +61,21 @@ namespace NinjaBotCore.Modules.Interactions.Fun
             await RespondAsync(embed: embed.Build(), ephemeral: true);
         }
 
-        [SlashCommand("8ball", "Ask Ninja 8-ball a question!")]            
+        [SlashCommand("8ball", "Ask Ninja 8-ball a question!")]
         public async Task AskQuestion(string args)
         {
             var embed = new EmbedBuilder();
             Random r = new Random();
-            var answers = new List<C8Ball>();
-            using (var db = new NinjaBotEntities())
+
+            var answers = await WithDbAsync(db => db.C8Ball.ToListAsync());
+            if (answers == null)
             {
-                answers = db.C8Ball.ToList();
-                if (answers == null)
+                answers.Add(new C8Ball
                 {
-                    answers.Add(new C8Ball
-                    {
-                        AnswerId = 0,
-                        Answer = "No! (cant access DB)",
-                        Color = "Red"
-                    });
-                }
+                    AnswerId = 0,
+                    Answer = "No! (cant access DB)",
+                    Color = "Red"
+                });
             }
             var answer = answers[r.Next(answers.Count())];
             string answerText = string.Empty;

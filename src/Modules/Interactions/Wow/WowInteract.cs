@@ -24,7 +24,7 @@ using Microsoft.EntityFrameworkCore;
 namespace NinjaBotCore.Modules.Interactions.Wow
 {
     // Interaction modules must be public and inherit from an IInteractionModuleBase
-    public class WowInteract : InteractionModuleBase<ShardedInteractionContext>
+    public class WowInteract : NinjaBotBaseModule
     {
         // Dependencies can be accessed through Property injection, public properties with public setters will be set by the service provider
         public InteractionService Commands { get; set; }
@@ -38,9 +38,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private readonly IConfigurationRoot _config;
         private readonly ILogger _logger;
         private WowUtilities _wowUtils;
-        private readonly NinjaBotEntities _db;
 
         public WowInteract(IServiceProvider services)
+            : base(services.GetRequiredService<IServiceScopeFactory>())
         {
             _handler = services.GetRequiredService<InteractionHandler>();
             _logger = services.GetRequiredService<ILogger<WowInteract>>();
@@ -52,7 +52,6 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             _client = services.GetRequiredService<DiscordShardedClient>();
             _config = services.GetRequiredService<IConfigurationRoot>();
             _wowUtils = services.GetRequiredService<WowUtilities>();
-            _db = services.GetRequiredService<NinjaBotEntities>();
         }
 
         [SlashCommand("rio", "Get character's Raider.IO profile")]
@@ -109,9 +108,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             // If no character specified, use user's main character
             if (string.IsNullOrEmpty(character))
             {
-                var charAssociation = _db.WowCharAssociation
-                    .Where(c => c.UserId == (long)Context.User.Id && c.IsMain)
-                    .FirstOrDefault();
+                var charAssociation = await WithDbAsync(db =>
+                    db.WowCharAssociation
+                        .Where(c => c.UserId == (long)Context.User.Id && c.IsMain)
+                        .FirstOrDefaultAsync());
 
                 if (charAssociation != null)
                 {
@@ -395,7 +395,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 return;
             }
 
-            var components = BuildRioComponents(Context.User.Id, charName, realmName, regionName);
+            var components = await BuildRioComponents(Context.User.Id, charName, realmName, regionName);
             await FollowupAsync(embed: embed.Build(), components: components.Build(), ephemeral: !publicDisplay);
         }
 
@@ -406,16 +406,24 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             try
             {
-                var userHistory = _db.RioSearchHistory
-                    .Where(h => h.DiscordUserId == (long)Context.User.Id)
-                    .ToList();
-
-                if (userHistory.Any())
+                var historyCount = await WithDbAsync(async db =>
                 {
-                    _db.RioSearchHistory.RemoveRange(userHistory);
-                    await _db.SaveChangesAsync();
+                    var userHistory = db.RioSearchHistory
+                        .Where(h => h.DiscordUserId == (long)Context.User.Id)
+                        .ToList();
 
-                    await FollowupAsync($"✅ Cleared **{userHistory.Count}** RaiderIO search history entries.", ephemeral: true);
+                    if (userHistory.Any())
+                    {
+                        db.RioSearchHistory.RemoveRange(userHistory);
+                        await db.SaveChangesAsync();
+                        return userHistory.Count;
+                    }
+                    return 0;
+                });
+
+                if (historyCount > 0)
+                {
+                    await FollowupAsync($"✅ Cleared **{historyCount}** RaiderIO search history entries.", ephemeral: true);
                 }
                 else
                 {
@@ -480,11 +488,11 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             {
                 try
                 {
-                    var result = await _wowUtils.GetCharFromArgs(character, Context);
-                    charName = result.charName;
-                    realmName = result.realmName;
-                    regionName = result.regionName;
-                    locale = result.locale;
+                    var charResult = await _wowUtils.GetCharFromArgs(character, Context);
+                    charName = charResult.charName;
+                    realmName = charResult.realmName;
+                    regionName = charResult.regionName;
+                    locale = charResult.locale;
                 }
                 catch (Exception ex)
                 {
@@ -546,28 +554,70 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             // Normalize realm name for comparison (remove spaces, hyphens, apostrophes, and lowercase)
             string normalizedRealmName = realmName.Replace(" ", "").Replace("-", "").Replace("'", "").ToLower();
 
-            // Check if character already exists for this user
-            var existingChar = _db.WowCharAssociation
-                .Where(a => a.UserId == (long)Context.User.Id)
-                .AsEnumerable() // Switch to client-side evaluation for complex string operations
-                .Where(a => a.CharName.ToLower() == charName.ToLower() &&
-                            a.WowRealm.Replace(" ", "").Replace("-", "").Replace("'", "").ToLower() == normalizedRealmName)
-                .FirstOrDefault();
-
-            if (existingChar != null)
+            var result = await WithDbAsync(async db =>
             {
-                // Update existing character
-                if (existingChar.IsMain != isMain)
+                // Check if character already exists for this user
+                var existingChar = db.WowCharAssociation
+                    .Where(a => a.UserId == (long)Context.User.Id)
+                    .AsEnumerable() // Switch to client-side evaluation for complex string operations
+                    .Where(a => a.CharName.ToLower() == charName.ToLower() &&
+                                a.WowRealm.Replace(" ", "").Replace("-", "").Replace("'", "").ToLower() == normalizedRealmName)
+                    .FirstOrDefault();
+
+                if (existingChar != null)
                 {
-                    existingChar.IsMain = isMain;
+                    // Check if anything needs updating
+                    if (existingChar.IsMain == isMain)
+                    {
+                        // No changes needed
+                        return (success: true, updated: false, message: $"**{charName}** on **{realmName}** " +
+                            (isMain ? "is already saved as your **main character**!" : "is already saved!") +
+                            (!isMain ? "\n\nUse `/setchar` with `ismain: true` to set it as your main character." : ""));
+                    }
+                    else
+                    {
+                        // Update existing character
+                        existingChar.IsMain = isMain;
+
+                        // If setting as main, unset other mains
+                        if (isMain)
+                        {
+                            var otherMains = db.WowCharAssociation
+                                .Where(a => a.UserId == (long)Context.User.Id &&
+                                            a.IsMain &&
+                                            a.Id != existingChar.Id)
+                                .ToList();
+
+                            foreach (var main in otherMains)
+                            {
+                                main.IsMain = false;
+                            }
+                        }
+
+                        await db.SaveChangesAsync();
+
+                        var mainText = isMain ? " as your **main character**" : "";
+                        return (success: true, updated: true, message: $"Updated **{charName}** on **{realmName}**{mainText}!");
+                    }
+                }
+                else
+                {
+                    // Add new character
+                    db.WowCharAssociation.Add(new WowCharAssociation
+                    {
+                        UserId = (long)Context.User.Id,
+                        IsMain = isMain,
+                        CharName = charName,
+                        WowRealm = realmName,
+                        WowRegion = regionName,
+                        Locale = locale
+                    });
 
                     // If setting as main, unset other mains
                     if (isMain)
                     {
-                        var otherMains = _db.WowCharAssociation
-                            .Where(a => a.UserId == (long)Context.User.Id &&
-                                        a.IsMain &&
-                                        a.Id != existingChar.Id)
+                        var otherMains = db.WowCharAssociation
+                            .Where(a => a.UserId == (long)Context.User.Id && a.IsMain)
                             .ToList();
 
                         foreach (var main in otherMains)
@@ -575,45 +625,15 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                             main.IsMain = false;
                         }
                     }
+
+                    await db.SaveChangesAsync();
+
+                    var mainText = isMain ? " as your **main character**" : "";
+                    return (success: true, updated: true, message: $"Successfully saved **{charName}** on **{realmName}**{mainText}!\n\nUse `/getchars` to see all your saved characters.");
                 }
+            });
 
-                await _db.SaveChangesAsync();
-
-                var mainText = isMain ? " as your **main character**" : "";
-                await FollowupAsync($"Updated **{charName}** on **{realmName}**{mainText}!", ephemeral: true);
-            }
-            else
-            {
-                // Add new character
-                _db.WowCharAssociation.Add(new WowCharAssociation
-                {
-                    UserId = (long)Context.User.Id,
-                    IsMain = isMain,
-                    CharName = charName,
-                    WowRealm = realmName,
-                    WowRegion = regionName,
-                    Locale = locale
-                });
-
-                // If setting as main, unset other mains
-                if (isMain)
-                {
-                    var otherMains = _db.WowCharAssociation
-                        .Where(a => a.UserId == (long)Context.User.Id && a.IsMain)
-                        .ToList();
-
-                    foreach (var main in otherMains)
-                    {
-                        main.IsMain = false;
-                    }
-                }
-
-                await _db.SaveChangesAsync();
-
-                var mainText = isMain ? " as your **main character**" : "";
-                await FollowupAsync($"Successfully saved **{charName}** on **{realmName}**{mainText}!\n\nUse `/getchars` to see all your saved characters.", ephemeral: true);
-            }
-            
+            await FollowupAsync(result.message, ephemeral: true);
         }
 
 
@@ -622,12 +642,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         {
             var embed = new EmbedBuilder();
             var sb = new StringBuilder();
-            List<WowCharAssociation> savedChars;
-                savedChars = _db.WowCharAssociation
+
+            var savedChars = await WithDbAsync(db =>
+                db.WowCharAssociation
                     .Where(c => c.UserId == (long)Context.User.Id)
                     .OrderByDescending(c => c.IsMain)
                     .ThenBy(c => c.CharName)
-                    .ToList();
+                    .ToListAsync());
+
             if (savedChars.Any())
             {
                 embed.Title = $"Your Saved Characters ({savedChars.Count})";
@@ -790,26 +812,63 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         [SlashCommand("watchlogs", "watch logs for guild")]
         public async Task ToggleLogs()
         {
-            bool enable = false;
             var embed = new EmbedBuilder();
-            List<LogMonitoring> logMonitorList = null;
             StringBuilder sb = new StringBuilder();
-            logMonitorList = _db.LogMonitoring.ToList();
-            if (logMonitorList != null)
+
+            var enable = await WithDbAsync(async db =>
             {
-                var getGuild = logMonitorList.Where(l => l.ServerId == (long)Context.Guild.Id).FirstOrDefault();
-                if (getGuild != null)
+                List<LogMonitoring> logMonitorList = db.LogMonitoring.ToList();
+                bool shouldEnable = false;
+
+                if (logMonitorList != null)
                 {
-                    if (!getGuild.MonitorLogs)
+                    var getGuild = logMonitorList.Where(l => l.ServerId == (long)Context.Guild.Id).FirstOrDefault();
+                    if (getGuild != null)
                     {
-                        enable = true;
+                        if (!getGuild.MonitorLogs)
+                        {
+                            shouldEnable = true;
+                        }
+                    }
+                    else
+                    {
+                        shouldEnable = true;
+                    }
+                }
+
+                var updateGuild = db.LogMonitoring.Where(l => l.ServerId == (long)Context.Guild.Id).FirstOrDefault();
+                if (updateGuild != null)
+                {
+                    updateGuild.ChannelId = (long)Context.Channel.Id;
+                    updateGuild.ChannelName = Context.Channel.Name;
+                    updateGuild.MonitorLogs = shouldEnable;
+
+                    // When enabling, always set LatestLogRetail to now so guild starts in Tier 1 (Active)
+                    // This handles both new guilds and guilds with stale timestamps from previous monitoring
+                    if (shouldEnable)
+                    {
+                        updateGuild.LatestLogRetail = DateTime.UtcNow;
                     }
                 }
                 else
                 {
-                    enable = true;
+                    db.LogMonitoring.Add(new LogMonitoring
+                    {
+                        ServerId = (long)Context.Guild.Id,
+                        ServerName = Context.Guild.Name,
+                        ChannelId = (long)Context.Channel.Id,
+                        ChannelName = Context.Channel.Name,
+                        MonitorLogs = shouldEnable,
+                        LatestLog = DateTime.UtcNow,
+                        // Initialize LatestLogRetail so guild starts in Tier 1 (Active - highest priority)
+                        LatestLogRetail = shouldEnable ? DateTime.UtcNow : null
+                    });
                 }
-            }
+
+                await db.SaveChangesAsync();
+                return shouldEnable;
+            });
+
             if (enable)
             {
                 embed.Title = $"Enabling log watching for {Context.Guild.Name}!";
@@ -821,36 +880,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 embed.Title = $"Disabling log watching for {Context.Guild.Name}!";
                 sb.AppendLine($"Use the command again to enable log watching!");
             }
-            var updateGuild = _db.LogMonitoring.Where(l => l.ServerId == (long)Context.Guild.Id).FirstOrDefault();
-            if (updateGuild != null)
-            {
-                updateGuild.ChannelId = (long)Context.Channel.Id;
-                updateGuild.ChannelName = Context.Channel.Name;
-                updateGuild.MonitorLogs = enable;
 
-                // When enabling, always set LatestLogRetail to now so guild starts in Tier 1 (Active)
-                // This handles both new guilds and guilds with stale timestamps from previous monitoring
-                if (enable)
-                {
-                    updateGuild.LatestLogRetail = DateTime.UtcNow;
-                }
-            }
-            else
-            {
-                _db.LogMonitoring.Add(new LogMonitoring
-                {
-                    ServerId = (long)Context.Guild.Id,
-                    ServerName = Context.Guild.Name,
-                    ChannelId = (long)Context.Channel.Id,
-                    ChannelName = Context.Channel.Name,
-                    MonitorLogs = enable,
-                    LatestLog = DateTime.UtcNow,
-                    // Initialize LatestLogRetail so guild starts in Tier 1 (Active - highest priority)
-                    LatestLogRetail = enable ? DateTime.UtcNow : null
-                });
-            }
-
-            await _db.SaveChangesAsync();
             embed.Description = sb.ToString();
             await RespondAsync(embed: embed.Build(), ephemeral: true);
         }
@@ -860,8 +890,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         {
             try
             {
-                List<WowResources> resourceList = null;
-                resourceList = _db.WowResources.Where(r => r.ResourceDescription == "Discord").ToList();
+                var resourceList = await WithDbAsync(db =>
+                    db.WowResources.Where(r => r.ResourceDescription == "Discord").ToListAsync());
+
                 if (resourceList != null)
                 {
                     var embed = new EmbedBuilder();
@@ -945,7 +976,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             string locale = string.Empty;
             StringBuilder sb = new StringBuilder();
             List<Reports> guildLogs = new List<Reports>();
-            int maxReturn = 2;
+            int maxReturn = 3;
             int arrayCount = 0;
             string discordGuildName = string.Empty;
             var guildInfo = Context.Guild;
@@ -1011,7 +1042,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 if (guildLogs.Count > 0)
                 {
                     sb.AppendLine();
-                    for (int i = 0; i <= (guildLogs.Count - 1) && i <= maxReturn; i++)
+                    for (int i = 0; i < guildLogs.Count && i < maxReturn; i++)
                     {
                         var startTime = guildLogs[arrayCount].start.UnixTimeStampToDateTime();
                         var endTime   =  guildLogs[arrayCount].end.UnixTimeStampToDateTime();
@@ -1132,7 +1163,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 if (guildLogs.Count > 0)
                 {
                     sb.AppendLine();
-                    for (int i = 0; i <= (guildLogs.Count - 1) && i <= maxReturn; i++)
+                    for (int i = 0; i < guildLogs.Count && i < maxReturn; i++)
                     {
                         DateTime startTime = DateTime.UtcNow;
                         DateTime endTime = DateTime.UtcNow;
@@ -1319,13 +1350,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 try
                 {
                     await DeferAsync(ephemeral: true);
-                    await _wowUtils.RefreshGuildRosterAsync(guildObject); 
-                    members = await _db.WowGuildRosterMembers
+
+                    await _wowUtils.RefreshGuildRosterAsync(guildObject);
+                    members = await WithDbAsync(async db => await db.WowGuildRosterMembers
                         .Where(x =>
                             x.GuildName == guildObject.guildName &&
                             x.GuildRealmSlug  == guildObject.realmSlug &&
                             x.Region == guildObject.regionName)
-                        .ToListAsync();                        
+                        .ToListAsync());
 
                 }
                 catch (Exception ex)
@@ -1914,10 +1946,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             }
         }
         
-        [SlashCommand("raidvids", "Get list of current raid videos")]        
+        [SlashCommand("raidvids", "Get list of current raid videos")]
         public async Task GetRaidVids()
         {
-            var vids = new List<WowResources>();
             var embed = new EmbedBuilder();
             var sb = new StringBuilder();
 
@@ -1928,9 +1959,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             embed.ThumbnailUrl = "https://vignette.wikia.nocookie.net/wowwiki/images/1/17/Jainaunit.JPG/revision/latest?cb=20080826081813";
             var fightList = WarcraftLogs.Zones.Where(z => z.id == WarcraftLogs.CurrentRaidTier.WclZoneId)
                 .Select(z => z.encounters)
-                .FirstOrDefault();                
+                .FirstOrDefault();
             embed.Title = $"Raid Videos for {WarcraftLogs.CurrentRaidTier.RaidName}";
-            vids = _db.WowResources.Where(r => r.ResourceDescription == "raidvid").ToList();
+
+            var vids = await WithDbAsync(db =>
+                db.WowResources.Where(r => r.ResourceDescription == "raidvid").ToListAsync());
+
             if (vids != null)
             {
                 foreach (var vid in vids)
@@ -2452,49 +2486,51 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         {
             try
             {
-                // Check if this search already exists
-                var existingSearch = _db.RioSearchHistory
-                    .FirstOrDefault(h =>
-                        h.DiscordUserId == (long)discordUserId &&
-                        h.CharacterName.ToLower() == characterName.ToLower() &&
-                        h.RealmName.ToLower() == realmName.ToLower() &&
-                        h.Region.ToLower() == region.ToLower());
+                await WithDbAsync(async db =>
+                {
+                    // Check if this search already exists
+                    var existingSearch = db.RioSearchHistory
+                        .FirstOrDefault(h =>
+                            h.DiscordUserId == (long)discordUserId &&
+                            h.CharacterName.ToLower() == characterName.ToLower() &&
+                            h.RealmName.ToLower() == realmName.ToLower() &&
+                            h.Region.ToLower() == region.ToLower());
 
-                if (existingSearch != null)
-                {
-                    // Update existing record
-                    existingSearch.LastSearched = DateTime.UtcNow;
-                    existingSearch.SearchCount++;
-                }
-                else
-                {
-                    // Create new record
-                    _db.RioSearchHistory.Add(new RioSearchHistory
+                    if (existingSearch != null)
                     {
-                        DiscordUserId = (long)discordUserId,
-                        CharacterName = characterName,
-                        RealmName = realmName,
-                        Region = region.ToLower(),
-                        LastSearched = DateTime.UtcNow,
-                        SearchCount = 1
-                    });
-                }
+                        // Update existing record
+                        existingSearch.LastSearched = DateTime.UtcNow;
+                        existingSearch.SearchCount++;
+                    }
+                    else
+                    {
+                        // Create new record
+                        db.RioSearchHistory.Add(new RioSearchHistory
+                        {
+                            DiscordUserId = (long)discordUserId,
+                            CharacterName = characterName,
+                            RealmName = realmName,
+                            Region = region.ToLower(),
+                            LastSearched = DateTime.UtcNow,
+                            SearchCount = 1
+                        });
+                    }
 
-                await _db.SaveChangesAsync();
+                    await db.SaveChangesAsync();
 
-                // Cleanup old searches - keep only the 30 most recent per user
-                var userSearches = _db.RioSearchHistory
-                    .Where(h => h.DiscordUserId == (long)discordUserId)
-                    .OrderByDescending(h => h.LastSearched)
-                    .Skip(30)
-                    .ToList();
+                    // Cleanup old searches - keep only the 30 most recent per user
+                    var userSearches = db.RioSearchHistory
+                        .Where(h => h.DiscordUserId == (long)discordUserId)
+                        .OrderByDescending(h => h.LastSearched)
+                        .Skip(30)
+                        .ToList();
 
-                if (userSearches.Any())
-                {
-                    _db.RioSearchHistory.RemoveRange(userSearches);
-                    await _db.SaveChangesAsync();
-                }
-            
+                    if (userSearches.Any())
+                    {
+                        db.RioSearchHistory.RemoveRange(userSearches);
+                        await db.SaveChangesAsync();
+                    }
+                });
             }
             catch (Exception ex)
             {
@@ -2506,16 +2542,17 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         /// <summary>
         /// Build component with recent searches select menu and optional "Save as Main" button
         /// </summary>
-        private ComponentBuilder BuildRioComponents(ulong userId, string charName = null, string realmName = null, string regionName = null)
+        private async Task<ComponentBuilder> BuildRioComponents(ulong userId, string charName = null, string realmName = null, string regionName = null)
         {
             var builder = new ComponentBuilder();
             try
             {
-                var recentSearches = _db.RioSearchHistory
-                    .Where(h => h.DiscordUserId == (long)userId)
-                    .OrderByDescending(h => h.LastSearched)
-                    .Take(10)
-                    .ToList();
+                var recentSearches = await WithDbAsync(db =>
+                    db.RioSearchHistory
+                        .Where(h => h.DiscordUserId == (long)userId)
+                        .OrderByDescending(h => h.LastSearched)
+                        .Take(10)
+                        .ToListAsync());
 
                 if (recentSearches.Any())
                 {
@@ -2703,10 +2740,11 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         $"*Error: {ex.Message}*";
 
                     // Update the message with error
+                    var errorComponents = await BuildRioComponents(Context.User.Id, charName, realmName, regionName);
                     await ModifyOriginalResponseAsync(msg =>
                     {
                         msg.Embed = embed.Build();
-                        msg.Components = BuildRioComponents(Context.User.Id, charName, realmName, regionName).Build();
+                        msg.Components = errorComponents.Build();
                     });
                     return;
                 }
@@ -2718,10 +2756,11 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     embed.Description = $"An error occurred while fetching RaiderIO data for **{charName}**.\n\n" +
                         "Please try again later.";
 
+                    var errorComponents2 = await BuildRioComponents(Context.User.Id, charName, realmName, regionName);
                     await ModifyOriginalResponseAsync(msg =>
                     {
                         msg.Embed = embed.Build();
-                        msg.Components = BuildRioComponents(Context.User.Id, charName, realmName, regionName).Build();
+                        msg.Components = errorComponents2.Build();
                     });
                     return;
                 }
@@ -2883,10 +2922,11 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 await SaveSearchHistoryAsync(Context.User.Id, charName, realmName, regionName);
 
                 // Update the original message with the new character data
+                var components = await BuildRioComponents(Context.User.Id, charName, realmName, regionName);
                 await ModifyOriginalResponseAsync(msg =>
                 {
                     msg.Embed = embed.Build();
-                    msg.Components = BuildRioComponents(Context.User.Id, charName, realmName, regionName).Build();
+                    msg.Components = components.Build();
                 });
             }
             catch (Exception ex)
@@ -2924,40 +2964,45 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 // Normalize realm name for comparison (remove spaces, hyphens, apostrophes, and lowercase)
                 string normalizedRealmName = realmName.Replace(" ", "").Replace("-", "").Replace("'", "").ToLower();
 
-                // Check if character already exists for this user
-                var existingChar = _db.WowCharAssociation
-                    .Where(a => a.UserId == (long)Context.User.Id)
-                    .AsEnumerable() // Switch to client-side evaluation for complex string operations
-                    .Where(a => a.CharName.ToLower() == charName.ToLower() &&
-                                a.WowRealm.Replace(" ", "").Replace("-", "").Replace("'", "").ToLower() == normalizedRealmName)
-                    .FirstOrDefault();
+                var message = await WithDbAsync(async db =>
+                {
+                    // Check if character already exists for this user
+                    var existingChar = db.WowCharAssociation
+                        .Where(a => a.UserId == (long)Context.User.Id)
+                        .AsEnumerable() // Switch to client-side evaluation for complex string operations
+                        .Where(a => a.CharName.ToLower() == charName.ToLower() &&
+                                    a.WowRealm.Replace(" ", "").Replace("-", "").Replace("'", "").ToLower() == normalizedRealmName)
+                        .FirstOrDefault();
 
-                if (existingChar != null)
-                {
-                    // Character already saved
-                    var mainIndicator = existingChar.IsMain ? " (your **main character**)" : "";
-                    await FollowupAsync($"**{charName}** on **{realmName}** is already saved{mainIndicator}!\n\n" +
-                        "Use `/setchar` with `ismain: true` to set it as your main character.", ephemeral: true);
-                }
-                else
-                {
-                    // Add new character (NOT as main)
-                    _db.WowCharAssociation.Add(new WowCharAssociation
+                    if (existingChar != null)
                     {
-                        UserId = (long)Context.User.Id,
-                        IsMain = false,
-                        CharName = charName,
-                        WowRealm = realmName,
-                        WowRegion = regionName,
-                        Locale = locale
-                    });
+                        // Character already saved
+                        var mainIndicator = existingChar.IsMain ? " (your **main character**)" : "";
+                        return $"**{charName}** on **{realmName}** is already saved{mainIndicator}!\n\n" +
+                            "Use `/setchar` with `ismain: true` to set it as your main character.";
+                    }
+                    else
+                    {
+                        // Add new character (NOT as main)
+                        db.WowCharAssociation.Add(new WowCharAssociation
+                        {
+                            UserId = (long)Context.User.Id,
+                            IsMain = false,
+                            CharName = charName,
+                            WowRealm = realmName,
+                            WowRegion = regionName,
+                            Locale = locale
+                        });
 
-                    await _db.SaveChangesAsync();
+                        await db.SaveChangesAsync();
 
-                    await FollowupAsync($"✅ Successfully saved **{charName}** on **{realmName}** ({regionName.ToUpper()})!\n\n" +
-                        "Use `/getchars` to see all your saved characters.\n" +
-                        "Use `/setchar` with `ismain: true` to set it as your main character.", ephemeral: true);
-                }
+                        return $"✅ Successfully saved **{charName}** on **{realmName}** ({regionName.ToUpper()})!\n\n" +
+                            "Use `/getchars` to see all your saved characters.\n" +
+                            "Use `/setchar` with `ismain: true` to set it as your main character.";
+                    }
+                });
+
+                await FollowupAsync(message, ephemeral: true);
             }
             catch (Exception ex)
             {
@@ -2977,9 +3022,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             try
             {
                 var characterId = long.Parse(selections[0]);
-                var character = _db.WowCharAssociation
-                    .Where(a => a.Id == characterId && a.UserId == (long)Context.User.Id)
-                    .FirstOrDefault();
+                var character = await WithDbAsync(db =>
+                    db.WowCharAssociation
+                        .Where(a => a.Id == characterId && a.UserId == (long)Context.User.Id)
+                        .FirstOrDefaultAsync());
 
                 if (character == null)
                 {
@@ -3050,40 +3096,46 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             try
             {
                 var characterId = long.Parse(characterIdStr);
-                var character = _db.WowCharAssociation
-                    .Where(a => a.Id == characterId && a.UserId == (long)Context.User.Id)
-                    .FirstOrDefault();
-
-                if (character == null)
+                var (success, message) = await WithDbAsync(async db =>
                 {
-                    await FollowupAsync("❌ Character not found.", ephemeral: true);
-                    return;
-                }
+                    var character = db.WowCharAssociation
+                        .Where(a => a.Id == characterId && a.UserId == (long)Context.User.Id)
+                        .FirstOrDefault();
 
-                if (character.IsMain)
+                    if (character == null)
+                    {
+                        return (false, "❌ Character not found.");
+                    }
+
+                    if (character.IsMain)
+                    {
+                        return (false, $"**{character.CharName}** is already your main character!");
+                    }
+
+                    // Unset other mains
+                    var otherMains = db.WowCharAssociation
+                        .Where(a => a.UserId == (long)Context.User.Id && a.IsMain)
+                        .ToList();
+
+                    foreach (var main in otherMains)
+                    {
+                        main.IsMain = false;
+                    }
+
+                    // Set this character as main
+                    character.IsMain = true;
+                    await db.SaveChangesAsync();
+
+                    return (true, $"⭐ **{character.CharName}** on **{character.WowRealm}** is now your main character!");
+                });
+
+                await FollowupAsync(message, ephemeral: true);
+
+                if (success)
                 {
-                    await FollowupAsync($"**{character.CharName}** is already your main character!", ephemeral: true);
-                    return;
+                    // Refresh the character list
+                    await RefreshCharacterList();
                 }
-
-                // Unset other mains
-                var otherMains = _db.WowCharAssociation
-                    .Where(a => a.UserId == (long)Context.User.Id && a.IsMain)
-                    .ToList();
-
-                foreach (var main in otherMains)
-                {
-                    main.IsMain = false;
-                }
-
-                // Set this character as main
-                character.IsMain = true;
-                await _db.SaveChangesAsync();
-
-                await FollowupAsync($"⭐ **{character.CharName}** on **{character.WowRealm}** is now your main character!", ephemeral: true);
-
-                // Refresh the character list
-                await RefreshCharacterList();
             }
             catch (Exception ex)
             {
@@ -3103,26 +3155,33 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             try
             {
                 var characterId = long.Parse(characterIdStr);
-                var character = _db.WowCharAssociation
-                    .Where(a => a.Id == characterId && a.UserId == (long)Context.User.Id)
-                    .FirstOrDefault();
-
-                if (character == null)
+                var (success, message) = await WithDbAsync(async db =>
                 {
-                    await FollowupAsync("❌ Character not found.", ephemeral: true);
-                    return;
+                    var character = db.WowCharAssociation
+                        .Where(a => a.Id == characterId && a.UserId == (long)Context.User.Id)
+                        .FirstOrDefault();
+
+                    if (character == null)
+                    {
+                        return (false, "❌ Character not found.");
+                    }
+
+                    var charName = character.CharName;
+                    var realmName = character.WowRealm;
+
+                    db.WowCharAssociation.Remove(character);
+                    await db.SaveChangesAsync();
+
+                    return (true, $"🗑️ Removed **{charName}** from **{realmName}**.");
+                });
+
+                await FollowupAsync(message, ephemeral: true);
+
+                if (success)
+                {
+                    // Refresh the character list
+                    await RefreshCharacterList();
                 }
-
-                var charName = character.CharName;
-                var realmName = character.WowRealm;
-
-                _db.WowCharAssociation.Remove(character);
-                await _db.SaveChangesAsync();
-
-                await FollowupAsync($"🗑️ Removed **{charName}** from **{realmName}**.", ephemeral: true);
-
-                // Refresh the character list
-                await RefreshCharacterList();
             }
             catch (Exception ex)
             {
@@ -3142,9 +3201,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             try
             {
                 var characterId = long.Parse(characterIdStr);
-                var character = _db.WowCharAssociation
-                    .Where(a => a.Id == characterId && a.UserId == (long)Context.User.Id)
-                    .FirstOrDefault();
+                var character = await WithDbAsync(db =>
+                    db.WowCharAssociation
+                        .Where(a => a.Id == characterId && a.UserId == (long)Context.User.Id)
+                        .FirstOrDefaultAsync());
 
                 if (character == null)
                 {
@@ -3348,7 +3408,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 await SaveSearchHistoryAsync(Context.User.Id, charName, realmName, regionName);
 
                 // Add components with cached searches and save button
-                var components = BuildRioComponents(Context.User.Id, charName, realmName, regionName);
+                var components = await BuildRioComponents(Context.User.Id, charName, realmName, regionName);
 
                 await FollowupAsync(embed: embed.Build(), components: components.Build(), ephemeral: true);
             }
@@ -3376,11 +3436,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         {
             try
             {
-                var savedChars = _db.WowCharAssociation
-                    .Where(c => c.UserId == (long)Context.User.Id)
-                    .OrderByDescending(c => c.IsMain)
-                    .ThenBy(c => c.CharName)
-                    .ToList();
+                var savedChars = await WithDbAsync(db =>
+                    db.WowCharAssociation
+                        .Where(c => c.UserId == (long)Context.User.Id)
+                        .OrderByDescending(c => c.IsMain)
+                        .ThenBy(c => c.CharName)
+                        .ToListAsync());
 
                 if (savedChars.Any())
                 {
