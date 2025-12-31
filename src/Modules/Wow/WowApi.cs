@@ -84,15 +84,8 @@ namespace NinjaBotCore.Modules.Wow
                     })
                     .Build();
 
+                // Start background token refresh - GetWowData will be called after first token is acquired
                 InitializeTokenRefresh();
-                if (!string.IsNullOrEmpty(GetCurrentToken()))
-                {
-                    GetWowData();
-                }
-                else
-                {
-                    _logger.LogWarning("Unable to preload WoW data because the API token could not be acquired.");
-                }
             }
             catch (Exception ex)
             {
@@ -240,12 +233,21 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
+        // Synchronous wrappers for initialization code (GetWowData)
+        // These use Task.Run to avoid blocking, which is acceptable for one-time startup operations
         public string GetAPIRequest(string url, string region = "us")
         {
-            var normalizedRegion = region.ToLowerInvariant();
-            var requestUrl = $"https://{normalizedRegion}.api.blizzard.com{url}";
-            _logger.LogInformation("WoW API request to {RequestUrl}", requestUrl);
-            return SendAuthorizedGet(requestUrl);
+            return Task.Run(() => GetAPIRequestAsync(url, region, CancellationToken.None)).GetAwaiter().GetResult();
+        }
+
+        public string GetAPIRequest(string url, bool fullUrl)
+        {
+            return Task.Run(() => GetAPIRequestAsync(url, fullUrl, CancellationToken.None)).GetAwaiter().GetResult();
+        }
+
+        public string GetAPIRequest(string url, string locale, string region = "us")
+        {
+            return Task.Run(() => GetAPIRequestAsync(url, locale, region, CancellationToken.None)).GetAwaiter().GetResult();
         }
 
         public async Task<string> GetAPIRequestAsync(string url, string region = "us", CancellationToken cancellationToken = default)
@@ -256,26 +258,10 @@ namespace NinjaBotCore.Modules.Wow
             return await SendAuthorizedGetAsync(requestUrl, cancellationToken);
         }
 
-        public string GetAPIRequest(string url, bool fullUrl)
-        {
-            _logger.LogInformation("WoW API request to {RequestUrl}", url);
-            return SendAuthorizedGet(url);
-        }
-
         public async Task<string> GetAPIRequestAsync(string url, bool fullUrl, CancellationToken cancellationToken = default)
         {
             _logger.LogInformation("WoW API request to {RequestUrl}", url);
             return await SendAuthorizedGetAsync(url, cancellationToken);
-        }
-
-        public string GetAPIRequest(string url, string locale, string region = "us")
-        {
-            var normalizedRegion = region.ToLowerInvariant();
-            var prefix = $"https://{normalizedRegion}.api.blizzard.com";
-            var localeParameter = url.Contains('=') ? $"&locale={locale}" : $"locale={locale}";
-            var requestUrl = $"{prefix}{url}{localeParameter}";
-            _logger.LogInformation("WoW API request to {RequestUrl}", requestUrl);
-            return SendAuthorizedGet(requestUrl);
         }
 
         public async Task<string> GetAPIRequestAsync(string url, string locale, string region = "us", CancellationToken cancellationToken = default)
@@ -465,19 +451,6 @@ namespace NinjaBotCore.Modules.Wow
             return region;
         }
 
-        private string SendAuthorizedGet(string url)
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            var token = GetCurrentToken();
-            if (string.IsNullOrEmpty(token))
-            {
-                throw new InvalidOperationException("Blizzard API access token has not been initialized.");
-            }
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            return SendRequest(request);
-        }
-
         private async Task<string> SendAuthorizedGetAsync(string url, CancellationToken cancellationToken = default)
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -489,26 +462,6 @@ namespace NinjaBotCore.Modules.Wow
             }
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             return await SendRequestAsync(request, cancellationToken);
-        }
-
-        private string SendRequest(HttpRequestMessage request)
-        {
-            try
-            {
-                using var response = _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult();
-                response.EnsureSuccessStatusCode();
-                return response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-            }
-            catch (HttpRequestException ex)
-            {
-                _logger.LogError(ex, "Error executing WoW API request to {RequestUrl}", request.RequestUri);
-                throw;
-            }
-            catch (TaskCanceledException ex)
-            {
-                _logger.LogError(ex, "WoW API request timed out for {RequestUrl}", request.RequestUri);
-                throw;
-            }
         }
 
         private async Task<string> SendRequestAsync(HttpRequestMessage request, CancellationToken cancellationToken = default)
@@ -832,12 +785,35 @@ namespace NinjaBotCore.Modules.Wow
         private void InitializeTokenRefresh()
         {
             _tokenRefreshCancellation = new CancellationTokenSource();
-            RenewTokenAsync(_tokenRefreshCancellation.Token).GetAwaiter().GetResult();
+            // Start background token refresh loop - first refresh happens immediately in the loop
             _tokenRefreshTask = RunTokenRefreshLoopAsync(_tokenRefreshCancellation.Token);
         }
 
         private async Task RunTokenRefreshLoopAsync(CancellationToken token)
         {
+            // Perform initial token fetch immediately
+            await RenewTokenAsync(token).ConfigureAwait(false);
+
+            // After first successful token fetch, preload WoW data
+            if (!string.IsNullOrEmpty(GetCurrentToken()))
+            {
+                try
+                {
+                    _logger.LogInformation("Token acquired successfully, preloading WoW data...");
+                    GetWowData();
+                    _logger.LogInformation("WoW data preloaded successfully");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to preload WoW data, will be loaded on-demand");
+                }
+            }
+            else
+            {
+                _logger.LogWarning("Unable to preload WoW data because the API token could not be acquired. Data will be loaded on-demand.");
+            }
+
+            // Then continue with periodic refresh
             using var timer = new PeriodicTimer(_tokenRefreshInterval);
             try
             {
@@ -882,5 +858,214 @@ namespace NinjaBotCore.Modules.Wow
                 _logger.LogError(ex, "Failed to refresh WoW API auth token.");
             }
         }
+
+        #region Async Versions for Slash Commands
+
+        /// <summary>
+        /// Async version of GetCharInfo for use in slash commands
+        /// </summary>
+        public async Task<Character> GetCharInfoAsync(string name, string realm, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            string region = GetRegionFromString(regionName);
+            realm = realm.Replace("'", string.Empty).Replace(" ", "-");
+            string url = $"/profile/wow/character/{realm}/{name}";
+
+            string response;
+            if (region != "en_US")
+            {
+                response = await GetAPIRequestAsync(url, region, "eu", cancellationToken);
+            }
+            else
+            {
+                response = await GetAPIRequestAsync(url, regionName, cancellationToken);
+            }
+
+            return JsonConvert.DeserializeObject<Character>(response);
+        }
+
+        /// <summary>
+        /// Async version of GetConnectedRealmInfo for use in slash commands
+        /// </summary>
+        public async Task<WowConnectedRealm> GetConnectedRealmInfoAsync(int realmId, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            string locale = GetRegionFromString(regionName);
+            string url = $"/data/wow/connected-realm/{realmId}?namespace=dynamic-{regionName}";
+            var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
+            return JsonConvert.DeserializeObject<WowConnectedRealm>(response);
+        }
+
+        /// <summary>
+        /// Async version of GetConnectedRealmInfo (href overload) for use in slash commands
+        /// </summary>
+        public async Task<WowConnectedRealm> GetConnectedRealmInfoAsync(string href, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            string localeName = GetRegionFromString(regionName);
+            string url = $"{href}&locale={localeName}";
+            var response = await GetAPIRequestAsync(url, true, cancellationToken);
+            return JsonConvert.DeserializeObject<WowConnectedRealm>(response);
+        }
+
+        /// <summary>
+        /// Async version of GetSingleRealmInfo for use in slash commands
+        /// </summary>
+        public async Task<WowSingleRealmInfo> GetSingleRealmInfoAsync(string realmSlug, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            string locale = GetRegionFromString(regionName);
+            string url = $"/data/wow/realm/{realmSlug}?namespace=dynamic-{regionName}";
+            var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
+            return JsonConvert.DeserializeObject<WowSingleRealmInfo>(response);
+        }
+
+        /// <summary>
+        /// Async version of GetRealmStatus for use in slash commands
+        /// </summary>
+        public async Task<WowRealm> GetRealmStatusAsync(string locale, string region, CancellationToken cancellationToken = default)
+        {
+            string localeName = string.Empty;
+
+            if (locale.Length == 5)
+            {
+                localeName = locale;
+            }
+            else
+            {
+                localeName = GetRegionFromString(locale);
+            }
+
+            string url = $"/data/wow/realm/index?namespace=dynamic-{region}";
+            var response = await GetAPIRequestAsync(url, localeName, region, cancellationToken);
+            return JsonConvert.DeserializeObject<WowRealm>(response);
+        }
+
+        /// <summary>
+        /// Async version of GetGuildMembers for use in slash commands
+        /// </summary>
+        public async Task<GuildMembers> GetGuildMembersAsync(string realm, string guildName, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            string locale = GetRegionFromString(regionName);
+            string url = $"/data/wow/guild/{realm}/{guildName.Replace(" ","-").Replace("%20","-").ToLower()}/roster?namespace=profile-{regionName}";
+
+            string response;
+            if (locale != "en_US")
+            {
+                response = await GetAPIRequestAsync(url, locale, "eu", cancellationToken);
+            }
+            else
+            {
+                url = $"{url}&locale=en_US";
+                response = await GetAPIRequestAsync(url, regionName, cancellationToken);
+            }
+
+            return JsonConvert.DeserializeObject<GuildMembers>(response);
+        }
+
+        /// <summary>
+        /// Async version of GetGuildMembersBySlug for use in slash commands
+        /// </summary>
+        public async Task<GuildMembers> GetGuildMembersBySlugAsync(string slug, string guildName, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            string url = $"/data/wow/guild/{slug}/{guildName.ToLower().Replace(" ","-")}/roster?namespace=profile-{regionName}";
+            url = $"{url}&locale=en_US";
+
+            var response = await GetAPIRequestAsync(url, regionName, cancellationToken);
+            return JsonConvert.DeserializeObject<GuildMembers>(response);
+        }
+
+        /// <summary>
+        /// Async version of GetGuildMembersBySlug (with locale) for use in slash commands
+        /// </summary>
+        public async Task<GuildMembers> GetGuildMembersBySlugAsync(string slug, string guildName, string locale, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            string url = $"/data/wow/guild/{slug}/{guildName.ToLower().Replace(" ","-")}/roster?namespace=profile-{regionName}";
+
+            string response;
+            if (locale != "en_US")
+            {
+                response = await GetAPIRequestAsync(url, locale, "eu", cancellationToken);
+            }
+            else
+            {
+                url = $"{url}&locale=en_US";
+                response = await GetAPIRequestAsync(url, regionName, cancellationToken);
+            }
+
+            return JsonConvert.DeserializeObject<GuildMembers>(response);
+        }
+
+        /// <summary>
+        /// Async version of GetCharFromGuild for use in slash commands
+        /// </summary>
+        public async Task<GuildChar> GetCharFromGuildAsync(string findName, string realmName, string guildName, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            GuildMembers members;
+            string matchedName = string.Empty;
+            GuildChar guildInfo = new GuildChar();
+            Regex myRegex = new Regex($@"{findName.ToLower()}");
+            guildName = guildName.Replace(" ", "%20");
+
+            try
+            {
+                members = await GetGuildMembersAsync(realmName, guildName, regionName, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting guild members for {Guild} on {Realm}", guildName, realmName);
+                return guildInfo;
+            }
+
+            var match = members.members.FirstOrDefault(m => myRegex.IsMatch(m.character.name.ToLower()));
+
+            if (match != null)
+            {
+                matchedName = match.character.name;
+                guildInfo.charName = matchedName;
+                guildInfo.realmName = realmName;
+                guildInfo.regionName = regionName;
+            }
+
+            return guildInfo;
+        }
+
+        /// <summary>
+        /// Async version of SearchArmory for use in slash commands
+        /// </summary>
+        public async Task<List<FoundChar>> SearchArmoryAsync(string searchFor, CancellationToken cancellationToken = default)
+        {
+            string url = $"https://worldofwarcraft.com/en-us/search?q={searchFor}";
+            string url_string;
+            HtmlDocument document = new HtmlDocument();
+
+            using (var httpclient = _client)
+            {
+                url_string = await httpclient.GetStringAsync(url, cancellationToken);
+            }
+
+            document.LoadHtml(url_string);
+            List<FoundChar> chars = new List<FoundChar>();
+
+            var CharDivs = document.DocumentNode.Descendants("div").Where(d => d.Attributes.Contains("class") && d.Attributes["class"].Value.Contains("Character-link"));
+
+            foreach (var div in CharDivs)
+            {
+                var charName = div.Descendants("div").FirstOrDefault(d => d.Attributes.Contains("class") && d.Attributes["class"].Value.Contains("Character-name"));
+                var charLevel = div.Descendants("div").FirstOrDefault(d => d.Attributes.Contains("class") && d.Attributes["class"].Value.Contains("Character-level"));
+                var charRealm = div.Descendants("span").FirstOrDefault(d => d.Attributes.Contains("class") && d.Attributes["class"].Value.Contains("Character-realm"));
+
+                if (charName != null && charRealm != null)
+                {
+                    FoundChar foundChar = new FoundChar
+                    {
+                        charName = charName.InnerText,
+                        realmName = charRealm.InnerText,
+                        level = charLevel?.InnerText ?? "?"
+                    };
+                    chars.Add(foundChar);
+                }
+            }
+
+            return chars;
+        }
+
+        #endregion
     }
 }

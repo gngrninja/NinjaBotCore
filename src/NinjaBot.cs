@@ -92,6 +92,7 @@ namespace NinjaBotCore
                 .AddSingleton<ModerationWatcherService>()
                 .AddSingleton<CommandHandler>()
                 .AddSingleton(x => new InteractionService(x.GetRequiredService<DiscordShardedClient>()))
+                .AddSingleton<Services.ErrorHandling.GlobalExceptionHandler>()
                 .AddSingleton<InteractionHandler>()
                 .AddSingleton<StartupService>()
                 .AddSingleton<SteamApi>()         

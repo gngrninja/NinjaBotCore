@@ -159,7 +159,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
                 if (!string.IsNullOrEmpty(guildObject.guildName))
                 {
-                    var guildie = _wowApi.GetCharFromGuild(
+                    var guildie = await _wowApi.GetCharFromGuildAsync(
                         charName,
                         guildObject.realmName,
                         guildObject.guildName,
@@ -175,7 +175,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 // Still no realm? Try API search
                 if (string.IsNullOrEmpty(realmName))
                 {
-                    var chars = _wowApi.SearchArmory(charName);
+                    var chars = await _wowApi.SearchArmoryAsync(charName);
                     if (chars != null && chars.Count > 0)
                     {
                         realmName = chars[0].realmName;
@@ -930,11 +930,11 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 Character charAchievements = null;
                 if (!string.IsNullOrEmpty(charInfo.regionName))
                 {
-                    charAchievements = _wowApi.GetCharInfo(charInfo.charName, charInfo.realmName, charInfo.regionName);
+                    charAchievements = await _wowApi.GetCharInfoAsync(charInfo.charName, charInfo.realmName, charInfo.regionName);
                 }
                 else
                 {
-                    charAchievements = _wowApi.GetCharInfo(charInfo.charName, charInfo.realmName);
+                    charAchievements = await _wowApi.GetCharInfoAsync(charInfo.charName, charInfo.realmName);
                 }
                 if (charAchievements != null)
                 {
@@ -1259,7 +1259,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 try
                 {
                     // RealmAutocomplete returns realm slug, so use GetGuildMembersBySlug
-                    members = _wowApi.GetGuildMembersBySlug(realmName, guildName, locale: locale, regionName: regionName);
+                    members = await _wowApi.GetGuildMembersBySlugAsync(realmName, guildName, locale: locale, regionName: regionName);
                 }
                 catch (Exception ex)
                 {
@@ -1468,7 +1468,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             }
             try
             {
-                var guildMembers = _wowApi.GetGuildMembers(realmName, guildName, regionName);
+                var guildMembers = await _wowApi.GetGuildMembersAsync(realmName, guildName, regionName);
                 int memberCount = 0;
                 if (guildMembers != null)
                 {
@@ -2009,10 +2009,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             {
                 findMe = guildInfo.realmName;
             }            
-            var getRealmList = _wowApi.GetRealmStatus(region);                                                       
+            var getRealmList = await _wowApi.GetRealmStatusAsync(region, region);
             var foundRealm = getRealmList.realms.Where(r => r.slug.ToLower().Contains(findMe.ToLower())).FirstOrDefault();
-            var connectedUrlFinder = _wowApi.GetSingleRealmInfo(foundRealm.slug);
-            var realmResult = _wowApi.GetConnectedRealmInfo(connectedUrlFinder.ConnectedRealm.Href.ToString());
+            var connectedUrlFinder = await _wowApi.GetSingleRealmInfoAsync(foundRealm.slug);
+            var realmResult = await _wowApi.GetConnectedRealmInfoAsync(connectedUrlFinder.ConnectedRealm.Href.ToString());
             if (foundRealm != null)
             {
                 embed.Title = $"Realm Information for {foundRealm.name}!";
@@ -2052,7 +2052,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 {
                     u.Channel = to;
                 });
-                Thread.Sleep(750);
+                await Task.Delay(750);
             }
             var message = $"Yoinked [{numUsers}] users from [{from.Name}] to [{to.Name}]!";
             await RespondAsync(message);
@@ -2298,12 +2298,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 {
                     try
                     {
-                        // Use Task.Run with timeout to prevent blocking
-                        var guildTask = Task.Run(() => _wowApi.GetCharFromGuild(
+                        // Use async method with timeout to prevent blocking
+                        var guildTask = _wowApi.GetCharFromGuildAsync(
                             char2Name,
                             guildObject.realmName,
                             guildObject.guildName,
-                            guildObject.regionName));
+                            guildObject.regionName);
 
                         if (await Task.WhenAny(guildTask, Task.Delay(5000)) == guildTask)
                         {
@@ -2330,7 +2330,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 // Fallback to API search
                 if (string.IsNullOrEmpty(char2Realm))
                 {
-                    var chars = _wowApi.SearchArmory(char2Name);
+                    var chars = await _wowApi.SearchArmoryAsync(char2Name);
                     if (chars != null && chars.Count > 0)
                     {
                         char2Realm = chars[0].realmName;

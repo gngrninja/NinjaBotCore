@@ -165,27 +165,5 @@ namespace NinjaBotCore.Modules.Wow
             var response = await GetApiRequestAsync(url, cancellationToken);
             return JsonConvert.DeserializeObject<RaiderIOModels.RioMythicPlusChar>(response);
         }
-
-        #region Synchronous Wrappers (for backward compatibility - consider removing)
-
-        [Obsolete("Use GetCurrentAffixAsync instead. Synchronous methods will be removed in a future version.")]
-        public RaiderIOModels.Affix GetCurrentAffix(string region = "us", string locale = "en")
-        {
-            return GetCurrentAffixAsync(region, locale).GetAwaiter().GetResult();
-        }
-
-        [Obsolete("Use GetRioGuildInfoAsync instead. Synchronous methods will be removed in a future version.")]
-        public RaiderIOModels.RioGuildInfo GetRioGuildInfo(string guildName, string realmName, string region)
-        {
-            return GetRioGuildInfoAsync(guildName, realmName, region).GetAwaiter().GetResult();
-        }
-
-        [Obsolete("Use GetCharMythicPlusInfoAsync instead. Synchronous methods will be removed in a future version.")]
-        public RaiderIOModels.RioMythicPlusChar GetCharMythicPlusInfo(string charName, string realmName, string region = "us")
-        {
-            return GetCharMythicPlusInfoAsync(charName, realmName, region).GetAwaiter().GetResult();
-        }
-
-        #endregion
     }
 }

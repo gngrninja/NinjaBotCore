@@ -582,15 +582,15 @@ namespace NinjaBotCore.Modules.Wow
             return date;
         }
 
-        public async Task WarcraftLogsTimer(Action action, CancellationToken token)
+        public async Task WarcraftLogsTimer(Func<Task> action, CancellationToken token)
         {
             try
             {
                 while (!token.IsCancellationRequested)
                 {
-                    action();
-                    // Check every 10 minutes - tier logic will determine which guilds to actually check
-                    await Task.Delay(TimeSpan.FromMinutes(10), token);
+                    await action();
+                    // Check every 15 minutes - matches Tier 1 (fastest) check interval
+                    await Task.Delay(TimeSpan.FromMinutes(15), token);
                 }
             }
             catch (TaskCanceledException)
@@ -616,8 +616,7 @@ namespace NinjaBotCore.Modules.Wow
             }
 
             TokenSource = new CancellationTokenSource();
-            var timerAction = new Action(CheckForNewLogs);
-            await WarcraftLogsTimer(timerAction, TokenSource.Token);
+            await WarcraftLogsTimer(CheckForNewLogs, TokenSource.Token);
         }
 
         public async Task StopTimer()
@@ -625,26 +624,24 @@ namespace NinjaBotCore.Modules.Wow
             TokenSource.Cancel();
         }
 
-        async void CheckForNewLogs()
+        async Task CheckForNewLogs()
         {
-            var _ = Task.Run(async () =>
+            try
             {
+                System.Console.WriteLine("Checking for logs...");
+                List<WowGuildAssociations> guildList = null;
+                List<LogMonitoring> logWatchList = null;
+                List<WowClassicGuild> cGuildList = null;
+                List<WowVanillaGuild> vGuildList = null;
                 try
                 {
-                    System.Console.WriteLine("Checking for logs...");
-                    List<WowGuildAssociations> guildList = null;
-                    List<LogMonitoring> logWatchList = null;
-                    List<WowClassicGuild> cGuildList = null;
-                    List<WowVanillaGuild> vGuildList = null;
-                    try
-                    {
-                        using var scope = _scopeFactory.CreateScope();
-                        var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+                    using var scope = _scopeFactory.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
 
-                        guildList = db.WowGuildAssociations.ToList();
-                        logWatchList = db.LogMonitoring.ToList();
-                        cGuildList = db.WowClassicGuild.ToList();
-                        vGuildList = db.WowVanillaGuild.ToList();
+                    guildList = db.WowGuildAssociations.ToList();
+                    logWatchList = db.LogMonitoring.ToList();
+                    cGuildList = db.WowClassicGuild.ToList();
+                    vGuildList = db.WowVanillaGuild.ToList();
 
                         // Auto-initialize LatestLogRetail for existing guilds with monitoring enabled
                         // This ensures guilds aren't stuck in Tier 3 due to null LatestLogRetail
@@ -724,14 +721,11 @@ namespace NinjaBotCore.Modules.Wow
                         _logger.LogInformation("Finished WCL Auto Posting...");
                     }
                 }
-                finally
+                catch (Exception ex)
                 {
-                    System.Console.WriteLine("done checking for logs");
-                    await this.StopTimer();
-                    Thread.Sleep(TimeSpan.FromSeconds(130));
-                    await this.StartTimer();
+                    _logger.LogError(ex, "Error in CheckForNewLogs");
+                    // Timer will continue on next iteration - no need to restart
                 }
-            });                       
         }
 
         private async Task PerformLogCheck(List<LogMonitoring> logWatchList, WowGuildAssociations guild)

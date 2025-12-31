@@ -4,6 +4,7 @@ using Discord.WebSocket;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using NinjaBotCore.Services.ErrorHandling;
 using System;
 using System.Reflection;
 using System.Threading.Tasks;
@@ -17,23 +18,28 @@ namespace NinjaBotCore.Services
         private readonly IServiceProvider _services;
         private readonly IConfigurationRoot _configuration;
         private readonly ILogger _logger;
-        
-        public InteractionHandler(DiscordShardedClient client, InteractionService handler, IServiceProvider services, IConfigurationRoot config)
+        private readonly GlobalExceptionHandler _exceptionHandler;
+
+        public InteractionHandler(DiscordShardedClient client, InteractionService handler, IServiceProvider services, IConfigurationRoot config, GlobalExceptionHandler exceptionHandler)
         {
             _client = client;
             _handler = handler;
             _services = services;
             _configuration = config;
             _logger = services.GetRequiredService<ILogger<InteractionHandler>>();
+            _exceptionHandler = exceptionHandler;
         }
 
         public async Task InitializeAsync()
         {
             // Process when the client is ready, so we can register our commands.
-            _client.ShardReady += ReadyAsync;            
+            _client.ShardReady += ReadyAsync;
 
             // Add the public modules that inherit InteractionModuleBase<T> to the InteractionService
             await _handler.AddModulesAsync(Assembly.GetEntryAssembly(), _services);
+
+            // Hook up global error handling for command execution
+            _handler.InteractionExecuted += HandleInteractionExecutedAsync;
 
             // Process the InteractionCreated payloads to execute Interactions commands
             _client.InteractionCreated += HandleInteraction;
@@ -57,32 +63,68 @@ namespace NinjaBotCore.Services
         private async Task HandleInteraction(SocketInteraction interaction)
         {
             try
-            {                
+            {
                 // Create an execution context that matches the generic type parameter of your InteractionModuleBase<T> modules.
-                var context = new ShardedInteractionContext(
-                    _client, interaction);
+                var context = new ShardedInteractionContext(_client, interaction);
 
                 // Execute the incoming command.
-                var result = await _handler.ExecuteCommandAsync(context, _services);
+                await _handler.ExecuteCommandAsync(context, _services);
 
-                if (!result.IsSuccess)
-                    switch (result.Error)
-                    {
-                        case InteractionCommandError.UnmetPrecondition:
-                            // implement
-                            break;
-                        default:
-                            break;
-                    }
+                // Note: Error handling is now done in HandleInteractionExecutedAsync
             }
-            catch
+            catch (Exception ex)
             {
-                // If Slash Command execution fails it is most likely that the original interaction acknowledgement will persist. It is a good idea to delete the original
-                // response, or at least let the user know that something went wrong during the command execution.
-                if (interaction.Type is InteractionType.ApplicationCommand)
+                // Log unexpected errors that occur before command execution
+                _logger.LogError(ex, "Unexpected error in HandleInteraction before command execution");
+
+                // Try to respond with an error message
+                try
                 {
-                    await interaction.GetOriginalResponseAsync().ContinueWith(async (msg) => await msg.Result.DeleteAsync());
-                }                    
+                    if (interaction.Type is InteractionType.ApplicationCommand)
+                    {
+                        if (!interaction.HasResponded)
+                        {
+                            await interaction.RespondAsync(
+                                "❌ An unexpected error occurred. Please try again later.",
+                                ephemeral: true);
+                        }
+                        else
+                        {
+                            await interaction.FollowupAsync(
+                                "❌ An unexpected error occurred. Please try again later.",
+                                ephemeral: true);
+                        }
+                    }
+                }
+                catch (Exception responseEx)
+                {
+                    _logger.LogError(responseEx, "Failed to send error response");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Handles the result of command execution, including errors and exceptions
+        /// </summary>
+        private async Task HandleInteractionExecutedAsync(
+            ICommandInfo commandInfo,
+            IInteractionContext context,
+            IResult result)
+        {
+            // Handle command execution exceptions
+            if (result.Error == InteractionCommandError.Exception && result is ExecuteResult executeResult)
+            {
+                await _exceptionHandler.HandleInteractionExceptionAsync(
+                    context,
+                    result,
+                    executeResult.Exception);
+                return;
+            }
+
+            // Handle other command failures (permissions, validation, etc.)
+            if (!result.IsSuccess)
+            {
+                await _exceptionHandler.HandleCommandResultAsync(context, result);
             }
         }
     }
