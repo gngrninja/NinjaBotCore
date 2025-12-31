@@ -64,6 +64,20 @@ namespace NinjaBotCore.Services
         {
             try
             {
+                // Skip modal interactions that are handled by event-based handlers (UserInteraction.HandleModal)
+                // These modals use custom IDs like "joining_message", "parting_message", "discord_server_note"
+                // and are processed via the ModalSubmitted event
+                if (interaction is SocketModal modal)
+                {
+                    var customId = modal.Data.CustomId;
+                    if (customId == "joining_message" || customId == "parting_message" || customId == "discord_server_note")
+                    {
+                        // This modal is handled by the ModalSubmitted event handler in UserInteraction
+                        // Don't process it here to avoid "Cannot respond twice" error
+                        return;
+                    }
+                }
+
                 // Create an execution context that matches the generic type parameter of your InteractionModuleBase<T> modules.
                 var context = new ShardedInteractionContext(_client, interaction);
 

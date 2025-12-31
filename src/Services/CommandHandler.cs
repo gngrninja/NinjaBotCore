@@ -8,6 +8,7 @@ using System;
 using System.Linq;
 using System.Collections.Generic;
 using NinjaBotCore.Database;
+using NinjaBotCore.Repositories;
 using Discord;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -21,6 +22,8 @@ namespace NinjaBotCore.Services
         private readonly IConfigurationRoot _config;
         private readonly ILogger _logger;
         private readonly IServiceProvider _services;
+        private readonly IRepository<Blacklist> _blacklistRepo;
+        private readonly IRepository<PrefixList> _prefixRepo;
 
         public CommandHandler(IServiceProvider services)
         {
@@ -28,8 +31,10 @@ namespace NinjaBotCore.Services
             _config = services.GetRequiredService<IConfigurationRoot>();
             _client = services.GetRequiredService<DiscordShardedClient>();
             _commands = services.GetRequiredService<CommandService>();
-            _client.MessageReceived += HandleCommand;            
+            _client.MessageReceived += HandleCommand;
             _logger = services.GetRequiredService<ILogger<CommandHandler>>();
+            _blacklistRepo = services.GetRequiredService<IRepository<Blacklist>>();
+            _prefixRepo = services.GetRequiredService<IRepository<PrefixList>>();
         }
 
         public async Task HandleCommand(SocketMessage parameterMessage)
@@ -52,7 +57,7 @@ namespace NinjaBotCore.Services
 
             char prefix = Char.Parse(_config["prefix"]);
 
-            var serverPrefix = GetPrefix((long)context.Guild.Id); 
+            var serverPrefix = await GetPrefixAsync((long)context.Guild.Id);
 
             if (serverPrefix != null)
             {
@@ -63,12 +68,7 @@ namespace NinjaBotCore.Services
             if (!(message.HasMentionPrefix(_client.CurrentUser, ref argPos) || message.HasCharPrefix(prefix, ref argPos))) return;
            
             //Check blacklist
-            List<Blacklist> blacklist = new List<Blacklist>();
-
-            using (var db = new NinjaBotEntities())
-            {
-                blacklist = db.Blacklist.ToList();
-            }
+            var blacklist = await _blacklistRepo.GetAllAsync();
             if (blacklist != null)
             {
                 var matched = blacklist.Where(b => b.DiscordUserId == (long)context.User.Id).FirstOrDefault();
@@ -92,16 +92,9 @@ namespace NinjaBotCore.Services
             }
         }
 
-        private PrefixList GetPrefix(long serverId)
+        private async Task<PrefixList> GetPrefixAsync(long serverId)
         {
-            PrefixList prefix = null;
-
-            using (var db = new NinjaBotEntities())
-            {
-                prefix = db.PrefixList.Where(p => p.ServerId == serverId).FirstOrDefault();
-            }
-
-            return prefix;
+            return await _prefixRepo.FirstOrDefaultAsync(p => p.ServerId == serverId);
         }
 
         private async Task LogCommandUsage(SocketCommandContext context, IResult result)

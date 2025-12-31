@@ -10,17 +10,19 @@ using NinjaBotCore.Services;
 using Microsoft.Extensions.Logging;
 using NinjaBotCore.Modules.Away;
 using Discord.Interactions;
+using Microsoft.Extensions.DependencyInjection;
+using NinjaBotCore.Repositories;
 
 namespace NinjaBotCore.Modules.Interactions.Away
 {
-    public class AwayCommands : InteractionModuleBase<ShardedInteractionContext>
+    public class AwayCommands : NinjaBotBaseModule
     {
         private static bool _isLinked = false;
-        private static ChannelCheck _cc = null;
         private static DiscordShardedClient _client;
         private readonly ILogger _logger;
-        //Work on way to do this when bot starts
-        public AwayCommands(DiscordShardedClient client, ILogger<AwayCommands> logger)
+
+        public AwayCommands(IServiceScopeFactory scopeFactory, DiscordShardedClient client, ILogger<AwayCommands> logger)
+            : base(scopeFactory)
         {
             _logger = logger;
             if (!_isLinked)
@@ -29,69 +31,50 @@ namespace NinjaBotCore.Modules.Interactions.Away
                 _logger.LogInformation("Hooked into MessageReceived for Away module.");
             }
             _isLinked = true;
-            if (_cc == null)
-            {
-                _cc = new ChannelCheck();
-            }
             if (_client == null)
             {
                 _client = client;
             }
         }
 
-        [SlashCommand("away", "set yourself as away, replying to @mentions of you")]        
+        [SlashCommand("away", "set yourself as away, replying to @mentions of you")]
         public async Task SetAway(string input)
         {
             try
             {
                 StringBuilder sb = new StringBuilder();
-                var message = input;
+                var message = string.IsNullOrEmpty(input) ? "No message set!" : input;
                 var user = Context.User;
-                string userName = string.Empty;
-                string userMentionName = string.Empty;
-                if (user != null)
-                {
-                    userName = user.Username;
-                    userMentionName = user.Mention;
-                }
-                var data = new AwayData();
-                var away = new AwaySystem();
-                var attempt = data.getAwayUser(userName);
+                string userName = user.Username;
+                string userMentionName = user.Mention;
 
-                if (string.IsNullOrEmpty(message.ToString()))
-                {
-                    message = "No message set!";
-                }
-                if (attempt != null)
-                {
-                    away.UserName = attempt.UserName;
-                    away.Status = attempt.Status;
-                    if ((bool)away.Status)
-                    {
-                        sb.AppendLine($"You're already away, **{userMentionName}**!");
-                    }
-                    else
-                    {
-                        sb.AppendLine($"Marking you as away, **{userMentionName}**, with the message: *{message.ToString()}*");
-                        away.Status = true;
-                        away.Message = message;
-                        away.UserName = userName;
-                        away.TimeAway = DateTime.UtcNow;
+                var awayRepo = GetRepository<AwaySystem>();
+                var existing = await awayRepo.FirstOrDefaultAsync(a => a.UserName == userName);
 
-                        var awayData = new AwayData();
-                        awayData.setAwayUser(away);
-                    }
+                if (existing != null && existing.Status == true)
+                {
+                    sb.AppendLine($"You're already away, **{userMentionName}**!");
                 }
                 else
                 {
-                    sb.AppendLine($"Marking you as away, **{userMentionName}**, with the message: *{message.ToString()}*");
-                    away.Status = true;
-                    away.Message = message;
-                    away.UserName = userName;
-                    away.TimeAway = DateTime.UtcNow;
+                    sb.AppendLine($"Marking you as away, **{userMentionName}**, with the message: *{message}*");
 
-                    var awayData = new AwayData();
-                    awayData.setAwayUser(away);
+                    await awayRepo.UpsertAsync(
+                        findPredicate: a => a.UserName == userName,
+                        updateAction: away =>
+                        {
+                            away.Status = true;
+                            away.Message = message;
+                            away.TimeAway = DateTime.UtcNow;
+                        },
+                        createFactory: () => new AwaySystem
+                        {
+                            UserName = userName,
+                            Status = true,
+                            Message = message,
+                            TimeAway = DateTime.UtcNow
+                        });
+                    await awayRepo.SaveChangesAsync();
                 }
                 await RespondAsync(sb.ToString(), ephemeral: true);
             }
@@ -104,68 +87,61 @@ namespace NinjaBotCore.Modules.Interactions.Away
             }
         }
 
-        [SlashCommand("back", "set yourself as back from being away")]        
+        [SlashCommand("back", "set yourself as back from being away")]
         public async Task SetBack(bool forced = false, IGuildUser forceUser = null)
         {
             try
             {
-                IGuildUser user = null;
+                var user = forced ? forceUser : Context.User as IGuildUser;
                 StringBuilder sb = new StringBuilder();
-                var data = new AwayData();
-                if (forced)
+                string userName = user.Username;
+                string userMentionName = user.Mention;
+
+                var awayRepo = GetRepository<AwaySystem>();
+                var existing = await awayRepo.FirstOrDefaultAsync(a => a.UserName == userName);
+
+                if (existing == null || existing.Status != true)
                 {
-                    user = forceUser;
+                    sb.AppendLine($"You're not even away yet, **{userMentionName}**");
                 }
                 else
                 {
-                    user = Context.User as IGuildUser;
-                }                
-
-                string userName = string.Empty;
-                string userMentionName = string.Empty;
-                if (user != null)
-                {
-                    userName = user.Username;
-                    userMentionName = user.Mention;
-                }
-                var attempt = data.getAwayUser(userName);
-                var away = new AwaySystem();
-
-                if (attempt != null)
-                {
-                    away.UserName = attempt.UserName;
-                    away.Status = attempt.Status;
-                    if (!(bool)away.Status)
+                    string awayDuration = string.Empty;
+                    if (existing.TimeAway.HasValue)
                     {
-                        sb.AppendLine($"You're not even away yet, **{userMentionName}**");
+                        var awayTime = DateTime.UtcNow - existing.TimeAway;
+                        if (awayTime.HasValue)
+                        {
+                            awayDuration = $"**{awayTime.Value.Days}** days, **{awayTime.Value.Hours}** hours, **{awayTime.Value.Minutes}** minutes, and **{awayTime.Value.Seconds}** seconds";
+                        }
+                    }
+
+                    await awayRepo.UpsertAsync(
+                        findPredicate: a => a.UserName == userName,
+                        updateAction: away =>
+                        {
+                            away.Status = false;
+                            away.Message = string.Empty;
+                        },
+                        createFactory: () => new AwaySystem
+                        {
+                            UserName = userName,
+                            Status = false,
+                            Message = string.Empty
+                        });
+                    await awayRepo.SaveChangesAsync();
+
+                    if (forced)
+                    {
+                        sb.AppendLine($"You're now set as back **{userMentionName}** (forced by: **{Context.User.Username}**)!");
                     }
                     else
                     {
-                        away.Status = false;
-                        away.Message = string.Empty;
-                        var awayData = new AwayData();
-                        awayData.setAwayUser(away);
-                        string awayDuration = string.Empty;
-                        if (attempt.TimeAway.HasValue)
-                        {
-                            var awayTime = DateTime.UtcNow - attempt.TimeAway;
-                            if (awayTime.HasValue)
-                            {
-                                awayDuration = $"**{awayTime.Value.Days}** days, **{awayTime.Value.Hours}** hours, **{awayTime.Value.Minutes}** minutes, and **{awayTime.Value.Seconds}** seconds";
-                            }
-                        }
-                        if (forced)
-                        {
-                            sb.AppendLine($"You're now set as back **{userMentionName}** (forced by: **{Context.User.Username}**)!");
-                        }
-                        else
-                        {
-                            sb.AppendLine($"You're now set as back, **{userMentionName}**!");
-                        }                        
-                        sb.AppendLine($"You were away for: [{awayDuration}]");
+                        sb.AppendLine($"You're now set as back, **{userMentionName}**!");
                     }
-                    await RespondAsync(sb.ToString(), ephemeral: true);
+                    sb.AppendLine($"You were away for: [{awayDuration}]");
                 }
+                await RespondAsync(sb.ToString(), ephemeral: true);
             }
             catch (Exception ex)
             {
@@ -195,9 +171,10 @@ namespace NinjaBotCore.Modules.Interactions.Away
                     {
                         foreach (var user in userMentioned)
                         {
-                            var awayData = new AwayData();
-                            var awayUser = awayData.getAwayUser(user.Username);
-                            if (awayUser != null)
+                            var awayRepo = GetRepository<AwaySystem>();
+                            var awayUser = await awayRepo.FirstOrDefaultAsync(a => a.UserName == user.Username);
+
+                            if (awayUser != null && awayUser.Status == true)
                             {
                                 string awayDuration = string.Empty;
                                 if (awayUser.TimeAway.HasValue)
@@ -208,25 +185,21 @@ namespace NinjaBotCore.Modules.Interactions.Away
                                         awayDuration = $"**{awayTime.Value.Days}** days, **{awayTime.Value.Hours}** hours, **{awayTime.Value.Minutes}** minutes, and **{awayTime.Value.Seconds}** seconds";
                                     }
                                 }
+
                                 _logger.LogInformation($"Mentioned user {user.Username} -> {awayUser.UserName} -> {awayUser.Status}");
-                                if ((bool)awayUser.Status)
+
+                                SocketGuild guild = (message.Channel as SocketGuildChannel)?.Guild;
+                                EmbedBuilder embed = new EmbedBuilder();
+                                embed.WithColor(new Color(0, 71, 171));
+
+                                if (!string.IsNullOrWhiteSpace(guild?.IconUrl))
                                 {
-                                    if (user.Username == (awayUser.UserName))
-                                    {
-                                        SocketGuild guild = (message.Channel as SocketGuildChannel)?.Guild;
-                                        EmbedBuilder embed = new EmbedBuilder();
-                                        embed.WithColor(new Color(0, 71, 171));
-
-                                        if (!string.IsNullOrWhiteSpace(guild.IconUrl))
-                                        {
-                                            embed.ThumbnailUrl = user.GetAvatarUrl();
-                                        }
-
-                                        embed.Title = $":clock: {awayUser.UserName} is away! :clock:";
-                                        embed.Description = $"Since: **{awayUser.TimeAway}\n**Duration: {awayDuration}\nMessage: {awayUser.Message}";
-                                        await messageDetails.Channel.SendMessageAsync("", false, embed.Build());
-                                    }
+                                    embed.ThumbnailUrl = user.GetAvatarUrl();
                                 }
+
+                                embed.Title = $":clock: {awayUser.UserName} is away! :clock:";
+                                embed.Description = $"Since: **{awayUser.TimeAway}\n**Duration: {awayDuration}\nMessage: {awayUser.Message}";
+                                await messageDetails.Channel.SendMessageAsync("", false, embed.Build());
                             }
                         }
                     }

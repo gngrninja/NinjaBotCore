@@ -29,7 +29,6 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         // Dependencies can be accessed through Property injection, public properties with public setters will be set by the service provider
         public InteractionService Commands { get; set; }
         private InteractionHandler _handler;
-        private ChannelCheck _cc;
         private WarcraftLogs _logsApi;
         private WarcraftLogsV2Client _logsApiV2;
         private WowApi _wowApi;
@@ -44,7 +43,6 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         {
             _handler = services.GetRequiredService<InteractionHandler>();
             _logger = services.GetRequiredService<ILogger<WowInteract>>();
-            _cc = services.GetRequiredService<ChannelCheck>();
             _logsApi = services.GetRequiredService<WarcraftLogs>();
             _logsApiV2 = services.GetRequiredService<WarcraftLogsV2Client>();
             _wowApi = services.GetRequiredService<WowApi>();

@@ -26,14 +26,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
     {
         private readonly ILogger<WowVanillaInteract> _logger;
         private readonly List<String> _wclRegions = new List<String>{"US", "EU", "KR", "TW", "CN"};
-        private readonly ChannelCheck _cc;
         private WarcraftLogs _wclLogsApi;
 
         public WowVanillaInteract(IServiceProvider services)
             : base(services.GetRequiredService<IServiceScopeFactory>())
         {
             _logger = services.GetRequiredService<ILogger<WowVanillaInteract>>();
-            _cc = services.GetRequiredService<ChannelCheck>();
             _wclLogsApi = services.GetRequiredService<WarcraftLogs>();
         }
 

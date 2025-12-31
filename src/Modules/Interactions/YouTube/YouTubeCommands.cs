@@ -18,15 +18,10 @@ namespace NinjaBotCore.Modules.Interactions.YouTube
 {
     public class YouTubeCommands : InteractionModuleBase<ShardedInteractionContext>
     {
-        private static ChannelCheck _cc = null;
         private static YouTubeApi _youTubeApi = null;
 
-        public YouTubeCommands(ChannelCheck cc, YouTubeApi youTubeApi)
+        public YouTubeCommands(YouTubeApi youTubeApi)
         {
-            if (_cc == null)
-            {
-                _cc = cc;
-            }
             if (_youTubeApi == null)
             {
                 _youTubeApi = youTubeApi;

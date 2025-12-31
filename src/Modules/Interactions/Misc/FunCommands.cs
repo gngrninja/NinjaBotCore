@@ -19,7 +19,7 @@ namespace NinjaBotCore.Modules.Interactions.Fun
         private DiscordShardedClient _client;
         private readonly IConfigurationRoot _config;
 
-        public FunCommands(DiscordShardedClient client, ChannelCheck cc, IConfigurationRoot config, IServiceScopeFactory scopeFactory)
+        public FunCommands(DiscordShardedClient client, IConfigurationRoot config, IServiceScopeFactory scopeFactory)
             : base(scopeFactory)
         {
             try

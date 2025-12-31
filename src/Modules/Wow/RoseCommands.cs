@@ -19,17 +19,15 @@ namespace NinjaBotCore.Modules.Wow
 {
     public class RoseCommands : ModuleBase
     {
-        private ChannelCheck _cc;        
         private readonly IConfigurationRoot _config;
         private string _prefix;
-        private readonly ILogger _logger;        
+        private readonly ILogger _logger;
 
         public RoseCommands(IServiceProvider services)
         {
             _logger   = services.GetRequiredService<ILogger<RoseCommands>>();
-            _cc       = services.GetRequiredService<ChannelCheck>();                                                
             _config   = services.GetRequiredService<IConfigurationRoot>();
-            _prefix   = _config["prefix"];            
+            _prefix   = _config["prefix"];
         }
 
         [Command("chhelp")]
@@ -70,7 +68,7 @@ namespace NinjaBotCore.Modules.Wow
             embed.Description = sb.ToString();
             embed.WithColor(0, 255, 100);
 
-            await _cc.Reply(Context, embed);
+            await Context.Channel.SendMessageAsync("", false, embed.Build());
         }
 
         [Command("setch")]
@@ -154,7 +152,7 @@ namespace NinjaBotCore.Modules.Wow
             {
                 sb.AppendLine("You must at least specify a character name!");
             }      
-            await _cc.Reply(Context, sb.ToString());
+            await Context.Channel.SendMessageAsync(sb.ToString());
         }
 
         [Command("setmch")]
@@ -222,7 +220,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             embed.ThumbnailUrl = Context.User.GetAvatarUrl();            
             embed.Description = sb.ToString();
-            await _cc.Reply(Context, embed);
+            await Context.Channel.SendMessageAsync("", false, embed.Build());
         }
 
         [Command("remch")]
@@ -277,7 +275,7 @@ namespace NinjaBotCore.Modules.Wow
             embed.ThumbnailUrl = Context.User.GetAvatarUrl();
             embed.Title = "Character Removal";
             embed.Description = sb.ToString();
-            await _cc.Reply(Context, embed);
+            await Context.Channel.SendMessageAsync("", false, embed.Build());
         }
 
         [Command("getch")]
@@ -360,7 +358,7 @@ namespace NinjaBotCore.Modules.Wow
                     IconUrl = Context.User.GetAvatarUrl()                    
                 }
             );            
-            await _cc.Reply(Context, embed);
+            await Context.Channel.SendMessageAsync("", false, embed.Build());
         }
  
         [Command("findch")]
@@ -448,7 +446,7 @@ namespace NinjaBotCore.Modules.Wow
                     IconUrl = Context.User.GetAvatarUrl()      
                 }            
             );
-            await _cc.Reply(Context, embed);
+            await Context.Channel.SendMessageAsync("", false, embed.Build());
         }
     }
 }

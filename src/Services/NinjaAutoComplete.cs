@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Discord;
 using Discord.Interactions;
 using NinjaBotCore.Database;
+using NinjaBotCore.Repositories;
 using NinjaBotCore.Modules.Wow;
 using NinjaBotCore.Models.Wow;
 using NinjaBotCore.Common;
@@ -22,14 +23,9 @@ namespace NinjaBotCore.Services
             IParameterInfo parameter,
             IServiceProvider services)
         {
-            List<WowCharAssociation> chars = new List<WowCharAssociation>();
-            List<string> foundChars = new List<string>();
-            using (var db = new NinjaBotEntities())
-            {
-                chars = db.WowCharAssociation.Where(a => a.UserId == (long)context.User.Id).ToList();
-            }
-            var result = Task.FromResult(AutocompletionResult.FromSuccess(chars.Select(c => new AutocompleteResult(c.CharName, c.Id.ToString())))).Result;
-            return result;
+            var charRepo = services.GetRequiredService<IRepository<WowCharAssociation>>();
+            var chars = await charRepo.WhereAsync(a => a.UserId == (long)context.User.Id);
+            return AutocompletionResult.FromSuccess(chars.Select(c => new AutocompleteResult(c.CharName, c.Id.ToString())));
         }
     }
 
@@ -61,13 +57,8 @@ namespace NinjaBotCore.Services
                 var userInput = autocompleteInteraction.Data.Current.Value?.ToString()?.ToLower() ?? string.Empty;
 
                 // Step 1: Get user's saved characters (always prioritize these)
-                List<WowCharAssociation> savedChars;
-                using (var db = new NinjaBotEntities())
-                {
-                    savedChars = db.WowCharAssociation
-                        .Where(a => a.UserId == (long)context.User.Id)
-                        .ToList();
-                }
+                var charRepo = services.GetRequiredService<IRepository<WowCharAssociation>>();
+                var savedChars = await charRepo.WhereAsync(a => a.UserId == (long)context.User.Id);
 
                 // Filter saved chars by user input if provided
                 var filteredSavedChars = string.IsNullOrWhiteSpace(userInput)
@@ -92,19 +83,15 @@ namespace NinjaBotCore.Services
                 // Step 1.5: Get search history (recent/frequent searches not already in saved chars)
                 try
                 {
-                    List<RioSearchHistory> searchHistory;
-                    using (var db = new NinjaBotEntities())
-                    {
-                        // Get user's search history, excluding already-saved characters
-                        var savedCharKeys = savedChars.Select(c => $"{c.CharName}|{c.WowRealm}".ToLower()).ToHashSet();
+                    var historyRepo = services.GetRequiredService<IRepository<RioSearchHistory>>();
+                    var searchHistory = await historyRepo.WhereAsync(h => h.DiscordUserId == (long)context.User.Id);
 
-                        searchHistory = db.RioSearchHistory
-                            .Where(h => h.DiscordUserId == (long)context.User.Id)
-                            .OrderByDescending(h => h.SearchCount)
-                            .ThenByDescending(h => h.LastSearched)
-                            .Take(5)
-                            .ToList();
-                    }
+                    // Sort and take top 5
+                    searchHistory = searchHistory
+                        .OrderByDescending(h => h.SearchCount)
+                        .ThenByDescending(h => h.LastSearched)
+                        .Take(5)
+                        .ToList();
 
                     // Filter by user input and exclude saved characters
                     var filteredHistory = searchHistory
@@ -135,17 +122,15 @@ namespace NinjaBotCore.Services
                     NinjaObjects.GuildObject guildObject = new NinjaObjects.GuildObject();
                     string discordGuildName = context.Guild?.Name ?? context.User.Username;
 
-                    using (var db = new NinjaBotEntities())
+                    var guildRepo = services.GetRequiredService<IRepository<WowGuildAssociations>>();
+                    var foundGuild = await guildRepo.FirstOrDefaultAsync(g => g.ServerName == discordGuildName);
+                    if (foundGuild != null)
                     {
-                        var foundGuild = db.WowGuildAssociations.FirstOrDefault(g => g.ServerName == discordGuildName);
-                        if (foundGuild != null)
-                        {
-                            guildObject.guildName = foundGuild.WowGuild;
-                            guildObject.realmName = foundGuild.WowRealm;
-                            guildObject.realmSlug = foundGuild.LocalRealmSlug;
-                            guildObject.regionName = foundGuild.WowRegion;
-                            guildObject.locale = foundGuild.Locale;
-                        }
+                        guildObject.guildName = foundGuild.WowGuild;
+                        guildObject.realmName = foundGuild.WowRealm;
+                        guildObject.realmSlug = foundGuild.LocalRealmSlug;
+                        guildObject.regionName = foundGuild.WowRegion;
+                        guildObject.locale = foundGuild.Locale;
                     }
 
                     if (!string.IsNullOrEmpty(guildObject.guildName) && !string.IsNullOrEmpty(guildObject.realmName))

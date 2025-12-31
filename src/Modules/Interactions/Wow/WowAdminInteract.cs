@@ -25,7 +25,6 @@ namespace NinjaBotCore.Modules.Interactions.Wow
     // Interaction modules must be public and inherit from an IInteractionModuleBase
     public class WowAdminInteract : NinjaBotBaseModule
     {
-        private ChannelCheck _cc;
         private WarcraftLogs _logsApi;
         private WowApi _wowApi;
         private DiscordShardedClient _client;
@@ -40,7 +39,6 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         {
             _logger = services.GetRequiredService<ILogger<WowAdminInteract>>();
             _wowUtils = services.GetRequiredService<WowUtilities>();
-            _cc = services.GetRequiredService<ChannelCheck>();
             _logsApi = services.GetRequiredService<WarcraftLogs>();
             _wowApi = services.GetRequiredService<WowApi>();
             _rioApi = services.GetRequiredService<RaiderIOApi>();

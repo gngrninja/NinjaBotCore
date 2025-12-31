@@ -2,6 +2,7 @@ using Discord.Interactions;
 using Discord.WebSocket;
 using Microsoft.Extensions.DependencyInjection;
 using NinjaBotCore.Database;
+using NinjaBotCore.Repositories;
 using System;
 using System.Threading.Tasks;
 
@@ -57,6 +58,30 @@ namespace NinjaBotCore.Modules.Interactions
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
             return func(db);
+        }
+
+        /// <summary>
+        /// Gets a repository for the specified entity type.
+        /// The repository manages its own scope internally using the IServiceScopeFactory.
+        /// </summary>
+        /// <typeparam name="TEntity">The entity type</typeparam>
+        /// <returns>A repository instance for the entity</returns>
+        protected IRepository<TEntity> GetRepository<TEntity>() where TEntity : class
+        {
+            // Repository creates its own scope internally via IServiceScopeFactory
+            return new Repository<TEntity>(_scopeFactory);
+        }
+
+        /// <summary>
+        /// Gets a Unit of Work for multi-entity operations or transactions.
+        /// All repositories from the same UnitOfWork share the same database context.
+        /// Use within a using statement to ensure proper disposal.
+        /// </summary>
+        /// <returns>A unit of work instance</returns>
+        protected IUnitOfWork GetUnitOfWork()
+        {
+            // UnitOfWork creates and manages its own scope
+            return new UnitOfWork(_scopeFactory);
         }
     }
 }

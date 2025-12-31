@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Discord;
 using Discord.WebSocket;
 using NinjaBotCore.Database;
+using NinjaBotCore.Repositories;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -15,6 +16,7 @@ namespace NinjaBotCore.Services
     {
         private readonly ILogger _logger;
         private readonly DiscordShardedClient _client;
+        private readonly IServiceScopeFactory _scopeFactory;
         private readonly HashSet<ulong> _recentBulkDeletes;
         private readonly object _bulkDeleteLock;
 
@@ -22,6 +24,7 @@ namespace NinjaBotCore.Services
         {
             _logger = services.GetRequiredService<ILogger<ModerationWatcherService>>();
             _client = services.GetRequiredService<DiscordShardedClient>();
+            _scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
             _recentBulkDeletes = new HashSet<ulong>();
             _bulkDeleteLock = new object();
 
@@ -39,14 +42,10 @@ namespace NinjaBotCore.Services
 
         #region Helper Methods
 
-        private ModerationWatcher GetSettings(long guildId)
+        private async Task<ModerationWatcher> GetSettingsAsync(long guildId)
         {
-            using (var db = new NinjaBotEntities())
-            {
-                return db.ModerationWatcher
-                    .Where(m => m.DiscordGuildId == guildId)
-                    .FirstOrDefault();
-            }
+            var repo = new Repository<ModerationWatcher>(_scopeFactory);
+            return await repo.FirstOrDefaultAsync(m => m.DiscordGuildId == guildId);
         }
 
         private async Task<ISocketMessageChannel> GetNotificationChannel(SocketGuild guild, ModerationWatcher settings)
@@ -89,14 +88,12 @@ namespace NinjaBotCore.Services
             SocketVoiceState before,
             SocketVoiceState after)
         {
-            await Task.Run(async () =>
-            {
-                if (user.IsBot) return;
+            if (user.IsBot) return;
 
-                var guildUser = user as SocketGuildUser;
-                if (guildUser == null) return;
+            var guildUser = user as SocketGuildUser;
+            if (guildUser == null) return;
 
-                var settings = GetSettings((long)guildUser.Guild.Id);
+            var settings = await GetSettingsAsync((long)guildUser.Guild.Id);
                 if (settings?.WatchVoice != true) return;
 
                 var channel = await GetNotificationChannel(guildUser.Guild, settings);
@@ -126,7 +123,6 @@ namespace NinjaBotCore.Services
                 {
                     await PostNotification(channel, embed);
                 }
-            });
         }
 
         private EmbedBuilder CreateVoiceEmbed(SocketGuildUser user, SocketVoiceChannel voiceChannel, string title, Color color)
@@ -173,14 +169,12 @@ namespace NinjaBotCore.Services
             SocketMessage after,
             ISocketMessageChannel messageChannel)
         {
-            await Task.Run(async () =>
-            {
-                if (after.Author.IsBot) return;
+            if (after.Author.IsBot) return;
 
-                var guildChannel = messageChannel as SocketGuildChannel;
-                if (guildChannel == null) return;
+            var guildChannel = messageChannel as SocketGuildChannel;
+            if (guildChannel == null) return;
 
-                var settings = GetSettings((long)guildChannel.Guild.Id);
+            var settings = await GetSettingsAsync((long)guildChannel.Guild.Id);
                 if (settings?.WatchMessages != true) return;
 
                 var notificationChannel = await GetNotificationChannel(guildChannel.Guild, settings);
@@ -238,37 +232,34 @@ namespace NinjaBotCore.Services
                 embed.WithCurrentTimestamp();
 
                 await PostNotification(notificationChannel, embed);
-            });
         }
 
         private async Task HandleMessageDelete(
             Cacheable<IMessage, ulong> message,
             Cacheable<IMessageChannel, ulong> channel)
         {
-            await Task.Run(async () =>
+            // Skip if this message was part of a bulk delete
+            bool isBulkDelete;
+            lock (_bulkDeleteLock)
             {
-                // Skip if this message was part of a bulk delete
-                bool isBulkDelete;
-                lock (_bulkDeleteLock)
-                {
-                    isBulkDelete = _recentBulkDeletes.Contains(message.Id);
-                }
+                isBulkDelete = _recentBulkDeletes.Contains(message.Id);
+            }
 
-                if (isBulkDelete) return;
+            if (isBulkDelete) return;
 
-                var msg = await message.GetOrDownloadAsync();
+            var msg = await message.GetOrDownloadAsync();
 
-                // Skip bot messages
-                if (msg?.Author.IsBot == true) return;
+            // Skip bot messages
+            if (msg?.Author.IsBot == true) return;
 
-                // Skip messages not in cache (usually slash commands or very old messages)
-                // These aren't useful to log since we can't show content
-                if (msg == null) return;
+            // Skip messages not in cache (usually slash commands or very old messages)
+            // These aren't useful to log since we can't show content
+            if (msg == null) return;
 
-                var guildChannel = (await channel.GetOrDownloadAsync()) as SocketGuildChannel;
-                if (guildChannel == null) return;
+            var guildChannel = (await channel.GetOrDownloadAsync()) as SocketGuildChannel;
+            if (guildChannel == null) return;
 
-                var settings = GetSettings((long)guildChannel.Guild.Id);
+            var settings = await GetSettingsAsync((long)guildChannel.Guild.Id);
                 if (settings?.WatchMessages != true) return;
 
                 var notificationChannel = await GetNotificationChannel(guildChannel.Guild, settings);
@@ -291,19 +282,16 @@ namespace NinjaBotCore.Services
                 embed.WithCurrentTimestamp();
 
                 await PostNotification(notificationChannel, embed);
-            });
         }
 
         private async Task HandleMessagesBulkDelete(
             IReadOnlyCollection<Cacheable<IMessage, ulong>> messages,
             Cacheable<IMessageChannel, ulong> channel)
         {
-            await Task.Run(async () =>
-            {
-                var guildChannel = (await channel.GetOrDownloadAsync()) as SocketGuildChannel;
-                if (guildChannel == null) return;
+            var guildChannel = (await channel.GetOrDownloadAsync()) as SocketGuildChannel;
+            if (guildChannel == null) return;
 
-                var settings = GetSettings((long)guildChannel.Guild.Id);
+            var settings = await GetSettingsAsync((long)guildChannel.Guild.Id);
                 if (settings?.WatchMessages != true) return;
 
                 var notificationChannel = await GetNotificationChannel(guildChannel.Guild, settings);
@@ -378,7 +366,6 @@ namespace NinjaBotCore.Services
                 embed.WithCurrentTimestamp();
 
                 await PostNotification(notificationChannel, embed);
-            });
         }
 
         #endregion
@@ -389,11 +376,9 @@ namespace NinjaBotCore.Services
             Cacheable<SocketGuildUser, ulong> before,
             SocketGuildUser after)
         {
-            await Task.Run(async () =>
-            {
-                if (after.IsBot) return;
+            if (after.IsBot) return;
 
-                var settings = GetSettings((long)after.Guild.Id);
+            var settings = await GetSettingsAsync((long)after.Guild.Id);
                 if (settings == null) return;
 
                 var notificationChannel = await GetNotificationChannel(after.Guild, settings);
@@ -429,7 +414,6 @@ namespace NinjaBotCore.Services
                     var embed = CreateNicknameEmbed(after, beforeUser.Nickname, after.Nickname);
                     await PostNotification(notificationChannel, embed);
                 }
-            });
         }
 
         private EmbedBuilder CreateRoleEmbed(SocketGuildUser user, SocketRole role, bool added)
@@ -473,9 +457,7 @@ namespace NinjaBotCore.Services
 
         private async Task HandleBan(SocketUser user, SocketGuild guild)
         {
-            await Task.Run(async () =>
-            {
-                var settings = GetSettings((long)guild.Id);
+            var settings = await GetSettingsAsync((long)guild.Id);
                 if (settings?.WatchBans != true) return;
 
                 var notificationChannel = await GetNotificationChannel(guild, settings);
@@ -494,14 +476,11 @@ namespace NinjaBotCore.Services
                 embed.WithCurrentTimestamp();
 
                 await PostNotification(notificationChannel, embed);
-            });
         }
 
         private async Task HandleUnban(SocketUser user, SocketGuild guild)
         {
-            await Task.Run(async () =>
-            {
-                var settings = GetSettings((long)guild.Id);
+            var settings = await GetSettingsAsync((long)guild.Id);
                 if (settings?.WatchBans != true) return;
 
                 var notificationChannel = await GetNotificationChannel(guild, settings);
@@ -520,7 +499,6 @@ namespace NinjaBotCore.Services
                 embed.WithCurrentTimestamp();
 
                 await PostNotification(notificationChannel, embed);
-            });
         }
 
         #endregion

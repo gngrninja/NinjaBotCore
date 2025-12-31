@@ -775,16 +775,23 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             }
         }          
 
-        [SlashCommand("set-note", "set a note for the server")]        
+        [SlashCommand("set-note", "set a note for the server")]
         [RequireUserPermission(GuildPermission.ManageMessages)]
         public async Task SetNote()
         {
-            var curNote = await GetNoteInfo(Context);
+            // Get current note directly (not using GetNoteInfo which returns long error message)
+            string curNote = await WithDbAsync(async db =>
+            {
+                var note = await db.Notes
+                    .FirstOrDefaultAsync(n => n.ServerId == (long)Context.Guild.Id);
+                return note?.Note1 ?? string.Empty;
+            });
+
             var mb = new ModalBuilder()
                 .WithTitle($"Note for Discord server: [{Context.Guild.Name}]")
                 .WithCustomId("discord_server_note")
-                .AddTextInput("Note:", "note_text", TextInputStyle.Paragraph, $"{curNote}");
-            await Context.Interaction.RespondWithModalAsync(mb.Build());            
+                .AddTextInput("Note:", "note_text", TextInputStyle.Paragraph, curNote);
+            await Context.Interaction.RespondWithModalAsync(mb.Build());
         }
 
         [SlashCommand("get-note", "get a note associated with a discord server")]                

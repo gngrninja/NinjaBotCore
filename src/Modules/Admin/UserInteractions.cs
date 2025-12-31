@@ -9,6 +9,7 @@ using Discord.Net;
 using Discord.Commands;
 using Discord.WebSocket;
 using NinjaBotCore.Database;
+using NinjaBotCore.Repositories;
 using NinjaBotCore.Services;
 using Microsoft.Extensions.Logging;
 
@@ -18,11 +19,15 @@ namespace NinjaBotCore.Modules.Admin
     {
         private readonly ILogger _logger;
         private readonly DiscordShardedClient _client;
+        private readonly IRepository<ServerGreeting> _greetingRepo;
+        private readonly IRepository<Note> _noteRepo;
 
         public UserInteraction(IServiceProvider services)
         {
             _logger = services.GetRequiredService<ILogger<UserInteraction>>();
             _client = services.GetRequiredService<DiscordShardedClient>();
+            _greetingRepo = services.GetRequiredService<IRepository<ServerGreeting>>();
+            _noteRepo = services.GetRequiredService<IRepository<Note>>();
 
             services.GetRequiredService<DiscordShardedClient>().UserJoined += HandleGreeting;
             services.GetRequiredService<DiscordShardedClient>().UserLeft += HandleParting;
@@ -33,159 +38,158 @@ namespace NinjaBotCore.Modules.Admin
 
         private async Task HandleModal(SocketModal modal)
         {
-            await Task.Run(async () =>
+            // Get the values of components.
+            List<SocketMessageComponentData> components =
+                modal.Data.Components.ToList();
+            var embed = new EmbedBuilder();
+            StringBuilder sb = new StringBuilder();
+            var guildInfo = _client.GetGuild((ulong)modal.GuildId);
+            switch (modal.Data.CustomId)
             {
-                // Get the values of components.
-                List<SocketMessageComponentData> components =
-                    modal.Data.Components.ToList();
-                var embed = new EmbedBuilder();
-                StringBuilder sb = new StringBuilder();
-                var guildInfo = _client.GetGuild((ulong)modal.GuildId);
-                switch (modal.Data.CustomId)
+                case "joining_message":
                 {
-                    case "joining_message":
-                    {
-                        await HandleJoiningModal(modal, components, embed, sb, guildInfo);
-                        break;
-                    }
-                    case "parting_message":
-                    {
-                        await HandlePartingModal(modal, components, embed, sb, guildInfo);
-                        break;
-                    }
-                    case "discord_server_note":
-                    {
-                        await HandleNoteModal(modal, components, embed, sb, guildInfo);
-                        break;
-                    }
+                    await HandleJoiningModal(modal, components, embed, sb, guildInfo);
+                    break;
                 }
-            });
+                case "parting_message":
+                {
+                    await HandlePartingModal(modal, components, embed, sb, guildInfo);
+                    break;
+                }
+                case "discord_server_note":
+                {
+                    await HandleNoteModal(modal, components, embed, sb, guildInfo);
+                    break;
+                }
+            }
         }
 
-        private static async Task HandlePartingModal(SocketModal modal, List<SocketMessageComponentData> components, EmbedBuilder embed, StringBuilder sb, SocketGuild guildInfo)
+        private async Task HandlePartingModal(SocketModal modal, List<SocketMessageComponentData> components, EmbedBuilder embed, StringBuilder sb, SocketGuild guildInfo)
         {
             string partingMessage = components.First(x => x.CustomId == "parting_message").Value;
-            using (var db = new NinjaBotEntities())
+            if (!string.IsNullOrEmpty(partingMessage))
             {
-                if (!string.IsNullOrEmpty(partingMessage))
+                try
                 {
-                    try
-                    {
-                        embed.Title = $"Parting message change for {guildInfo.Name}";
-                        sb.AppendLine("New message:");
-                        sb.AppendLine(partingMessage);
-                        var guildGreetingInfo = db.ServerGreetings.Where(g => g.DiscordGuildId == (long)modal.GuildId).FirstOrDefault();
-                        if (guildGreetingInfo != null)
+                    embed.Title = $"Parting message change for {guildInfo.Name}";
+                    sb.AppendLine("New message:");
+                    sb.AppendLine(partingMessage);
+
+                    await _greetingRepo.UpsertAsync(
+                        findPredicate: g => g.DiscordGuildId == (long)modal.GuildId,
+                        updateAction: greeting =>
                         {
-                            guildGreetingInfo.PartingMessage = partingMessage.Trim();
-                            guildGreetingInfo.SetById = (long)modal.User.Id;
-                            guildGreetingInfo.SetByName = modal.User.Username;
-                            guildGreetingInfo.TimeSet = DateTime.UtcNow;
-                        }
-                        else
+                            greeting.PartingMessage = partingMessage.Trim();
+                            greeting.SetById = (long)modal.User.Id;
+                            greeting.SetByName = modal.User.Username;
+                            greeting.TimeSet = DateTime.UtcNow;
+                        },
+                        createFactory: () => new ServerGreeting
                         {
-                            db.ServerGreetings.Add(new ServerGreeting
-                            {
-                                DiscordGuildId = (long)modal.GuildId,
-                                PartingMessage = partingMessage.Trim(),
-                                SetById = (long)modal.User.Id,
-                                SetByName = modal.User.Username,
-                                TimeSet = DateTime.UtcNow
-                            });
-                        }
-                        await db.SaveChangesAsync();
-                    }
-                    catch (Exception)
-                    {
-                        embed.Title = $"Error changing message";
-                        sb.AppendLine($"{modal.User.Mention},");
-                        sb.AppendLine($"I've encounted an error, please contact the owner for help.");
-                    }
+                            DiscordGuildId = (long)modal.GuildId,
+                            PartingMessage = partingMessage.Trim(),
+                            SetById = (long)modal.User.Id,
+                            SetByName = modal.User.Username,
+                            TimeSet = DateTime.UtcNow
+                        });
+                    await _greetingRepo.SaveChangesAsync();
+                }
+                catch (Exception)
+                {
+                    embed.Title = $"Error changing message";
+                    sb.AppendLine($"{modal.User.Mention},");
+                    sb.AppendLine($"I've encounted an error, please contact the owner for help.");
                 }
             }
             embed.Description = sb.ToString();
             embed.WithColor(new Color(0, 255, 0));
             embed.ThumbnailUrl = guildInfo.IconUrl;
-            await modal.RespondAsync(text: null, embed: embed.Build(), ephemeral: true);
+
+            if (!modal.HasResponded)
+            {
+                await modal.RespondAsync(text: null, embed: embed.Build(), ephemeral: true);
+            }
+            else
+            {
+                _logger.LogWarning("Modal interaction already responded to before HandlePartingModal could respond");
+            }
         }
 
-        private static async Task HandleJoiningModal(SocketModal modal, List<SocketMessageComponentData> components, EmbedBuilder embed, StringBuilder sb, SocketGuild guildInfo)
+        private async Task HandleJoiningModal(SocketModal modal, List<SocketMessageComponentData> components, EmbedBuilder embed, StringBuilder sb, SocketGuild guildInfo)
         {
             string joiningMessage = components.First(x => x.CustomId == "joining_message").Value;
-            using (var db = new NinjaBotEntities())
+            if (!string.IsNullOrEmpty(joiningMessage))
             {
-                if (!string.IsNullOrEmpty(joiningMessage))
+                try
                 {
-                    try
-                    {
-                        embed.Title = $"Joining message change for {guildInfo.Name}";
-                        sb.AppendLine("New message:");
-                        sb.AppendLine(joiningMessage);
-                        var guildGreetingInfo = db.ServerGreetings.Where(g => g.DiscordGuildId == (long)modal.GuildId).FirstOrDefault();
-                        if (guildGreetingInfo != null)
+                    embed.Title = $"Joining message change for {guildInfo.Name}";
+                    sb.AppendLine("New message:");
+                    sb.AppendLine(joiningMessage);
+
+                    await _greetingRepo.UpsertAsync(
+                        findPredicate: g => g.DiscordGuildId == (long)modal.GuildId,
+                        updateAction: greeting =>
                         {
-                            guildGreetingInfo.Greeting = joiningMessage.Trim();
-                            guildGreetingInfo.SetById = (long)modal.User.Id;
-                            guildGreetingInfo.SetByName = modal.User.Username;
-                            guildGreetingInfo.TimeSet = DateTime.UtcNow;
-                        }
-                        else
+                            greeting.Greeting = joiningMessage.Trim();
+                            greeting.SetById = (long)modal.User.Id;
+                            greeting.SetByName = modal.User.Username;
+                            greeting.TimeSet = DateTime.UtcNow;
+                        },
+                        createFactory: () => new ServerGreeting
                         {
-                            db.ServerGreetings.Add(new ServerGreeting
-                            {
-                                DiscordGuildId = (long)modal.GuildId,
-                                Greeting = joiningMessage.Trim(),
-                                SetById = (long)modal.User.Id,
-                                SetByName = modal.User.Username,
-                                TimeSet = DateTime.UtcNow
-                            });
-                        }
-                        await db.SaveChangesAsync();
-                    }
-                    catch (Exception)
-                    {
-                        embed.Title = $"Error changing message";
-                        sb.AppendLine($"{modal.User.Mention},");
-                        sb.AppendLine($"I've encounted an error, please contact the owner for help.");
-                    }
+                            DiscordGuildId = (long)modal.GuildId,
+                            Greeting = joiningMessage.Trim(),
+                            SetById = (long)modal.User.Id,
+                            SetByName = modal.User.Username,
+                            TimeSet = DateTime.UtcNow
+                        });
+                    await _greetingRepo.SaveChangesAsync();
+                }
+                catch (Exception)
+                {
+                    embed.Title = $"Error changing message";
+                    sb.AppendLine($"{modal.User.Mention},");
+                    sb.AppendLine($"I've encounted an error, please contact the owner for help.");
                 }
             }
             embed.Description = sb.ToString();
             embed.WithColor(new Color(0, 255, 0));
             embed.ThumbnailUrl = guildInfo.IconUrl;
-            await modal.RespondAsync(text: null, embed: embed.Build(), ephemeral: true);
+
+            if (!modal.HasResponded)
+            {
+                await modal.RespondAsync(text: null, embed: embed.Build(), ephemeral: true);
+            }
+            else
+            {
+                _logger.LogWarning("Modal interaction already responded to before HandleJoiningModal could respond");
+            }
         }        
 
-        private static async Task HandleNoteModal(SocketModal modal, List<SocketMessageComponentData> components, EmbedBuilder embed, StringBuilder sb, SocketGuild guildInfo)
+        private async Task HandleNoteModal(SocketModal modal, List<SocketMessageComponentData> components, EmbedBuilder embed, StringBuilder sb, SocketGuild guildInfo)
         {
             string noteText = components.First(x => x.CustomId == "note_text").Value;
             try
             {
-                using (var db = new NinjaBotEntities())
-                {
-                    var currentNote = db.Notes.FirstOrDefault(c => c.ServerId == (long)guildInfo.Id);
-                    if (currentNote == null)
+                await _noteRepo.UpsertAsync(
+                    findPredicate: n => n.ServerId == (long)guildInfo.Id,
+                    updateAction: note =>
                     {
-                        Note n = new Note()
-                        {
-                            Note1 = noteText,
-                            ServerId = (long)guildInfo.Id,
-                            ServerName = guildInfo.Name,
-                            SetBy = modal.User.Username,
-                            SetById = (long)modal.User.Id,
-                            TimeSet = DateTime.UtcNow
-                        };
-                        db.Notes.Add(n);
-                    }
-                    else
+                        note.Note1 = noteText;
+                        note.SetBy = modal.User.Username;
+                        note.SetById = (long)modal.User.Id;
+                        note.TimeSet = DateTime.UtcNow;
+                    },
+                    createFactory: () => new Note
                     {
-                        currentNote.Note1 = noteText;
-                        currentNote.SetBy = modal.User.Username;
-                        currentNote.SetById = (long)modal.User.Id;
-                        currentNote.TimeSet = DateTime.UtcNow;
-                    }
-                    await db.SaveChangesAsync();
-                }
+                        Note1 = noteText,
+                        ServerId = (long)guildInfo.Id,
+                        ServerName = guildInfo.Name,
+                        SetBy = modal.User.Username,
+                        SetById = (long)modal.User.Id,
+                        TimeSet = DateTime.UtcNow
+                    });
+                await _noteRepo.SaveChangesAsync();
                 sb.AppendLine($"Note successfully added for server [**{guildInfo.Name}**] by [**{modal.User.Username}**]!");
             }
             catch (Exception ex)
@@ -197,15 +201,21 @@ namespace NinjaBotCore.Modules.Admin
             embed.Description = sb.ToString();
             embed.ThumbnailUrl = guildInfo.IconUrl;
             embed.WithColor(new Color(0, 255, 0));
-            await modal.RespondAsync(embed: embed.Build(), ephemeral: true);
+
+            if (!modal.HasResponded)
+            {
+                await modal.RespondAsync(embed: embed.Build(), ephemeral: true);
+            }
+            else
+            {
+                _logger.LogWarning("Modal interaction already responded to before HandleNoteModal could respond");
+            }
         }
 
         private async Task HandleParting(SocketGuild guild, SocketUser socketUser)
         {
-            await Task.Run(async () =>
-            {                
-                var user = (SocketGuildUser)socketUser;
-                ServerGreeting shouldGreet = GetGreeting(user);                                 
+            var user = (SocketGuildUser)socketUser;
+            ServerGreeting shouldGreet = await GetGreetingAsync(user);                                 
                 if (shouldGreet != null && shouldGreet.GreetUsers == true)
                 {      
                     var sb = new StringBuilder();   
@@ -257,15 +267,12 @@ namespace NinjaBotCore.Modules.Admin
                             _logger.LogError($"Error with no channel -> [{user.Guild.Name}] -> [{user.Guild.Id}] -> [{ex.Message}]");
                         }
                     }
-                }                
-            });
+                }
         }
 
         private async Task HandleGreeting(SocketGuildUser user)
         {
-            await Task.Run(async () =>
-            {
-                ServerGreeting shouldGreet = GetGreeting(user);
+            ServerGreeting shouldGreet = await GetGreetingAsync(user);
                 if (shouldGreet != null && shouldGreet.GreetUsers == true)
                 {
                     var sb = new StringBuilder();   
@@ -309,18 +316,12 @@ namespace NinjaBotCore.Modules.Admin
                         }
                     }
                 }
-            });
-        }        
+        }
 
-        private ServerGreeting GetGreeting(SocketGuildUser user)
+        private async Task<ServerGreeting> GetGreetingAsync(SocketGuildUser user)
         {
-            ServerGreeting shouldGreet = null;
             var guildId = user.Guild.Id;
-            using (var db = new NinjaBotEntities())
-            {
-                shouldGreet = db.ServerGreetings.Where(g => g.DiscordGuildId == (long)guildId).FirstOrDefault();
-            }
-            return shouldGreet;
+            return await _greetingRepo.FirstOrDefaultAsync(g => g.DiscordGuildId == (long)guildId);
         }
     }
 }

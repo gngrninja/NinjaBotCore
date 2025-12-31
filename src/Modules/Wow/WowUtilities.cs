@@ -1,4 +1,5 @@
 using NinjaBotCore.Database;
+using NinjaBotCore.Repositories;
 using NinjaBotCore.Models.Wow;
 using Discord;
 using Discord.Commands;
@@ -23,7 +24,6 @@ namespace NinjaBotCore.Modules.Wow
 {
     public class WowUtilities
     {
-        public ChannelCheck _cc;
         public WarcraftLogs _logsApi;
         public WowApi _wowApi;
         public DiscordShardedClient _client;
@@ -32,18 +32,29 @@ namespace NinjaBotCore.Modules.Wow
         public string _prefix;
         public readonly ILogger _logger;
         private readonly IServiceScopeFactory _scopeFactory;
+        private readonly IRepository<FindWowCheeve> _achievementRepo;
 
         public WowUtilities(IServiceProvider services)
         {
             _logger = services.GetRequiredService<ILogger<WowUtilities>>();
-            _cc = services.GetRequiredService<ChannelCheck>();
             _logsApi = services.GetRequiredService<WarcraftLogs>();
             _wowApi = services.GetRequiredService<WowApi>();
             _rioApi = services.GetRequiredService<RaiderIOApi>();
             _client = services.GetRequiredService<DiscordShardedClient>();
             _config = services.GetRequiredService<IConfigurationRoot>();
             _scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
+            _achievementRepo = services.GetRequiredService<IRepository<FindWowCheeve>>();
             _prefix = _config["prefix"];
+        }
+
+        private IRepository<TEntity> GetRepository<TEntity>() where TEntity : class
+        {
+            return new Repository<TEntity>(_scopeFactory);
+        }
+
+        private IUnitOfWork GetUnitOfWork()
+        {
+            return new UnitOfWork(_scopeFactory);
         }
 
         public async Task<GuildChar> GetCharFromArgs(string args, ICommandContext context)
@@ -155,7 +166,7 @@ namespace NinjaBotCore.Modules.Wow
         {
             if (args.Split(' ').Count() > 1)
             {
-                await _cc.Reply(context, $"Please specify only a character name for the search!");
+                await context.Channel.SendMessageAsync($"Please specify only a character name for the search!");
                 return;
             }
             StringBuilder sb = new StringBuilder();
@@ -170,7 +181,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             embed.WithColor(new Color(255, 0, 0));
             embed.Description = sb.ToString();
-            await _cc.Reply(context, embed);
+            await context.Channel.SendMessageAsync("", false, embed.Build());
         }
 
         public async Task<NinjaObjects.GuildObject> GetGuildName(ICommandContext context)
@@ -198,18 +209,19 @@ namespace NinjaBotCore.Modules.Wow
         public async Task<NinjaObjects.GuildObject> GetGuildAssociation(string discordGuildName)
         {
             NinjaObjects.GuildObject guildObject = new NinjaObjects.GuildObject();
-            using (var db = new NinjaBotEntities())
+
+            var guildRepo = GetRepository<WowGuildAssociations>();
+            var foundGuild = await guildRepo.FirstOrDefaultAsync(g => g.ServerName == discordGuildName);
+
+            if (foundGuild != null)
             {
-                var foundGuild = db.WowGuildAssociations.FirstOrDefault(g => g.ServerName == discordGuildName);
-                if (foundGuild != null)
-                {
-                    guildObject.guildName = foundGuild.WowGuild;
-                    guildObject.realmName = foundGuild.WowRealm;
-                    guildObject.regionName = foundGuild.WowRegion;
-                    guildObject.locale = foundGuild.Locale;
-                    guildObject.realmSlug = foundGuild.LocalRealmSlug;
-                }
+                guildObject.guildName = foundGuild.WowGuild;
+                guildObject.realmName = foundGuild.WowRealm;
+                guildObject.regionName = foundGuild.WowRegion;
+                guildObject.locale = foundGuild.Locale;
+                guildObject.realmSlug = foundGuild.LocalRealmSlug;
             }
+
             return guildObject;
         }
 
@@ -283,52 +295,52 @@ namespace NinjaBotCore.Modules.Wow
                         break;
                     }
                 }
-            
-                using (var db = new NinjaBotEntities())
+
+                // Use UnitOfWork for multi-entity operation
+                using var uow = GetUnitOfWork();
+
+                // Upsert WowGuildAssociations
+                var guildRepo = uow.Repository<WowGuildAssociations>();
+                await guildRepo.UpsertAsync(
+                    findPredicate: g => g.ServerName == guildName,
+                    updateAction: guild =>
+                    {
+                        guild.ServerId = (long)guildId;
+                        guild.WowGuild = wowGuildName;
+                        guild.WowRealm = realmName;
+                        guild.WowRegion = apiRegion;
+                        guild.Locale = locale;
+                        guild.LocalRealmSlug = realmSlug;
+                        guild.SetBy = context.User.Username;
+                        guild.SetById = (long)context.User.Id;
+                        guild.TimeSet = DateTime.UtcNow;
+                    },
+                    createFactory: () => new WowGuildAssociations
+                    {
+                        ServerId = (long)guildId,
+                        ServerName = guildName,
+                        WowGuild = wowGuildName,
+                        WowRealm = realmName,
+                        WowRegion = apiRegion,
+                        LocalRealmSlug = realmSlug,
+                        Locale = locale,
+                        SetBy = context.User.Username,
+                        SetById = (long)context.User.Id,
+                        TimeSet = DateTime.UtcNow
+                    });
+
+                // If log monitoring is enabled, update LatestLogRetail to force into Tier 1
+                // This ensures the new guild starts in the active tier for immediate checking
+                var monitoringRepo = uow.Repository<LogMonitoring>();
+                var logMonitoring = await monitoringRepo.FirstOrDefaultAsync(l => l.ServerId == (long)guildId);
+                if (logMonitoring != null && logMonitoring.MonitorLogs)
                 {
-                    var foundGuild = db.WowGuildAssociations.FirstOrDefault(g => g.ServerName == guildName);
-
-                    if (foundGuild == null)
-                    {
-                        WowGuildAssociations newGuild = new WowGuildAssociations
-                        {
-                            ServerId       = (long)guildId,
-                            ServerName     = guildName,
-                            WowGuild       = wowGuildName,
-                            WowRealm       = realmName,
-                            WowRegion      = apiRegion,
-                            LocalRealmSlug = realmSlug,
-                            Locale         = locale,
-                            SetBy          = context.User.Username,
-                            SetById        = (long)context.User.Id,
-                            TimeSet        = DateTime.UtcNow
-                        };
-                        db.WowGuildAssociations.Add(newGuild);
-                    }
-                    else
-                    {
-                        foundGuild.ServerId       = (long)guildId;
-                        foundGuild.WowGuild       = wowGuildName;
-                        foundGuild.WowRealm       = realmName;
-                        foundGuild.WowRegion      = apiRegion;
-                        foundGuild.Locale         = locale;
-                        foundGuild.LocalRealmSlug = realmSlug;
-                        foundGuild.SetBy          = context.User.Username;
-                        foundGuild.SetById        = (long)context.User.Id;
-                        foundGuild.TimeSet        = DateTime.UtcNow;
-                    }
-                    await db.SaveChangesAsync();
-
-                    // If log monitoring is enabled, update LatestLogRetail to force into Tier 1
-                    // This ensures the new guild starts in the active tier for immediate checking
-                    var logMonitoring = db.LogMonitoring.FirstOrDefault(l => l.ServerId == (long)guildId);
-                    if (logMonitoring != null && logMonitoring.MonitorLogs)
-                    {
-                        logMonitoring.LatestLogRetail = DateTime.UtcNow;
-                        await db.SaveChangesAsync();
-                        _logger.LogInformation("Updated LatestLogRetail for {GuildName} to force into Tier 1 after guild change", guildName);
-                    }
+                    logMonitoring.LatestLogRetail = DateTime.UtcNow;
+                    _logger.LogInformation("Updated LatestLogRetail for {GuildName} to force into Tier 1 after guild change", guildName);
                 }
+
+                // Save all changes in one transaction
+                await uow.SaveChangesAsync();
             }
             catch (Exception ex)
             {
@@ -389,15 +401,11 @@ namespace NinjaBotCore.Modules.Wow
             return locale;
         }
 
-        public string FindAchievements(Character armoryInfo)
+        public async Task<string> FindAchievementsAsync(Character armoryInfo)
         {
             StringBuilder cheevMessage = new StringBuilder();
-            List<FindWowCheeve> findCheeves = null;
             var completedCheeves = armoryInfo.achievements.achievementsCompleted;
-            using (var db = new NinjaBotEntities())
-            {
-                findCheeves = db.FindWowCheeves.ToList();
-            }
+            var findCheeves = await _achievementRepo.GetAllAsync();
             if (findCheeves != null)
             {
                 foreach (int achievement in completedCheeves)
@@ -514,30 +522,30 @@ namespace NinjaBotCore.Modules.Wow
         }
         
         public async Task SetLatestRaid(Zones zone)
-        {     
-            var currentTier       = new CurrentRaidTier();
+        {
+            var currentTier = new CurrentRaidTier();
             currentTier.WclZoneId = zone.id;
-            currentTier.RaidName  = zone.name;
+            currentTier.RaidName = zone.name;
 
-            using (var db = new NinjaBotEntities())
+            var raidRepo = GetRepository<CurrentRaidTier>();
+
+            // This is a singleton pattern - there's only ever one CurrentRaidTier record
+            var curRaid = await raidRepo.FirstOrDefaultAsync(r => true);
+            if (curRaid == null)
             {
-                var curRaid = db.CurrentRaidTier.FirstOrDefault();
-                if (curRaid == null)
+                await raidRepo.AddAsync(new CurrentRaidTier
                 {
-                    await db.CurrentRaidTier.AddAsync(new CurrentRaidTier
-                    {
-                        WclZoneId = currentTier.WclZoneId,
-                        RaidName  = currentTier.RaidName
-                    });
-                }
-                else
-                {
-                    curRaid.WclZoneId = currentTier.WclZoneId;
-                    curRaid.RaidName  = currentTier.RaidName;
-                }
-
-                await db.SaveChangesAsync();
+                    WclZoneId = currentTier.WclZoneId,
+                    RaidName = currentTier.RaidName
+                });
             }
+            else
+            {
+                curRaid.WclZoneId = currentTier.WclZoneId;
+                curRaid.RaidName = currentTier.RaidName;
+            }
+
+            await raidRepo.SaveChangesAsync();
             WarcraftLogs.CurrentRaidTier = currentTier;
         }
 
@@ -769,53 +777,53 @@ namespace NinjaBotCore.Modules.Wow
                 {
                     apiRegion = "eu";
                 }
-                realmSlug = realmName;               
-            
-                using (var db = new NinjaBotEntities())
+                realmSlug = realmName;
+
+                // Use UnitOfWork for multi-entity operation
+                using var uow = GetUnitOfWork();
+
+                // Upsert WowGuildAssociations
+                var guildRepo = uow.Repository<WowGuildAssociations>();
+                await guildRepo.UpsertAsync(
+                    findPredicate: g => g.ServerName == guildName,
+                    updateAction: guild =>
+                    {
+                        guild.ServerId = (long)guildId;
+                        guild.WowGuild = wowGuildName;
+                        guild.WowRealm = realmName;
+                        guild.WowRegion = apiRegion;
+                        guild.Locale = locale;
+                        guild.LocalRealmSlug = realmSlug;
+                        guild.SetBy = context.User.Username;
+                        guild.SetById = (long)context.User.Id;
+                        guild.TimeSet = DateTime.UtcNow;
+                    },
+                    createFactory: () => new WowGuildAssociations
+                    {
+                        ServerId = (long)guildId,
+                        ServerName = guildName,
+                        WowGuild = wowGuildName,
+                        WowRealm = realmName,
+                        WowRegion = apiRegion,
+                        LocalRealmSlug = realmSlug,
+                        Locale = locale,
+                        SetBy = context.User.Username,
+                        SetById = (long)context.User.Id,
+                        TimeSet = DateTime.UtcNow
+                    });
+
+                // If log monitoring is enabled, update LatestLogRetail to force into Tier 1
+                // This ensures the new guild starts in the active tier for immediate checking
+                var monitoringRepo = uow.Repository<LogMonitoring>();
+                var logMonitoring = await monitoringRepo.FirstOrDefaultAsync(l => l.ServerId == (long)guildId);
+                if (logMonitoring != null && logMonitoring.MonitorLogs)
                 {
-                    var foundGuild = db.WowGuildAssociations.FirstOrDefault(g => g.ServerName == guildName);
-
-                    if (foundGuild == null)
-                    {
-                        WowGuildAssociations newGuild = new WowGuildAssociations
-                        {
-                            ServerId       = (long)guildId,
-                            ServerName     = guildName,
-                            WowGuild       = wowGuildName,
-                            WowRealm       = realmName,
-                            WowRegion      = apiRegion,
-                            LocalRealmSlug = realmSlug,
-                            Locale         = locale,
-                            SetBy          = context.User.Username,
-                            SetById        = (long)context.User.Id,
-                            TimeSet        = DateTime.UtcNow
-                        };
-                        db.WowGuildAssociations.Add(newGuild);
-                    }
-                    else
-                    {
-                        foundGuild.ServerId       = (long)guildId;
-                        foundGuild.WowGuild       = wowGuildName;
-                        foundGuild.WowRealm       = realmName;
-                        foundGuild.WowRegion      = apiRegion;
-                        foundGuild.Locale         = locale;
-                        foundGuild.LocalRealmSlug = realmSlug;
-                        foundGuild.SetBy          = context.User.Username;
-                        foundGuild.SetById        = (long)context.User.Id;
-                        foundGuild.TimeSet        = DateTime.UtcNow;
-                    }
-                    await db.SaveChangesAsync();
-
-                    // If log monitoring is enabled, update LatestLogRetail to force into Tier 1
-                    // This ensures the new guild starts in the active tier for immediate checking
-                    var logMonitoring = db.LogMonitoring.FirstOrDefault(l => l.ServerId == (long)guildId);
-                    if (logMonitoring != null && logMonitoring.MonitorLogs)
-                    {
-                        logMonitoring.LatestLogRetail = DateTime.UtcNow;
-                        await db.SaveChangesAsync();
-                        _logger.LogInformation("Updated LatestLogRetail for {GuildName} to force into Tier 1 after guild change", guildName);
-                    }
+                    logMonitoring.LatestLogRetail = DateTime.UtcNow;
+                    _logger.LogInformation("Updated LatestLogRetail for {GuildName} to force into Tier 1 after guild change", guildName);
                 }
+
+                // Save all changes in one transaction
+                await uow.SaveChangesAsync();
             }
             catch (Exception ex)
             {
