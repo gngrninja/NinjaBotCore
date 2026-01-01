@@ -15,38 +15,58 @@ namespace NinjaBotCore.Repositories
     /// This pattern is compatible with singleton services and prevents DI lifetime violations.
     /// </summary>
     /// <typeparam name="TEntity">The entity type</typeparam>
-    public class Repository<TEntity> : IRepository<TEntity> where TEntity : class
+    public class Repository<TEntity> : IRepository<TEntity>, IAsyncDisposable where TEntity : class
     {
         private readonly IServiceScopeFactory _scopeFactory;
+        private readonly object _lock = new object();
         private IServiceScope _scope;
         private NinjaBotEntities _context;
         private DbSet<TEntity> _dbSet;
         private bool _disposed;
+        private readonly bool _ownsContext;
 
-        public Repository(IServiceScopeFactory scopeFactory)
+        /// <summary>
+        /// Constructor for standalone repository usage (Pattern #1).
+        /// Repository will create and manage its own scope and DbContext.
+        /// Use this when creating repositories directly in singleton services.
+        /// Internal to prevent DI ambiguity - only called explicitly by GetRepository() helpers.
+        /// </summary>
+        internal Repository(IServiceScopeFactory scopeFactory)
         {
             _scopeFactory = scopeFactory ?? throw new ArgumentNullException(nameof(scopeFactory));
+            _ownsContext = true; // This repository will create and own the context
         }
 
         /// <summary>
-        /// Internal constructor for UnitOfWork pattern - receives direct context
+        /// Constructor for DI-resolved or UnitOfWork repository usage.
+        /// Repository receives an externally-managed DbContext and does NOT dispose it.
+        /// Use this when resolving repositories from a service scope or via UnitOfWork.
+        /// This is the preferred constructor for Pattern #3 (marked with ActivatorUtilitiesConstructor).
         /// </summary>
-        internal Repository(NinjaBotEntities context)
+        [ActivatorUtilitiesConstructor]
+        public Repository(NinjaBotEntities context)
         {
             _context = context ?? throw new ArgumentNullException(nameof(context));
             _dbSet = _context.Set<TEntity>();
+            _ownsContext = false; // Context is owned by the scope or UnitOfWork
         }
 
         /// <summary>
-        /// Ensures a database context is available (lazy initialization)
+        /// Ensures a database context is available (lazy initialization with thread safety)
         /// </summary>
         private void EnsureContext()
         {
             if (_context == null)
             {
-                _scope = _scopeFactory.CreateScope();
-                _context = _scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
-                _dbSet = _context.Set<TEntity>();
+                lock (_lock)
+                {
+                    if (_context == null)
+                    {
+                        _scope = _scopeFactory.CreateScope();
+                        _context = _scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+                        _dbSet = _context.Set<TEntity>();
+                    }
+                }
             }
         }
 
@@ -123,11 +143,33 @@ namespace NinjaBotCore.Repositories
             return await _context.SaveChangesAsync(ct);
         }
 
+        public async ValueTask DisposeAsync()
+        {
+            if (!_disposed)
+            {
+                // Only dispose resources we own
+                if (_ownsContext)
+                {
+                    if (_context != null)
+                    {
+                        await _context.DisposeAsync();
+                    }
+                    _scope?.Dispose();
+                }
+                _disposed = true;
+            }
+        }
+
         public void Dispose()
         {
             if (!_disposed)
             {
-                _scope?.Dispose();
+                // Only dispose resources we own
+                if (_ownsContext)
+                {
+                    _context?.Dispose();
+                    _scope?.Dispose();
+                }
                 _disposed = true;
             }
         }

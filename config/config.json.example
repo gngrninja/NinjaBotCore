@@ -1,6 +1,5 @@
 {
   "Token": "discord-bot-token-here",
-  "prefix": "!",
   "WoWClient": "wow-client-id",
   "WoWSecret": "wow-client-secret",
   "Database": {

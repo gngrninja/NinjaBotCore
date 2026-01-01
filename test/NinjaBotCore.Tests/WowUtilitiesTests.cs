@@ -10,6 +10,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Collections.Generic;
 using NinjaBotCore.Database;
+using NinjaBotCore.Repositories;
+using Microsoft.EntityFrameworkCore;
 
 namespace NinjaBotCore.Tests
 {
@@ -20,10 +22,10 @@ namespace NinjaBotCore.Tests
         IServiceProvider _provider;
 
         public WowUtilitiesTests()
-        {        
+        {
             var _builder = new ConfigurationBuilder()
-                .SetBasePath(AppContext.BaseDirectory);         
-            _config = _builder.Build();    
+                .SetBasePath(AppContext.BaseDirectory);
+            _config = _builder.Build();
             var services = new ServiceCollection()
                 .AddHttpClient()
                 .AddSingleton<WowApi>()
@@ -32,20 +34,27 @@ namespace NinjaBotCore.Tests
                 .AddSingleton<DiscordShardedClient>()
                 .AddSingleton<StartupService>()
                 .AddSingleton<WowUtilities>()
-                .AddSingleton<NinjaBotEntities>()
                 .AddSingleton<WarcraftLogsV2Client>()
                 .AddSingleton<ILoggerFactory, NullLoggerFactory>()
-                .AddSingleton(_config);    
+                .AddSingleton(_config);
 
-            Log.Logger = new LoggerConfiguration()                    
-                    .WriteTo.Console()                                 
-                    .CreateLogger();  
+            // Add DbContext with in-memory database
+            services.AddDbContext<NinjaBotEntities>(options =>
+                options.UseInMemoryDatabase($"WowUtilsTestDb_{Guid.NewGuid()}"));
 
-            services.AddLogging(); 
+            // Add repository for FindWowCheeve
+            services.AddScoped<IRepository<FindWowCheeve>>(sp =>
+                new Repository<FindWowCheeve>(sp.GetRequiredService<IServiceScopeFactory>()));
+
+            Log.Logger = new LoggerConfiguration()
+                    .WriteTo.Console()
+                    .CreateLogger();
+
+            services.AddLogging();
 
             var serviceProvider = services.BuildServiceProvider();
             _provider = serviceProvider;
-            
+
         }                
 
         [Fact]

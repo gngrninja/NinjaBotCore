@@ -12,7 +12,7 @@ namespace NinjaBotCore.Repositories
     /// Unit of Work implementation providing shared context across multiple repositories
     /// and transaction support for complex multi-entity operations
     /// </summary>
-    public class UnitOfWork : IUnitOfWork
+    public class UnitOfWork : IUnitOfWork, IAsyncDisposable
     {
         private readonly IServiceScope _scope;
         private readonly NinjaBotEntities _context;
@@ -54,10 +54,24 @@ namespace NinjaBotCore.Repositories
             return await _context.SaveChangesAsync(ct);
         }
 
+        public async ValueTask DisposeAsync()
+        {
+            if (!_disposed)
+            {
+                if (_context != null)
+                {
+                    await _context.DisposeAsync();
+                }
+                _scope?.Dispose();
+                _disposed = true;
+            }
+        }
+
         public void Dispose()
         {
             if (!_disposed)
             {
+                _context?.Dispose();
                 _scope?.Dispose();
                 _disposed = true;
             }

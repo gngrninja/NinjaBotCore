@@ -1,5 +1,4 @@
 using Discord;
-using Discord.Commands;
 using Discord.Interactions;
 using Discord.WebSocket;
 using System.Threading.Tasks;
@@ -69,19 +68,13 @@ namespace NinjaBotCore
                     MessageCacheSize = 1000,
                     AlwaysDownloadUsers = true,
                     ConnectionTimeout = 60000,  // Increase from default 30s to 60s for shard connections
-                    HandlerTimeout = null       // Disable handler timeout warnings
+                    HandlerTimeout = null,      // Disable handler timeout warnings
+                    UseInteractionSnowflakeDate = false  // Fix for autocomplete "already acknowledged" clock sync errors
                 }))
                 .AddSingleton(_config)
-                .AddSingleton(new CommandService(new CommandServiceConfig 
-                { 
-                    DefaultRunMode = Discord.Commands.RunMode.Async,
-                    LogLevel = LogSeverity.Verbose,
-                    CaseSensitiveCommands = false, 
-                    ThrowOnError = false 
-                }))  
                 .AddDbContext<NinjaBotEntities>()
-                .AddHttpClient()                
-                .AddSingleton<WowApi>()                                                
+                .AddHttpClient()
+                .AddSingleton<WowApi>()
                 .AddSingleton<WowUtilities>()
                 .AddSingleton<WarcraftLogs>()
                 .AddSingleton<WarcraftLogsV2Client>()
@@ -89,14 +82,21 @@ namespace NinjaBotCore
                 .AddSingleton<AwayCommands>()
                 .AddSingleton<UserInteraction>()
                 .AddSingleton<ModerationWatcherService>()
-                .AddSingleton<CommandHandler>()
-                .AddSingleton(x => new InteractionService(x.GetRequiredService<DiscordShardedClient>()))
+                .AddSingleton(x => new InteractionService(
+                    x.GetRequiredService<DiscordShardedClient>(),
+                    new InteractionServiceConfig
+                    {
+                        // Enable automatic scope creation per interaction (Pattern #3)
+                        // This ensures each slash command gets its own service scope automatically
+                        AutoServiceScopes = true
+                    }))
                 .AddSingleton<Services.ErrorHandling.GlobalExceptionHandler>()
                 .AddSingleton<InteractionHandler>()
                 .AddSingleton<StartupService>()
-                // Repository pattern (Phase 2)
+                // Repository pattern (Pattern #3 - Scope-at-Boundary)
                 .AddScoped<Repositories.IUnitOfWork, Repositories.UnitOfWork>()
-                .AddTransient(typeof(Repositories.IRepository<>), typeof(Repositories.Repository<>))
+                // Repository uses [ActivatorUtilitiesConstructor] to prefer NinjaBotEntities constructor
+                .AddScoped(typeof(Repositories.IRepository<>), typeof(Repositories.Repository<>))
                 .AddSingleton<SteamApi>()         
                 .AddSingleton<RaiderIOApi>()
                 .AddSingleton<YouTubeApi>()                
@@ -131,7 +131,6 @@ namespace NinjaBotCore
             await serviceProvider.GetRequiredService<StartupService>().StartAsync();
 
             //Load up services
-            serviceProvider.GetRequiredService<CommandHandler>();
             serviceProvider.GetRequiredService<UserInteraction>();
             serviceProvider.GetRequiredService<ModerationWatcherService>();            
                                                       

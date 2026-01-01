@@ -29,10 +29,8 @@ namespace NinjaBotCore.Modules.Wow
         public DiscordShardedClient _client;
         public RaiderIOApi _rioApi;
         public readonly IConfigurationRoot _config;
-        public string _prefix;
         public readonly ILogger _logger;
         private readonly IServiceScopeFactory _scopeFactory;
-        private readonly IRepository<FindWowCheeve> _achievementRepo;
 
         public WowUtilities(IServiceProvider services)
         {
@@ -43,8 +41,6 @@ namespace NinjaBotCore.Modules.Wow
             _client = services.GetRequiredService<DiscordShardedClient>();
             _config = services.GetRequiredService<IConfigurationRoot>();
             _scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
-            _achievementRepo = services.GetRequiredService<IRepository<FindWowCheeve>>();
-            _prefix = _config["prefix"];
         }
 
         private IRepository<TEntity> GetRepository<TEntity>() where TEntity : class
@@ -210,7 +206,7 @@ namespace NinjaBotCore.Modules.Wow
         {
             NinjaObjects.GuildObject guildObject = new NinjaObjects.GuildObject();
 
-            var guildRepo = GetRepository<WowGuildAssociations>();
+            await using var guildRepo = GetRepository<WowGuildAssociations>();
             var foundGuild = await guildRepo.FirstOrDefaultAsync(g => g.ServerName == discordGuildName);
 
             if (foundGuild != null)
@@ -297,7 +293,7 @@ namespace NinjaBotCore.Modules.Wow
                 }
 
                 // Use UnitOfWork for multi-entity operation
-                using var uow = GetUnitOfWork();
+                await using var uow = GetUnitOfWork();
 
                 // Upsert WowGuildAssociations
                 var guildRepo = uow.Repository<WowGuildAssociations>();
@@ -405,7 +401,10 @@ namespace NinjaBotCore.Modules.Wow
         {
             StringBuilder cheevMessage = new StringBuilder();
             var completedCheeves = armoryInfo.achievements.achievementsCompleted;
-            var findCheeves = await _achievementRepo.GetAllAsync();
+
+            // Pattern #1: Create repository on-demand (singleton service)
+            await using var achievementRepo = GetRepository<FindWowCheeve>();
+            var findCheeves = await achievementRepo.GetAllAsync();
             if (findCheeves != null)
             {
                 foreach (int achievement in completedCheeves)
@@ -527,7 +526,7 @@ namespace NinjaBotCore.Modules.Wow
             currentTier.WclZoneId = zone.id;
             currentTier.RaidName = zone.name;
 
-            var raidRepo = GetRepository<CurrentRaidTier>();
+            await using var raidRepo = GetRepository<CurrentRaidTier>();
 
             // This is a singleton pattern - there's only ever one CurrentRaidTier record
             var curRaid = await raidRepo.FirstOrDefaultAsync(r => true);
@@ -780,7 +779,7 @@ namespace NinjaBotCore.Modules.Wow
                 realmSlug = realmName;
 
                 // Use UnitOfWork for multi-entity operation
-                using var uow = GetUnitOfWork();
+                await using var uow = GetUnitOfWork();
 
                 // Upsert WowGuildAssociations
                 var guildRepo = uow.Repository<WowGuildAssociations>();

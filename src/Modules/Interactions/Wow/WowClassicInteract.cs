@@ -29,12 +29,17 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private WarcraftLogs _wclLogsApi;
         private WarcraftLogsV2Client _wclLogsV2Api;
 
-        public WowClassicInteract(IServiceProvider services)
-            : base(services.GetRequiredService<IServiceScopeFactory>())
+        // Pattern #3: Constructor injection instead of service locator
+        public WowClassicInteract(
+            IServiceScopeFactory scopeFactory,
+            ILogger<WowClassicInteract> logger,
+            WarcraftLogs wclLogsApi,
+            WarcraftLogsV2Client wclLogsV2Api)
+            : base(scopeFactory)
         {
-            _logger = services.GetRequiredService<ILogger<WowClassicInteract>>();
-            _wclLogsApi = services.GetRequiredService<WarcraftLogs>();
-            _wclLogsV2Api = services.GetRequiredService<WarcraftLogsV2Client>();
+            _logger = logger;
+            _wclLogsApi = wclLogsApi;
+            _wclLogsV2Api = wclLogsV2Api;
         }
 
         [SlashCommand("getclassicguild", "get classic guild info")]

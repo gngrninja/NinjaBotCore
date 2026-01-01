@@ -38,18 +38,29 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private readonly ILogger _logger;
         private WowUtilities _wowUtils;
 
-        public WowInteract(IServiceProvider services)
-            : base(services.GetRequiredService<IServiceScopeFactory>())
+        // Pattern #3: Constructor injection instead of service locator
+        public WowInteract(
+            IServiceScopeFactory scopeFactory,
+            InteractionHandler handler,
+            ILogger<WowInteract> logger,
+            WarcraftLogs logsApi,
+            WarcraftLogsV2Client logsApiV2,
+            WowApi wowApi,
+            RaiderIOApi rioApi,
+            DiscordShardedClient client,
+            IConfigurationRoot config,
+            WowUtilities wowUtils)
+            : base(scopeFactory)
         {
-            _handler = services.GetRequiredService<InteractionHandler>();
-            _logger = services.GetRequiredService<ILogger<WowInteract>>();
-            _logsApi = services.GetRequiredService<WarcraftLogs>();
-            _logsApiV2 = services.GetRequiredService<WarcraftLogsV2Client>();
-            _wowApi = services.GetRequiredService<WowApi>();
-            _rioApi = services.GetRequiredService<RaiderIOApi>();
-            _client = services.GetRequiredService<DiscordShardedClient>();
-            _config = services.GetRequiredService<IConfigurationRoot>();
-            _wowUtils = services.GetRequiredService<WowUtilities>();
+            _handler = handler;
+            _logger = logger;
+            _logsApi = logsApi;
+            _logsApiV2 = logsApiV2;
+            _wowApi = wowApi;
+            _rioApi = rioApi;
+            _client = client;
+            _config = config;
+            _wowUtils = wowUtils;
         }
 
         [SlashCommand("rio", "Get character's Raider.IO profile")]
@@ -2652,13 +2663,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
                     builder.WithSelectMenu(selectMenuBuilder);
 
-                    // Add management buttons on row 1
+                    // Add management buttons on row 1 (disabled until character is selected)
                     builder.WithButton(
                         label: "Set as Main",
                         customId: "char_set_main",
                         style: ButtonStyle.Success,
                         emote: new Emoji("⭐"),
-                        row: 1
+                        row: 1,
+                        disabled: true
                     );
 
                     builder.WithButton(
@@ -2666,7 +2678,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         customId: "char_remove",
                         style: ButtonStyle.Danger,
                         emote: new Emoji("🗑️"),
-                        row: 1
+                        row: 1,
+                        disabled: true
                     );
 
                     builder.WithButton(
@@ -2674,7 +2687,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         customId: "char_view_rio",
                         style: ButtonStyle.Primary,
                         emote: new Emoji("📊"),
-                        row: 1
+                        row: 1,
+                        disabled: true
                     );
                 }
             }

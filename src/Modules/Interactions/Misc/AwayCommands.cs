@@ -8,7 +8,6 @@ using Discord.WebSocket;
 using NinjaBotCore.Database;
 using NinjaBotCore.Services;
 using Microsoft.Extensions.Logging;
-using NinjaBotCore.Modules.Away;
 using Discord.Interactions;
 using Microsoft.Extensions.DependencyInjection;
 using NinjaBotCore.Repositories;
@@ -21,7 +20,13 @@ namespace NinjaBotCore.Modules.Interactions.Away
         private static DiscordShardedClient _client;
         private readonly ILogger _logger;
 
-        public AwayCommands(IServiceScopeFactory scopeFactory, DiscordShardedClient client, ILogger<AwayCommands> logger)
+        // NOTE: This module is registered as Singleton to hook MessageReceived events
+        // Therefore, it cannot use scoped repository injection (Pattern #3)
+        // Instead, it uses Pattern #1 (GetRepository) for both slash commands and events
+        public AwayCommands(
+            IServiceScopeFactory scopeFactory,
+            DiscordShardedClient client,
+            ILogger<AwayCommands> logger)
             : base(scopeFactory)
         {
             _logger = logger;
@@ -48,7 +53,7 @@ namespace NinjaBotCore.Modules.Interactions.Away
                 string userName = user.Username;
                 string userMentionName = user.Mention;
 
-                var awayRepo = GetRepository<AwaySystem>();
+                await using var awayRepo = GetRepository<AwaySystem>();
                 var existing = await awayRepo.FirstOrDefaultAsync(a => a.UserName == userName);
 
                 if (existing != null && existing.Status == true)
@@ -97,7 +102,7 @@ namespace NinjaBotCore.Modules.Interactions.Away
                 string userName = user.Username;
                 string userMentionName = user.Mention;
 
-                var awayRepo = GetRepository<AwaySystem>();
+                await using var awayRepo = GetRepository<AwaySystem>();
                 var existing = await awayRepo.FirstOrDefaultAsync(a => a.UserName == userName);
 
                 if (existing == null || existing.Status != true)
@@ -171,7 +176,7 @@ namespace NinjaBotCore.Modules.Interactions.Away
                     {
                         foreach (var user in userMentioned)
                         {
-                            var awayRepo = GetRepository<AwaySystem>();
+                            await using var awayRepo = GetRepository<AwaySystem>();
                             var awayUser = await awayRepo.FirstOrDefaultAsync(a => a.UserName == user.Username);
 
                             if (awayUser != null && awayUser.Status == true)

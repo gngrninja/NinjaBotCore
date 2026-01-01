@@ -34,17 +34,27 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private WowUtilities _wowUtils;
         private readonly WarcraftLogsV2Client _v2Client;
 
-        public WowAdminInteract(IServiceProvider services)
-            : base(services.GetRequiredService<IServiceScopeFactory>())
+        // Pattern #3: Constructor injection instead of service locator
+        public WowAdminInteract(
+            IServiceScopeFactory scopeFactory,
+            ILogger<WowAdminInteract> logger,
+            WowUtilities wowUtils,
+            WarcraftLogs logsApi,
+            WowApi wowApi,
+            RaiderIOApi rioApi,
+            DiscordShardedClient client,
+            IConfigurationRoot config,
+            WarcraftLogsV2Client v2Client)
+            : base(scopeFactory)
         {
-            _logger = services.GetRequiredService<ILogger<WowAdminInteract>>();
-            _wowUtils = services.GetRequiredService<WowUtilities>();
-            _logsApi = services.GetRequiredService<WarcraftLogs>();
-            _wowApi = services.GetRequiredService<WowApi>();
-            _rioApi = services.GetRequiredService<RaiderIOApi>();
-            _client = services.GetRequiredService<DiscordShardedClient>();
-            _config = services.GetRequiredService<IConfigurationRoot>();
-            _v2Client = services.GetRequiredService<WarcraftLogsV2Client>();
+            _logger = logger;
+            _wowUtils = wowUtils;
+            _logsApi = logsApi;
+            _wowApi = wowApi;
+            _rioApi = rioApi;
+            _client = client;
+            _config = config;
+            _v2Client = v2Client;
         }
 
         [SlashCommand("populatelogs", "populate logs")]
@@ -211,7 +221,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         [Discord.Interactions.RequireOwner]
         public async Task GetLatestZone()
         {
-            var zone = WarcraftLogs.Zones[WarcraftLogs.Zones.Count - 1];
+            var zone = WarcraftLogs.Zones.OrderByDescending(z => z.id).First();
             var encounters = zone.encounters.Select(s => s.name).ToList();
 
             var embed = new EmbedBuilder();
@@ -251,9 +261,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             if (args == null)
             {
-                zone = WarcraftLogs.Zones[WarcraftLogs.Zones.Count - 1]; 
+                zone = WarcraftLogs.Zones.OrderByDescending(z => z.id).First();
                 currentId = zone.id;
-                name = zone.name;      
+                name = zone.name;
             }
             else
             {

@@ -44,7 +44,7 @@ namespace NinjaBotCore.Services
 
         private async Task<ModerationWatcher> GetSettingsAsync(long guildId)
         {
-            var repo = new Repository<ModerationWatcher>(_scopeFactory);
+            await using var repo = new Repository<ModerationWatcher>(_scopeFactory);
             return await repo.FirstOrDefaultAsync(m => m.DiscordGuildId == guildId);
         }
 

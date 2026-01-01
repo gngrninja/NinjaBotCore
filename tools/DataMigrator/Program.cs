@@ -257,7 +257,6 @@ static class TableCopyTasks
         new TableCopyTask<Giphy>(nameof(NinjaBotEntities.Giphy), ctx => ctx.Giphy),
         new TableCopyTask<LogMonitoring>(nameof(NinjaBotEntities.LogMonitoring), ctx => ctx.LogMonitoring),
         new TableCopyTask<Note>(nameof(NinjaBotEntities.Notes), ctx => ctx.Notes),
-        new TableCopyTask<PrefixList>(nameof(NinjaBotEntities.PrefixList), ctx => ctx.PrefixList),
         new TableCopyTask<QuestionAnswer>(nameof(NinjaBotEntities.QuestionAnswers), ctx => ctx.QuestionAnswers),
         new TableCopyTask<Request>(nameof(NinjaBotEntities.Requests), ctx => ctx.Requests),
         new TableCopyTask<RlStat>(nameof(NinjaBotEntities.RlStats), ctx => ctx.RlStats),
@@ -355,7 +354,6 @@ static class SqliteDataNormalizer
 
     private static readonly (string Table, string Column)[] ZeroByteStringColumns =
     {
-        ("PrefixList", "Prefix"),
         ("Giphy", "ServerName"),
         ("Requests", "Command"),
         ("Requests", "Parameters"),
@@ -391,21 +389,6 @@ WHERE INSTR(COALESCE("{{column}}", ''), char(0)) > 0;
 """;
             await context.Database.ExecuteSqlRawAsync(sql);
         }
-
-        await context.Database.ExecuteSqlRawAsync("""
-UPDATE "PrefixList" SET "Prefix" = char("Prefix")
-WHERE typeof("Prefix") = 'integer';
-""");
-
-        await context.Database.ExecuteSqlRawAsync("""
-UPDATE "PrefixList" SET "Prefix" = substr(COALESCE("Prefix", ''), 1, 1)
-WHERE length(COALESCE("Prefix", '')) > 1;
-""");
-
-        await context.Database.ExecuteSqlRawAsync("""
-UPDATE "PrefixList" SET "Prefix" = '!'
-WHERE TRIM(COALESCE("Prefix", '')) = '' OR COALESCE("Prefix", char(0)) = char(0);
-""");
     }
 }
 

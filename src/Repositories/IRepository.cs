@@ -10,7 +10,7 @@ namespace NinjaBotCore.Repositories
     /// Generic repository interface for database operations
     /// </summary>
     /// <typeparam name="TEntity">The entity type</typeparam>
-    public interface IRepository<TEntity> where TEntity : class
+    public interface IRepository<TEntity> : IAsyncDisposable where TEntity : class
     {
         /// <summary>
         /// Gets the first entity matching the predicate or null

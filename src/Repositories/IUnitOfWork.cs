@@ -9,7 +9,7 @@ namespace NinjaBotCore.Repositories
     /// <summary>
     /// Unit of Work pattern for multi-entity operations and transaction support
     /// </summary>
-    public interface IUnitOfWork : IDisposable
+    public interface IUnitOfWork : IAsyncDisposable, IDisposable
     {
         /// <summary>
         /// Gets a repository for the specified entity type.

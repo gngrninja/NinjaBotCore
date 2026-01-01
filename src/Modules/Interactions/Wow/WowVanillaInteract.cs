@@ -28,11 +28,15 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private readonly List<String> _wclRegions = new List<String>{"US", "EU", "KR", "TW", "CN"};
         private WarcraftLogs _wclLogsApi;
 
-        public WowVanillaInteract(IServiceProvider services)
-            : base(services.GetRequiredService<IServiceScopeFactory>())
+        // Pattern #3: Constructor injection instead of service locator
+        public WowVanillaInteract(
+            IServiceScopeFactory scopeFactory,
+            ILogger<WowVanillaInteract> logger,
+            WarcraftLogs wclLogsApi)
+            : base(scopeFactory)
         {
-            _logger = services.GetRequiredService<ILogger<WowVanillaInteract>>();
-            _wclLogsApi = services.GetRequiredService<WarcraftLogs>();
+            _logger = logger;
+            _wclLogsApi = wclLogsApi;
         }
 
         [SlashCommand("getvanillaguild", "get vanilla guild info")]
