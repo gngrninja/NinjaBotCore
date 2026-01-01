@@ -166,50 +166,51 @@ namespace NinjaBotCore.Modules.Interactions.Away
 
         private async Task AwayMentionFinder(SocketMessage messageDetails)
         {
-            await Task.Run(async () =>
+            try
             {
-                var message = messageDetails as SocketUserMessage;
-                if (!messageDetails.Author.IsBot)
+                // Early returns - fast filtering
+                if (messageDetails.Author.IsBot) return;
+                if (!messageDetails.MentionedUsers.Any()) return;
+
+                var mentionedUsers = messageDetails.MentionedUsers.ToList();
+
+                // Single repository for all users - reuse DbContext
+                await using var awayRepo = GetRepository<AwaySystem>();
+
+                foreach (var user in mentionedUsers)
                 {
-                    var userMentioned = messageDetails.MentionedUsers.ToList();
-                    if (userMentioned != null)
+                    var awayUser = await awayRepo.FirstOrDefaultAsync(a =>
+                        a.UserName == user.Username && a.Status == true);
+
+                    if (awayUser == null) continue;
+
+                    // Calculate away duration
+                    string awayDuration = string.Empty;
+                    if (awayUser.TimeAway.HasValue)
                     {
-                        foreach (var user in userMentioned)
-                        {
-                            await using var awayRepo = GetRepository<AwaySystem>();
-                            var awayUser = await awayRepo.FirstOrDefaultAsync(a => a.UserName == user.Username);
-
-                            if (awayUser != null && awayUser.Status == true)
-                            {
-                                string awayDuration = string.Empty;
-                                if (awayUser.TimeAway.HasValue)
-                                {
-                                    var awayTime = DateTime.UtcNow - awayUser.TimeAway;
-                                    if (awayTime.HasValue)
-                                    {
-                                        awayDuration = $"**{awayTime.Value.Days}** days, **{awayTime.Value.Hours}** hours, **{awayTime.Value.Minutes}** minutes, and **{awayTime.Value.Seconds}** seconds";
-                                    }
-                                }
-
-                                _logger.LogInformation($"Mentioned user {user.Username} -> {awayUser.UserName} -> {awayUser.Status}");
-
-                                SocketGuild guild = (message.Channel as SocketGuildChannel)?.Guild;
-                                EmbedBuilder embed = new EmbedBuilder();
-                                embed.WithColor(new Color(0, 71, 171));
-
-                                if (!string.IsNullOrWhiteSpace(guild?.IconUrl))
-                                {
-                                    embed.ThumbnailUrl = user.GetAvatarUrl();
-                                }
-
-                                embed.Title = $":clock: {awayUser.UserName} is away! :clock:";
-                                embed.Description = $"Since: **{awayUser.TimeAway}\n**Duration: {awayDuration}\nMessage: {awayUser.Message}";
-                                await messageDetails.Channel.SendMessageAsync("", false, embed.Build());
-                            }
-                        }
+                        var duration = DateTime.UtcNow - awayUser.TimeAway.Value;
+                        awayDuration = $"**{duration.Days}** days, **{duration.Hours}** hours, **{duration.Minutes}** minutes, and **{duration.Seconds}** seconds";
                     }
+
+                    _logger.LogInformation("Mentioned user {Username} is away (Status: {Status})",
+                        user.Username, awayUser.Status);
+
+                    // Build embed
+                    var embed = new EmbedBuilder()
+                        .WithColor(new Color(0, 71, 171))
+                        .WithThumbnailUrl(user.GetAvatarUrl())
+                        .WithTitle($":clock: {awayUser.UserName} is away! :clock:")
+                        .WithDescription($"Since: **{awayUser.TimeAway}**\nDuration: {awayDuration}\nMessage: {awayUser.Message}")
+                        .Build();
+
+                    await messageDetails.Channel.SendMessageAsync(embed: embed);
                 }
-            });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking away mentions in channel {ChannelId}",
+                    messageDetails.Channel.Id);
+            }
         }
     }
 }

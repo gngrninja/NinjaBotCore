@@ -13,6 +13,8 @@ using NinjaBotCore.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
+using NinjaBotCore.Migrations;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace NinjaBotCore.Modules.Interactions.Admin
 {
@@ -22,6 +24,10 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         private static DiscordShardedClient _client;
         private readonly IConfigurationRoot _config;
         private readonly ILogger<Admin> _logger;
+        private static readonly MemoryCache _wordListCache = new MemoryCache(new MemoryCacheOptions
+        {
+            SizeLimit = 1000
+        });
 
         public Admin(IServiceProvider services)
             : base(services.GetRequiredService<IServiceScopeFactory>())
@@ -40,34 +46,55 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
         private async Task WordFinder(SocketMessage messageDetails)
         {
-            await Task.Run(async () =>
+            try
             {
-                var message = messageDetails as SocketUserMessage;
-                if (!messageDetails.Author.IsBot)
-                {
-                    SocketGuild guild = (message.Channel as SocketGuildChannel)?.Guild;
-                    var serverWordList = await WithDbAsync(async db =>
-                    {
-                        return await db.WordList.Where(w => w.ServerId == (long)guild.Id).ToListAsync();
-                    });
+                // Early returns - fast filtering
+                if (messageDetails.Author.IsBot) return;
+                if (!(messageDetails.Channel is SocketGuildChannel guildChannel)) return; // Skip DMs
+                if (string.IsNullOrWhiteSpace(messageDetails.Content)) return;
 
-                    bool wordFound = false;
-                    foreach (var singleWord in serverWordList)
+                var serverId = (long)guildChannel.Guild.Id;
+                var cacheKey = $"wordlist_{serverId}";
+
+                // Get from cache or DB (15 minute cache)
+                var bannedWords = await _wordListCache.GetOrCreateAsync(cacheKey, async entry =>
+                {
+                    entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(15);
+                    entry.Size = 1;
+
+                    return await WithDbAsync(async db =>
                     {
-                        foreach (var content in messageDetails.Content.ToLower().Split(' '))
-                        {
-                            if (singleWord.Word.ToLower().Contains(content))
-                            {
-                                wordFound = true;
-                            }
-                        }
-                    }
-                    if (wordFound)
-                    {
-                        await messageDetails.DeleteAsync();
-                    }
+                        return await db.WordList
+                            .Where(w => w.ServerId == serverId)
+                            .Select(w => w.Word.ToLower())
+                            .ToListAsync();
+                    });
+                });
+
+                // Fast check - does message contain any banned word?
+                var messageContent = messageDetails.Content.ToLower();
+                if (bannedWords.Any(word => messageContent.Contains(word)))
+                {
+                    await messageDetails.DeleteAsync();
+                    _logger.LogInformation("Deleted message from {User} in {Guild} - contained banned word",
+                        messageDetails.Author.Username, guildChannel.Guild.Name);
                 }
-            });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in word filter for channel {ChannelId}",
+                    messageDetails.Channel.Id);
+            }
+        }
+
+        /// <summary>
+        /// Invalidate the word list cache for a server when words are added/removed
+        /// </summary>
+        private void InvalidateWordListCache(long serverId)
+        {
+            var cacheKey = $"wordlist_{serverId}";
+            _wordListCache.Remove(cacheKey);
+            _logger.LogInformation("Invalidated word list cache for server {ServerId}", serverId);
         }     
 
         [SlashCommand("leave-server", "leave a server")]        
@@ -176,37 +203,85 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         public async Task AddWord(string word)
         {
             var sb = new StringBuilder();
-            await WithDbAsync(async db =>
+            var serverId = (long)Context.Guild.Id;
+
+            var wasAdded = await WithDbAsync(async db =>
             {
-                var words = await db.WordList.Where(w => w.ServerId == (long)Context.Guild.Id).ToListAsync();
-                bool wordFound = false;
-                foreach (var singleWord in words)
-                {
-                    if (singleWord.Word.ToLower().Contains(word.ToLower()))
-                    {
-                        wordFound = true;
-                    }
-                }
-                if (wordFound)
+                var foundWord = await db.WordList
+                    .FirstOrDefaultAsync(w => w.ServerId == serverId && w.Word.ToLower() == word.ToLower());
+
+                if (foundWord != null)
                 {
                     sb.AppendLine($"[{word}] is already in the list!");
+                    return false;
                 }
                 else
                 {
                     sb.AppendLine($"Adding [{word}] to the list!");
                     db.Add(new WordList
                     {
-                        ServerId = (long)Context.Guild.Id,
+                        ServerId = serverId,
                         ServerName = Context.Guild.Name,
                         Word = word,
                         SetById = (long)Context.User.Id
                     });
                     await db.SaveChangesAsync();
+                    return true;
                 }
             });
+
+            // Invalidate cache if word was added
+            if (wasAdded)
+            {
+                InvalidateWordListCache(serverId);
+            }
+
             await RespondAsync(sb.ToString(), ephemeral: true);
         }        
     
+        [SlashCommand("remove-word", "remove a word from the blacklist")]
+        [RequireOwner]
+        public async Task RemoveWord(string word)
+        {
+            var sb = new StringBuilder();
+            var serverId = (long)Context.Guild.Id;
+
+            var deletedCount = await WithDbAsync(async db =>
+            {
+                try
+                {
+                    var searchWord = word.ToLower();
+                    var count = await db.WordList
+                        .Where(w => w.ServerId == serverId && w.Word.ToLower() == searchWord)
+                        .ExecuteDeleteAsync();
+
+                    if (count > 0)
+                    {
+                        sb.AppendLine($"[{word}] removed!");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"[{word}] not found in the database!");
+                    }
+
+                    return count;
+                }
+                catch (Exception ex)
+                {
+                    sb.AppendLine($"Error attempting to remove: [{word}] -> [{ex.Message}]");
+                    return 0;
+                }
+            });
+
+            // Invalidate cache if word was removed
+            if (deletedCount > 0)
+            {
+                InvalidateWordListCache(serverId);
+            }
+
+            await RespondAsync(sb.ToString(), ephemeral: true);
+        }
+
         [SlashCommand("force-greeting-clear", "force a greeting clear")]
         [RequireOwner]
         public async Task ForceGreetingClear(long serverId)
