@@ -74,6 +74,7 @@ namespace NinjaBotCore
                 .AddSingleton(_config)
                 .AddDbContext<NinjaBotEntities>()
                 .AddHttpClient()
+                .AddMemoryCache()
                 .AddSingleton<WowApi>()
                 .AddSingleton<WowUtilities>()
                 .AddSingleton<WarcraftLogs>()
@@ -82,6 +83,7 @@ namespace NinjaBotCore
                 .AddSingleton<AwayCommands>()
                 .AddSingleton<UserInteraction>()
                 .AddSingleton<ModerationWatcherService>()
+                .AddSingleton<WowCacheService>()
                 .AddSingleton(x => new InteractionService(
                     x.GetRequiredService<DiscordShardedClient>(),
                     new InteractionServiceConfig
@@ -123,12 +125,12 @@ namespace NinjaBotCore
                 : "External connection string configured";
             Log.Information("NinjaBot database provider: {Provider} ({ConnectionContext})", providerLabel, connectionLabel);
 
-            // interaction testing
+            //Start the bot FIRST (shards must connect before command registration)
+            await serviceProvider.GetRequiredService<StartupService>().StartAsync();
+
+            // Now initialize interaction handler (will wait for shards and register commands)
             await serviceProvider.GetRequiredService<InteractionHandler>()
                 .InitializeAsync();
-
-            //Start the bot
-            await serviceProvider.GetRequiredService<StartupService>().StartAsync();
 
             //Load up services
             serviceProvider.GetRequiredService<UserInteraction>();

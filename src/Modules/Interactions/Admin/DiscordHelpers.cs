@@ -21,13 +21,15 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         private readonly DiscordShardedClient _client;
         private readonly IConfigurationRoot _config;
         private readonly ILogger<DiscordHelpers> _logger;
+        private readonly ModerationWatcherService _moderationWatcher;
 
-        public DiscordHelpers(DiscordShardedClient client, IServiceProvider services)
+        public DiscordHelpers(DiscordShardedClient client, IServiceProvider services, ModerationWatcherService moderationWatcher)
             : base(services.GetRequiredService<IServiceScopeFactory>())
         {
             _client = client;
             _config = services.GetRequiredService<IConfigurationRoot>();
             _logger = services.GetRequiredService<ILogger<DiscordHelpers>>();
+            _moderationWatcher = moderationWatcher;
         }
 
         [SlashCommand("watch", "Manage moderation watchers")]
@@ -196,6 +198,9 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                     }
 
                     await db.SaveChangesAsync();
+
+                    // Invalidate cache after updating settings
+                    _moderationWatcher.InvalidateSettingsCache((long)Context.Guild.Id);
                 });
             }
             catch (Exception ex)

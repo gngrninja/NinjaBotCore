@@ -37,6 +37,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private readonly IConfigurationRoot _config;
         private readonly ILogger _logger;
         private WowUtilities _wowUtils;
+        private WowCacheService _wowCache;
 
         // Pattern #3: Constructor injection instead of service locator
         public WowInteract(
@@ -49,7 +50,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             RaiderIOApi rioApi,
             DiscordShardedClient client,
             IConfigurationRoot config,
-            WowUtilities wowUtils)
+            WowUtilities wowUtils,
+            WowCacheService wowCache)
             : base(scopeFactory)
         {
             _handler = handler;
@@ -61,6 +63,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             _client = client;
             _config = config;
             _wowUtils = wowUtils;
+            _wowCache = wowCache;
         }
 
         [SlashCommand("rio", "Get character's Raider.IO profile")]
@@ -117,10 +120,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             // If no character specified, use user's main character
             if (string.IsNullOrEmpty(character))
             {
-                var charAssociation = await WithDbAsync(db =>
-                    db.WowCharAssociation
-                        .Where(c => c.UserId == (long)Context.User.Id && c.IsMain)
-                        .FirstOrDefaultAsync());
+                var charAssociation = await _wowCache.GetUserMainCharacterAsync((long)Context.User.Id);
 
                 if (charAssociation != null)
                 {
@@ -425,6 +425,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     {
                         db.RioSearchHistory.RemoveRange(userHistory);
                         await db.SaveChangesAsync();
+
+                        // Invalidate cache after clearing history
+                        _wowCache.InvalidateRioSearchHistory((long)Context.User.Id);
+
                         return userHistory.Count;
                     }
                     return 0;
@@ -642,6 +646,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 }
             });
 
+            // Invalidate cache if character was updated
+            if (result.updated)
+            {
+                _wowCache.InvalidateUserCharacters((long)Context.User.Id);
+            }
+
             await FollowupAsync(result.message, ephemeral: true);
         }
 
@@ -652,14 +662,13 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var embed = new EmbedBuilder();
             var sb = new StringBuilder();
 
-            var savedChars = await WithDbAsync(db =>
-                db.WowCharAssociation
-                    .Where(c => c.UserId == (long)Context.User.Id)
-                    .OrderByDescending(c => c.IsMain)
-                    .ThenBy(c => c.CharName)
-                    .ToListAsync());
+            var savedChars = await _wowCache.GetUserCharactersAsync((long)Context.User.Id);
+            savedChars = savedChars?
+                .OrderByDescending(c => c.IsMain)
+                .ThenBy(c => c.CharName)
+                .ToList();
 
-            if (savedChars.Any())
+            if (savedChars != null && savedChars.Any())
             {
                 embed.Title = $"Your Saved Characters ({savedChars.Count})";
                 embed.WithColor(new Color(0, 200, 150));
@@ -899,10 +908,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         {
             try
             {
-                var resourceList = await WithDbAsync(db =>
-                    db.WowResources.Where(r => r.ResourceDescription == "Discord").ToListAsync());
+                var resourceList = await _wowCache.GetWowResourcesAsync("Discord");
 
-                if (resourceList != null)
+                if (resourceList != null && resourceList.Any())
                 {
                     var embed = new EmbedBuilder();
                     embed.Title = $"WoW Class Discord List";
@@ -1971,10 +1979,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 .FirstOrDefault();
             embed.Title = $"Raid Videos for {WarcraftLogs.CurrentRaidTier.RaidName}";
 
-            var vids = await WithDbAsync(db =>
-                db.WowResources.Where(r => r.ResourceDescription == "raidvid").ToListAsync());
+            var vids = await _wowCache.GetWowResourcesAsync("raidvid");
 
-            if (vids != null)
+            if (vids != null && vids.Any())
             {
                 foreach (var vid in vids)
                 {
@@ -2526,6 +2533,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     }
 
                     await db.SaveChangesAsync();
+
+                    // Invalidate cache since search history was updated
+                    _wowCache.InvalidateRioSearchHistory((long)discordUserId);
 
                     // Cleanup old searches - keep only the 30 most recent per user
                     var userSearches = db.RioSearchHistory

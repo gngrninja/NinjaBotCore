@@ -20,8 +20,9 @@ namespace NinjaBotCore.Services
         private readonly IConfigurationRoot _configuration;
         private readonly ILogger _logger;
         private readonly GlobalExceptionHandler _exceptionHandler;
+        private readonly StartupService _startupService;
 
-        public InteractionHandler(DiscordShardedClient client, InteractionService handler, IServiceProvider services, IConfigurationRoot config, GlobalExceptionHandler exceptionHandler)
+        public InteractionHandler(DiscordShardedClient client, InteractionService handler, IServiceProvider services, IConfigurationRoot config, GlobalExceptionHandler exceptionHandler, StartupService startupService)
         {
             _client = client;
             _handler = handler;
@@ -29,13 +30,11 @@ namespace NinjaBotCore.Services
             _configuration = config;
             _logger = services.GetRequiredService<ILogger<InteractionHandler>>();
             _exceptionHandler = exceptionHandler;
+            _startupService = startupService;
         }
 
         public async Task InitializeAsync()
         {
-            // Process when the client is ready, so we can register our commands.
-            _client.ShardReady += ReadyAsync;
-
             // Add the public modules that inherit InteractionModuleBase<T> to the InteractionService
             var moduleResult = await _handler.AddModulesAsync(Assembly.GetEntryAssembly(), _services);
             var modules = moduleResult.ToList();
@@ -43,20 +42,43 @@ namespace NinjaBotCore.Services
                 modules.Count,
                 string.Join(", ", modules.Select(m => m.Name)));
 
+            // Hook up InteractionService internal logging
+            _handler.Log += LogAsync;
+
             // Hook up global error handling for command execution
             _handler.InteractionExecuted += HandleInteractionExecutedAsync;
 
             // Process the InteractionCreated payloads to execute Interactions commands
             _client.InteractionCreated += HandleInteraction;
+
+            // Wait for all shards to be ready before registering commands
+            // This prevents multiple registrations when using multiple shards
+            try
+            {
+                _logger.LogInformation("Waiting for all shards to be ready before registering commands...");
+                await _startupService.AllShardsReady;
+
+                _logger.LogInformation("All shards ready. Registering {Count} slash commands...",
+                    _handler.SlashCommands.Count);
+                await RegisterCommandsAsync();
+
+                _logger.LogInformation("Command registration completed successfully");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogCritical(ex, "CRITICAL: Failed to register slash commands! Bot startup failed.");
+                throw; // Fail fast - don't continue startup if commands can't register
+            }
         }
 
-        private async Task ReadyAsync(DiscordSocketClient arg)
+        private async Task RegisterCommandsAsync()
         {
-             // Context & Slash commands can be automatically registered, but this process needs to happen after the client enters the READY state.
+            // Context & Slash commands can be automatically registered, but this process needs to happen after the client enters the READY state.
             // Since Global Commands take around 1 hour to register, we should use a test guild to instantly update and test our commands.
+            // This method is called once after all shards are ready to avoid duplicate registrations.
             if (NinjaBot.IsDebug())
             {
-                _logger.LogInformation("Registering {Count} slash commands to test guild {GuildId}",
+                _logger.LogInformation("All shards ready - Registering {Count} slash commands to test guild {GuildId}",
                     _handler.SlashCommands.Count,
                     _configuration["testGuild"]);
                 await _handler.RegisterCommandsToGuildAsync(Convert.ToUInt64(_configuration["testGuild"]), true);
@@ -64,7 +86,7 @@ namespace NinjaBotCore.Services
             }
             else
             {
-                _logger.LogInformation("Registering {Count} slash commands globally", _handler.SlashCommands.Count);
+                _logger.LogInformation("All shards ready - Registering {Count} slash commands globally", _handler.SlashCommands.Count);
                 await _handler.RegisterCommandsGloballyAsync(true);
                 _logger.LogInformation("Successfully registered commands globally");
             }
@@ -160,6 +182,29 @@ namespace NinjaBotCore.Services
             {
                 await _exceptionHandler.HandleCommandResultAsync(context, result);
             }
+        }
+
+        /// <summary>
+        /// Handles internal logging from InteractionService
+        /// </summary>
+        private Task LogAsync(LogMessage message)
+        {
+            var logLevel = message.Severity switch
+            {
+                LogSeverity.Critical => LogLevel.Critical,
+                LogSeverity.Error => LogLevel.Error,
+                LogSeverity.Warning => LogLevel.Warning,
+                LogSeverity.Info => LogLevel.Information,
+                LogSeverity.Verbose => LogLevel.Debug,
+                LogSeverity.Debug => LogLevel.Debug,
+                _ => LogLevel.Information
+            };
+
+            _logger.Log(logLevel, message.Exception,
+                "[InteractionService] {Source}: {Message}",
+                message.Source, message.Message);
+
+            return Task.CompletedTask;
         }
     }
 }

@@ -54,7 +54,7 @@ namespace NinjaBotCore.Modules.Interactions.Away
                 string userMentionName = user.Mention;
 
                 await using var awayRepo = GetRepository<AwaySystem>();
-                var existing = await awayRepo.FirstOrDefaultAsync(a => a.UserName == userName);
+                var existing = await awayRepo.FirstOrDefaultAsync(a => a.UserId == user.Id);
 
                 if (existing != null && existing.Status == true)
                 {
@@ -65,15 +65,17 @@ namespace NinjaBotCore.Modules.Interactions.Away
                     sb.AppendLine($"Marking you as away, **{userMentionName}**, with the message: *{message}*");
 
                     await awayRepo.UpsertAsync(
-                        findPredicate: a => a.UserName == userName,
+                        findPredicate: a => a.UserId == user.Id,
                         updateAction: away =>
                         {
                             away.Status = true;
                             away.Message = message;
                             away.TimeAway = DateTime.UtcNow;
+                            away.UserName = userName;
                         },
                         createFactory: () => new AwaySystem
                         {
+                            UserId = user.Id,
                             UserName = userName,
                             Status = true,
                             Message = message,
@@ -103,7 +105,7 @@ namespace NinjaBotCore.Modules.Interactions.Away
                 string userMentionName = user.Mention;
 
                 await using var awayRepo = GetRepository<AwaySystem>();
-                var existing = await awayRepo.FirstOrDefaultAsync(a => a.UserName == userName);
+                var existing = await awayRepo.FirstOrDefaultAsync(a => a.UserId == user.Id);
 
                 if (existing == null || existing.Status != true)
                 {
@@ -122,14 +124,16 @@ namespace NinjaBotCore.Modules.Interactions.Away
                     }
 
                     await awayRepo.UpsertAsync(
-                        findPredicate: a => a.UserName == userName,
+                        findPredicate: a => a.UserId == user.Id,
                         updateAction: away =>
                         {
                             away.Status = false;
                             away.Message = string.Empty;
+                            away.UserName = userName;
                         },
                         createFactory: () => new AwaySystem
                         {
+                            UserId = user.Id,
                             UserName = userName,
                             Status = false,
                             Message = string.Empty
@@ -180,7 +184,7 @@ namespace NinjaBotCore.Modules.Interactions.Away
                 foreach (var user in mentionedUsers)
                 {
                     var awayUser = await awayRepo.FirstOrDefaultAsync(a =>
-                        a.UserName == user.Username && a.Status == true);
+                        a.UserId == user.Id && a.Status == true);
 
                     if (awayUser == null) continue;
 

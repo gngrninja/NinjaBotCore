@@ -9,6 +9,7 @@ using NinjaBotCore.Database;
 using NinjaBotCore.Repositories;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace NinjaBotCore.Services
 {
@@ -17,14 +18,17 @@ namespace NinjaBotCore.Services
         private readonly ILogger _logger;
         private readonly DiscordShardedClient _client;
         private readonly IServiceScopeFactory _scopeFactory;
+        private readonly IMemoryCache _cache;
         private readonly HashSet<ulong> _recentBulkDeletes;
         private readonly object _bulkDeleteLock;
+        private static readonly TimeSpan CacheExpiration = TimeSpan.FromMinutes(10);
 
         public ModerationWatcherService(IServiceProvider services)
         {
             _logger = services.GetRequiredService<ILogger<ModerationWatcherService>>();
             _client = services.GetRequiredService<DiscordShardedClient>();
             _scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
+            _cache = services.GetRequiredService<IMemoryCache>();
             _recentBulkDeletes = new HashSet<ulong>();
             _bulkDeleteLock = new object();
 
@@ -44,8 +48,34 @@ namespace NinjaBotCore.Services
 
         private async Task<ModerationWatcher> GetSettingsAsync(long guildId)
         {
+            var cacheKey = $"modwatch_settings_{guildId}";
+
+            // Try to get from cache first
+            if (_cache.TryGetValue<ModerationWatcher>(cacheKey, out var cachedSettings))
+            {
+                return cachedSettings;
+            }
+
+            // Not in cache, fetch from database
             await using var repo = new Repository<ModerationWatcher>(_scopeFactory);
-            return await repo.FirstOrDefaultAsync(m => m.DiscordGuildId == guildId);
+            var settings = await repo.FirstOrDefaultAsync(m => m.DiscordGuildId == guildId);
+
+            // Store in cache with expiration
+            if (settings != null)
+            {
+                _cache.Set(cacheKey, settings, CacheExpiration);
+            }
+
+            return settings;
+        }
+
+        /// <summary>
+        /// Invalidates the cached settings for a specific guild
+        /// </summary>
+        public void InvalidateSettingsCache(long guildId)
+        {
+            var cacheKey = $"modwatch_settings_{guildId}";
+            _cache.Remove(cacheKey);
         }
 
         private async Task<ISocketMessageChannel> GetNotificationChannel(SocketGuild guild, ModerationWatcher settings)

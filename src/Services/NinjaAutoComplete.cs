@@ -83,13 +83,11 @@ namespace NinjaBotCore.Services
                 // Step 1.5: Get search history (recent/frequent searches not already in saved chars)
                 try
                 {
-                    var historyRepo = services.GetRequiredService<IRepository<RioSearchHistory>>();
-                    var searchHistory = await historyRepo.WhereAsync(h => h.DiscordUserId == (long)context.User.Id);
+                    var wowCache = services.GetRequiredService<WowCacheService>();
+                    var searchHistory = await wowCache.GetRioSearchHistoryAsync((long)context.User.Id);
 
-                    // Sort and take top 5
+                    // Take top 5
                     searchHistory = searchHistory
-                        .OrderByDescending(h => h.SearchCount)
-                        .ThenByDescending(h => h.LastSearched)
                         .Take(5)
                         .ToList();
 
