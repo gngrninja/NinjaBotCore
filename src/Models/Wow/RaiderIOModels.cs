@@ -1,6 +1,7 @@
 using System;
 using NinjaBotCore.Models.Wow;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace NinjaBotCore.Models.Wow
 {
@@ -441,7 +442,8 @@ namespace NinjaBotCore.Models.Wow
             public Corruption Corruption { get; set; }
 
             [JsonProperty("items")]
-            public GearItem Items { get; set; }
+            [JsonConverter(typeof(GearItemConverter))]
+            public GearItem? Items { get; set; }
         }
 
         public partial class Corruption
@@ -583,6 +585,40 @@ namespace NinjaBotCore.Models.Wow
 
             [JsonProperty("cutting_edge")]
             public bool CuttingEdge { get; set; }
+        }
+    }
+
+    /// <summary>
+    /// Custom converter to handle RaiderIO API inconsistency where 'items' can be either an object or an empty array
+    /// </summary>
+    public class GearItemConverter : JsonConverter<RaiderIOModels.GearItem>
+    {
+        public override RaiderIOModels.GearItem ReadJson(JsonReader reader, Type objectType, RaiderIOModels.GearItem existingValue, bool hasExistingValue, JsonSerializer serializer)
+        {
+            // Load the JSON token
+            var token = JToken.Load(reader);
+
+            // If it's an array (empty or otherwise), return null
+            // This handles the edge case where RaiderIO returns "items": [] instead of an object
+            if (token.Type == JTokenType.Array)
+            {
+                return null;
+            }
+
+            // If it's an object, deserialize normally
+            if (token.Type == JTokenType.Object)
+            {
+                return token.ToObject<RaiderIOModels.GearItem>(serializer);
+            }
+
+            // If it's null or any other type, return null
+            return null;
+        }
+
+        public override void WriteJson(JsonWriter writer, RaiderIOModels.GearItem value, JsonSerializer serializer)
+        {
+            // We don't serialize back to RaiderIO, so just use default serialization
+            serializer.Serialize(writer, value);
         }
     }
 }

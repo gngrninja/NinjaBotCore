@@ -74,7 +74,11 @@ namespace NinjaBotCore
                 .AddSingleton(_config)
                 .AddDbContext<NinjaBotEntities>()
                 .AddHttpClient()
-                .AddMemoryCache()
+                .AddMemoryCache(options =>
+                {
+                    // Configure memory cache size limit to prevent unbounded growth
+                    options.SizeLimit = 1000; // Limit to 1000 cached entries across all caches
+                })
                 .AddSingleton<WowApi>()
                 .AddSingleton<WowUtilities>()
                 .AddSingleton<WarcraftLogs>()

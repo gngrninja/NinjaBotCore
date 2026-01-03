@@ -63,7 +63,12 @@ namespace NinjaBotCore.Services
             // Store in cache with expiration
             if (settings != null)
             {
-                _cache.Set(cacheKey, settings, CacheExpiration);
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = CacheExpiration,
+                    Size = 1
+                };
+                _cache.Set(cacheKey, settings, cacheOptions);
             }
 
             return settings;

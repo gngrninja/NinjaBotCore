@@ -47,7 +47,12 @@ namespace NinjaBotCore.Services
 
             if (character != null)
             {
-                _cache.Set(cacheKey, character, MainCharacterExpiration);
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = MainCharacterExpiration,
+                    Size = 1
+                };
+                _cache.Set(cacheKey, character, cacheOptions);
             }
 
             return character;
@@ -74,7 +79,12 @@ namespace NinjaBotCore.Services
 
             if (characters != null && characters.Any())
             {
-                _cache.Set(cacheKey, characters, MainCharacterExpiration);
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = MainCharacterExpiration,
+                    Size = 1
+                };
+                _cache.Set(cacheKey, characters, cacheOptions);
             }
 
             return characters;
@@ -97,7 +107,12 @@ namespace NinjaBotCore.Services
 
             if (settings != null)
             {
-                _cache.Set(cacheKey, settings, LogMonitoringExpiration);
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = LogMonitoringExpiration,
+                    Size = 1
+                };
+                _cache.Set(cacheKey, settings, cacheOptions);
             }
 
             return settings;
@@ -124,7 +139,12 @@ namespace NinjaBotCore.Services
 
             if (resources != null && resources.Any())
             {
-                _cache.Set(cacheKey, resources, WowResourcesExpiration);
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = WowResourcesExpiration,
+                    Size = 1
+                };
+                _cache.Set(cacheKey, resources, cacheOptions);
             }
 
             return resources;
@@ -187,7 +207,12 @@ namespace NinjaBotCore.Services
 
             if (history != null && history.Any())
             {
-                _cache.Set(cacheKey, history, SearchHistoryExpiration);
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = SearchHistoryExpiration,
+                    Size = 1
+                };
+                _cache.Set(cacheKey, history, cacheOptions);
             }
 
             return history ?? new List<RioSearchHistory>();

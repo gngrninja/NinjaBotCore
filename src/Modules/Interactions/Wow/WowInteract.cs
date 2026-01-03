@@ -2575,9 +2575,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
                 if (recentSearches.Any())
                 {
+                    // Encode original user ID in CustomId to prevent unauthorized access (Discord best practice)
                     var selectMenuBuilder = new SelectMenuBuilder()
                         .WithPlaceholder("🔍 Quick search recent characters...")
-                        .WithCustomId("rio_recent_search")
+                        .WithCustomId($"rio_recent_search~{userId}")
                         .WithMinValues(1)
                         .WithMaxValues(1);
 
@@ -2713,13 +2714,36 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
         /// <summary>
         /// Handle recent search selection from component interaction
+        /// Uses wildcard matching to extract and validate original user ID (Discord.NET best practice)
         /// </summary>
-        [ComponentInteraction("rio_recent_search")]
-        public async Task HandleRecentSearchSelection(string[] selections)
+        [ComponentInteraction("rio_recent_search~*")]
+        public async Task HandleRecentSearchSelection(string originalUserIdStr, string[] selections)
         {
             try
             {
-                // Defer the interaction to acknowledge it
+                // Parse and validate the original user ID from CustomId
+                if (!ulong.TryParse(originalUserIdStr, out var originalUserId))
+                {
+                    await RespondAsync("❌ Invalid interaction data. Please try again.", ephemeral: true);
+                    return;
+                }
+
+                // SECURITY: Validate the person clicking is the original requester
+                // This prevents users from hijacking each other's public RIO posts
+                if (Context.User.Id != originalUserId)
+                {
+                    _logger.LogWarning(
+                        "User {AttemptingUserId} ({AttemptingUsername}) tried to interact with User {OriginalUserId}'s RIO search dropdown",
+                        Context.User.Id, Context.User.Username, originalUserId);
+
+                    await RespondAsync(
+                        "❌ This search history belongs to another user.\n\n" +
+                        "Use `/rio` to search for your own characters.",
+                        ephemeral: true);
+                    return;
+                }
+
+                // Defer the interaction to acknowledge it (now safe - user validated)
                 await DeferAsync();
 
                 // Parse the selected character info: "CharName~RealmName~Region"
@@ -3024,6 +3048,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     }
                 });
 
+                // Invalidate cache after adding new character
+                _wowCache.InvalidateUserCharacters((long)Context.User.Id);
+
                 await FollowupAsync(message, ephemeral: true);
             }
             catch (Exception ex)
@@ -3151,6 +3178,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     return (true, $"⭐ **{character.CharName}** on **{character.WowRealm}** is now your main character!");
                 });
 
+                // Invalidate both main and all characters cache after updating IsMain flag
+                _wowCache.InvalidateUserMainCharacter((long)Context.User.Id);
+                _wowCache.InvalidateUserCharacters((long)Context.User.Id);
+
                 await FollowupAsync(message, ephemeral: true);
 
                 if (success)
@@ -3196,6 +3227,11 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
                     return (true, $"🗑️ Removed **{charName}** from **{realmName}**.");
                 });
+
+                // Invalidate cache after removing character
+                // Also invalidate main character cache in case removed character was main
+                _wowCache.InvalidateUserCharacters((long)Context.User.Id);
+                _wowCache.InvalidateUserMainCharacter((long)Context.User.Id);
 
                 await FollowupAsync(message, ephemeral: true);
 
