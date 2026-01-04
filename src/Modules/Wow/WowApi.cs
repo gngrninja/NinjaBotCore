@@ -20,6 +20,7 @@ using NinjaBotCore.Common;
 using NinjaBotCore.Services;
 using Polly;
 using Polly.Retry;
+using NinjaBotCore.Models.Wow;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -866,21 +867,56 @@ namespace NinjaBotCore.Modules.Wow
         /// </summary>
         public async Task<Character> GetCharInfoAsync(string name, string realm, string regionName = "us", CancellationToken cancellationToken = default)
         {
-            string region = GetRegionFromString(regionName);
-            realm = realm.Replace("'", string.Empty).Replace(" ", "-");
-            string url = $"/profile/wow/character/{realm}/{name}";
+            var locale = GetRegionFromString(regionName);
+            realm = realm.Replace("'", string.Empty).Replace(" ", "-").ToLowerInvariant();
+            var regionSegment = regionName.ToLowerInvariant();
+            var url = $"/profile/wow/character/{realm}/{name.ToLowerInvariant()}?namespace=profile-{regionSegment}";
 
-            string response;
-            if (region != "en_US")
-            {
-                response = await GetAPIRequestAsync(url, region, "eu", cancellationToken);
-            }
-            else
-            {
-                response = await GetAPIRequestAsync(url, regionName, cancellationToken);
-            }
-
+            var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
             return JsonConvert.DeserializeObject<Character>(response);
+        }
+
+        public async Task<ArmorySummary> GetArmorySummaryAsync(string name, string realm, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            var locale = GetRegionFromString(regionName);
+            realm = realm.Replace("'", string.Empty).Replace(" ", "-").ToLowerInvariant();
+            var regionSegment = regionName.ToLowerInvariant();
+            var url = $"/profile/wow/character/{realm}/{name.ToLowerInvariant()}?namespace=profile-{regionSegment}";
+
+            var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
+            return JsonConvert.DeserializeObject<ArmorySummary>(response);
+        }
+
+        public async Task<ArmoryEquipment> GetArmoryEquipmentAsync(string name, string realm, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            var locale = GetRegionFromString(regionName);
+            realm = realm.Replace("'", string.Empty).Replace(" ", "-").ToLowerInvariant();
+            var regionSegment = regionName.ToLowerInvariant();
+            var url = $"/profile/wow/character/{realm}/{name.ToLowerInvariant()}/equipment?namespace=profile-{regionSegment}";
+
+            var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
+            return JsonConvert.DeserializeObject<ArmoryEquipment>(response);
+        }
+
+        public async Task<ArmoryMedia> GetArmoryMediaAsync(string name, string realm, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            var locale = GetRegionFromString(regionName);
+            realm = realm.Replace("'", string.Empty).Replace(" ", "-").ToLowerInvariant();
+            var regionSegment = regionName.ToLowerInvariant();
+            var url = $"/profile/wow/character/{realm}/{name.ToLowerInvariant()}/character-media?namespace=profile-{regionSegment}";
+
+            var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
+            return JsonConvert.DeserializeObject<ArmoryMedia>(response);
+        }
+
+        public async Task<ArmoryItemMedia> GetItemMediaAsync(int itemId, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            var locale = GetRegionFromString(regionName);
+            var regionSegment = regionName.ToLowerInvariant();
+            var url = $"/data/wow/media/item/{itemId}?namespace=static-{regionSegment}";
+
+            var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
+            return JsonConvert.DeserializeObject<ArmoryItemMedia>(response);
         }
 
         /// <summary>
