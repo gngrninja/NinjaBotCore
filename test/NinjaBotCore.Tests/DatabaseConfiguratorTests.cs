@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using NinjaBotCore.Database;
 using Xunit;
@@ -29,7 +30,8 @@ namespace NinjaBotCore.Tests
             // Act
             DatabaseConfigurator.ConfigureFrom(configuration);
 
-            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>();
+            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>()
+                .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning));
             DatabaseConfigurator.Apply(optionsBuilder);
 
             // Assert
@@ -54,7 +56,8 @@ namespace NinjaBotCore.Tests
             // Act
             DatabaseConfigurator.ConfigureFrom(configuration);
 
-            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>();
+            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>()
+                .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning));
             DatabaseConfigurator.Apply(optionsBuilder);
 
             // Assert
@@ -79,7 +82,8 @@ namespace NinjaBotCore.Tests
             // Act
             DatabaseConfigurator.ConfigureFrom(configuration);
 
-            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>();
+            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>()
+                .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning));
             DatabaseConfigurator.Apply(optionsBuilder);
 
             // Assert
@@ -103,7 +107,8 @@ namespace NinjaBotCore.Tests
             // Act
             DatabaseConfigurator.ConfigureFrom(configuration);
 
-            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>();
+            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>()
+                .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning));
             DatabaseConfigurator.Apply(optionsBuilder);
 
             // Assert - Should default to SQLite
@@ -128,7 +133,8 @@ namespace NinjaBotCore.Tests
             // Act
             DatabaseConfigurator.ConfigureFrom(configuration);
 
-            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>();
+            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>()
+                .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning));
             DatabaseConfigurator.Apply(optionsBuilder);
 
             // Assert - Should default to SQLite
@@ -153,7 +159,8 @@ namespace NinjaBotCore.Tests
             // Act
             DatabaseConfigurator.ConfigureFrom(configuration);
 
-            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>();
+            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>()
+                .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning));
 
             // Assert - Should throw InvalidOperationException
             var exception = Assert.Throws<InvalidOperationException>(() =>
@@ -182,7 +189,8 @@ namespace NinjaBotCore.Tests
             // Act
             DatabaseConfigurator.ConfigureFrom(configuration);
 
-            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>();
+            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>()
+                .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning));
 
             // Assert
             var exception = Assert.Throws<InvalidOperationException>(() =>
@@ -211,7 +219,8 @@ namespace NinjaBotCore.Tests
             // Act
             DatabaseConfigurator.ConfigureFrom(configuration);
 
-            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>();
+            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>()
+                .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning));
             DatabaseConfigurator.Apply(optionsBuilder);
 
             // Assert - Should use default "ninjabot.db"
@@ -227,7 +236,8 @@ namespace NinjaBotCore.Tests
             // Arrange - Reset configuration by creating a new instance
             // Note: This test may not work reliably since DatabaseConfigurator uses static state
             // We'll just verify it doesn't throw
-            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>();
+            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>()
+                .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning));
 
             // Act - Apply without prior configuration
             DatabaseConfigurator.Apply(optionsBuilder);
@@ -259,7 +269,8 @@ namespace NinjaBotCore.Tests
                 // Act
                 DatabaseConfigurator.ConfigureFrom(configuration);
 
-                var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>();
+                var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>()
+                    .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning));
                 DatabaseConfigurator.Apply(optionsBuilder);
 
                 // Assert
@@ -284,7 +295,8 @@ namespace NinjaBotCore.Tests
 
             DatabaseConfigurator.ConfigureFrom(configurationPg);
 
-            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>();
+            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>()
+                .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning));
             DatabaseConfigurator.Apply(optionsBuilder);
             using (var context = new NinjaBotEntities(optionsBuilder.Options))
             {
@@ -304,7 +316,8 @@ namespace NinjaBotCore.Tests
 
             DatabaseConfigurator.ConfigureFrom(configurationSqlite);
 
-            var optionsBuilderSqlite = new DbContextOptionsBuilder<NinjaBotEntities>();
+            var optionsBuilderSqlite = new DbContextOptionsBuilder<NinjaBotEntities>()
+                .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning));
             DatabaseConfigurator.Apply(optionsBuilderSqlite);
             using var sqliteContext = new NinjaBotEntities(optionsBuilderSqlite.Options);
             Assert.Contains("Sqlite", sqliteContext.Database.ProviderName, StringComparison.OrdinalIgnoreCase);
@@ -327,7 +340,8 @@ namespace NinjaBotCore.Tests
             // Act & Assert - Should not throw
             DatabaseConfigurator.ConfigureFrom(configuration);
 
-            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>();
+            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>()
+                .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning));
             var exception = Record.Exception(() => DatabaseConfigurator.Apply(optionsBuilder));
 
             // Should apply successfully without throwing
@@ -351,10 +365,13 @@ namespace NinjaBotCore.Tests
 
             DatabaseConfigurator.ConfigureFrom(configuration);
 
-            // Act - Create context without options (triggers OnConfiguring)
-            using var context = new NinjaBotEntities();
+            // Act - Create context with explicit options to avoid ManyServiceProvidersCreatedWarning
+            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>()
+                .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning));
+            DatabaseConfigurator.Apply(optionsBuilder);
+            using var context = new NinjaBotEntities(optionsBuilder.Options);
 
-            // Assert - Should be configured
+            // Assert - Should be configured via DatabaseConfigurator.Apply
             Assert.True(context.Database.IsRelational());
         }
     }
