@@ -133,7 +133,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     embed.Title = "No Main Character Set";
                     embed.WithColor(new Color(255, 165, 0));
                     embed.Description = "You haven't set a main character yet!\n\n" +
-                        "Use `/setchar` with `isMain: true` to set one, or provide a character name to search.";
+                        "Use `/getchars` to manage your saved characters.";
                     await FollowupAsync(embed: embed.Build(), ephemeral: true); // Always private for errors
                     return;
                 }
@@ -699,7 +699,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 sb.AppendLine("You haven't saved any characters yet!");
                 sb.AppendLine();
                 sb.AppendLine("Use `/setchar` to associate a character with your Discord account.");
-                sb.AppendLine("This allows you to quickly look up RaiderIO info with `/rio`.");
+                sb.AppendLine("You can also save a character you lookup via `/rio`");
 
                 embed.Description = sb.ToString();
                 embed.ThumbnailUrl = Context.User.GetAvatarUrl();
@@ -3025,7 +3025,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         // Character already saved
                         var mainIndicator = existingChar.IsMain ? " (your **main character**)" : "";
                         return $"**{charName}** on **{realmName}** is already saved{mainIndicator}!\n\n" +
-                            "Use `/setchar` with `ismain: true` to set it as your main character.";
+                            "Use `/getchars` to manage your saved characters.";
                     }
                     else
                     {
@@ -3043,8 +3043,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         await db.SaveChangesAsync();
 
                         return $"✅ Successfully saved **{charName}** on **{realmName}** ({regionName.ToUpper()})!\n\n" +
-                            "Use `/getchars` to see all your saved characters.\n" +
-                            "Use `/setchar` with `ismain: true` to set it as your main character.";
+                            "Use `/getchars` to manage all your saved characters.\n";     
                     }
                 });
 
