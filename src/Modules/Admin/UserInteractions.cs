@@ -207,36 +207,35 @@ namespace NinjaBotCore.Modules.Admin
             await modal.FollowupAsync(embed: embed.Build(), ephemeral: true);
         }
 
-        private async Task HandleParting(SocketGuild guild, SocketUser socketUser)
+        private async Task HandleParting(SocketGuild guild, SocketUser user)
         {
-            var user = (SocketGuildUser)socketUser;
-            ServerGreeting shouldGreet = await GetGreetingAsync(user);                                 
+            ServerGreeting shouldGreet = await _greetingCache.GetServerGreetingAsync((long)guild.Id);
                 if (shouldGreet != null && shouldGreet.GreetUsers == true)
-                {      
-                    var sb = new StringBuilder();   
-                    ISocketMessageChannel messageChannel = null;                  
+                {
+                    var sb = new StringBuilder();
+                    ISocketMessageChannel messageChannel = null;
                     try
-                    {                            
+                    {
                         if (shouldGreet.GreetingChannelId != 0)
-                        {                            
+                        {
                             if (shouldGreet.PartingChannelId != null)
                             {
-                                messageChannel = user.Guild.GetChannel((ulong)shouldGreet.PartingChannelId) as ISocketMessageChannel;
-                            }      
+                                messageChannel = guild.GetChannel((ulong)shouldGreet.PartingChannelId) as ISocketMessageChannel;
+                            }
                             else
                             {
-                                messageChannel = user.Guild.GetChannel((ulong)shouldGreet.GreetingChannelId) as ISocketMessageChannel;
-                            }                      
+                                messageChannel = guild.GetChannel((ulong)shouldGreet.GreetingChannelId) as ISocketMessageChannel;
+                            }
                         }
                         else
                         {
-                            messageChannel = user.Guild.DefaultChannel as ISocketMessageChannel;
+                            messageChannel = guild.DefaultChannel as ISocketMessageChannel;
                         }
                         if (messageChannel != null)
                         {
                             var embed = new EmbedBuilder();
-                            embed.Title = $"[{user.Username}] has left [**{user.Guild.Name}**]!";
-                            sb.AppendLine($"{user.Mention}");
+                            embed.Title = $"[{user.Username}] has left [**{guild.Name}**]!";
+                            sb.AppendLine($"{user.Username}");
                             if (string.IsNullOrEmpty(shouldGreet.PartingMessage))
                             {
                                 sb.AppendLine($"Fine, be that way! :wave:");
@@ -246,7 +245,7 @@ namespace NinjaBotCore.Modules.Admin
                                 sb.AppendLine($"{shouldGreet.PartingMessage}");
                             }
                             embed.Description = sb.ToString();
-                            embed.ThumbnailUrl = user.GetAvatarUrl();
+                            embed.ThumbnailUrl = user.GetAvatarUrl() ?? user.GetDefaultAvatarUrl();
                             embed.WithColor(new Color(255, 0, 0));
                             await messageChannel.SendMessageAsync("", false, embed.Build());
                         }
@@ -255,11 +254,11 @@ namespace NinjaBotCore.Modules.Admin
                     {
                         if (messageChannel != null)
                         {
-                            _logger.LogError($"Error with channel -> [{messageChannel.Name}] on [{user.Guild.Name}] -> [{user.Guild.Id}] -> [{ex.Message}]");
+                            _logger.LogError($"Error with channel -> [{messageChannel.Name}] on [{guild.Name}] -> [{guild.Id}] -> [{ex.Message}]");
                         }
                         else
                         {
-                            _logger.LogError($"Error with no channel -> [{user.Guild.Name}] -> [{user.Guild.Id}] -> [{ex.Message}]");
+                            _logger.LogError($"Error with no channel -> [{guild.Name}] -> [{guild.Id}] -> [{ex.Message}]");
                         }
                     }
                 }
@@ -295,7 +294,7 @@ namespace NinjaBotCore.Modules.Admin
                             sb.AppendLine($"{shouldGreet.Greeting}");
                         }
                         embed.Description = sb.ToString();
-                        embed.ThumbnailUrl = user.GetAvatarUrl();
+                        embed.ThumbnailUrl = user.GetAvatarUrl() ?? user.GetDefaultAvatarUrl();
                         embed.WithColor(new Color(0, 255, 0));
                         await messageChannel.SendMessageAsync("", false, embed.Build());
                     }
