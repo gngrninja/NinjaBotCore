@@ -22,14 +22,16 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         private readonly IConfigurationRoot _config;
         private readonly ILogger<DiscordHelpers> _logger;
         private readonly ModerationWatcherService _moderationWatcher;
+        private readonly WowCacheService _greetingCache;
 
-        public DiscordHelpers(DiscordShardedClient client, IServiceProvider services, ModerationWatcherService moderationWatcher)
+        public DiscordHelpers(DiscordShardedClient client, IServiceProvider services, ModerationWatcherService moderationWatcher, WowCacheService greetingCache)
             : base(services.GetRequiredService<IServiceScopeFactory>())
         {
             _client = client;
             _config = services.GetRequiredService<IConfigurationRoot>();
             _logger = services.GetRequiredService<ILogger<DiscordHelpers>>();
             _moderationWatcher = moderationWatcher;
+            _greetingCache = greetingCache;
         }
 
         [SlashCommand("watch", "Manage moderation watchers")]
@@ -203,10 +205,15 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                     _moderationWatcher.InvalidateSettingsCache((long)Context.Guild.Id);
                 });
             }
+            catch (DbUpdateException ex)
+            {
+                sb.AppendLine("Failed to update moderation watcher settings in database.");
+                _logger.LogError(ex, "Database error in watch command for guild {GuildId}", Context.Guild.Id);
+            }
             catch (Exception ex)
             {
-                sb.AppendLine($"Error: {ex.Message}");
-                _logger.LogError($"Error in watch command: {ex.Message}");
+                sb.AppendLine("An unexpected error occurred while updating watcher settings.");
+                _logger.LogError(ex, "Unexpected error in watch command for guild {GuildId}", Context.Guild.Id);
             }
 
             embed.Title = $"Moderation Watchers - {Context.Guild.Name}";
@@ -314,9 +321,10 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             await RespondAsync(embed: embed.Build());
         }
 
-        [SlashCommand("ban", "ban someone!")]        
+        [SlashCommand("ban", "ban someone!")]
         [RequireBotPermission(GuildPermission.BanMembers)]
-        [DefaultMemberPermissions(GuildPermission.KickMembers)]
+        [RequireUserPermission(GuildPermission.BanMembers)]
+        [DefaultMemberPermissions(GuildPermission.BanMembers)]
         public async Task BanUser(IGuildUser user, string args = null)
         {
             int pruneDays = 0;
@@ -379,9 +387,12 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
         [SlashCommand("unban", "unban someone!")]
         [RequireBotPermission(GuildPermission.BanMembers)]
-        [DefaultMemberPermissions(GuildPermission.KickMembers)]
+        [RequireUserPermission(GuildPermission.BanMembers)]
+        [DefaultMemberPermissions(GuildPermission.BanMembers)]
         public async Task UnBanUser(string user)
         {
+            await DeferAsync(ephemeral: true);
+
             var embed = new EmbedBuilder();
             embed.ThumbnailUrl = Context.Guild.IconUrl;
             StringBuilder sb = new StringBuilder();
@@ -409,7 +420,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             }
             embed.Description = sb.ToString();
             embed.WithColor(new Color(0, 0, 255));
-            await RespondAsync(embed: embed.Build());
+            await FollowupAsync(embed: embed.Build(), ephemeral: true);
         }
 
         [SlashCommand("list-bans", "list bans!")]
@@ -458,18 +469,9 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         [RequireUserPermission(GuildPermission.KickMembers)]
         public async Task ChangeGreeting()
         {
-            string curGreeting = await WithDbAsync(async db =>
-            {
-                var guildGreetingInfo = await db.ServerGreetings
-                    .Where(g => g.DiscordGuildId == (long)Context.Guild.Id)
-                    .FirstOrDefaultAsync();
-                return guildGreetingInfo?.Greeting ?? string.Empty;
-            });
+            var guildGreetingInfo = await _greetingCache.GetServerGreetingAsync((long)Context.Guild.Id);
+            string curGreeting = guildGreetingInfo?.Greeting ?? "Hello!";
 
-            if (string.IsNullOrEmpty(curGreeting))
-            {
-                curGreeting = "Hello!";
-            }
             var mb = new ModalBuilder()
                 .WithTitle("Greeting message")
                 .WithCustomId("joining_message")
@@ -481,18 +483,9 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         [RequireUserPermission(GuildPermission.KickMembers)]
         public async Task ChangeParting()
         {
-            string curParting = await WithDbAsync(async db =>
-            {
-                var guildGreetingInfo = await db.ServerGreetings
-                    .Where(g => g.DiscordGuildId == (long)Context.Guild.Id)
-                    .FirstOrDefaultAsync();
-                return guildGreetingInfo?.PartingMessage ?? string.Empty;
-            });
+            var guildGreetingInfo = await _greetingCache.GetServerGreetingAsync((long)Context.Guild.Id);
+            string curParting = guildGreetingInfo?.PartingMessage ?? "Goodbye!";
 
-            if (string.IsNullOrEmpty(curParting))
-            {
-                curParting = "Goodbye!";
-            }
             var mb = new ModalBuilder()
                 .WithTitle("Parting message")
                 .WithCustomId("parting_message")
@@ -542,6 +535,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                         sb.AppendLine("Greetings have been enabled!");
                     }
                     await db.SaveChangesAsync();
+                    _greetingCache.InvalidateServerGreeting((long)Context.Guild.Id);
                 });
             }
             catch (Exception ex)
@@ -576,13 +570,18 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                         {
                             currentSetting.PartingChannelId = (long)Context.Channel.Id;
                             sb.AppendLine($"Parting messages channel set to {Context.Channel.Name}!");
+                            await db.SaveChangesAsync();
+                            _greetingCache.InvalidateServerGreeting((long)Context.Guild.Id);
                         }
                         else
                         {
                             sb.AppendLine("Please enable greetings first via /toggle-greetings");
                         }
                     }
-                    await db.SaveChangesAsync();
+                    else
+                    {
+                        sb.AppendLine("No greeting settings found. Please enable greetings first via /toggle-greetings");
+                    }
                 });
             }
             catch (Exception ex)

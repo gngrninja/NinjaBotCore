@@ -1,13 +1,13 @@
 using Discord;
 using Discord.Interactions;
 using Discord.WebSocket;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using System;
 using NinjaBotCore.Modules.Wow;
 using NinjaBotCore.Modules.Admin;
 using NinjaBotCore.Modules.Steam;
-using NinjaBotCore.Modules.Interactions.Away;
 using Microsoft.Extensions.Configuration;
 using NinjaBotCore.Services;
 using NinjaBotCore.Modules.YouTube;
@@ -84,9 +84,10 @@ namespace NinjaBotCore
                 .AddSingleton<WarcraftLogs>()
                 .AddSingleton<WarcraftLogsV2Client>()
                 .AddSingleton<WarcraftLogsV2Test>()
-                .AddSingleton<AwayCommands>()
                 .AddSingleton<UserInteraction>()
                 .AddSingleton<ModerationWatcherService>()
+                .AddSingleton<AwaySystemService>()
+                .AddSingleton<WordFilterService>()
                 .AddSingleton<WowCacheService>()
                 .AddSingleton(x => new InteractionService(
                     x.GetRequiredService<DiscordShardedClient>(),
@@ -138,10 +139,64 @@ namespace NinjaBotCore
 
             //Load up services
             serviceProvider.GetRequiredService<UserInteraction>();
-            serviceProvider.GetRequiredService<ModerationWatcherService>();            
-                                                      
-            //Block this program until it is closed.
-            await Task.Delay(-1);
+            serviceProvider.GetRequiredService<ModerationWatcherService>();
+            serviceProvider.GetRequiredService<AwaySystemService>();
+            serviceProvider.GetRequiredService<WordFilterService>();
+
+            //Setup graceful shutdown
+            var shutdownCts = new CancellationTokenSource();
+            Console.CancelKeyPress += (sender, e) =>
+            {
+                e.Cancel = true; // Prevent immediate termination
+                Log.Information("Shutdown signal received (Ctrl+C). Initiating graceful shutdown...");
+                shutdownCts.Cancel();
+            };
+
+            Log.Information("NinjaBot is running. Press Ctrl+C to shutdown gracefully.");
+
+            //Block this program until shutdown signal received
+            try
+            {
+                await Task.Delay(-1, shutdownCts.Token);
+            }
+            catch (TaskCanceledException)
+            {
+                // Expected when shutdown is triggered
+            }
+
+            // Graceful shutdown sequence
+            Log.Information("Shutting down NinjaBot...");
+
+            try
+            {
+                // Stop Discord client first
+                var client = serviceProvider.GetRequiredService<DiscordShardedClient>();
+                Log.Information("Disconnecting Discord client...");
+                await client.StopAsync();
+                Log.Information("Discord client disconnected");
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error stopping Discord client");
+            }
+
+            // Dispose all services
+            try
+            {
+                if (serviceProvider is IDisposable disposable)
+                {
+                    Log.Information("Disposing services...");
+                    disposable.Dispose();
+                    Log.Information("Services disposed");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error disposing services");
+            }
+
+            Log.Information("NinjaBot shutdown complete");
+            Log.CloseAndFlush();
         }
 
         private static void ConfigureServices(IServiceCollection services)

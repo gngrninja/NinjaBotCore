@@ -136,6 +136,82 @@ namespace NinjaBotCore.Tests
             Assert.Equal("Charlie", refreshed.First().CharacterName);
         }
 
+        [Fact]
+        public async Task GetWowResourcesAsync_UsesCacheUntilInvalidated()
+        {
+            await using (var scope = _provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+                db.WowResources.Add(new WowResources
+                {
+                    ResourceDescription = "raidvid",
+                    Resource = "Old"
+                });
+                await db.SaveChangesAsync();
+            }
+
+            var first = await _cacheService.GetWowResourcesAsync("raidvid");
+            Assert.Single(first);
+            Assert.Equal("Old", first[0].Resource);
+
+            // Update underlying data
+            await using (var scope = _provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+                var existing = await db.WowResources.FirstAsync(r => r.ResourceDescription == "raidvid");
+                existing.Resource = "New";
+                await db.SaveChangesAsync();
+            }
+
+            // Cached result should still be returned
+            var cached = await _cacheService.GetWowResourcesAsync("raidvid");
+            Assert.Equal("Old", cached[0].Resource);
+
+            // Invalidate and confirm refresh
+            _cacheService.InvalidateWowResources("raidvid");
+            var refreshed = await _cacheService.GetWowResourcesAsync("raidvid");
+            Assert.Equal("New", refreshed[0].Resource);
+        }
+
+        [Fact]
+        public async Task GetLogMonitoringAsync_UsesCacheUntilInvalidated()
+        {
+            const long guildId = 777;
+            await using (var scope = _provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+                db.LogMonitoring.Add(new LogMonitoring
+                {
+                    ServerId = guildId,
+                    ServerName = "OldGuild",
+                    ChannelId = 1,
+                    ChannelName = "logs"
+                });
+                await db.SaveChangesAsync();
+            }
+
+            var first = await _cacheService.GetLogMonitoringAsync(guildId);
+            Assert.NotNull(first);
+            Assert.Equal("OldGuild", first.ServerName);
+
+            // Update underlying data
+            await using (var scope = _provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+                var existing = await db.LogMonitoring.FirstAsync(l => l.ServerId == guildId);
+                existing.ServerName = "NewGuild";
+                await db.SaveChangesAsync();
+            }
+
+            // Cached value persists until invalidation
+            var cached = await _cacheService.GetLogMonitoringAsync(guildId);
+            Assert.Equal("OldGuild", cached.ServerName);
+
+            _cacheService.InvalidateLogMonitoring(guildId);
+            var refreshed = await _cacheService.GetLogMonitoringAsync(guildId);
+            Assert.Equal("NewGuild", refreshed.ServerName);
+        }
+
         public void Dispose()
         {
             _provider?.Dispose();

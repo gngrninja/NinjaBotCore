@@ -13,7 +13,7 @@ using Microsoft.Extensions.Caching.Memory;
 
 namespace NinjaBotCore.Services
 {
-    public class ModerationWatcherService
+    public class ModerationWatcherService : IDisposable
     {
         private readonly ILogger _logger;
         private readonly DiscordShardedClient _client;
@@ -22,6 +22,7 @@ namespace NinjaBotCore.Services
         private readonly HashSet<ulong> _recentBulkDeletes;
         private readonly object _bulkDeleteLock;
         private static readonly TimeSpan CacheExpiration = TimeSpan.FromMinutes(10);
+        private bool _disposed;
 
         public ModerationWatcherService(IServiceProvider services)
         {
@@ -344,13 +345,21 @@ namespace NinjaBotCore.Services
                 // Clean up the set after 5 seconds (messages should have already triggered individual events by then)
                 _ = Task.Run(async () =>
                 {
-                    await Task.Delay(5000);
-                    lock (_bulkDeleteLock)
+                    try
                     {
-                        foreach (var message in messages)
+                        await Task.Delay(5000);
+                        lock (_bulkDeleteLock)
                         {
-                            _recentBulkDeletes.Remove(message.Id);
+                            foreach (var message in messages)
+                            {
+                                _recentBulkDeletes.Remove(message.Id);
+                            }
                         }
+                        _logger.LogDebug("Cleaned up {Count} bulk delete message IDs from tracking", messages.Count);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to clean up bulk delete tracking for {Count} messages", messages.Count);
                     }
                 });
 
@@ -537,5 +546,35 @@ namespace NinjaBotCore.Services
         }
 
         #endregion
+
+        /// <summary>
+        /// Disposes resources and unsubscribes from all event handlers
+        /// </summary>
+        public void Dispose()
+        {
+            if (_disposed) return;
+
+            try
+            {
+                // Unsubscribe from all 7 event handlers
+                _client.UserVoiceStateUpdated -= HandleVoiceStateUpdate;
+                _client.MessageUpdated -= HandleMessageUpdate;
+                _client.MessageDeleted -= HandleMessageDelete;
+                _client.MessagesBulkDeleted -= HandleMessagesBulkDelete;
+                _client.GuildMemberUpdated -= HandleMemberUpdate;
+                _client.UserBanned -= HandleBan;
+                _client.UserUnbanned -= HandleUnban;
+
+                _logger.LogInformation("ModerationWatcherService disposed");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error disposing ModerationWatcherService");
+            }
+            finally
+            {
+                _disposed = true;
+            }
+        }
     }
 }

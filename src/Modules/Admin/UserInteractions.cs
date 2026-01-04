@@ -13,11 +13,13 @@ using Microsoft.Extensions.Logging;
 
 namespace NinjaBotCore.Modules.Admin
 {
-    public class UserInteraction
+    public class UserInteraction : IDisposable
     {
         private readonly ILogger _logger;
         private readonly DiscordShardedClient _client;
         private readonly IServiceScopeFactory _scopeFactory;
+        private readonly WowCacheService _greetingCache;
+        private bool _disposed;
 
         // NOTE: UserInteraction is registered as Singleton to hook Discord events at startup
         // Therefore, it cannot use scoped repository injection (Pattern #3)
@@ -27,6 +29,7 @@ namespace NinjaBotCore.Modules.Admin
             _logger = services.GetRequiredService<ILogger<UserInteraction>>();
             _client = services.GetRequiredService<DiscordShardedClient>();
             _scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
+            _greetingCache = services.GetRequiredService<WowCacheService>();
 
             services.GetRequiredService<DiscordShardedClient>().UserJoined += HandleGreeting;
             services.GetRequiredService<DiscordShardedClient>().UserLeft += HandleParting;
@@ -102,6 +105,7 @@ namespace NinjaBotCore.Modules.Admin
                             TimeSet = DateTime.UtcNow
                         });
                     await greetingRepo.SaveChangesAsync();
+                    _greetingCache.InvalidateServerGreeting((long)modal.GuildId);
                 }
                 catch (Exception)
                 {
@@ -147,6 +151,7 @@ namespace NinjaBotCore.Modules.Admin
                             TimeSet = DateTime.UtcNow
                         });
                     await greetingRepo.SaveChangesAsync();
+                    _greetingCache.InvalidateServerGreeting((long)modal.GuildId);
                 }
                 catch (Exception)
                 {
@@ -311,8 +316,32 @@ namespace NinjaBotCore.Modules.Admin
         private async Task<ServerGreeting> GetGreetingAsync(SocketGuildUser user)
         {
             var guildId = user.Guild.Id;
-            await using var greetingRepo = GetRepository<ServerGreeting>();
-            return await greetingRepo.FirstOrDefaultAsync(g => g.DiscordGuildId == (long)guildId);
+            return await _greetingCache.GetServerGreetingAsync((long)guildId);
+        }
+
+        /// <summary>
+        /// Disposes resources and unsubscribes from event handlers
+        /// </summary>
+        public void Dispose()
+        {
+            if (_disposed) return;
+
+            try
+            {
+                _client.UserJoined -= HandleGreeting;
+                _client.UserLeft -= HandleParting;
+                _client.ModalSubmitted -= HandleModal;
+
+                _logger.LogInformation("UserInteraction disposed");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error disposing UserInteraction");
+            }
+            finally
+            {
+                _disposed = true;
+            }
         }
     }
 }

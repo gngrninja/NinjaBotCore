@@ -14,88 +14,27 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using NinjaBotCore.Migrations;
-using Microsoft.Extensions.Caching.Memory;
 
 namespace NinjaBotCore.Modules.Interactions.Admin
 {
     public class Admin : NinjaBotBaseModule
     {
-        private static bool _isLinked = false;
-        private static DiscordShardedClient _client;
+        private readonly DiscordShardedClient _client;
         private readonly IConfigurationRoot _config;
         private readonly ILogger<Admin> _logger;
-        private static readonly MemoryCache _wordListCache = new MemoryCache(new MemoryCacheOptions
-        {
-            SizeLimit = 1000
-        });
+        private readonly WordFilterService _wordFilterService;
 
+        // Event handling is now done by WordFilterService
+        // This module only handles slash commands
         public Admin(IServiceProvider services)
             : base(services.GetRequiredService<IServiceScopeFactory>())
         {
             _client = services.GetRequiredService<DiscordShardedClient>();
             _logger = services.GetRequiredService<ILogger<Admin>>();
-            if (!_isLinked)
-            {
-                _client.MessageReceived += WordFinder;
-                _logger.LogInformation("Hooked into MessageReceived for Admin word filter.");
-            }
-            _isLinked = true;
             _config = services.GetRequiredService<IConfigurationRoot>();
+            _wordFilterService = services.GetRequiredService<WordFilterService>();
             _logger.LogInformation("Admin module loaded!");
         }
-
-        private async Task WordFinder(SocketMessage messageDetails)
-        {
-            try
-            {
-                // Early returns - fast filtering
-                if (messageDetails.Author.IsBot) return;
-                if (!(messageDetails.Channel is SocketGuildChannel guildChannel)) return; // Skip DMs
-                if (string.IsNullOrWhiteSpace(messageDetails.Content)) return;
-
-                var serverId = (long)guildChannel.Guild.Id;
-                var cacheKey = $"wordlist_{serverId}";
-
-                // Get from cache or DB (15 minute cache)
-                var bannedWords = await _wordListCache.GetOrCreateAsync(cacheKey, async entry =>
-                {
-                    entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(15);
-                    entry.Size = 1;
-
-                    return await WithDbAsync(async db =>
-                    {
-                        return await db.WordList
-                            .Where(w => w.ServerId == serverId)
-                            .Select(w => w.Word.ToLower())
-                            .ToListAsync();
-                    });
-                });
-
-                // Fast check - does message contain any banned word?
-                var messageContent = messageDetails.Content.ToLower();
-                if (bannedWords.Any(word => messageContent.Contains(word)))
-                {
-                    await messageDetails.DeleteAsync();
-                    _logger.LogInformation("Deleted message from {User} in {Guild} - contained banned word",
-                        messageDetails.Author.Username, guildChannel.Guild.Name);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in word filter for channel {ChannelId}",
-                    messageDetails.Channel.Id);
-            }
-        }
-
-        /// <summary>
-        /// Invalidate the word list cache for a server when words are added/removed
-        /// </summary>
-        private void InvalidateWordListCache(long serverId)
-        {
-            var cacheKey = $"wordlist_{serverId}";
-            _wordListCache.Remove(cacheKey);
-            _logger.LogInformation("Invalidated word list cache for server {ServerId}", serverId);
-        }     
 
         [SlashCommand("leave-server", "leave a server")]        
         [RequireOwner]
@@ -163,12 +102,18 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         [SlashCommand("list-wow-resources", "list wow resources")]
         public async Task ListWoWResource(string args = null)
         {
+            if (string.IsNullOrWhiteSpace(args))
+            {
+                await RespondAsync("Please provide a search term (e.g., class name).", ephemeral: true);
+                return;
+            }
+
             var resources = await WithDbAsync(async db =>
             {
-                return await db.WowResources.Where(r => r.ClassName.ToLower().Contains(args)).ToListAsync();
+                return await db.WowResources.Where(r => r.ClassName.ToLower().Contains(args.ToLower())).ToListAsync();
             });
 
-            if (resources != null)
+            if (resources != null && resources.Any())
             {
                 var embed = new EmbedBuilder();
                 embed.Title = $"WoW Resource List Search: [{args}]";
@@ -186,6 +131,10 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                     });
                 }
                 await RespondAsync(embed: embed.Build(), ephemeral: true);
+            }
+            else
+            {
+                await RespondAsync($"No WoW resources found matching '{args}'.", ephemeral: true);
             }
         }
 
@@ -233,7 +182,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             // Invalidate cache if word was added
             if (wasAdded)
             {
-                InvalidateWordListCache(serverId);
+                _wordFilterService.InvalidateWordListCache(serverId);
             }
 
             await RespondAsync(sb.ToString(), ephemeral: true);
@@ -276,7 +225,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             // Invalidate cache if word was removed
             if (deletedCount > 0)
             {
-                InvalidateWordListCache(serverId);
+                _wordFilterService.InvalidateWordListCache(serverId);
             }
 
             await RespondAsync(sb.ToString(), ephemeral: true);

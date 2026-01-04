@@ -22,7 +22,8 @@ namespace NinjaBotCore.Services
         private static readonly TimeSpan MainCharacterExpiration = TimeSpan.FromMinutes(15);
         private static readonly TimeSpan LogMonitoringExpiration = TimeSpan.FromMinutes(10);
         private static readonly TimeSpan WowResourcesExpiration = TimeSpan.FromHours(1);
-        private static readonly TimeSpan SearchHistoryExpiration = TimeSpan.FromMinutes(5);
+        private static readonly TimeSpan SearchHistoryExpiration = TimeSpan.FromMinutes(15);
+        private static readonly TimeSpan GreetingExpiration = TimeSpan.FromMinutes(30);
 
         public WowCacheService(IMemoryCache cache, IServiceScopeFactory scopeFactory)
         {
@@ -70,12 +71,8 @@ namespace NinjaBotCore.Services
                 return cachedChars;
             }
 
-            await using var scope = _scopeFactory.CreateAsyncScope();
-            await using var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
-
-            var characters = await db.WowCharAssociation
-                .Where(c => c.UserId == userId)
-                .ToListAsync();
+            await using var repo = new Repository<WowCharAssociation>(_scopeFactory);
+            var characters = await repo.WhereAsync(c => c.UserId == userId);
 
             if (characters != null && characters.Any())
             {
@@ -130,12 +127,8 @@ namespace NinjaBotCore.Services
                 return cachedResources;
             }
 
-            await using var scope = _scopeFactory.CreateAsyncScope();
-            await using var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
-
-            var resources = await db.WowResources
-                .Where(r => r.ResourceDescription == resourceDescription)
-                .ToListAsync();
+            await using var repo = new Repository<WowResources>(_scopeFactory);
+            var resources = await repo.WhereAsync(r => r.ResourceDescription == resourceDescription);
 
             if (resources != null && resources.Any())
             {
@@ -195,6 +188,8 @@ namespace NinjaBotCore.Services
                 return cachedHistory;
             }
 
+            // Uses direct DbContext instead of Repository because query requires
+            // OrderByDescending, ThenByDescending, and Take operations
             await using var scope = _scopeFactory.CreateAsyncScope();
             await using var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
 
@@ -224,6 +219,42 @@ namespace NinjaBotCore.Services
         public void InvalidateRioSearchHistory(long userId)
         {
             _cache.Remove($"rio_search_history_{userId}");
+        }
+
+        /// <summary>
+        /// Gets server greeting settings for a guild with caching
+        /// </summary>
+        public async Task<ServerGreeting> GetServerGreetingAsync(long guildId)
+        {
+            var cacheKey = $"server_greeting_{guildId}";
+
+            if (_cache.TryGetValue<ServerGreeting>(cacheKey, out var cachedGreeting))
+            {
+                return cachedGreeting;
+            }
+
+            await using var repo = new Repository<ServerGreeting>(_scopeFactory);
+            var greeting = await repo.FirstOrDefaultAsync(g => g.DiscordGuildId == guildId);
+
+            if (greeting != null)
+            {
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = GreetingExpiration,
+                    Size = 1
+                };
+                _cache.Set(cacheKey, greeting, cacheOptions);
+            }
+
+            return greeting;
+        }
+
+        /// <summary>
+        /// Invalidates the cached server greeting for a guild
+        /// </summary>
+        public void InvalidateServerGreeting(long guildId)
+        {
+            _cache.Remove($"server_greeting_{guildId}");
         }
     }
 }

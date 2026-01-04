@@ -1,45 +1,28 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Discord;
-using Discord.WebSocket;
-using NinjaBotCore.Database;
-using NinjaBotCore.Services;
-using Microsoft.Extensions.Logging;
 using Discord.Interactions;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
+using NinjaBotCore.Database;
 using NinjaBotCore.Repositories;
 
 namespace NinjaBotCore.Modules.Interactions.Away
 {
     public class AwayCommands : NinjaBotBaseModule
     {
-        private static bool _isLinked = false;
-        private static DiscordShardedClient _client;
         private readonly ILogger _logger;
 
-        // NOTE: This module is registered as Singleton to hook MessageReceived events
-        // Therefore, it cannot use scoped repository injection (Pattern #3)
-        // Instead, it uses Pattern #1 (GetRepository) for both slash commands and events
+        // Event handling is now done by AwaySystemService
+        // This module only handles slash commands
         public AwayCommands(
             IServiceScopeFactory scopeFactory,
-            DiscordShardedClient client,
             ILogger<AwayCommands> logger)
             : base(scopeFactory)
         {
             _logger = logger;
-            if (!_isLinked)
-            {
-                client.MessageReceived += AwayMentionFinder;
-                _logger.LogInformation("Hooked into MessageReceived for Away module.");
-            }
-            _isLinked = true;
-            if (_client == null)
-            {
-                _client = client;
-            }
         }
 
         [SlashCommand("away", "set yourself as away, replying to @mentions of you")]
@@ -85,12 +68,15 @@ namespace NinjaBotCore.Modules.Interactions.Away
                 }
                 await RespondAsync(sb.ToString(), ephemeral: true);
             }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Database error in away command for user {UserId}", Context.User.Id);
+                await RespondAsync("Failed to update away status in database. Please try again.", ephemeral: true);
+            }
             catch (Exception ex)
             {
-                StringBuilder sb = new StringBuilder();
-                sb.AppendLine("Something went wrong setting you away :(");
-                _logger.LogError($"Away command error {ex.Message}");
-                await RespondAsync(sb.ToString(), ephemeral: true);
+                _logger.LogError(ex, "Unexpected error in away command for user {UserId}", Context.User.Id);
+                await RespondAsync("An unexpected error occurred. Please try again later.", ephemeral: true);
             }
         }
 
@@ -152,12 +138,15 @@ namespace NinjaBotCore.Modules.Interactions.Away
                 }
                 await RespondAsync(sb.ToString(), ephemeral: true);
             }
+            catch (DbUpdateException ex)
+            {
+                _logger.LogError(ex, "Database error in back command for user {UserId}", Context.User.Id);
+                await RespondAsync("Failed to update back status in database. Please try again.", ephemeral: true);
+            }
             catch (Exception ex)
             {
-                StringBuilder sb = new StringBuilder();
-                sb.AppendLine("Something went wrong marking you as back :(");
-                _logger.LogError($"Back command error {ex.Message}");
-                await RespondAsync(sb.ToString());
+                _logger.LogError(ex, "Unexpected error in back command for user {UserId}", Context.User.Id);
+                await RespondAsync("An unexpected error occurred. Please try again later.", ephemeral: true);
             }
         }
 
@@ -166,55 +155,6 @@ namespace NinjaBotCore.Modules.Interactions.Away
         public async Task SetBack(IGuildUser user)
         {
             await SetBack(forced: true, forceUser: user);
-        }
-
-        private async Task AwayMentionFinder(SocketMessage messageDetails)
-        {
-            try
-            {
-                // Early returns - fast filtering
-                if (messageDetails.Author.IsBot) return;
-                if (!messageDetails.MentionedUsers.Any()) return;
-
-                var mentionedUsers = messageDetails.MentionedUsers.ToList();
-
-                // Single repository for all users - reuse DbContext
-                await using var awayRepo = GetRepository<AwaySystem>();
-
-                foreach (var user in mentionedUsers)
-                {
-                    var awayUser = await awayRepo.FirstOrDefaultAsync(a =>
-                        a.UserId == user.Id && a.Status == true);
-
-                    if (awayUser == null) continue;
-
-                    // Calculate away duration
-                    string awayDuration = string.Empty;
-                    if (awayUser.TimeAway.HasValue)
-                    {
-                        var duration = DateTime.UtcNow - awayUser.TimeAway.Value;
-                        awayDuration = $"**{duration.Days}** days, **{duration.Hours}** hours, **{duration.Minutes}** minutes, and **{duration.Seconds}** seconds";
-                    }
-
-                    _logger.LogInformation("Mentioned user {Username} is away (Status: {Status})",
-                        user.Username, awayUser.Status);
-
-                    // Build embed
-                    var embed = new EmbedBuilder()
-                        .WithColor(new Color(0, 71, 171))
-                        .WithThumbnailUrl(user.GetAvatarUrl())
-                        .WithTitle($":clock: {awayUser.UserName} is away! :clock:")
-                        .WithDescription($"Since: **{awayUser.TimeAway}**\nDuration: {awayDuration}\nMessage: {awayUser.Message}")
-                        .Build();
-
-                    await messageDetails.Channel.SendMessageAsync(embed: embed);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error checking away mentions in channel {ChannelId}",
-                    messageDetails.Channel.Id);
-            }
         }
     }
 }

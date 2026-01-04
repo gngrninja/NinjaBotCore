@@ -15,6 +15,17 @@ if ! docker ps | grep -q ninjabot-test-db; then
     cd src
     dotnet ef database update --connection "Host=localhost;Port=5433;Database=ninjabot_test;Username=ninjabot_test;Password=test_password_local_only"
     cd ..
+else
+    echo "stopping db"
+    docker compose -f docker-compose.test.yml down
+    echo "Starting test database..."
+    docker compose -f docker-compose.test.yml up -d
+    sleep 3
+
+    echo "Applying migrations..."
+    cd src
+    dotnet ef database update --connection "Host=localhost;Port=5433;Database=ninjabot_test;Username=ninjabot_test;Password=test_password_local_only"
+    cd ..
 fi
 
 # Check if .env.development exists

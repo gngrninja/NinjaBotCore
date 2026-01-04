@@ -55,7 +55,14 @@ namespace NinjaBotCore.Services
             if (ConnectedChannels.TryGetValue(guild.Id, out client))
             {
                 //await Log(LogSeverity.Debug, $"Starting playback of {path} in {guild.Name}");
-                using (var ffmpeg = CreateProcess(path))
+                var ffmpeg = CreateProcess(path);
+                if (ffmpeg == null)
+                {
+                    // ffmpeg process failed to start (possibly not installed)
+                    return;
+                }
+
+                using (ffmpeg)
                 using (var stream = client.CreatePCMStream(AudioApplication.Music))
                 {
                     try { await ffmpeg.StandardOutput.BaseStream.CopyToAsync(stream); }

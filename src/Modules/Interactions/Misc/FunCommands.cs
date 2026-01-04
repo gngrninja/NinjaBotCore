@@ -68,14 +68,17 @@ namespace NinjaBotCore.Modules.Interactions.Fun
             Random r = new Random();
 
             var answers = await WithDbAsync(db => db.C8Ball.ToListAsync());
-            if (answers == null)
+            if (answers == null || !answers.Any())
             {
-                answers.Add(new C8Ball
+                answers = new List<C8Ball>
                 {
-                    AnswerId = 0,
-                    Answer = "No! (cant access DB)",
-                    Color = "Red"
-                });
+                    new C8Ball
+                    {
+                        AnswerId = 0,
+                        Answer = "No! (cant access DB)",
+                        Color = "Red"
+                    }
+                };
             }
             var answer = answers[r.Next(answers.Count())];
             string answerText = string.Empty;
