@@ -2578,9 +2578,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         [RequireUserPermission(GuildPermission.Administrator)]
         public async Task Yoink(SocketVoiceChannel to, SocketVoiceChannel from)
         {
+            // Defer the interaction immediately to avoid timeout with multiple users
+            await DeferAsync(ephemeral: true);
+
             if (from.Id == to.Id)
             {
-                await RespondAsync("Please pick two different voice channels.", ephemeral: true);
+                await FollowupAsync("Please pick two different voice channels.", ephemeral: true);
                 return;
             }
 
@@ -2588,7 +2591,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             if (usersToMove.Count == 0)
             {
-                await RespondAsync($"No users currently in [{from.Name}] to move.", ephemeral: true);
+                await FollowupAsync($"No users currently in [{from.Name}] to move.", ephemeral: true);
                 return;
             }
 
@@ -2621,7 +2624,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 message += $" Skipped {skippedUsers.Count} user(s) no longer in voice: {string.Join(", ", skippedUsers)}.";
             }
 
-            await RespondAsync(message, ephemeral: true);
+            await FollowupAsync(message, ephemeral: true);
         }
 
         [SlashCommand("member", "give user the member role")]
