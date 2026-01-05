@@ -2578,18 +2578,50 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         [RequireUserPermission(GuildPermission.Administrator)]
         public async Task Yoink(SocketVoiceChannel to, SocketVoiceChannel from)
         {
-            var usersToMove = from.Users;
-            var numUsers = from.Users.Count;
+            if (from.Id == to.Id)
+            {
+                await RespondAsync("Please pick two different voice channels.", ephemeral: true);
+                return;
+            }
+
+            var usersToMove = from.Users.Where(u => u.VoiceChannel?.Id == from.Id).ToList();
+
+            if (usersToMove.Count == 0)
+            {
+                await RespondAsync($"No users currently in [{from.Name}] to move.", ephemeral: true);
+                return;
+            }
+
+            var movedUsers = 0;
+            var skippedUsers = new List<string>();
+
             foreach (var user in usersToMove)
             {
-                await user.ModifyAsync(u =>
+                try
                 {
-                    u.Channel = to;
-                });
+                    await user.ModifyAsync(u =>
+                    {
+                        u.Channel = to;
+                    });
+                    movedUsers++;
+                }
+                catch (HttpException ex) when (ex.DiscordCode.GetValueOrDefault() == (DiscordErrorCode)40032)
+                {
+                    // User left voice between gathering the list and moving them
+                    skippedUsers.Add(user.Username);
+                }
+
                 await Task.Delay(750);
             }
-            var message = $"Yoinked [{numUsers}] users from [{from.Name}] to [{to.Name}]!";
-            await RespondAsync(message);
+
+            var message = $"Yoinked [{movedUsers}] users from [{from.Name}] to [{to.Name}]!";
+
+            if (skippedUsers.Count > 0)
+            {
+                message += $" Skipped {skippedUsers.Count} user(s) no longer in voice: {string.Join(", ", skippedUsers)}.";
+            }
+
+            await RespondAsync(message, ephemeral: true);
         }
 
         [SlashCommand("member", "give user the member role")]
