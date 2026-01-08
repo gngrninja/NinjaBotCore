@@ -16,6 +16,7 @@ namespace NinjaBotCore.Services
         private readonly IConfigurationRoot _config;
         private readonly IServiceProvider _services;
         private readonly ILogger<StartupService> _logger;
+        private readonly WowStaticDataService _wowStaticData;
 
         // Shard readiness tracking
         private int _readyShards = 0;
@@ -29,6 +30,10 @@ namespace NinjaBotCore.Services
             _config = _services.GetRequiredService<IConfigurationRoot>();
             _discord = _services.GetRequiredService<DiscordShardedClient>();
             _logger = _services.GetRequiredService<ILogger<StartupService>>();
+
+            // Initialize WowStaticDataService to start background update tasks
+            _wowStaticData = _services.GetRequiredService<WowStaticDataService>();
+            _logger.LogInformation("WowStaticDataService initialized with background update tasks");
 
             // Subscribe to shard events for monitoring
             _discord.ShardReady += OnShardReady;

@@ -33,6 +33,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private readonly ILogger _logger;
         private WowUtilities _wowUtils;
         private readonly WarcraftLogsV2Client _v2Client;
+        private readonly WowStaticDataService _wowStaticData;
 
         // Pattern #3: Constructor injection instead of service locator
         public WowAdminInteract(
@@ -44,7 +45,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             RaiderIOApi rioApi,
             DiscordShardedClient client,
             IConfigurationRoot config,
-            WarcraftLogsV2Client v2Client)
+            WarcraftLogsV2Client v2Client,
+            WowStaticDataService wowStaticData)
             : base(scopeFactory)
         {
             _logger = logger;
@@ -55,6 +57,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             _client = client;
             _config = config;
             _v2Client = v2Client;
+            _wowStaticData = wowStaticData;
         }
 
         [SlashCommand("populatelogs", "populate logs")]
@@ -1165,6 +1168,291 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             componentBuilder.WithButton(nextButton);
 
             return componentBuilder.Build();
+        }
+
+        [SlashCommand("import-mount", "Import a single mount by ID")]
+        [Discord.Interactions.RequireOwner]
+        public async Task ImportSingleMount(
+            [Summary("mount-id", "The mount ID to import")]
+            long mountId,
+            [Summary("region", "Region to import from")]
+            [Choice("US", "us")]
+            [Choice("EU", "eu")]
+            string region = "us")
+        {
+            await DeferAsync(ephemeral: true);
+
+            try
+            {
+                _logger.LogInformation("Admin command: Importing mount {MountId} for region {Region} by user {User}", mountId, region, Context.User.Username);
+
+                var mount = await _wowStaticData.ImportMountAsync(mountId, region);
+
+                if (mount != null)
+                {
+                    var embed = new EmbedBuilder()
+                        .WithTitle($"Mount Imported: {mount.Name}")
+                        .WithColor(Color.Green)
+                        .WithDescription($"**Source:** {mount.Source}\n**Instance:** {mount.InstanceName ?? "N/A"}\n**Encounter:** {mount.EncounterName ?? "N/A"}")
+                        .WithFooter($"Mount ID: {mount.Id}")
+                        .WithCurrentTimestamp();
+
+                    await FollowupAsync(embed: embed.Build(), ephemeral: true);
+                }
+                else
+                {
+                    await FollowupAsync($"Mount {mountId} not found or failed to import.", ephemeral: true);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error importing mount {MountId}", mountId);
+                await FollowupAsync($"Error: {ex.Message}", ephemeral: true);
+            }
+        }
+
+        [SlashCommand("import-mounts", "Import all mounts from the WoW API")]
+        [Discord.Interactions.RequireOwner]
+        public async Task ImportMounts(
+            [Summary("region", "Region to import from")]
+            [Choice("US", "us")]
+            [Choice("EU", "eu")]
+            string region = "us")
+        {
+            await DeferAsync(ephemeral: true);
+
+            try
+            {
+                _logger.LogInformation("Admin command: Starting mount import for region {Region} by user {User}", region, Context.User.Username);
+
+                var embed = new EmbedBuilder()
+                    .WithTitle("Mount Import Started")
+                    .WithColor(Color.Blue)
+                    .WithDescription($"Importing mounts from **{region.ToUpper()}** region...\n\nThis may take several minutes.")
+                    .WithCurrentTimestamp();
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+
+                // Run import in background
+                var cts = new CancellationTokenSource();
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _wowStaticData.ImportAllMountsAsync(region, cts.Token);
+
+                        var successEmbed = new EmbedBuilder()
+                            .WithTitle("Mount Import Complete")
+                            .WithColor(Color.Green)
+                            .WithDescription($"Successfully imported mounts from **{region.ToUpper()}** region.")
+                            .WithCurrentTimestamp();
+
+                        await Context.Interaction.FollowupAsync(embed: successEmbed.Build(), ephemeral: true);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error during mount import");
+
+                        var errorEmbed = new EmbedBuilder()
+                            .WithTitle("Mount Import Failed")
+                            .WithColor(Color.Red)
+                            .WithDescription($"Error: {ex.Message}")
+                            .WithCurrentTimestamp();
+
+                        await Context.Interaction.FollowupAsync(embed: errorEmbed.Build(), ephemeral: true);
+                    }
+                }, cts.Token);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error initiating mount import");
+                var errorEmbed = new EmbedBuilder()
+                    .WithTitle("Error")
+                    .WithColor(Color.Red)
+                    .WithDescription($"Failed to start mount import: {ex.Message}");
+                await FollowupAsync(embed: errorEmbed.Build(), ephemeral: true);
+            }
+        }
+
+        [SlashCommand("merge-mount-sources", "Merge source data from mounts.json into database")]
+        [Discord.Interactions.RequireOwner]
+        public async Task MergeMountSources()
+        {
+            await DeferAsync(ephemeral: true);
+
+            try
+            {
+                _logger.LogInformation("Admin command: Starting mount source merge by user {User}", Context.User.Username);
+
+                var embed = new EmbedBuilder()
+                    .WithTitle("Mount Source Merge Started")
+                    .WithColor(Color.Blue)
+                    .WithDescription("Merging source data from **mounts.json** into database...\n\nThis will update drop locations, vendors, achievements, etc.")
+                    .WithCurrentTimestamp();
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+
+                // Run merge in background
+                var cts = new CancellationTokenSource();
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var result = await _wowStaticData.MergeScrapedMountDataAsync("mounts.json", cts.Token);
+
+                        var successEmbed = new EmbedBuilder()
+                            .WithTitle("Mount Source Merge Complete")
+                            .WithColor(Color.Green)
+                            .WithDescription($"{result}")
+                            .WithCurrentTimestamp();
+
+                        await Context.Interaction.FollowupAsync(embed: successEmbed.Build(), ephemeral: true);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error during mount source merge");
+
+                        var errorEmbed = new EmbedBuilder()
+                            .WithTitle("Mount Source Merge Failed")
+                            .WithColor(Color.Red)
+                            .WithDescription($"Error: {ex.Message}")
+                            .WithCurrentTimestamp();
+
+                        await Context.Interaction.FollowupAsync(embed: errorEmbed.Build(), ephemeral: true);
+                    }
+                }, cts.Token);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error initiating mount source merge");
+                var errorEmbed = new EmbedBuilder()
+                    .WithTitle("Error")
+                    .WithColor(Color.Red)
+                    .WithDescription($"Failed to start mount source merge: {ex.Message}");
+                await FollowupAsync(embed: errorEmbed.Build(), ephemeral: true);
+            }
+        }
+
+        [SlashCommand("import-items", "Import items from the WoW API by ID range")]
+        [Discord.Interactions.RequireOwner]
+        public async Task ImportItems(
+            [Summary("start-id", "Starting item ID")]
+            long startId = 1,
+
+            [Summary("end-id", "Ending item ID (max 10000 at a time)")]
+            long endId = 10000,
+
+            [Summary("region", "Region to import from")]
+            [Choice("US", "us")]
+            [Choice("EU", "eu")]
+            string region = "us")
+        {
+            await DeferAsync(ephemeral: true);
+
+            try
+            {
+                // Validate range
+                if (endId < startId)
+                {
+                    await FollowupAsync("❌ End ID must be greater than or equal to start ID.", ephemeral: true);
+                    return;
+                }
+
+                if (endId - startId > 10000)
+                {
+                    await FollowupAsync("❌ Range too large. Maximum 10,000 items at a time.", ephemeral: true);
+                    return;
+                }
+
+                _logger.LogInformation("Admin command: Starting item import {Start}-{End} for region {Region} by user {User}",
+                    startId, endId, region, Context.User.Username);
+
+                var embed = new EmbedBuilder()
+                    .WithTitle("Item Import Started")
+                    .WithColor(Color.Blue)
+                    .WithDescription($"Importing items **{startId:N0}** to **{endId:N0}** from **{region.ToUpper()}** region...\n\nThis may take several minutes.")
+                    .WithCurrentTimestamp();
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+
+                // Run import in background
+                var cts = new CancellationTokenSource();
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        int imported = 0;
+                        int failed = 0;
+
+                        for (long itemId = startId; itemId <= endId; itemId++)
+                        {
+                            if (cts.Token.IsCancellationRequested) break;
+
+                            try
+                            {
+                                var item = await _wowStaticData.ImportItemAsync(itemId, region, cts.Token);
+                                if (item != null)
+                                {
+                                    imported++;
+                                }
+                                else
+                                {
+                                    failed++;
+                                }
+
+                                // Progress update every 1000 items
+                                if ((itemId - startId) % 1000 == 0 && itemId > startId)
+                                {
+                                    var progressEmbed = new EmbedBuilder()
+                                        .WithTitle("Import Progress")
+                                        .WithColor(Color.Orange)
+                                        .WithDescription($"Processed: **{itemId - startId:N0}** / **{endId - startId:N0}**\nImported: **{imported:N0}** | Failed: **{failed:N0}**")
+                                        .WithCurrentTimestamp();
+
+                                    await Context.Interaction.FollowupAsync(embed: progressEmbed.Build(), ephemeral: true);
+                                }
+
+                                // Rate limiting
+                                await Task.Delay(50, cts.Token);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Failed to import item {ItemId}", itemId);
+                                failed++;
+                            }
+                        }
+
+                        var successEmbed = new EmbedBuilder()
+                            .WithTitle("Item Import Complete")
+                            .WithColor(Color.Green)
+                            .WithDescription($"**Range:** {startId:N0} - {endId:N0}\n**Imported:** {imported:N0}\n**Failed:** {failed:N0}")
+                            .WithCurrentTimestamp();
+
+                        await Context.Interaction.FollowupAsync(embed: successEmbed.Build(), ephemeral: true);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error during item import");
+
+                        var errorEmbed = new EmbedBuilder()
+                            .WithTitle("Item Import Failed")
+                            .WithColor(Color.Red)
+                            .WithDescription($"Error: {ex.Message}")
+                            .WithCurrentTimestamp();
+
+                        await Context.Interaction.FollowupAsync(embed: errorEmbed.Build(), ephemeral: true);
+                    }
+                }, cts.Token);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error initiating item import");
+                var errorEmbed = new EmbedBuilder()
+                    .WithTitle("Error")
+                    .WithColor(Color.Red)
+                    .WithDescription($"Failed to start item import: {ex.Message}");
+                await FollowupAsync(embed: errorEmbed.Build(), ephemeral: true);
+            }
         }
     }
 }

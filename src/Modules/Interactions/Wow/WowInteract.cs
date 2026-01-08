@@ -13,13 +13,17 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using NinjaBotCore.Common;
+using System.IO;
 using System.Threading;
 using NinjaBotCore.Modules.Wow;
 using NinjaBotCore.Models.Wow;
+using NinjaBotCore.Models.Wow.Housing;
 using NinjaBotCore.Database;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Data;
 using Microsoft.EntityFrameworkCore;
+using Newtonsoft.Json;
 
 namespace NinjaBotCore.Modules.Interactions.Wow
 {
@@ -38,6 +42,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private readonly ILogger _logger;
         private WowUtilities _wowUtils;
         private WowCacheService _wowCache;
+        private WowStaticDataService _wowStaticData;
+
+        // Track mount detail message IDs per user to allow replacing them
+        private static readonly ConcurrentDictionary<ulong, ulong> _mountDetailMessages = new ConcurrentDictionary<ulong, ulong>();
 
         // Pattern #3: Constructor injection instead of service locator
         public WowInteract(
@@ -51,7 +59,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             DiscordShardedClient client,
             IConfigurationRoot config,
             WowUtilities wowUtils,
-            WowCacheService wowCache)
+            WowCacheService wowCache,
+            WowStaticDataService wowStaticData)
             : base(scopeFactory)
         {
             _handler = handler;
@@ -64,6 +73,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             _config = config;
             _wowUtils = wowUtils;
             _wowCache = wowCache;
+            _wowStaticData = wowStaticData;
         }
 
         [SlashCommand("rio", "Get character's Raider.IO profile")]
@@ -524,6 +534,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             ArmorySummary armorySummary;
             ArmoryEquipment armoryEquipment;
             ArmoryMedia armoryMedia = null;
+            var realmSlugForCache = realmName.Replace("'", string.Empty).Replace(" ", "-").ToLowerInvariant();
+
             try
             {
                 var summaryTask = _wowApi.GetArmorySummaryAsync(charName, realmName, regionName);
@@ -534,6 +546,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 armorySummary = summaryTask.Result;
                 armoryEquipment = equipmentTask.Result;
                 armoryMedia = mediaTask.Result;
+
+                // Cache the equipment and media data for subsequent item detail requests
+                if (armoryEquipment != null && armoryMedia != null)
+                {
+                    _wowCache.SetCachedArmoryEquipment(charName, realmSlugForCache, regionName, armoryEquipment, armoryMedia);
+                }
             }
             catch (Exception ex)
             {
@@ -798,20 +816,44 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             ArmoryEquipment armoryEquipment = null;
             ArmoryItemMedia itemMedia = null;
-            try
-            {
-                var equipmentTask = _wowApi.GetArmoryEquipmentAsync(characterName, realmSlug, regionName);
-                var itemMediaTask = _wowApi.GetItemMediaAsync(itemId, regionName);
 
-                await Task.WhenAll(equipmentTask, itemMediaTask);
-                armoryEquipment = equipmentTask.Result;
-                itemMedia = itemMediaTask.Result;
-            }
-            catch (Exception ex)
+            // Try to get cached equipment first
+            var cachedData = _wowCache.GetCachedArmoryEquipment(characterName, realmSlug, regionName);
+            if (cachedData.HasValue)
             {
-                _logger.LogError(ex, "Error fetching armory item details for {Character} on {Realm}", characterName, realmSlug);
-                await FollowupAsync("Could not load that item right now. Please try again.", ephemeral: true);
-                return;
+                armoryEquipment = cachedData.Value.Equipment;
+                _logger.LogDebug("Using cached armory equipment for {Character} on {Realm}", characterName, realmSlug);
+
+                // Still fetch item media for the icon (relatively cheap API call)
+                try
+                {
+                    itemMedia = await _wowApi.GetItemMediaAsync(itemId, regionName);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error fetching item media for item {ItemId}, continuing without icon", itemId);
+                    // Continue without item media - not critical
+                }
+            }
+            else
+            {
+                // Cache miss - fall back to API calls
+                _logger.LogDebug("Cache miss for armory equipment, fetching from API for {Character} on {Realm}", characterName, realmSlug);
+                try
+                {
+                    var equipmentTask = _wowApi.GetArmoryEquipmentAsync(characterName, realmSlug, regionName);
+                    var itemMediaTask = _wowApi.GetItemMediaAsync(itemId, regionName);
+
+                    await Task.WhenAll(equipmentTask, itemMediaTask);
+                    armoryEquipment = equipmentTask.Result;
+                    itemMedia = itemMediaTask.Result;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error fetching armory item details for {Character} on {Realm}", characterName, realmSlug);
+                    await FollowupAsync("Could not load that item right now. Please try again.", ephemeral: true);
+                    return;
+                }
             }
 
             var selectedItem = armoryEquipment?.EquippedItems?.FirstOrDefault(i =>
@@ -924,6 +966,254 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             detailEmbed.AddField("Armory", $"[View on Battle.net]({armoryUrl})", true);
 
             await FollowupAsync(embed: detailEmbed.Build(), ephemeral: true);
+        }
+
+        [SlashCommand("mounts-needed", "Show mounts you still need to collect")]
+        public async Task GetMissingMounts(
+            [Summary("character", "Character name (leave empty to use your main character)")]
+            [Autocomplete(typeof(GuildCharAutocomplete))]
+            string character = null,
+
+            [Summary("realm", "Realm name (optional if using autocomplete)")]
+            [Autocomplete(typeof(RealmAutocomplete))]
+            string realm = null,
+
+            [Summary("region", "Region (defaults to US if not specified)")]
+            [Choice("US", "us")]
+            [Choice("EU", "eu")]
+            [Choice("RU", "ru")]
+            string region = null,
+
+            [Summary("expansion", "Filter by expansion")]
+            [Choice("All Expansions", "all")]
+            [Choice("The War Within", "The War Within")]
+            [Choice("Dragonflight", "Dragonflight")]
+            [Choice("Shadowlands", "Shadowlands")]
+            [Choice("Battle for Azeroth", "Battle for Azeroth")]
+            [Choice("Legion", "Legion")]
+            [Choice("Warlords of Draenor", "Warlords of Draenor")]
+            [Choice("Mists of Pandaria", "Mists of Pandaria")]
+            [Choice("Cataclysm", "Cataclysm")]
+            [Choice("Wrath of the Lich King", "Wrath of the Lich King")]
+            [Choice("The Burning Crusade", "The Burning Crusade")]
+            [Choice("Classic", "Classic")]
+            string expansion = "all",
+
+            [Summary("source", "Filter by source type")]
+            [Choice("All Sources", "all")]
+            [Choice("Drops", "DROP")]
+            [Choice("Vendor", "VENDOR")]
+            [Choice("Achievement", "ACHIEVEMENT")]
+            [Choice("Profession", "PROFESSION")]
+            [Choice("Quest", "QUEST")]
+            string source = "all",
+
+            [Summary("obtainable", "Filter by availability")]
+            [Choice("All Mounts", "all")]
+            [Choice("Obtainable Only", "obtainable")]
+            [Choice("Removed/Legacy Only", "removed")]
+            string obtainable = "all",
+
+            [Summary("public", "Show results publicly (default: private)")]
+            bool publicDisplay = false)
+        {
+            try
+            {
+                await DeferAsync(ephemeral: !publicDisplay);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to defer interaction for /mount-missing command");
+                await RespondAsync("The request took too long to process. Please try again.", ephemeral: true);
+                return;
+            }
+
+            string charName = null;
+            string realmName = null;
+            string regionName = region;
+            var embed = new EmbedBuilder();
+
+            // Get character info (same logic as armory command)
+            if (string.IsNullOrEmpty(character))
+            {
+                var charAssociation = await _wowCache.GetUserMainCharacterAsync((long)Context.User.Id);
+
+                if (charAssociation != null)
+                {
+                    charName = charAssociation.CharName;
+                    realmName = charAssociation.WowRealm;
+                    regionName ??= charAssociation.WowRegion;
+                }
+                else
+                {
+                    embed.Title = "No Main Character Set";
+                    embed.WithColor(new Color(255, 165, 0));
+                    embed.Description = "You haven't set a main character yet!\n\nUse `/getchars` to manage your saved characters.";
+                    await FollowupAsync(embed: embed.Build(), ephemeral: true);
+                    return;
+                }
+            }
+            else
+            {
+                var parts = character.Split('~', 3);
+                charName = parts[0];
+
+                if (string.IsNullOrEmpty(realmName) && parts.Length >= 2)
+                {
+                    realmName = parts[1];
+                }
+                else if (!string.IsNullOrEmpty(realm))
+                {
+                    realmName = realm;
+                }
+
+                if (string.IsNullOrEmpty(regionName) && parts.Length >= 3)
+                {
+                    regionName = parts[2];
+                }
+            }
+
+            if (string.IsNullOrEmpty(realmName))
+            {
+                var guildObject = await _wowUtils.GetGuildName(Context);
+
+                if (!string.IsNullOrEmpty(guildObject.guildName))
+                {
+                    var guildie = await _wowApi.GetCharFromGuildAsync(
+                        charName,
+                        guildObject.realmName,
+                        guildObject.guildName,
+                        guildObject.regionName);
+
+                    if (!string.IsNullOrEmpty(guildie.charName))
+                    {
+                        realmName = guildie.realmName;
+                        regionName ??= guildie.regionName;
+                    }
+                }
+
+                if (string.IsNullOrEmpty(realmName))
+                {
+                    var chars = await _wowApi.SearchArmoryAsync(charName);
+                    if (chars != null && chars.Count > 0)
+                    {
+                        realmName = chars[0].realmName;
+                    }
+                    else
+                    {
+                        embed.Title = "Character Not Found";
+                        embed.WithColor(new Color(255, 0, 0));
+                        embed.Description = $"Could not find character **{charName}**.\n\nPlease specify the realm name using the `realm` parameter.";
+                        await FollowupAsync(embed: embed.Build(), ephemeral: true);
+                        return;
+                    }
+                }
+            }
+
+            regionName ??= "us";
+
+            // Fetch character's mount collection
+            MountCollectionResponse mountCollection;
+            try
+            {
+                mountCollection = await _wowApi.GetCharacterMountsAsync(charName, realmName, regionName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching mount collection for {Character} on {Realm}", charName, realmName);
+                embed.Title = "Error Fetching Mounts";
+                embed.WithColor(new Color(255, 0, 0));
+                embed.Description = $"Could not load mount collection for **{charName}** on **{realmName}** ({regionName.ToUpper()}).";
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+                return;
+            }
+
+            if (mountCollection?.Mounts == null)
+            {
+                embed.Title = "No Mount Data";
+                embed.WithColor(new Color(255, 165, 0));
+                embed.Description = $"No mount collection data found for **{charName}** on **{realmName}**.";
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+                return;
+            }
+
+            // Get collected mount IDs
+            var collectedMountIds = new HashSet<long>(mountCollection.Mounts.Select(m => m.Mount.Id));
+
+            // Get all mounts from database
+            var allMounts = await _wowStaticData.GetAllMountsAsync();
+
+            if (allMounts == null || allMounts.Count == 0)
+            {
+                embed.Title = "Mount Database Empty";
+                embed.WithColor(new Color(255, 165, 0));
+                embed.Description = "The mount database is empty. Please contact the bot administrator to import mount data.";
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+                return;
+            }
+
+            // Filter by expansion if specified
+            var filteredMounts = allMounts;
+            if (expansion != "all")
+            {
+                filteredMounts = filteredMounts.Where(m => string.Equals(m.Expansion, expansion, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+
+            // Filter by source if specified
+            if (source != "all")
+            {
+                filteredMounts = filteredMounts.Where(m => string.Equals(m.Source, source, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+
+            // Filter by obtainability
+            if (obtainable == "obtainable")
+            {
+                filteredMounts = filteredMounts.Where(m => m.IsObtainable).ToList();
+            }
+            else if (obtainable == "removed")
+            {
+                filteredMounts = filteredMounts.Where(m => !m.IsObtainable).ToList();
+            }
+
+            // Find missing mounts
+            var missingMounts = filteredMounts
+                .Where(m => !collectedMountIds.Contains(m.Id))
+                .OrderBy(m => m.Expansion)
+                .ThenBy(m => m.Source)
+                .ThenBy(m => m.Name)
+                .ToList();
+
+            var collectedCount = filteredMounts.Count(m => collectedMountIds.Contains(m.Id));
+            var totalCount = filteredMounts.Count;
+
+            if (missingMounts.Count == 0)
+            {
+                embed.Title = $"Missing Mounts - {charName}";
+                embed.WithColor(new Color(138, 43, 226));
+                embed.Description = $"**Collected:** {collectedCount}/{totalCount} ({(totalCount > 0 ? (collectedCount * 100.0 / totalCount):0):F1}%)";
+                if (expansion != "all")
+                {
+                    embed.Description += $"\n**Expansion:** {expansion}";
+                }
+                if (source != "all")
+                {
+                    embed.Description += $"\n**Source:** {source}";
+                }
+                embed.AddField("✅ Complete!", "You have collected all mounts in this category!");
+                await FollowupAsync(embed: embed.Build(), ephemeral: !publicDisplay);
+                return;
+            }
+
+            // Paginated display - 5 mounts per page
+            int page = 0;
+            int pageSize = 5;
+            var pageData = await BuildMountPageAsync(missingMounts, page, pageSize, charName, realmName, regionName, collectedCount, totalCount, source, expansion);
+
+            // Get current page mounts for the selection dropdown
+            var pageMounts = missingMounts.Skip(page * pageSize).Take(pageSize).ToList();
+            var components = BuildMountPaginationComponents(page, missingMounts.Count, pageSize, charName, realmName, regionName, source, expansion, Context.User.Id, pageMounts);
+
+            await FollowupAsync(embed: pageData.Build(), components: components.Build(), ephemeral: !publicDisplay);
         }
 
         [SlashCommand("clearhistoryrio", "Clear your RaiderIO search history")]
@@ -4189,6 +4479,36 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             return lines.Count == 0 ? null : string.Join("\n", lines);
         }
 
+        private string FormatStatName(string statKey)
+        {
+            var statMeta = new Dictionary<string, (string Label, string Emoji)>
+            {
+                { "INTELLECT", ("Int", "🧠") },
+                { "STRENGTH", ("Str", "💪") },
+                { "AGILITY", ("Agi", "🦊") },
+                { "STAMINA", ("Stam", "❤️") },
+                { "CRITICAL_STRIKE", ("Crit", "🎯") },
+                { "HASTE", ("Haste", "⚡") },
+                { "MASTERY", ("Mastery", "✨") },
+                { "VERSATILITY", ("Versatility", "🛡️") },
+                { "AVOIDANCE", ("Avoidance", "🌀") },
+                { "LEECH", ("Leech", "🩸") },
+                { "SPEED", ("Speed", "🏃") },
+                { "DODGE", ("Dodge", "🤸") },
+                { "PARRY", ("Parry", "🛡") },
+                { "ARMOR", ("Armor", "🪖") }
+            };
+
+            if (statMeta.TryGetValue(statKey.ToUpperInvariant(), out var meta))
+            {
+                return $"{meta.Emoji} {meta.Label}";
+            }
+
+            // Fallback: capitalize first letter of each word
+            return string.Join(" ", statKey.Split('_').Select(w =>
+                w.Length > 0 ? char.ToUpper(w[0]) + w.Substring(1).ToLower() : w));
+        }
+
         private string BuildSetsSection(IEnumerable<(string Name, HashSet<int> ItemIds, List<ArmorySetEffect> Effects, int TotalPieces)> sets)
         {
             if (sets == null)
@@ -4222,6 +4542,31 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             }
 
             return setStrings.Count == 0 ? null : string.Join("\n\n", setStrings);
+        }
+
+        private string NormalizeItemIconUrl(string mediaUrl)
+        {
+            if (string.IsNullOrEmpty(mediaUrl))
+            {
+                return null;
+            }
+
+            // If it's already a Wowhead/Zam render URL, just return it
+            if (mediaUrl.Contains("wow.zamimg.com", StringComparison.OrdinalIgnoreCase))
+            {
+                return mediaUrl;
+            }
+
+            if (Uri.TryCreate(mediaUrl, UriKind.Absolute, out var uri))
+            {
+                var fileName = Path.GetFileName(uri.AbsolutePath);
+                if (!string.IsNullOrEmpty(fileName))
+                {
+                    return $"https://wow.zamimg.com/images/wow/icons/large/{fileName.ToLowerInvariant()}";
+                }
+            }
+
+            return mediaUrl;
         }
 
         private void AppendGearSlot(
@@ -4275,5 +4620,1320 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 _ => null
             };
         }
+
+        private Color GetQualityColor(int quality)
+        {
+            return quality switch
+            {
+                >= 6 => new Color(255, 128, 0),  // Artifact/Mythic+ - Orange
+                5 => new Color(255, 128, 0),     // Legendary - Orange
+                4 => new Color(163, 53, 238),    // Epic - Purple
+                3 => new Color(0, 112, 221),     // Rare - Blue
+                2 => new Color(30, 255, 0),      // Uncommon - Green
+                1 => new Color(157, 157, 157),   // Common - Gray
+                _ => new Color(157, 157, 157)    // Poor/Default - Gray
+            };
+        }
+
+        #region Housing Commands
+
+        [SlashCommand("housing-random-decor", "Get a random housing decor item")]
+        public async Task GetRandomDecor(
+            [Summary("public", "Show results publicly (default: private)")]
+            bool publicDisplay = false)
+        {
+            await DeferAsync(ephemeral: !publicDisplay);
+
+            try
+            {
+                // Fetch a larger page to get better random selection
+                var url = "/data/wow/search/decor?namespace=static-us&_page=1&_pageSize=1000";
+                var response = await _wowApi.GetAPIRequestAsync(url, "en_US", "us");
+                var decorSearch = JsonConvert.DeserializeObject<DecorSearchResponse>(response);
+
+                if (decorSearch?.Results == null || decorSearch.Results.Count == 0)
+                {
+                    await FollowupAsync(embed: new EmbedBuilder()
+                        .WithTitle("No Decor Items Found")
+                        .WithDescription("Unable to fetch housing decor items at this time.")
+                        .WithColor(Color.Red)
+                        .Build(), ephemeral: !publicDisplay);
+                    return;
+                }
+
+                var random = new Random();
+                var randomDecor = decorSearch.Results[random.Next(decorSearch.Results.Count)];
+
+                var embed = new EmbedBuilder()
+                    .WithTitle($"🏠 {randomDecor.Data.Name.EnUS}")
+                    .WithColor(new Color(0, 176, 240))
+                    .AddField("Decor ID", randomDecor.Data.Id, inline: true);
+
+                if (randomDecor.Data.Item != null)
+                {
+                    var itemId = randomDecor.Data.Item.Id;
+                    var itemName = randomDecor.Data.Item.Name?.EnUS ?? "Unknown Item";
+                    var wowheadUrl = $"https://www.wowhead.com/item={itemId}";
+
+                    embed.AddField("Item", $"[{itemName}]({wowheadUrl})", inline: true)
+                        .AddField("Item ID", itemId, inline: true);
+
+                    // Try to get item details and media
+                    try
+                    {
+                        var itemUrl = $"/data/wow/item/{itemId}?namespace=static-us";
+                        var itemResponse = await _wowApi.GetAPIRequestAsync(itemUrl, "en_US", "us");
+                        var itemData = JsonConvert.DeserializeObject<dynamic>(itemResponse);
+
+                        // Add quality/rarity if available
+                        if (itemData?.quality?.name != null)
+                        {
+                            string qualityName = itemData.quality.name.ToString();
+                            var qualityEmoji = GetQualityEmojiByName(qualityName);
+                            if (qualityEmoji != null)
+                            {
+                                embed.AddField("Quality", $"{qualityEmoji} {qualityName}", inline: true);
+                            }
+                        }
+
+                        // Get item media for larger image display
+                        var mediaUrl = $"/data/wow/media/item/{itemId}?namespace=static-us";
+                        var mediaResponse = await _wowApi.GetAPIRequestAsync(mediaUrl, "en_US", "us");
+                        var mediaData = JsonConvert.DeserializeObject<dynamic>(mediaResponse);
+
+                        var assets = (IEnumerable<dynamic>)mediaData.assets;
+
+                        var renderAsset = assets
+                            .FirstOrDefault(a => (string)a.key == "render") ?? assets
+                            .FirstOrDefault(a => (string)a.key == "icon");
+
+                        string renderUrl = renderAsset?.value;
+
+                        if (!string.IsNullOrEmpty(renderUrl))
+                        {
+                            embed.WithImageUrl(renderUrl);
+                        }
+                    }
+                    catch
+                    {
+                        // If item/media fetch fails, just continue without extra details
+                    }
+                }
+
+                // Calculate approximate total (pageCount * pageSize, or results count if only 1 page)
+                long estimatedTotal = decorSearch.PageCount > 1
+                    ? decorSearch.PageCount * decorSearch.PageSize
+                    : decorSearch.Results.Count;
+
+                string footerText = decorSearch.ResultCountCapped
+                    ? $"Showing {decorSearch.Results.Count} of {estimatedTotal:N0}+ decor items"
+                    : $"Showing {decorSearch.Results.Count} of ~{estimatedTotal:N0} total decor items";
+
+                embed.WithFooter(footerText);
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: !publicDisplay);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching random decor");
+                await FollowupAsync(embed: new EmbedBuilder()
+                    .WithTitle("Error")
+                    .WithDescription("An error occurred while fetching random decor item.")
+                    .WithColor(Color.Red)
+                    .Build(), ephemeral: !publicDisplay);
+            }
+        }
+
+        [SlashCommand("housing-search-decor", "Search for housing decor items")]
+        public async Task SearchDecor(
+            [Summary("name", "Decor item name to search for")]
+            string name,
+
+            [Summary("public", "Show results publicly (default: private)")]
+            bool publicDisplay = false)
+        {
+            await DeferAsync(ephemeral: !publicDisplay);
+
+            try
+            {
+                var encodedName = Uri.EscapeDataString(name);
+                var url = $"/data/wow/search/decor?namespace=static-us&name.en_US={encodedName}&_pageSize=10";
+                var response = await _wowApi.GetAPIRequestAsync(url, "en_US", "us");
+                var decorSearch = JsonConvert.DeserializeObject<DecorSearchResponse>(response);
+
+                if (decorSearch?.Results == null || decorSearch.Results.Count == 0)
+                {
+                    await FollowupAsync(embed: new EmbedBuilder()
+                        .WithTitle($"No Results Found")
+                        .WithDescription($"No decor items found matching '{name}'")
+                        .WithColor(Color.Orange)
+                        .Build(), ephemeral: !publicDisplay);
+                    return;
+                }
+
+                var embed = new EmbedBuilder()
+                    .WithTitle($"🔍 Decor Search: {name}")
+                    .WithColor(new Color(0, 176, 240));
+
+                var sb = new StringBuilder();
+                foreach (var result in decorSearch.Results.Take(10))
+                {
+                    var decorName = result.Data.Name.EnUS;
+                    var decorId = result.Data.Id;
+
+                    sb.Append($"🏠 **{decorName}** (ID: {decorId})");
+
+                    if (result.Data.Item != null)
+                    {
+                        var itemId = result.Data.Item.Id;
+                        var wowheadUrl = $"https://www.wowhead.com/item={itemId}";
+                        sb.Append($" — [Item: {result.Data.Item.Name?.EnUS ?? "Unknown"}]({wowheadUrl})");
+                    }
+
+                    sb.AppendLine();
+                }
+
+                embed.WithDescription(sb.ToString());
+                embed.WithFooter($"Showing {decorSearch.Results.Take(10).Count()} of {decorSearch.Results.Count} results");
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: !publicDisplay);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching decor");
+                await FollowupAsync(embed: new EmbedBuilder()
+                    .WithTitle("Error")
+                    .WithDescription("An error occurred while searching for decor items.")
+                    .WithColor(Color.Red)
+                    .Build(), ephemeral: !publicDisplay);
+            }
+        }
+
+        [SlashCommand("housing-list-rooms", "List all available housing rooms")]
+        public async Task ListRooms(
+            [Summary("public", "Show results publicly (default: private)")]
+            bool publicDisplay = false)
+        {
+            await DeferAsync(ephemeral: !publicDisplay);
+
+            try
+            {
+                var url = "/data/wow/room/index?namespace=static-us";
+                var response = await _wowApi.GetAPIRequestAsync(url, "en_US", "us");
+                var roomIndex = JsonConvert.DeserializeObject<RoomIndexResponse>(response);
+
+                if (roomIndex?.Rooms == null || roomIndex.Rooms.Count == 0)
+                {
+                    await FollowupAsync(embed: new EmbedBuilder()
+                        .WithTitle("No Rooms Found")
+                        .WithDescription("Unable to fetch housing rooms at this time.")
+                        .WithColor(Color.Red)
+                        .Build(), ephemeral: !publicDisplay);
+                    return;
+                }
+
+                // Filter out invalid rooms (ID 0 or empty names)
+                var validRooms = roomIndex.Rooms
+                    .Where(r => r.Id > 0 && !string.IsNullOrWhiteSpace(r.Name))
+                    .OrderBy(r => r.Name)
+                    .ToList();
+
+                var embed = new EmbedBuilder()
+                    .WithTitle("🏡 Available Housing Rooms")
+                    .WithColor(new Color(92, 184, 92));
+
+                var sb = new StringBuilder();
+                foreach (var room in validRooms)
+                {
+                    sb.AppendLine($"🚪 **{room.Name}** (ID: {room.Id})");
+                }
+
+                embed.WithDescription(sb.ToString());
+                embed.WithFooter($"Total rooms: {validRooms.Count}");
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: !publicDisplay);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching room list");
+                await FollowupAsync(embed: new EmbedBuilder()
+                    .WithTitle("Error")
+                    .WithDescription("An error occurred while fetching room list.")
+                    .WithColor(Color.Red)
+                    .Build(), ephemeral: !publicDisplay);
+            }
+        }
+
+        [SlashCommand("housing-random-room", "Get details about a random housing room")]
+        public async Task GetRandomRoom(
+            [Summary("public", "Show results publicly (default: private)")]
+            bool publicDisplay = false)
+        {
+            await DeferAsync(ephemeral: !publicDisplay);
+
+            try
+            {
+                var url = "/data/wow/room/index?namespace=static-us";
+                var response = await _wowApi.GetAPIRequestAsync(url, "en_US", "us");
+                var roomIndex = JsonConvert.DeserializeObject<RoomIndexResponse>(response);
+
+                if (roomIndex?.Rooms == null || roomIndex.Rooms.Count == 0)
+                {
+                    await FollowupAsync(embed: new EmbedBuilder()
+                        .WithTitle("No Rooms Found")
+                        .WithDescription("Unable to fetch housing rooms at this time.")
+                        .WithColor(Color.Red)
+                        .Build(), ephemeral: !publicDisplay);
+                    return;
+                }
+
+                var random = new Random();
+                var randomRoom = roomIndex.Rooms[random.Next(roomIndex.Rooms.Count)];
+
+                // Get room details
+                var detailUrl = $"/data/wow/room/{randomRoom.Id}?namespace=static-us";
+                var detailResponse = await _wowApi.GetAPIRequestAsync(detailUrl, "en_US", "us");
+                var roomDetail = JsonConvert.DeserializeObject<RoomResponse>(detailResponse);
+
+                var embed = new EmbedBuilder()
+                    .WithTitle($"🏡 {randomRoom.Name}")
+                    .WithColor(new Color(92, 184, 92))
+                    .AddField("Room ID", randomRoom.Id, inline: true);
+
+                if (roomDetail != null && !string.IsNullOrEmpty(roomDetail.Name))
+                {
+                    embed.WithDescription($"**{roomDetail.Name}**");
+                }
+
+                // Try to fetch room media (though it might not exist)
+                try
+                {
+                    var mediaUrl = $"/data/wow/media/room/{randomRoom.Id}?namespace=static-us";
+                    var mediaResponse = await _wowApi.GetAPIRequestAsync(mediaUrl, "en_US", "us");
+                    var mediaData = JsonConvert.DeserializeObject<dynamic>(mediaResponse);
+
+                    if (mediaData?.assets != null && mediaData.assets.Count > 0)
+                    {
+                        string imageUrl = mediaData.assets[0].value?.ToString();
+                        if (!string.IsNullOrEmpty(imageUrl))
+                        {
+                            embed.WithImageUrl(imageUrl);
+                        }
+                    }
+                }
+                catch
+                {
+                    // Room media likely doesn't exist in the API yet
+                }
+
+                embed.WithFooter($"Total rooms available: {roomIndex.Rooms.Count}");
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: !publicDisplay);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching random room");
+                await FollowupAsync(embed: new EmbedBuilder()
+                    .WithTitle("Error")
+                    .WithDescription("An error occurred while fetching random room.")
+                    .WithColor(Color.Red)
+                    .Build(), ephemeral: !publicDisplay);
+            }
+        }
+
+        [SlashCommand("housing-search-fixtures", "Search for housing fixtures")]
+        public async Task SearchFixtures(
+            [Summary("name", "Fixture name to search for")]
+            string name,
+
+            [Summary("public", "Show results publicly (default: private)")]
+            bool publicDisplay = false)
+        {
+            await DeferAsync(ephemeral: !publicDisplay);
+
+            try
+            {
+                var encodedName = Uri.EscapeDataString(name);
+                var url = $"/data/wow/search/fixture?namespace=static-us&name.en_US={encodedName}&_pageSize=10";
+                var response = await _wowApi.GetAPIRequestAsync(url, "en_US", "us");
+                var fixtureSearch = JsonConvert.DeserializeObject<FixtureSearchResponse>(response);
+
+                if (fixtureSearch?.Results == null || fixtureSearch.Results.Count == 0)
+                {
+                    await FollowupAsync(embed: new EmbedBuilder()
+                        .WithTitle($"No Results Found")
+                        .WithDescription($"No fixtures found matching '{name}'")
+                        .WithColor(Color.Orange)
+                        .Build(), ephemeral: !publicDisplay);
+                    return;
+                }
+
+                var embed = new EmbedBuilder()
+                    .WithTitle($"🔧 Fixture Search: {name}")
+                    .WithColor(new Color(217, 83, 79));
+
+                var sb = new StringBuilder();
+                foreach (var result in fixtureSearch.Results.Take(10))
+                {
+                    sb.AppendLine($"🔧 **{result.Data.Name.EnUS}** (ID: {result.Data.Id})");
+                }
+
+                embed.WithDescription(sb.ToString());
+                embed.WithFooter($"Showing {fixtureSearch.Results.Take(10).Count()} of {fixtureSearch.Results.Count} results");
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: !publicDisplay);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching fixtures");
+                await FollowupAsync(embed: new EmbedBuilder()
+                    .WithTitle("Error")
+                    .WithDescription("An error occurred while searching for fixtures.")
+                    .WithColor(Color.Red)
+                    .Build(), ephemeral: !publicDisplay);
+            }
+        }
+
+        #endregion
+
+        #region Static Data Commands
+
+        [SlashCommand("item", "Look up a WoW item")]
+        public async Task ItemLookup(
+            [Summary("name", "Item name to search for")]
+            string name,
+
+            [Summary("public", "Show results publicly (default: private)")]
+            bool publicDisplay = false)
+        {
+            await DeferAsync(ephemeral: !publicDisplay);
+
+            try
+            {
+                // Try to search for the item in the database
+                var item = await _wowStaticData.SearchItemAsync(name);
+
+                // If not found, try to import by ID if the name is a number
+                if (item == null && long.TryParse(name, out long itemId))
+                {
+                    _logger.LogInformation("Item not found by name, attempting to import by ID: {ItemId}", itemId);
+                    item = await _wowStaticData.ImportItemAsync(itemId);
+                }
+                // If found but missing media URL, fetch it from the API
+                else if (item != null && string.IsNullOrEmpty(item.MediaUrl))
+                {
+                    _logger.LogInformation("Item {ItemId} found but missing media URL, fetching from API", item.Id);
+                    var refreshedItem = await _wowStaticData.ImportItemAsync(item.Id);
+                    if (refreshedItem != null)
+                    {
+                        item = refreshedItem;
+                    }
+                }
+
+                if (item == null)
+                {
+                    await FollowupAsync(embed: new EmbedBuilder()
+                        .WithTitle($"Item Not Found")
+                        .WithDescription($"No item found matching '{name}'. Try searching by item ID if you know it.")
+                        .WithColor(Color.Orange)
+                        .Build(), ephemeral: !publicDisplay);
+                    return;
+                }
+
+                // Fetch extended item details
+                WowItemDetails itemDetails = null;
+                try
+                {
+                    await using var scope = _scopeFactory.CreateAsyncScope();
+                    await using var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+                    itemDetails = await db.WowItemDetails.FirstOrDefaultAsync(d => d.ItemId == item.Id);
+
+                    // If details don't exist, trigger ImportItemAsync to fetch them
+                    if (itemDetails == null)
+                    {
+                        _logger.LogInformation("Item details not found for {ItemId}, fetching from API", item.Id);
+                        await _wowStaticData.ImportItemAsync(item.Id);
+                        // Re-fetch details after import
+                        itemDetails = await db.WowItemDetails.FirstOrDefaultAsync(d => d.ItemId == item.Id);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to fetch item details for {ItemId}", item.Id);
+                }
+
+                // Get quality emoji and color
+                var qualityEmoji = GetQualityEmojiByName(item.QualityName ?? "Common");
+                var qualityColor = GetQualityColor(item.Quality);
+
+                var embed = new EmbedBuilder()
+                    .WithTitle($"{qualityEmoji} {item.Name}")
+                    .WithColor(qualityColor)
+                    .WithUrl($"https://www.wowhead.com/item={item.Id}")
+                    .AddField("Item Level", item.ItemLevel, inline: true)
+                    .AddField("Quality", $"{qualityEmoji} {item.QualityName}", inline: true);
+
+                if (item.RequiredLevel > 0)
+                {
+                    embed.AddField("Required Level", item.RequiredLevel, inline: true);
+                }
+
+                if (!string.IsNullOrEmpty(item.InventoryType))
+                {
+                    embed.AddField("Slot", item.InventoryType, inline: true);
+                }
+
+                if (!string.IsNullOrEmpty(item.ItemClass))
+                {
+                    embed.AddField("Type", item.ItemClass, inline: true);
+                }
+
+                if (!string.IsNullOrEmpty(item.ItemSubclass))
+                {
+                    embed.AddField("Subtype", item.ItemSubclass, inline: true);
+                }
+
+                if (item.IsEquippable)
+                {
+                    embed.AddField("Equippable", "✓", inline: true);
+                }
+
+                // Display extended item details
+                if (itemDetails != null)
+                {
+                    // Display base stats
+                    if (!string.IsNullOrEmpty(itemDetails.BaseStats))
+                    {
+                        try
+                        {
+                            var stats = JsonConvert.DeserializeObject<Dictionary<string, int>>(itemDetails.BaseStats);
+                            if (stats != null && stats.Count > 0)
+                            {
+                                var statText = string.Join("\n", stats.Select(s => $"{FormatStatName(s.Key)}: +{s.Value}"));
+                                embed.AddField("📊 Stats", statText, inline: false);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to parse base stats for item {ItemId}", item.Id);
+                        }
+                    }
+
+                    // Display spell effects
+                    if (!string.IsNullOrEmpty(itemDetails.SpellEffects))
+                    {
+                        try
+                        {
+                            var spells = JsonConvert.DeserializeObject<List<dynamic>>(itemDetails.SpellEffects);
+                            if (spells != null && spells.Count > 0)
+                            {
+                                var spellText = string.Join("\n", spells.Select(s => $"📜 {s.description}"));
+                                embed.AddField("Effects", spellText, inline: false);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to parse spell effects for item {ItemId}", item.Id);
+                        }
+                    }
+
+                    // Display socket count
+                    if (itemDetails.SocketCount > 0)
+                    {
+                        embed.AddField("💎 Sockets", itemDetails.SocketCount.ToString(), inline: true);
+                    }
+
+                    // Display set information
+                    if (!string.IsNullOrEmpty(itemDetails.SetName))
+                    {
+                        var setField = $"🧩 **{itemDetails.SetName}**";
+
+                        if (!string.IsNullOrEmpty(itemDetails.SetEffects))
+                        {
+                            try
+                            {
+                                var effects = JsonConvert.DeserializeObject<List<dynamic>>(itemDetails.SetEffects);
+                                if (effects != null && effects.Count > 0)
+                                {
+                                    var effectText = string.Join("\n", effects.Select(e =>
+                                        $"({e.required_count}) {e.display_string}"));
+                                    setField += $"\n{effectText}";
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Failed to parse set effects for item {ItemId}", item.Id);
+                            }
+                        }
+
+                        embed.AddField("Set Bonuses", setField, inline: false);
+                    }
+                }
+
+                var iconUrl = NormalizeItemIconUrl(item.MediaUrl);
+                if (!string.IsNullOrEmpty(iconUrl))
+                {
+                    embed.WithThumbnailUrl(iconUrl);
+                }
+
+                embed.WithFooter($"Item ID: {item.Id} | Last updated: {item.LastUpdated:yyyy-MM-dd}");
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: !publicDisplay);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error looking up item: {ItemName}", name);
+                await FollowupAsync(embed: new EmbedBuilder()
+                    .WithTitle("Error")
+                    .WithDescription($"An error occurred while looking up the item '{name}'.")
+                    .WithColor(Color.Red)
+                    .Build(), ephemeral: !publicDisplay);
+            }
+        }
+
+        [SlashCommand("token", "Check current WoW Token price")]
+        public async Task TokenPrice(
+            [Summary("region", "Region (defaults to US)")]
+            [Choice("US", "us")]
+            [Choice("EU", "eu")]
+            [Choice("KR", "kr")]
+            [Choice("TW", "tw")]
+            string region = "us",
+
+            [Summary("public", "Show results publicly (default: private)")]
+            bool publicDisplay = false)
+        {
+            await DeferAsync(ephemeral: !publicDisplay);
+
+            try
+            {
+                var tokenPrice = await _wowStaticData.GetCurrentTokenPriceAsync(region);
+
+                if (tokenPrice == null)
+                {
+                    await FollowupAsync(embed: new EmbedBuilder()
+                        .WithTitle($"Token Price Not Available")
+                        .WithDescription($"No token price data available for region '{region.ToUpper()}'. The bot may need time to collect data.")
+                        .WithColor(Color.Orange)
+                        .Build(), ephemeral: !publicDisplay);
+                    return;
+                }
+
+                var priceGold = tokenPrice.Price / 10000; // Convert copper to gold
+                var trend = await _wowStaticData.GetTokenPriceTrendAsync(region);
+
+                var embed = new EmbedBuilder()
+                    .WithTitle($"💰 WoW Token Price - {region.ToUpper()}")
+                    .WithColor(new Color(255, 209, 0)) // Gold color
+                    .AddField("Current Price", $"{priceGold:N0} gold", inline: true)
+                    .AddField("Last Updated", $"<t:{((DateTimeOffset)tokenPrice.Timestamp).ToUnixTimeSeconds()}:R>", inline: true);
+
+                if (trend.HasValue)
+                {
+                    var trendGold = trend.Value / 10000;
+                    var trendEmoji = trend.Value > 0 ? "📈" : trend.Value < 0 ? "📉" : "➡️";
+                    var trendColor = trend.Value > 0 ? "+" : "";
+                    embed.AddField("24h Change", $"{trendEmoji} {trendColor}{trendGold:N0} gold", inline: true);
+                }
+
+                embed.WithFooter($"WoW Token allows you to purchase 30 days of game time");
+                embed.WithThumbnailUrl("https://render.worldofwarcraft.com/us/icons/56/wow_token01.jpg");
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: !publicDisplay);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching token price for region: {Region}", region);
+                await FollowupAsync(embed: new EmbedBuilder()
+                    .WithTitle("Error")
+                    .WithDescription($"An error occurred while fetching the token price for '{region.ToUpper()}'.")
+                    .WithColor(Color.Red)
+                    .Build(), ephemeral: !publicDisplay);
+            }
+        }
+
+        private async Task<EmbedBuilder> BuildMountPageAsync(List<WowMounts> mounts, int page, int pageSize, string charName, string realmName, string regionName, int collectedCount, int totalCount, string sourceFilter, string expansionFilter)
+        {
+            var embed = new EmbedBuilder();
+            embed.Title = $"🏇 Missing Mounts - {charName}";
+
+            // Dynamic color based on collection progress
+            var progress = totalCount > 0 ? (collectedCount * 100.0 / totalCount) : 0;
+            var embedColor = progress switch
+            {
+                >= 90 => new Color(0, 255, 0),      // Green - Almost complete!
+                >= 70 => new Color(138, 43, 226),   // Purple - Good progress
+                >= 50 => new Color(255, 165, 0),    // Orange - Halfway there
+                _ => new Color(255, 87, 51)         // Red - Long way to go
+            };
+            embed.WithColor(embedColor);
+
+            // Visual progress bar using Unicode blocks
+            var filledBlocks = (int)(progress / 10);
+            var emptyBlocks = 10 - filledBlocks;
+            var progressBar = new string('█', filledBlocks) + new string('░', emptyBlocks);
+
+            var description = $"**Collected:** {collectedCount}/{totalCount} ({progress:F1}%)\n{progressBar}";
+
+            // Show active filters
+            if (expansionFilter != "all")
+            {
+                description += $"\n**Expansion:** {expansionFilter}";
+            }
+
+            if (sourceFilter != "all")
+            {
+                var friendlySource = GetFriendlySourceName(sourceFilter);
+                description += $"\n**Source:** {friendlySource}";
+            }
+
+            embed.Description = description;
+
+            // Fetch character thumbnail
+            try
+            {
+                var realmSlug = realmName.Replace("'", string.Empty).Replace(" ", "-").ToLowerInvariant();
+                var armoryMedia = await _wowApi.GetArmoryMediaAsync(charName, realmSlug, regionName);
+                if (armoryMedia?.Assets != null)
+                {
+                    var avatarAsset = armoryMedia.Assets.FirstOrDefault(a => a.Key == "avatar");
+                    if (avatarAsset != null && !string.IsNullOrEmpty(avatarAsset.Value))
+                    {
+                        embed.WithThumbnailUrl(avatarAsset.Value);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to fetch character thumbnail for {CharName}", charName);
+                // Continue without thumbnail
+            }
+
+            // Add expansion breakdown if showing all expansions and there are mounts
+            if (expansionFilter == "all" && mounts.Count > 0)
+            {
+                var expansionStats = mounts
+                    .Where(m => !string.IsNullOrEmpty(m.Expansion))
+                    .GroupBy(m => m.Expansion)
+                    .OrderByDescending(g => g.Count())
+                    .Take(5)
+                    .Select(g => $"{g.Key}: **{g.Count()}**")
+                    .ToList();
+
+                if (expansionStats.Count > 0)
+                {
+                    embed.AddField("📊 Missing by Expansion (Top 5)",
+                        string.Join(" • ", expansionStats),
+                        inline: false);
+                }
+            }
+
+            var pageMounts = mounts.Skip(page * pageSize).Take(pageSize).ToList();
+
+            foreach (var mount in pageMounts)
+            {
+                // Use Wowhead search since Blizzard mount IDs don't match Wowhead item IDs
+                var encodedName = Uri.EscapeDataString(mount.Name);
+                var wowheadUrl = $"https://www.wowhead.com/search?q={encodedName}";
+                var fieldName = mount.Name; // Plain text - embed field names don't support markdown
+
+                var fieldValue = new StringBuilder();
+
+                // Add Wowhead search link
+                fieldValue.AppendLine($"🔗 [Search on Wowhead]({wowheadUrl})");
+
+                // Format source intelligently
+                var sourceEmoji = mount.Source?.ToUpper() switch
+                {
+                    "DROP" => "💀",
+                    "ACHIEVEMENT" => "🏆",
+                    "VENDOR" => "💰",
+                    "QUEST" => "❗",
+                    "PROFESSION" => "🔨",
+                    "WORLD_EVENT" => "🎃",
+                    "PROMOTION" => "🎁",
+                    "TRADING_POST" => "🏪",
+                    "STORE" => "🛒",
+                    "PVP" => "⚔️",
+                    "REPUTATION" => "📜",
+                    "CLASS" => "🎭",
+                    "COVENANT" => "🔮",
+                    "GARRISON" => "🏰",
+                    _ => "📍"
+                };
+
+                // Determine what to show for source
+                string displaySource = null;
+
+                // Priority: Instance name + encounter name > SourceDetail > Friendly source type
+                if (!string.IsNullOrEmpty(mount.InstanceName))
+                {
+                    // Show instance and encounter from journal data
+                    if (!string.IsNullOrEmpty(mount.EncounterName))
+                    {
+                        displaySource = $"{mount.InstanceName} - {mount.EncounterName}";
+                    }
+                    else
+                    {
+                        displaySource = mount.InstanceName;
+                    }
+                }
+                else
+                {
+                    // Fallback to SourceDetail if meaningful
+                    var sourceDetail = mount.SourceDetail;
+                    var isGenericDetail = string.IsNullOrEmpty(sourceDetail) ||
+                        sourceDetail.Equals(mount.Source, StringComparison.OrdinalIgnoreCase) ||
+                        sourceDetail.Equals("Drop", StringComparison.OrdinalIgnoreCase) ||
+                        sourceDetail.Equals("Achievement", StringComparison.OrdinalIgnoreCase) ||
+                        sourceDetail.Equals("Vendor", StringComparison.OrdinalIgnoreCase) ||
+                        sourceDetail.Equals("Quest", StringComparison.OrdinalIgnoreCase);
+
+                    if (!isGenericDetail)
+                    {
+                        displaySource = sourceDetail;
+                    }
+                    else
+                    {
+                        // Show friendly source type name
+                        displaySource = mount.Source?.ToUpper() switch
+                        {
+                            "DROP" => "Boss Drop",
+                            "ACHIEVEMENT" => "Achievement Reward",
+                            "VENDOR" => "Vendor Purchase",
+                            "QUEST" => "Quest Reward",
+                            "PROFESSION" => "Crafted",
+                            "WORLD_EVENT" => "Holiday Event",
+                            "PROMOTION" => "Promotional",
+                            "TRADING_POST" => "Trading Post",
+                            "STORE" => "Blizzard Store",
+                            "PVP" => "PvP Reward",
+                            "REPUTATION" => "Reputation Reward",
+                            "CLASS" => "Class Mount",
+                            "COVENANT" => "Covenant",
+                            "GARRISON" => "Garrison",
+                            _ => mount.Source ?? "Unknown"
+                        };
+                    }
+                }
+
+                fieldValue.AppendLine($"{sourceEmoji} {displaySource}");
+
+                if (!string.IsNullOrEmpty(mount.Description))
+                {
+                    var desc = mount.Description.Length > 100 ? mount.Description.Substring(0, 97) + "..." : mount.Description;
+                    fieldValue.AppendLine($"_{desc}_");
+                }
+
+                embed.AddField(fieldName, fieldValue.ToString().TrimEnd(), inline: false);
+            }
+
+            var totalPages = (int)Math.Ceiling(mounts.Count / (double)pageSize);
+            embed.Footer = new EmbedFooterBuilder
+            {
+                Text = $"Page {page + 1}/{totalPages} • {mounts.Count} missing mount(s) total"
+            };
+
+            return embed;
+        }
+
+        private static string GetFriendlySourceName(string source) => source?.ToUpper() switch
+        {
+            "DROP" => "Boss Drops",
+            "ACHIEVEMENT" => "Achievements",
+            "VENDOR" => "Vendors",
+            "QUEST" => "Quests",
+            "PROFESSION" => "Crafted",
+            "WORLD_EVENT" => "Holiday Events",
+            "PROMOTION" => "Promotional",
+            "TRADING_POST" => "Trading Post",
+            "STORE" => "Blizzard Store",
+            "PVP" => "PvP Rewards",
+            "REPUTATION" => "Reputation",
+            "CLASS" => "Class Mounts",
+            "COVENANT" => "Covenant",
+            "GARRISON" => "Garrison",
+            _ => source ?? "Unknown"
+        };
+
+        private ComponentBuilder BuildMountPaginationComponents(int currentPage, int totalMounts, int pageSize, string charName, string realmName, string regionName, string sourceFilter, string expansionFilter, ulong userId, List<WowMounts> pageMounts)
+        {
+            var totalPages = (int)Math.Ceiling(totalMounts / (double)pageSize);
+            var componentBuilder = new ComponentBuilder();
+
+            // Expansion filter dropdown (Row 0)
+            var expansionOptions = new List<SelectMenuOptionBuilder>
+            {
+                new SelectMenuOptionBuilder("All Expansions", "all", "Show all expansions", isDefault: expansionFilter == "all"),
+                new SelectMenuOptionBuilder("The War Within", "The War Within", isDefault: expansionFilter == "The War Within"),
+                new SelectMenuOptionBuilder("Dragonflight", "Dragonflight", isDefault: expansionFilter == "Dragonflight"),
+                new SelectMenuOptionBuilder("Shadowlands", "Shadowlands", isDefault: expansionFilter == "Shadowlands"),
+                new SelectMenuOptionBuilder("Battle for Azeroth", "Battle for Azeroth", isDefault: expansionFilter == "Battle for Azeroth"),
+                new SelectMenuOptionBuilder("Legion", "Legion", isDefault: expansionFilter == "Legion"),
+                new SelectMenuOptionBuilder("Warlords of Draenor", "Warlords of Draenor", isDefault: expansionFilter == "Warlords of Draenor"),
+                new SelectMenuOptionBuilder("Mists of Pandaria", "Mists of Pandaria", isDefault: expansionFilter == "Mists of Pandaria"),
+                new SelectMenuOptionBuilder("Cataclysm", "Cataclysm", isDefault: expansionFilter == "Cataclysm"),
+                new SelectMenuOptionBuilder("Wrath of the Lich King", "Wrath of the Lich King", isDefault: expansionFilter == "Wrath of the Lich King"),
+                new SelectMenuOptionBuilder("The Burning Crusade", "The Burning Crusade", isDefault: expansionFilter == "The Burning Crusade"),
+                new SelectMenuOptionBuilder("Classic", "Classic", isDefault: expansionFilter == "Classic")
+            };
+
+            componentBuilder.WithSelectMenu(
+                customId: $"mount_expansion~{userId}~{charName}~{realmName}~{regionName}~{sourceFilter}",
+                options: expansionOptions,
+                placeholder: "Filter by Expansion",
+                minValues: 1,
+                maxValues: 1,
+                row: 0);
+
+            // Source filter dropdown (Row 1)
+            var sourceOptions = new List<SelectMenuOptionBuilder>
+            {
+                new SelectMenuOptionBuilder("All Sources", "all", "Show all mounts", isDefault: sourceFilter == "all"),
+                new SelectMenuOptionBuilder("Drops (Raids & Dungeons)", "DROP", "Mounts from boss drops", isDefault: sourceFilter == "DROP"),
+                new SelectMenuOptionBuilder("Achievements", "ACHIEVEMENT", "Mounts from achievements", isDefault: sourceFilter == "ACHIEVEMENT"),
+                new SelectMenuOptionBuilder("Vendors", "VENDOR", "Mounts purchased from vendors", isDefault: sourceFilter == "VENDOR"),
+                new SelectMenuOptionBuilder("Quests", "QUEST", "Mounts from quest rewards", isDefault: sourceFilter == "QUEST"),
+                new SelectMenuOptionBuilder("Professions", "PROFESSION", "Mounts crafted by professions", isDefault: sourceFilter == "PROFESSION"),
+                new SelectMenuOptionBuilder("World Events", "WORLD_EVENT", "Mounts from holidays/events", isDefault: sourceFilter == "WORLD_EVENT")
+            };
+
+            componentBuilder.WithSelectMenu(
+                customId: $"mount_source~{userId}~{charName}~{realmName}~{regionName}~{expansionFilter}",
+                options: sourceOptions,
+                placeholder: "Filter by Source",
+                minValues: 1,
+                maxValues: 1,
+                row: 1);
+
+            // Mount selection dropdown (Row 2) - only if there are mounts to display
+            if (pageMounts != null && pageMounts.Any())
+            {
+                var mountOptions = pageMounts.Select(m =>
+                {
+                    var description = m.Expansion ?? "Unknown";
+                    if (!string.IsNullOrEmpty(m.Source))
+                    {
+                        description += $" • {m.Source}";
+                    }
+                    return new SelectMenuOptionBuilder(
+                        label: m.Name.Length > 100 ? m.Name.Substring(0, 97) + "..." : m.Name,
+                        value: m.Id.ToString(),
+                        description: description.Length > 100 ? description.Substring(0, 97) + "..." : description
+                    );
+                }).ToList();
+
+                componentBuilder.WithSelectMenu(
+                    customId: $"mount_details~{userId}~{regionName}",
+                    options: mountOptions,
+                    placeholder: "View mount details...",
+                    minValues: 1,
+                    maxValues: 1,
+                    row: 2);
+            }
+
+            // Pagination buttons (Row 3)
+            var firstButton = new ButtonBuilder()
+                .WithLabel("⏮ First")
+                .WithCustomId($"mount_first~{userId}~{charName}~{realmName}~{regionName}~{sourceFilter}~{expansionFilter}~{currentPage}")
+                .WithStyle(ButtonStyle.Secondary)
+                .WithDisabled(currentPage == 0);
+
+            var prevButton = new ButtonBuilder()
+                .WithLabel("◀ Previous")
+                .WithCustomId($"mount_prev~{userId}~{charName}~{realmName}~{regionName}~{sourceFilter}~{expansionFilter}~{currentPage}")
+                .WithStyle(ButtonStyle.Primary)
+                .WithDisabled(currentPage == 0);
+
+            var pageIndicator = new ButtonBuilder()
+                .WithLabel($"Page {currentPage + 1}/{totalPages}")
+                .WithCustomId("mount_page_info")
+                .WithStyle(ButtonStyle.Secondary)
+                .WithDisabled(true);
+
+            var nextButton = new ButtonBuilder()
+                .WithLabel("Next ▶")
+                .WithCustomId($"mount_next~{userId}~{charName}~{realmName}~{regionName}~{sourceFilter}~{expansionFilter}~{currentPage}")
+                .WithStyle(ButtonStyle.Primary)
+                .WithDisabled(currentPage >= totalPages - 1);
+
+            var lastButton = new ButtonBuilder()
+                .WithLabel("Last ⏭")
+                .WithCustomId($"mount_last~{userId}~{charName}~{realmName}~{regionName}~{sourceFilter}~{expansionFilter}~{currentPage}~{totalPages}")
+                .WithStyle(ButtonStyle.Secondary)
+                .WithDisabled(currentPage >= totalPages - 1);
+
+            componentBuilder.WithButton(firstButton, row: 3);
+            componentBuilder.WithButton(prevButton, row: 3);
+            componentBuilder.WithButton(pageIndicator, row: 3);
+            componentBuilder.WithButton(nextButton, row: 3);
+            componentBuilder.WithButton(lastButton, row: 3);
+
+            return componentBuilder;
+        }
+
+        [ComponentInteraction("mount_first~*~*~*~*~*~*~*")]
+        public async Task HandleMountFirst(string userIdStr, string charName, string realmName, string regionName, string sourceFilter, string expansionFilter, string currentPageStr)
+        {
+            if (!ulong.TryParse(userIdStr, out var userId) || Context.User.Id != userId)
+            {
+                await RespondAsync("❌ This pagination belongs to another user.", ephemeral: true);
+                return;
+            }
+
+            await DeferAsync(ephemeral: true);
+            await UpdateMountPage(charName, realmName, regionName, sourceFilter, expansionFilter, 0);
+        }
+
+        [ComponentInteraction("mount_prev~*~*~*~*~*~*~*")]
+        public async Task HandleMountPrevious(string userIdStr, string charName, string realmName, string regionName, string sourceFilter, string expansionFilter, string currentPageStr)
+        {
+            if (!ulong.TryParse(userIdStr, out var userId) || Context.User.Id != userId)
+            {
+                await RespondAsync("❌ This pagination belongs to another user.", ephemeral: true);
+                return;
+            }
+
+            if (!int.TryParse(currentPageStr, out var currentPage))
+            {
+                await RespondAsync("❌ Invalid page data.", ephemeral: true);
+                return;
+            }
+
+            await DeferAsync(ephemeral: true);
+
+            int newPage = Math.Max(0, currentPage - 1);
+            await UpdateMountPage(charName, realmName, regionName, sourceFilter, expansionFilter, newPage);
+        }
+
+        [ComponentInteraction("mount_next~*~*~*~*~*~*~*")]
+        public async Task HandleMountNext(string userIdStr, string charName, string realmName, string regionName, string sourceFilter, string expansionFilter, string currentPageStr)
+        {
+            if (!ulong.TryParse(userIdStr, out var userId) || Context.User.Id != userId)
+            {
+                await RespondAsync("❌ This pagination belongs to another user.", ephemeral: true);
+                return;
+            }
+
+            if (!int.TryParse(currentPageStr, out var currentPage))
+            {
+                await RespondAsync("❌ Invalid page data.", ephemeral: true);
+                return;
+            }
+
+            await DeferAsync(ephemeral: true);
+
+            int newPage = currentPage + 1;
+            await UpdateMountPage(charName, realmName, regionName, sourceFilter, expansionFilter, newPage);
+        }
+
+        [ComponentInteraction("mount_last~*~*~*~*~*~*~*~*")]
+        public async Task HandleMountLast(string userIdStr, string charName, string realmName, string regionName, string sourceFilter, string expansionFilter, string currentPageStr, string totalPagesStr)
+        {
+            if (!ulong.TryParse(userIdStr, out var userId) || Context.User.Id != userId)
+            {
+                await RespondAsync("❌ This pagination belongs to another user.", ephemeral: true);
+                return;
+            }
+
+            if (!int.TryParse(totalPagesStr, out var totalPages))
+            {
+                await RespondAsync("❌ Invalid page data.", ephemeral: true);
+                return;
+            }
+
+            await DeferAsync(ephemeral: true);
+            await UpdateMountPage(charName, realmName, regionName, sourceFilter, expansionFilter, totalPages - 1);
+        }
+
+        [ComponentInteraction("mount_source~*~*~*~*~*")]
+        public async Task HandleMountSourceFilter(string userIdStr, string charName, string realmName, string regionName, string expansionFilter, string[] selections)
+        {
+            if (!ulong.TryParse(userIdStr, out var userId) || Context.User.Id != userId)
+            {
+                await RespondAsync("❌ This filter belongs to another user.", ephemeral: true);
+                return;
+            }
+
+            if (selections == null || selections.Length == 0)
+            {
+                await RespondAsync("❌ No source selected.", ephemeral: true);
+                return;
+            }
+
+            await DeferAsync(ephemeral: true);
+
+            var newSource = selections[0];
+            await UpdateMountPage(charName, realmName, regionName, newSource, expansionFilter, 0); // Reset to page 0 when changing filter
+        }
+
+        [ComponentInteraction("mount_expansion~*~*~*~*~*")]
+        public async Task HandleMountExpansionFilter(string userIdStr, string charName, string realmName, string regionName, string sourceFilter, string[] selections)
+        {
+            if (!ulong.TryParse(userIdStr, out var userId) || Context.User.Id != userId)
+            {
+                await RespondAsync("❌ This filter belongs to another user.", ephemeral: true);
+                return;
+            }
+
+            if (selections == null || selections.Length == 0)
+            {
+                await RespondAsync("❌ No expansion selected.", ephemeral: true);
+                return;
+            }
+
+            await DeferAsync(ephemeral: true);
+
+            var newExpansion = selections[0];
+            await UpdateMountPage(charName, realmName, regionName, sourceFilter, newExpansion, 0); // Reset to page 0 when changing filter
+        }
+
+        [ComponentInteraction("mount_details~*~*")]
+        public async Task HandleMountDetails(string userIdStr, string regionName, string[] selections)
+        {
+            if (!ulong.TryParse(userIdStr, out var userId) || Context.User.Id != userId)
+            {
+                await RespondAsync("❌ This belongs to another user.", ephemeral: true);
+                return;
+            }
+
+            if (selections == null || selections.Length == 0)
+            {
+                await RespondAsync("❌ No mount selected.", ephemeral: true);
+                return;
+            }
+
+            await DeferAsync();
+
+            // Delete previous mount detail message if it exists
+            if (_mountDetailMessages.TryGetValue(userId, out var previousMessageId))
+            {
+                try
+                {
+                    var channel = Context.Channel;
+                    await channel.DeleteMessageAsync(previousMessageId);
+                    _mountDetailMessages.TryRemove(userId, out _);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Could not delete previous mount detail message {MessageId}", previousMessageId);
+                    // Continue anyway - the message might have been manually deleted
+                }
+            }
+
+            try
+            {
+                if (!long.TryParse(selections[0], out var mountId))
+                {
+                    await FollowupAsync("❌ Invalid mount ID.");
+                    return;
+                }
+
+                var mount = await WithDbAsync(async db =>
+                    await db.WowMounts.FirstOrDefaultAsync(m => m.Id == mountId));
+
+                if (mount == null)
+                {
+                    await FollowupAsync("❌ Mount not found in database.");
+                    return;
+                }
+
+                // Use Wowhead search since Blizzard mount IDs don't match Wowhead item IDs
+                var encodedName = Uri.EscapeDataString(mount.Name);
+                var wowheadSearchUrl = $"https://www.wowhead.com/search?q={encodedName}";
+
+                var embed = new EmbedBuilder()
+                    .WithTitle(mount.Name)
+                    .WithColor(new Color(138, 43, 226))
+                    .WithUrl(wowheadSearchUrl);
+
+                if (!string.IsNullOrEmpty(mount.Description))
+                {
+                    embed.WithDescription($"*{mount.Description}*");
+                }
+
+                // Source information with smart formatting
+                var sourceEmoji = mount.Source?.ToUpper() switch
+                {
+                    "DROP" => "💀",
+                    "ACHIEVEMENT" => "🏆",
+                    "VENDOR" => "💰",
+                    "QUEST" => "❗",
+                    "PROFESSION" => "🔨",
+                    "WORLD_EVENT" => "🎃",
+                    "PROMOTION" => "🎁",
+                    _ => "📍"
+                };
+
+                var sourceDetail = mount.SourceDetail;
+                var isGenericDetail = string.IsNullOrEmpty(sourceDetail) ||
+                    sourceDetail.Equals(mount.Source, StringComparison.OrdinalIgnoreCase) ||
+                    sourceDetail.Equals("Drop", StringComparison.OrdinalIgnoreCase) ||
+                    sourceDetail.Equals("Achievement", StringComparison.OrdinalIgnoreCase) ||
+                    sourceDetail.Equals("Vendor", StringComparison.OrdinalIgnoreCase) ||
+                    sourceDetail.Equals("Quest", StringComparison.OrdinalIgnoreCase);
+
+                string sourceFieldValue;
+                if (!isGenericDetail)
+                {
+                    sourceFieldValue = sourceDetail;
+                }
+                else
+                {
+                    sourceFieldValue = mount.Source?.ToUpper() switch
+                    {
+                        "DROP" => "Boss Drop",
+                        "ACHIEVEMENT" => "Achievement Reward",
+                        "VENDOR" => "Vendor Purchase",
+                        "QUEST" => "Quest Reward",
+                        "PROFESSION" => "Crafted",
+                        "WORLD_EVENT" => "Holiday Event",
+                        "PROMOTION" => "Promotional",
+                        _ => mount.Source ?? "Unknown"
+                    };
+                }
+
+                embed.AddField($"{sourceEmoji} Source", sourceFieldValue, inline: false);
+
+                // Drop location if available
+                if (!string.IsNullOrEmpty(mount.DropLocation))
+                {
+                    embed.AddField("🎯 Location", mount.DropLocation, inline: true);
+                }
+
+                // Expansion
+                if (!string.IsNullOrEmpty(mount.Expansion))
+                {
+                    embed.AddField("📚 Expansion", mount.Expansion, inline: true);
+                }
+
+                // Faction restriction
+                if (!string.IsNullOrEmpty(mount.Faction))
+                {
+                    var factionEmoji = mount.Faction.ToLower() == "alliance" ? "🔵" : mount.Faction.ToLower() == "horde" ? "🔴" : "⚪";
+                    embed.AddField("Faction", $"{factionEmoji} {mount.Faction}", inline: true);
+                }
+
+                // Mount types
+                var mountTypes = new List<string>();
+                if (mount.IsGround) mountTypes.Add("🐎 Ground");
+                if (mount.IsFlying) mountTypes.Add("🦅 Flying");
+                if (mount.IsAquatic) mountTypes.Add("🐠 Aquatic");
+
+                if (mountTypes.Any())
+                {
+                    embed.AddField("Type", string.Join(", ", mountTypes), inline: true);
+                }
+
+                // Fetch mount image on-demand
+                if (mount.CreatureDisplayId.HasValue)
+                {
+                    try
+                    {
+                        _logger.LogDebug("Fetching media for mount {MountId} ({Name}), creature display {DisplayId}",
+                            mount.Id, mount.Name, mount.CreatureDisplayId.Value);
+
+                        var creatureMedia = await _wowApi.GetCreatureDisplayMediaAsync(mount.CreatureDisplayId.Value, regionName);
+
+                        if (creatureMedia?.Assets != null && creatureMedia.Assets.Count > 0)
+                        {
+                            // Prefer 'main' asset, fall back to first available
+                            var mainAsset = creatureMedia.Assets.FirstOrDefault(a => a.Key == "main")
+                                ?? creatureMedia.Assets[0];
+
+                            embed.WithImageUrl(mainAsset.Value);
+                            _logger.LogDebug("Mount {MountId} using asset '{AssetKey}': {Url}",
+                                mount.Id, mainAsset.Key, mainAsset.Value);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Mount {MountId} creature display {DisplayId} returned no assets",
+                                mount.Id, mount.CreatureDisplayId.Value);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to fetch media for mount {MountId} ({Name})",
+                            mount.Id, mount.Name);
+                    }
+                }
+                else
+                {
+                    _logger.LogDebug("Mount {MountId} ({Name}) has no creature display ID", mount.Id, mount.Name);
+                }
+
+                embed.WithFooter($"Mount ID: {mount.Id} | Last updated: {mount.LastUpdated:yyyy-MM-dd}");
+
+                var message = await FollowupAsync(embed: embed.Build());
+
+                // Store the message ID so we can delete it when they select another mount
+                _mountDetailMessages[userId] = message.Id;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error displaying mount details for mount ID");
+                await FollowupAsync("❌ An error occurred while loading mount details.");
+            }
+        }
+
+        private async Task UpdateMountPage(string charName, string realmName, string regionName, string sourceFilter, string expansionFilter, int page)
+        {
+            try
+            {
+                // Fetch character's mount collection
+                var mountCollection = await _wowApi.GetCharacterMountsAsync(charName, realmName, regionName);
+                if (mountCollection?.Mounts == null)
+                {
+                    await FollowupAsync("❌ Could not load mount collection.", ephemeral: true);
+                    return;
+                }
+
+                var collectedMountIds = new HashSet<long>(mountCollection.Mounts.Select(m => m.Mount.Id));
+                var allMounts = await _wowStaticData.GetAllMountsAsync();
+
+                // Filter by expansion if specified
+                var filteredMounts = allMounts;
+                if (expansionFilter != "all")
+                {
+                    filteredMounts = filteredMounts.Where(m => string.Equals(m.Expansion, expansionFilter, StringComparison.OrdinalIgnoreCase)).ToList();
+                }
+
+                // Filter by source if specified
+                if (sourceFilter != "all")
+                {
+                    filteredMounts = filteredMounts.Where(m => string.Equals(m.Source, sourceFilter, StringComparison.OrdinalIgnoreCase)).ToList();
+                }
+
+                var missingMounts = filteredMounts
+                    .Where(m => !collectedMountIds.Contains(m.Id))
+                    .OrderBy(m => m.Expansion)
+                    .ThenBy(m => m.Source)
+                    .ThenBy(m => m.Name)
+                    .ToList();
+
+                var collectedCount = filteredMounts.Count(m => collectedMountIds.Contains(m.Id));
+                var totalCount = filteredMounts.Count;
+
+                int pageSize = 5;
+                var pageData = await BuildMountPageAsync(missingMounts, page, pageSize, charName, realmName, regionName, collectedCount, totalCount, sourceFilter, expansionFilter);
+
+                // Get current page mounts for the selection dropdown
+                var pageMounts = missingMounts.Skip(page * pageSize).Take(pageSize).ToList();
+                var components = BuildMountPaginationComponents(page, missingMounts.Count, pageSize, charName, realmName, regionName, sourceFilter, expansionFilter, Context.User.Id, pageMounts);
+
+                await ModifyOriginalResponseAsync(msg =>
+                {
+                    msg.Embed = pageData.Build();
+                    msg.Components = components.Build();
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating mount page");
+                await FollowupAsync("❌ An error occurred while updating the page.", ephemeral: true);
+            }
+        }
+
+        #endregion
     }
 }

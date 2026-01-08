@@ -31,6 +31,7 @@ namespace NinjaBotCore.Modules.Wow
         private readonly TimeSpan _tokenRefreshInterval = TimeSpan.FromHours(12);
         private CancellationTokenSource _tokenRefreshCancellation;
         private Task _tokenRefreshTask;
+        private readonly TaskCompletionSource<bool> _initializationComplete = new();
         private static WowClasses _classes;
         private static Race _race;
         private static List<Achievement> _achievements;
@@ -39,7 +40,7 @@ namespace NinjaBotCore.Modules.Wow
         private static WowRealmSearch.Root _realmSearchRu;
         private static WowRealm _realmInfo;
         private static WowRealm _realmInfoEu;
-        private static WowRealm _realmInfoRu;        
+        private static WowRealm _realmInfoRu;
         private readonly IConfigurationRoot _config;
         private readonly ILogger _logger;
         private readonly HttpClient _client;
@@ -101,11 +102,29 @@ namespace NinjaBotCore.Modules.Wow
             Achievements cheeves = this.GetWoWAchievements();
             Achievements = cheeves.achievements.ToList();
             RealmSearch = this.GetRealmSearch();
-            RealmInfo = this.GetRealmStatus("us");  
+            RealmInfo = this.GetRealmStatus("us");
             RealmSearchEu = this.GetRealmSearch("eu");
-            RealmSearchRu = this.GetRealmSearch("ru_RU", "eu");   
-            RealmInfoEu = this.GetRealmStatus("eu");         
-            RealmInfoRu = this.GetRealmStatus("ru_RU", "eu");                           
+            RealmSearchRu = this.GetRealmSearch("ru_RU", "eu");
+            RealmInfoEu = this.GetRealmStatus("eu");
+            RealmInfoRu = this.GetRealmStatus("ru_RU", "eu");
+        }
+
+        /// <summary>
+        /// Wait for the WoW API to complete initialization (token acquisition and data preload)
+        /// </summary>
+        /// <param name="cancellationToken">Optional cancellation token</param>
+        /// <returns>True if initialization succeeded, false if it failed</returns>
+        public async Task<bool> WaitForInitializationAsync(CancellationToken cancellationToken = default)
+        {
+            var completedTask = await Task.WhenAny(_initializationComplete.Task, Task.Delay(Timeout.Infinite, cancellationToken));
+
+            if (completedTask == _initializationComplete.Task)
+            {
+                return await _initializationComplete.Task;
+            }
+
+            // Cancellation was requested
+            return false;
         }
 
         public static WowRealmSearch.Root RealmSearch
@@ -454,23 +473,29 @@ namespace NinjaBotCore.Modules.Wow
 
         private async Task<string> SendAuthorizedGetAsync(string url, CancellationToken cancellationToken = default)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             var token = GetCurrentToken();
             if (string.IsNullOrEmpty(token))
             {
                 throw new InvalidOperationException("Blizzard API access token has not been initialized.");
             }
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            return await SendRequestAsync(request, cancellationToken);
+
+            // Use request factory to create new request for each retry attempt
+            return await SendRequestAsync(url, token, cancellationToken);
         }
 
-        private async Task<string> SendRequestAsync(HttpRequestMessage request, CancellationToken cancellationToken = default)
+        private async Task<string> SendRequestAsync(string url, string token, CancellationToken cancellationToken = default)
         {
             try
             {
                 var response = await _httpResiliencePipeline.ExecuteAsync(
-                    async ct => await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct),
+                    async ct =>
+                    {
+                        // Create new request for each retry attempt
+                        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                        return await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+                    },
                     cancellationToken);
 
                 response.EnsureSuccessStatusCode();
@@ -478,12 +503,12 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (HttpRequestException ex)
             {
-                _logger.LogError(ex, "Error executing WoW API request to {RequestUrl} after retries", request.RequestUri);
+                _logger.LogError(ex, "Error executing WoW API request to {RequestUrl} after retries", url);
                 throw;
             }
             catch (TaskCanceledException ex)
             {
-                _logger.LogError(ex, "WoW API request timed out for {RequestUrl}", request.RequestUri);
+                _logger.LogError(ex, "WoW API request timed out for {RequestUrl}", url);
                 throw;
             }
         }
@@ -803,15 +828,18 @@ namespace NinjaBotCore.Modules.Wow
                     _logger.LogInformation("Token acquired successfully, preloading WoW data...");
                     GetWowData();
                     _logger.LogInformation("WoW data preloaded successfully");
+                    _initializationComplete.TrySetResult(true);
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Failed to preload WoW data, will be loaded on-demand");
+                    _initializationComplete.TrySetResult(false);
                 }
             }
             else
             {
                 _logger.LogWarning("Unable to preload WoW data because the API token could not be acquired. Data will be loaded on-demand.");
+                _initializationComplete.TrySetResult(false);
             }
 
             // Then continue with periodic refresh
@@ -917,6 +945,27 @@ namespace NinjaBotCore.Modules.Wow
 
             var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
             return JsonConvert.DeserializeObject<ArmoryItemMedia>(response);
+        }
+
+        public async Task<ArmoryItemMedia> GetCreatureDisplayMediaAsync(long displayId, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            var locale = GetRegionFromString(regionName);
+            var regionSegment = regionName.ToLowerInvariant();
+            var url = $"/data/wow/media/creature-display/{displayId}?namespace=static-{regionSegment}";
+
+            var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
+            return JsonConvert.DeserializeObject<ArmoryItemMedia>(response);
+        }
+
+        public async Task<MountCollectionResponse> GetCharacterMountsAsync(string name, string realm, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            var locale = GetRegionFromString(regionName);
+            realm = realm.Replace("'", string.Empty).Replace(" ", "-").ToLowerInvariant();
+            var regionSegment = regionName.ToLowerInvariant();
+            var url = $"/profile/wow/character/{realm}/{name.ToLowerInvariant()}/collections/mounts?namespace=profile-{regionSegment}";
+
+            var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
+            return JsonConvert.DeserializeObject<MountCollectionResponse>(response);
         }
 
         /// <summary>
@@ -1100,6 +1149,46 @@ namespace NinjaBotCore.Modules.Wow
             }
 
             return chars;
+        }
+
+        /// <summary>
+        /// Get journal encounter details by ID
+        /// </summary>
+        public async Task<JournalEncounterResponse> GetJournalEncounterAsync(long encounterId, string region = "us", CancellationToken cancellationToken = default)
+        {
+            var url = $"/data/wow/journal-encounter/{encounterId}?namespace=static-{region}";
+            var response = await GetAPIRequestAsync(url, "en_US", region, cancellationToken);
+            return JsonConvert.DeserializeObject<JournalEncounterResponse>(response);
+        }
+
+        /// <summary>
+        /// Get journal instance details by ID
+        /// </summary>
+        public async Task<JournalInstanceResponse> GetJournalInstanceAsync(long instanceId, string region = "us", CancellationToken cancellationToken = default)
+        {
+            var url = $"/data/wow/journal-instance/{instanceId}?namespace=static-{region}";
+            var response = await GetAPIRequestAsync(url, "en_US", region, cancellationToken);
+            return JsonConvert.DeserializeObject<JournalInstanceResponse>(response);
+        }
+
+        /// <summary>
+        /// Get journal encounter index (for caching)
+        /// </summary>
+        public async Task<JournalEncounterIndexResponse> GetJournalEncounterIndexAsync(string region = "us", CancellationToken cancellationToken = default)
+        {
+            var url = $"/data/wow/journal-encounter/index?namespace=static-{region}";
+            var response = await GetAPIRequestAsync(url, "en_US", region, cancellationToken);
+            return JsonConvert.DeserializeObject<JournalEncounterIndexResponse>(response);
+        }
+
+        /// <summary>
+        /// Get journal instance index (for caching)
+        /// </summary>
+        public async Task<JournalInstanceIndexResponse> GetJournalInstanceIndexAsync(string region = "us", CancellationToken cancellationToken = default)
+        {
+            var url = $"/data/wow/journal-instance/index?namespace=static-{region}";
+            var response = await GetAPIRequestAsync(url, "en_US", region, cancellationToken);
+            return JsonConvert.DeserializeObject<JournalInstanceIndexResponse>(response);
         }
 
         #endregion

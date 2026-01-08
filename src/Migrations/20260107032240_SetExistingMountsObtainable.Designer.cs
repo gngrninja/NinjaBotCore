@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NinjaBotCore.Database;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace NinjaBotCore.Migrations
 {
     [DbContext(typeof(NinjaBotEntities))]
-    partial class NinjaBotEntitiesModelSnapshot : ModelSnapshot
+    [Migration("20260107032240_SetExistingMountsObtainable")]
+    partial class SetExistingMountsObtainable
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1242,10 +1245,6 @@ namespace NinjaBotCore.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
 
-                    b.Property<string>("EncounterName")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
                     b.Property<string>("Expansion")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
@@ -1253,10 +1252,6 @@ namespace NinjaBotCore.Migrations
                     b.Property<string>("Faction")
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
-
-                    b.Property<string>("InstanceName")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
 
                     b.Property<bool>("IsAquatic")
                         .HasColumnType("boolean");
@@ -1269,12 +1264,6 @@ namespace NinjaBotCore.Migrations
 
                     b.Property<bool>("IsObtainable")
                         .HasColumnType("boolean");
-
-                    b.Property<long?>("JournalEncounterId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long?>("JournalInstanceId")
-                        .HasColumnType("bigint");
 
                     b.Property<DateTime>("LastUpdated")
                         .HasColumnType("timestamp with time zone");

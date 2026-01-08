@@ -7,6 +7,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using NinjaBotCore.Database;
 using NinjaBotCore.Repositories;
+using NinjaBotCore.Models.Wow;
 
 namespace NinjaBotCore.Services
 {
@@ -24,6 +25,7 @@ namespace NinjaBotCore.Services
         private static readonly TimeSpan WowResourcesExpiration = TimeSpan.FromHours(1);
         private static readonly TimeSpan SearchHistoryExpiration = TimeSpan.FromMinutes(15);
         private static readonly TimeSpan GreetingExpiration = TimeSpan.FromMinutes(30);
+        private static readonly TimeSpan ArmoryEquipmentExpiration = TimeSpan.FromMinutes(5);
 
         public WowCacheService(IMemoryCache cache, IServiceScopeFactory scopeFactory)
         {
@@ -255,6 +257,46 @@ namespace NinjaBotCore.Services
         public void InvalidateServerGreeting(long guildId)
         {
             _cache.Remove($"server_greeting_{guildId}");
+        }
+
+        /// <summary>
+        /// Gets cached armory equipment data for a character
+        /// </summary>
+        public (ArmoryEquipment Equipment, ArmoryMedia Media)? GetCachedArmoryEquipment(string characterName, string realmSlug, string region)
+        {
+            var cacheKey = $"armory_equipment_{characterName.ToLower()}_{realmSlug.ToLower()}_{region.ToLower()}";
+
+            if (_cache.TryGetValue<(ArmoryEquipment, ArmoryMedia)>(cacheKey, out var cached))
+            {
+                return cached;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Caches armory equipment data for a character
+        /// </summary>
+        public void SetCachedArmoryEquipment(string characterName, string realmSlug, string region, ArmoryEquipment equipment, ArmoryMedia media)
+        {
+            var cacheKey = $"armory_equipment_{characterName.ToLower()}_{realmSlug.ToLower()}_{region.ToLower()}";
+
+            var cacheOptions = new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = ArmoryEquipmentExpiration,
+                Size = 1
+            };
+
+            _cache.Set(cacheKey, (equipment, media), cacheOptions);
+        }
+
+        /// <summary>
+        /// Invalidates cached armory equipment for a character
+        /// </summary>
+        public void InvalidateArmoryEquipment(string characterName, string realmSlug, string region)
+        {
+            var cacheKey = $"armory_equipment_{characterName.ToLower()}_{realmSlug.ToLower()}_{region.ToLower()}";
+            _cache.Remove(cacheKey);
         }
     }
 }
