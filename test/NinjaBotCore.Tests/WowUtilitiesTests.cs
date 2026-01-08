@@ -32,6 +32,7 @@ namespace NinjaBotCore.Tests
                 .AddSingleton<WarcraftLogs>()
                 .AddSingleton<RaiderIOApi>()
                 .AddSingleton<DiscordShardedClient>()
+                .AddSingleton<WowStaticDataService>()
                 .AddSingleton<StartupService>()
                 .AddSingleton<WowUtilities>()
                 .AddSingleton<WarcraftLogsV2Client>()
@@ -45,6 +46,12 @@ namespace NinjaBotCore.Tests
             // Add repository for FindWowCheeve
             services.AddScoped<IRepository<FindWowCheeve>>(sp =>
                 new Repository<FindWowCheeve>(sp.GetRequiredService<IServiceScopeFactory>()));
+
+            // Add repositories for WowStaticDataService
+            services.AddScoped<IRepository<WowMounts>>(sp =>
+                new Repository<WowMounts>(sp.GetRequiredService<IServiceScopeFactory>()));
+            services.AddScoped<IRepository<WowTokenPrices>>(sp =>
+                new Repository<WowTokenPrices>(sp.GetRequiredService<IServiceScopeFactory>()));
 
             Log.Logger = new LoggerConfiguration()
                     .WriteTo.Console()

@@ -7,6 +7,10 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Discord.WebSocket;
 using NinjaBotCore.Services;
+using NinjaBotCore.Database;
+using NinjaBotCore.Modules.Wow;
+using NinjaBotCore.Repositories;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace NinjaBotCore.Tests
@@ -175,6 +179,19 @@ namespace NinjaBotCore.Tests
 
             services.AddSingleton<IConfigurationRoot>(config);
             services.AddSingleton<DiscordShardedClient>();
+            services.AddHttpClient();
+            services.AddSingleton<WowApi>();
+            services.AddSingleton<WowStaticDataService>();
+
+            // Add DbContext with in-memory database
+            services.AddDbContext<NinjaBotEntities>(options =>
+                options.UseInMemoryDatabase($"ReadyHandlerTestDb_{Guid.NewGuid()}"));
+
+            // Add repositories for WowStaticDataService
+            services.AddScoped<IRepository<WowMounts>>(sp =>
+                new Repository<WowMounts>(sp.GetRequiredService<IServiceScopeFactory>()));
+            services.AddScoped<IRepository<WowTokenPrices>>(sp =>
+                new Repository<WowTokenPrices>(sp.GetRequiredService<IServiceScopeFactory>()));
 
             var provider = services.BuildServiceProvider();
             var startupService = new StartupService(provider);
