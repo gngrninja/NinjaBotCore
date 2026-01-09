@@ -1,17 +1,20 @@
 using System;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NinjaBotCore.Database;
 using NinjaBotCore.Services;
-using NinjaBotCore.Repositories;
 using Xunit;
 
 namespace NinjaBotCore.Tests
 {
+    /// <summary>
+    /// Tests for ModerationWatcherService - cache management and settings retrieval
+    /// </summary>
     public class ModerationWatcherServiceTests : IAsyncDisposable
     {
         private readonly ServiceProvider _provider;
@@ -29,7 +32,8 @@ namespace NinjaBotCore.Tests
                 options.SizeLimit = 1000;
             });
             services.AddDbContext<NinjaBotEntities>(options =>
-                options.UseInMemoryDatabase($"ModWatcherTests_{Guid.NewGuid()}"));
+                options.UseInMemoryDatabase($"ModWatcherTests_{Guid.NewGuid()}")
+                    .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning)));
             services.AddSingleton<Discord.WebSocket.DiscordShardedClient>();
 
             _provider = services.BuildServiceProvider();
@@ -54,24 +58,6 @@ namespace NinjaBotCore.Tests
 
             // Assert
             Assert.False(_cache.TryGetValue(cacheKey, out _));
-        }
-
-        [Fact]
-        public void GetSettingsAsync_UsesCacheOnSecondCall_Documentation()
-        {
-            // This test documents the caching behavior in GetSettingsAsync
-            //
-            // From ModerationWatcherService.cs:49-75:
-            // 1. First checks cache using TryGetValue
-            // 2. If not in cache, fetches from database using Repository
-            // 3. Stores in cache with 10-minute expiration and Size = 1
-            // 4. Subsequent calls within 10 minutes use cached version
-            //
-            // This reduces database queries for frequently accessed guild settings
-            // Cache key format: "modwatch_settings_{guildId}"
-            // Expiration: 10 minutes (TimeSpan.FromMinutes(10))
-
-            Assert.True(true); // Documentation test
         }
 
         [Fact]
@@ -102,128 +88,10 @@ namespace NinjaBotCore.Tests
 
             // Assert - Cache should be expired
             Assert.False(_cache.TryGetValue(cacheKey, out _));
-
-            // This demonstrates that cache entries with short expiration are properly removed
-            // In the actual service, expired entries would be re-fetched from database
         }
 
         [Fact]
-        public void GetSettingsAsync_ReturnsNull_WhenNoSettings_Documentation()
-        {
-            // This test documents the behavior when guild has no settings
-            //
-            // From ModerationWatcherService.cs:59-74:
-            // - If settings not in cache, fetches from database
-            // - If database returns null, GetSettingsAsync returns null
-            // - Null is NOT cached (only non-null settings are cached)
-            // - This means guilds without settings hit the database on every check
-            //
-            // This is intentional - missing settings is uncommon and caching null
-            // would complicate the cache invalidation logic
-
-            Assert.True(true); // Documentation test
-        }
-
-        [Fact]
-        public void BulkDeleteTracking_AddsMessageIdsToHashSet_Documentation()
-        {
-            // This test documents the bulk delete deduplication logic
-            //
-            // The service uses a HashSet<ulong> _recentBulkDeletes to track bulk deleted messages
-            // This prevents duplicate notifications when Discord fires both BulkDelete AND individual Delete events
-            //
-            // From ModerationWatcherService.cs:335-363:
-            // 1. HandleMessagesBulkDelete adds all message IDs to the HashSet
-            // 2. HandleMessageDelete checks the HashSet before posting notification
-            // 3. Background Task.Run cleans up the HashSet after 5 seconds
-            //
-            // Why 5 seconds?
-            // - Individual Delete events fire BEFORE the Bulk Delete event
-            // - 5 seconds gives enough time for all individual events to be processed
-            // - Then the HashSet is cleared to prevent memory leaks
-            //
-            // This prevents duplicate notifications without requiring complex state management
-
-            Assert.True(true); // Documentation test
-        }
-
-        [Fact]
-        public void BulkDeleteCleanup_DocumentsExpectedBehavior()
-        {
-            // This test documents the bulk delete cleanup mechanism
-            //
-            // How it works (from ModerationWatcherService.cs:345-363):
-            // 1. When HandleMessagesBulkDelete fires, all message IDs are added to _recentBulkDeletes HashSet
-            // 2. A background Task.Run is started that:
-            //    - Waits 5 seconds (await Task.Delay(5000))
-            //    - Removes all those message IDs from the HashSet
-            // 3. When HandleMessageDelete fires for individual messages, it checks _recentBulkDeletes
-            //    - If message ID is in the set, skip notification (it's part of a bulk delete)
-            //    - If not in the set, post notification (it's a single delete)
-            //
-            // This prevents duplicate notifications because Discord fires BOTH:
-            // - Individual MessageDeleted events for each message
-            // - One MessagesBulkDeleted event for all messages
-            //
-            // The 5-second delay ensures individual events (which fire first) are caught by the HashSet
-
-            Assert.True(true); // Documentation test
-        }
-
-        [Fact]
-        public void VoiceStateUpdate_IgnoresBotUsers_Documentation()
-        {
-            // This test documents that HandleVoiceStateUpdate filters bot users
-            //
-            // From ModerationWatcherService.cs:126:
-            //   if (user.IsBot) return;
-            //
-            // This prevents notification spam from bot voice state changes
-            // Only real user voice channel joins, leaves, and moves are tracked
-
-            Assert.True(true); // Documentation test
-        }
-
-        [Fact]
-        public void MessageUpdate_IgnoresEmbedOnlyUpdates_Documentation()
-        {
-            // This test documents that HandleMessageUpdate filters embed-only updates
-            //
-            // From ModerationWatcherService.cs:221-229:
-            //   - Skips if both before and after messages are empty/null (embed update)
-            //   - Only logs if content actually changed (ignores embed updates)
-            //
-            // This prevents notification spam from:
-            // - Link previews being added
-            // - Embeds loading
-            // - Other metadata-only changes
-            //
-            // Only actual text content edits trigger notifications
-
-            Assert.True(true); // Documentation test
-        }
-
-        [Fact]
-        public void MemberUpdate_DetectsRoleChanges_Documentation()
-        {
-            // This test documents role change detection in HandleMemberUpdate
-            //
-            // From ModerationWatcherService.cs:434-452:
-            //   - Compares before and after roles using Except()
-            //   - Detects added roles: after.Roles.Except(before.Roles)
-            //   - Detects removed roles: before.Roles.Except(after.Roles)
-            //   - Filters out @everyone role
-            //   - Posts separate notification for each role change
-            //
-            // Also tracks nickname changes when WatchNicknames is enabled
-            //
-            // This provides detailed audit trail of permission changes
-
-            Assert.True(true); // Documentation test
-        }
-
-        [Fact]
-        public async Task InvalidateCache_WorksWithMultipleGuilds()
+        public void InvalidateCache_WorksWithMultipleGuilds()
         {
             // Arrange - Test that cache invalidation only affects specific guild
             const long guild1 = 11111;
@@ -242,6 +110,42 @@ namespace NinjaBotCore.Tests
             // Assert
             Assert.False(_cache.TryGetValue($"modwatch_settings_{guild1}", out _)); // Guild 1 removed
             Assert.True(_cache.TryGetValue($"modwatch_settings_{guild2}", out _));  // Guild 2 still cached
+        }
+
+        [Fact]
+        public void CacheKey_FollowsExpectedFormat()
+        {
+            // Verify the cache key format used by the service
+            const long guildId = 99999;
+            var expectedKey = $"modwatch_settings_{guildId}";
+
+            // Add settings to cache with the expected key format
+            var settings = new ModerationWatcher { DiscordGuildId = guildId };
+            var cacheOptions = new MemoryCacheEntryOptions { Size = 1 };
+            _cache.Set(expectedKey, settings, cacheOptions);
+
+            // Invalidate using service method
+            _service.InvalidateSettingsCache(guildId);
+
+            // Verify it was removed (confirms service uses same key format)
+            Assert.False(_cache.TryGetValue(expectedKey, out _));
+        }
+
+        [Fact]
+        public void InvalidateSettingsCache_HandlesMissingCache_Gracefully()
+        {
+            // Arrange - No cache entry exists
+            const long guildId = 77777;
+            var cacheKey = $"modwatch_settings_{guildId}";
+
+            // Verify nothing is cached
+            Assert.False(_cache.TryGetValue(cacheKey, out _));
+
+            // Act - Should not throw
+            var exception = Record.Exception(() => _service.InvalidateSettingsCache(guildId));
+
+            // Assert
+            Assert.Null(exception);
         }
 
         public async ValueTask DisposeAsync()

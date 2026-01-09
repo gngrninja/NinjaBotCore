@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using NinjaBotCore.Database;
 using NinjaBotCore.Repositories;
@@ -23,7 +24,8 @@ namespace NinjaBotCore.Tests
 
             // Setup in-memory database for testing
             services.AddDbContext<NinjaBotEntities>(options =>
-                options.UseInMemoryDatabase($"IntegrationTestDb_{Guid.NewGuid()}"));
+                options.UseInMemoryDatabase($"IntegrationTestDb_{Guid.NewGuid()}")
+                    .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning)));
 
             _serviceProvider = services.BuildServiceProvider();
             _context = _serviceProvider.GetRequiredService<NinjaBotEntities>();

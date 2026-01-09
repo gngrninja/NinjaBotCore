@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,7 +29,8 @@ namespace NinjaBotCore.Tests
             services.AddLogging(b => b.AddProvider(NullLoggerProvider.Instance));
             services.AddMemoryCache();
             services.AddDbContext<NinjaBotEntities>(options =>
-                options.UseInMemoryDatabase("WowCacheTests", dbRoot));
+                options.UseInMemoryDatabase("WowCacheTests", dbRoot)
+                    .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning)));
 
             _provider = services.BuildServiceProvider();
             _cacheService = new WowCacheService(

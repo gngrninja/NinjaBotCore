@@ -15,8 +15,8 @@ using Xunit;
 namespace NinjaBotCore.Tests
 {
     /// <summary>
-    /// Tests for UserInteraction.HandleGreeting (UserJoined event handler)
-    /// Tests greeting message display, channel selection, and database integration
+    /// Tests for greeting system functionality via WowCacheService
+    /// Tests greeting message storage, caching, and database integration
     /// </summary>
     public class UserJoinedHandlerTests : IAsyncDisposable
     {
@@ -66,7 +66,7 @@ namespace NinjaBotCore.Tests
                 await db.SaveChangesAsync();
             }
 
-            // Act - Simulate WowCacheService.GetServerGreetingAsync
+            // Act
             var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>());
             var result = await cacheService.GetServerGreetingAsync(guildId);
 
@@ -89,7 +89,7 @@ namespace NinjaBotCore.Tests
                 db.ServerGreetings.Add(new ServerGreeting
                 {
                     DiscordGuildId = guildId,
-                    GreetUsers = false, // Disabled
+                    GreetUsers = false,
                     Greeting = "This message should not be sent",
                     GreetingChannelId = 888888
                 });
@@ -102,7 +102,7 @@ namespace NinjaBotCore.Tests
 
             // Assert
             Assert.NotNull(result);
-            Assert.False(result.GreetUsers); // Greeting disabled
+            Assert.False(result.GreetUsers);
         }
 
         [Fact]
@@ -117,7 +117,7 @@ namespace NinjaBotCore.Tests
             var result = await cacheService.GetServerGreetingAsync(guildId);
 
             // Assert
-            Assert.Null(result); // No settings configured
+            Assert.Null(result);
         }
 
         [Fact]
@@ -133,7 +133,7 @@ namespace NinjaBotCore.Tests
                 {
                     DiscordGuildId = guildId,
                     GreetUsers = true,
-                    Greeting = null, // No custom message
+                    Greeting = null,
                     GreetingChannelId = 999999
                 });
                 await db.SaveChangesAsync();
@@ -146,7 +146,7 @@ namespace NinjaBotCore.Tests
             // Assert
             Assert.NotNull(result);
             Assert.True(result.GreetUsers);
-            Assert.Null(result.Greeting); // Will use default: "Welcome them! 🤗"
+            Assert.Null(result.Greeting); // Will use default message in handler
         }
 
         [Fact]
@@ -164,7 +164,7 @@ namespace NinjaBotCore.Tests
                     DiscordGuildId = guildId,
                     GreetUsers = true,
                     Greeting = "Custom greeting",
-                    GreetingChannelId = customChannelId // Custom channel
+                    GreetingChannelId = customChannelId
                 });
                 await db.SaveChangesAsync();
             }
@@ -241,7 +241,7 @@ namespace NinjaBotCore.Tests
             // Act - First call caches the greeting
             var result1 = await cacheService.GetServerGreetingAsync(guildId);
 
-            // Invalidate cache (like when admin updates greeting via modal)
+            // Invalidate cache
             cacheService.InvalidateServerGreeting(guildId);
 
             // Modify database
@@ -258,91 +258,7 @@ namespace NinjaBotCore.Tests
 
             // Assert
             Assert.Equal("Original greeting", result1.Greeting);
-            Assert.Equal("Updated greeting", result2.Greeting); // Fetched fresh data
-        }
-
-        [Fact]
-        public void HandleGreeting_BuildsEmbed_WithUserMention_Documentation()
-        {
-            // This test documents the embed structure for user join messages
-            //
-            // From UserInteractions.cs:285-300:
-            // - Title: "[{username}] has joined [**{guild.Name}**]!"
-            // - Description: Starts with {user.Mention}
-            // - Uses custom greeting message if set, otherwise default message
-            // - Default: "Welcome them! 🤗\n(or not, 🤷)"
-            // - Thumbnail: User's avatar URL
-            // - Color: Green (0, 255, 0)
-            // - Sent to configured channel or guild's default channel
-            //
-            // The user mention ensures Discord notifies the user about the welcome
-
-            Assert.True(true); // Documentation test
-        }
-
-        [Fact]
-        public void HandleGreeting_ChannelSelection_UsesCorrectFallback_Documentation()
-        {
-            // This test documents the channel selection logic
-            //
-            // From UserInteractions.cs:277-284:
-            // 1. If GreetingChannelId != 0: Use that channel
-            // 2. Otherwise: Use guild.DefaultChannel
-            //
-            // DefaultChannel is typically the first text channel or system channel
-            // If the configured channel doesn't exist, GetChannel returns null
-            // and the message fails to send (logged as error)
-            //
-            // This allows server admins to configure a dedicated welcome channel
-            // or fall back to the default if not configured
-
-            Assert.True(true); // Documentation test
-        }
-
-        [Fact]
-        public void HandleGreeting_ErrorHandling_LogsFailures_Documentation()
-        {
-            // This test documents error handling in HandleGreeting
-            //
-            // From UserInteractions.cs:302-312:
-            // - Wraps entire greeting logic in try-catch
-            // - Logs errors with full context:
-            //   * Channel name (if available)
-            //   * Guild name and ID
-            //   * Exception message
-            // - Does NOT throw exceptions (prevents breaking bot on greeting failure)
-            //
-            // Common error scenarios:
-            // - Configured channel was deleted
-            // - Bot lacks SendMessage permission in channel
-            // - Bot lacks EmbedLinks permission
-            // - Database query fails
-            // - Network issues
-            //
-            // Errors are logged but don't prevent bot from functioning
-
-            Assert.True(true); // Documentation test
-        }
-
-        [Fact]
-        public void HandleGreeting_ReadsFromCache_OnFrequentJoins_Documentation()
-        {
-            // This test documents the caching strategy
-            //
-            // WowCacheService caches ServerGreeting with:
-            // - Cache key: "servergreeting_{guildId}"
-            // - Expiration: 15 minutes (AbsoluteExpirationRelativeToNow)
-            // - Size: 1 (for memory management)
-            //
-            // Why caching matters:
-            // - Large servers have frequent joins (raid nights, events)
-            // - Each join would hit database without cache
-            // - 15-minute TTL balances performance vs. freshness
-            // - Cache invalidated when admin updates greeting via modal
-            //
-            // This prevents database overload during high-traffic periods
-
-            Assert.True(true); // Documentation test
+            Assert.Equal("Updated greeting", result2.Greeting);
         }
 
         [Fact]
@@ -376,7 +292,7 @@ namespace NinjaBotCore.Tests
             var result1 = await cacheService.GetServerGreetingAsync(111111);
             var result2 = await cacheService.GetServerGreetingAsync(222222);
 
-            // Assert - Each guild has independent settings
+            // Assert
             Assert.True(result1.GreetUsers);
             Assert.Equal("Guild 1 greeting", result1.Greeting);
 
@@ -393,7 +309,7 @@ namespace NinjaBotCore.Tests
             const string adminName = "ServerAdmin";
             const string newGreeting = "Welcome! Please read the rules.";
 
-            // Act - Simulate modal submission (from UserInteractions.HandleJoiningModal)
+            // Act - Simulate modal submission
             await using var greetingRepo = new Repository<ServerGreeting>(_provider.GetRequiredService<NinjaBotEntities>());
             await greetingRepo.UpsertAsync(
                 findPredicate: g => g.DiscordGuildId == guildId,
