@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
@@ -31,9 +32,10 @@ namespace NinjaBotCore.Tests
             var dbRoot = new InMemoryDatabaseRoot();
 
             services.AddLogging(b => b.AddProvider(NullLoggerProvider.Instance));
-            services.AddMemoryCache(options => { options.SizeLimit = 1000; });
+            services.AddMemoryCache();
             services.AddDbContext<NinjaBotEntities>(options =>
-                options.UseInMemoryDatabase("UserJoinedHandlerTests", dbRoot));
+                options.UseInMemoryDatabase("UserJoinedHandlerTests", dbRoot)
+                    .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning)));
 
             _provider = services.BuildServiceProvider();
             _context = _provider.GetRequiredService<NinjaBotEntities>();

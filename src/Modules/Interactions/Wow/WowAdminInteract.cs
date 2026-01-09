@@ -60,6 +60,110 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             _wowStaticData = wowStaticData;
         }
 
+        /// <summary>
+        /// Finds problematic guilds (inactive, not-found, no-reports) based on cleanup type
+        /// </summary>
+        private async Task<List<(WowGuildAssociations Guild, LogMonitoring Monitoring, int? DaysSinceReport, string Reason)>>
+            GetProblematicGuildsAsync(string cleanupType, int daysThreshold)
+        {
+            var type = cleanupType.ToLower();
+            var problemGuilds = new List<(WowGuildAssociations Guild, LogMonitoring Monitoring, int? DaysSinceReport, string Reason)>();
+
+            var (guildList, logWatchList) = await WithDbAsync(async db =>
+            {
+                var guilds = await db.WowGuildAssociations.ToListAsync();
+                var logWatch = await db.LogMonitoring.Where(w => w.MonitorLogs).ToListAsync();
+                return (guilds, logWatch);
+            });
+
+            // Find inactive guilds
+            if (type == "inactive" || type == "all")
+            {
+                var thresholdDate = DateTime.UtcNow.AddDays(-daysThreshold);
+
+                foreach (var monitoring in logWatchList)
+                {
+                    var guild = guildList.FirstOrDefault(g => g.ServerId == monitoring.ServerId);
+                    if (guild == null) continue;
+
+                    int? daysSinceReport = monitoring.LatestLogRetail.HasValue
+                        ? (int)(DateTime.UtcNow - monitoring.LatestLogRetail.Value).TotalDays
+                        : null;
+
+                    if (!monitoring.LatestLogRetail.HasValue || monitoring.LatestLogRetail.Value < thresholdDate)
+                    {
+                        var reason = daysSinceReport.HasValue
+                            ? $"Inactive: {daysSinceReport} days"
+                            : "Inactive: never";
+                        problemGuilds.Add((guild, monitoring, daysSinceReport, reason));
+                    }
+                }
+            }
+
+            // Find not-found guilds or no-reports guilds via WCL API
+            if (type == "not-found" || type == "no-reports" || type == "all")
+            {
+                var guildsToCheck = guildList
+                    .Where(g => logWatchList.Any(w => w.ServerId == g.ServerId && w.MonitorLogs))
+                    .ToList();
+
+                var batchRequest = guildsToCheck.Select(g => (
+                    guildName: g.WowGuild,
+                    serverSlug: g.LocalRealmSlug ?? g.WowRealm.ToLower().Replace(" ", "-").Replace("'", ""),
+                    serverRegion: g.WowRegion,
+                    guildKey: $"{g.ServerId}"
+                )).ToList();
+
+                var batchResult = await _v2Client.GetBatchGuildReportsAsync(batchRequest);
+
+                foreach (var guild in guildsToCheck)
+                {
+                    var guildKey = $"{guild.ServerId}";
+                    var monitoring = logWatchList.FirstOrDefault(w => w.ServerId == guild.ServerId);
+                    if (monitoring == null) continue;
+
+                    int? daysSinceReport = monitoring.LatestLogRetail.HasValue
+                        ? (int)(DateTime.UtcNow - monitoring.LatestLogRetail.Value).TotalDays
+                        : null;
+
+                    // Check for not-found guilds
+                    if ((type == "not-found" || type == "all") && batchResult.NonExistentGuilds.Contains(guildKey))
+                    {
+                        var existingIndex = problemGuilds.FindIndex(p => p.Guild.ServerId == guild.ServerId);
+                        if (existingIndex < 0)
+                        {
+                            problemGuilds.Add((guild, monitoring, daysSinceReport, "Not found on WCL"));
+                        }
+                        else
+                        {
+                            var existing = problemGuilds[existingIndex];
+                            problemGuilds[existingIndex] = (existing.Guild, existing.Monitoring, existing.DaysSinceReport, $"{existing.Reason} + Not found");
+                        }
+                    }
+
+                    // Check for guilds with no reports
+                    if ((type == "no-reports" || type == "all") && batchResult.GuildsWithNoReports.Contains(guildKey))
+                    {
+                        var existingIndex = problemGuilds.FindIndex(p => p.Guild.ServerId == guild.ServerId);
+                        if (existingIndex < 0)
+                        {
+                            problemGuilds.Add((guild, monitoring, daysSinceReport, "No reports on WCL"));
+                        }
+                        else
+                        {
+                            var existing = problemGuilds[existingIndex];
+                            problemGuilds[existingIndex] = (existing.Guild, existing.Monitoring, existing.DaysSinceReport, $"{existing.Reason} + No reports");
+                        }
+                    }
+                }
+            }
+
+            return problemGuilds
+                .OrderBy(x => x.Reason)
+                .ThenByDescending(x => x.DaysSinceReport ?? int.MaxValue)
+                .ToList();
+        }
+
         [SlashCommand("populatelogs", "populate logs")]
         [Discord.Interactions.RequireOwner]
         public async Task PopulateLogs()
@@ -337,125 +441,13 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             try
             {
-                List<WowGuildAssociations> guildList;
-                List<LogMonitoring> logWatchList;
-
-                var result = await WithDbAsync(async db =>
-                {
-                    var guilds = await db.WowGuildAssociations.ToListAsync();
-                    var logWatch = await db.LogMonitoring.Where(w => w.MonitorLogs).ToListAsync();
-                    return (guilds, logWatch);
-                });
-                guildList = result.guilds;
-                logWatchList = result.logWatch;
-
-                var problemGuilds = new List<(WowGuildAssociations Guild, LogMonitoring Monitoring, int? DaysSinceReport, string Reason)>();
-
-                // Find inactive guilds
-                if (type == "inactive" || type == "all")
-                {
-                    var thresholdDate = DateTime.UtcNow.AddDays(-daysThreshold);
-
-                    foreach (var monitoring in logWatchList)
-                    {
-                        var guild = guildList.FirstOrDefault(g => g.ServerId == monitoring.ServerId);
-                        if (guild == null) continue;
-
-                        int? daysSinceReport = null;
-                        if (monitoring.LatestLogRetail.HasValue)
-                        {
-                            daysSinceReport = (int)(DateTime.UtcNow - monitoring.LatestLogRetail.Value).TotalDays;
-                        }
-
-                        // Include if: no reports ever, or reports older than threshold
-                        if (!monitoring.LatestLogRetail.HasValue || monitoring.LatestLogRetail.Value < thresholdDate)
-                        {
-                            var reason = daysSinceReport.HasValue
-                                ? $"Inactive: {daysSinceReport} days"
-                                : "Inactive: never";
-                            problemGuilds.Add((guild, monitoring, daysSinceReport, reason));
-                        }
-                    }
-                }
-
-                // Find not-found guilds (guilds that don't exist on WarcraftLogs) or no-reports guilds
+                // Show progress message for WCL API calls
                 if (type == "not-found" || type == "no-reports" || type == "all")
                 {
                     await FollowupAsync("Checking WarcraftLogs... This may take a moment.", ephemeral: true);
-
-                    var guildsToCheck = guildList
-                        .Where(g => logWatchList.Any(w => w.ServerId == g.ServerId && w.MonitorLogs))
-                        .ToList();
-
-                    var batchRequest = guildsToCheck.Select(g => (
-                        guildName: g.WowGuild,
-                        serverSlug: g.LocalRealmSlug ?? g.WowRealm.ToLower().Replace(" ", "-").Replace("'", ""),
-                        serverRegion: g.WowRegion,
-                        guildKey: $"{g.ServerId}"
-                    )).ToList();
-
-                    try
-                    {
-                        // Use the WarcraftLogsV2 batch method - now distinguishes between non-existent and no-reports guilds
-                        var batchResult = await _v2Client.GetBatchGuildReportsAsync(batchRequest);
-
-                        foreach (var guild in guildsToCheck)
-                        {
-                            var guildKey = $"{guild.ServerId}";
-                            var monitoring = logWatchList.FirstOrDefault(w => w.ServerId == guild.ServerId);
-                            if (monitoring == null) continue;
-
-                            int? daysSinceReport = monitoring.LatestLogRetail.HasValue
-                                ? (int)(DateTime.UtcNow - monitoring.LatestLogRetail.Value).TotalDays
-                                : null;
-
-                            // Check for not-found guilds (guilds that don't exist on WarcraftLogs)
-                            if ((type == "not-found" || type == "all") && batchResult.NonExistentGuilds.Contains(guildKey))
-                            {
-                                // Don't add duplicates if we already found it as inactive
-                                if (!problemGuilds.Any(p => p.Guild.ServerId == guild.ServerId))
-                                {
-                                    problemGuilds.Add((guild, monitoring, daysSinceReport, "Not found on WCL"));
-                                }
-                                else
-                                {
-                                    // Update reason to include both issues
-                                    var index = problemGuilds.FindIndex(p => p.Guild.ServerId == guild.ServerId);
-                                    if (index >= 0)
-                                    {
-                                        var existing = problemGuilds[index];
-                                        problemGuilds[index] = (existing.Guild, existing.Monitoring, existing.DaysSinceReport, $"{existing.Reason} + Not found");
-                                    }
-                                }
-                            }
-
-                            // Check for guilds with no reports (guilds that exist but have no reports)
-                            if ((type == "no-reports" || type == "all") && batchResult.GuildsWithNoReports.Contains(guildKey))
-                            {
-                                if (!problemGuilds.Any(p => p.Guild.ServerId == guild.ServerId))
-                                {
-                                    problemGuilds.Add((guild, monitoring, daysSinceReport, "No reports on WCL"));
-                                }
-                                else
-                                {
-                                    // Update reason to include both issues
-                                    var index = problemGuilds.FindIndex(p => p.Guild.ServerId == guild.ServerId);
-                                    if (index >= 0)
-                                    {
-                                        var existing = problemGuilds[index];
-                                        problemGuilds[index] = (existing.Guild, existing.Monitoring, existing.DaysSinceReport, $"{existing.Reason} + No reports");
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error checking guilds on WarcraftLogs");
-                        await FollowupAsync($"Error checking WarcraftLogs: {ex.Message}", ephemeral: true);
-                        return;
-                    }
                 }
+
+                var problemGuilds = await GetProblematicGuildsAsync(type, daysThreshold);
 
                 if (problemGuilds.Count == 0)
                 {
@@ -463,12 +455,6 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     await FollowupAsync($"No {typeDesc} guilds found!", ephemeral: true);
                     return;
                 }
-
-                // Sort by reason, then by days since report (nulls last)
-                problemGuilds = problemGuilds
-                    .OrderBy(x => x.Reason)
-                    .ThenByDescending(x => x.DaysSinceReport ?? int.MaxValue)
-                    .ToList();
 
                 if (action.ToLower() == "list")
                 {
@@ -646,117 +632,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         {
             try
             {
-                List<WowGuildAssociations> guildList;
-                List<LogMonitoring> logWatchList;
+                var problemGuilds = await GetProblematicGuildsAsync(cleanupType, daysThreshold);
 
-                var result = await WithDbAsync(async db =>
-                {
-                    var guilds = await db.WowGuildAssociations.ToListAsync();
-                    var logWatch = await db.LogMonitoring.Where(w => w.MonitorLogs).ToListAsync();
-                    return (guilds, logWatch);
-                });
-                guildList = result.guilds;
-                logWatchList = result.logWatch;
-
-                var problemGuilds = new List<(WowGuildAssociations Guild, LogMonitoring Monitoring, int? DaysSinceReport, string Reason)>();
-                var type = cleanupType.ToLower();
-
-                // Find inactive guilds
-                if (type == "inactive" || type == "all")
-                {
-                    var thresholdDate = DateTime.UtcNow.AddDays(-daysThreshold);
-
-                    foreach (var monitoring in logWatchList)
-                    {
-                        var guild = guildList.FirstOrDefault(g => g.ServerId == monitoring.ServerId);
-                        if (guild == null) continue;
-
-                        int? daysSinceReport = null;
-                        if (monitoring.LatestLogRetail.HasValue)
-                        {
-                            daysSinceReport = (int)(DateTime.UtcNow - monitoring.LatestLogRetail.Value).TotalDays;
-                        }
-
-                        if (!monitoring.LatestLogRetail.HasValue || monitoring.LatestLogRetail.Value < thresholdDate)
-                        {
-                            var reason = daysSinceReport.HasValue
-                                ? $"Inactive: {daysSinceReport} days"
-                                : "Inactive: never";
-                            problemGuilds.Add((guild, monitoring, daysSinceReport, reason));
-                        }
-                    }
-                }
-
-                // Find not-found guilds (guilds that don't exist on WarcraftLogs) or no-reports guilds
-                if (type == "not-found" || type == "no-reports" || type == "all")
-                {
-                    var guildsToCheck = guildList
-                        .Where(g => logWatchList.Any(w => w.ServerId == g.ServerId && w.MonitorLogs))
-                        .ToList();
-
-                    var batchRequest = guildsToCheck.Select(g => (
-                        guildName: g.WowGuild,
-                        serverSlug: g.LocalRealmSlug ?? g.WowRealm.ToLower().Replace(" ", "-").Replace("'", ""),
-                        serverRegion: g.WowRegion,
-                        guildKey: $"{g.ServerId}"
-                    )).ToList();
-
-                    var batchResult = await _v2Client.GetBatchGuildReportsAsync(batchRequest);
-
-                    foreach (var guild in guildsToCheck)
-                    {
-                        var guildKey = $"{guild.ServerId}";
-                        var monitoring = logWatchList.FirstOrDefault(w => w.ServerId == guild.ServerId);
-                        if (monitoring == null) continue;
-
-                        int? daysSinceReport = monitoring.LatestLogRetail.HasValue
-                            ? (int)(DateTime.UtcNow - monitoring.LatestLogRetail.Value).TotalDays
-                            : null;
-
-                        // Check for not-found guilds (guilds that don't exist on WarcraftLogs)
-                        if ((type == "not-found" || type == "all") && batchResult.NonExistentGuilds.Contains(guildKey))
-                        {
-                            if (!problemGuilds.Any(p => p.Guild.ServerId == guild.ServerId))
-                            {
-                                problemGuilds.Add((guild, monitoring, daysSinceReport, "Not found on WCL"));
-                            }
-                            else
-                            {
-                                var index = problemGuilds.FindIndex(p => p.Guild.ServerId == guild.ServerId);
-                                if (index >= 0)
-                                {
-                                    var existing = problemGuilds[index];
-                                    problemGuilds[index] = (existing.Guild, existing.Monitoring, existing.DaysSinceReport, $"{existing.Reason} + Not found");
-                                }
-                            }
-                        }
-
-                        // Check for guilds with no reports (guilds that exist but have no reports)
-                        if ((type == "no-reports" || type == "all") && batchResult.GuildsWithNoReports.Contains(guildKey))
-                        {
-                            if (!problemGuilds.Any(p => p.Guild.ServerId == guild.ServerId))
-                            {
-                                problemGuilds.Add((guild, monitoring, daysSinceReport, "No reports on WCL"));
-                            }
-                            else
-                            {
-                                var index = problemGuilds.FindIndex(p => p.Guild.ServerId == guild.ServerId);
-                                if (index >= 0)
-                                {
-                                    var existing = problemGuilds[index];
-                                    problemGuilds[index] = (existing.Guild, existing.Monitoring, existing.DaysSinceReport, $"{existing.Reason} + No reports");
-                                }
-                            }
-                        }
-                    }
-                }
-
-                problemGuilds = problemGuilds
-                    .OrderBy(x => x.Reason)
-                    .ThenByDescending(x => x.DaysSinceReport ?? int.MaxValue)
-                    .ToList();
-
-                // Update the message with new page
                 var embed = BuildProblematicGuildsEmbed(problemGuilds, page, daysThreshold, cleanupType);
                 var components = BuildPaginationComponents(page, problemGuilds.Count, daysThreshold, cleanupType);
 
@@ -1333,6 +1210,153 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             }
         }
 
+        [SlashCommand("refresh-static-data", "Refresh static data (realms, classes, races) from WoW API")]
+        [Discord.Interactions.RequireOwner]
+        public async Task RefreshStaticData(
+            [Summary("type", "What to refresh")]
+            [Choice("All", "all")]
+            [Choice("Realms", "realms")]
+            [Choice("Classes", "classes")]
+            [Choice("Races", "races")]
+            string type = "all")
+        {
+            await DeferAsync(ephemeral: true);
+
+            try
+            {
+                _logger.LogInformation("Admin command: Refreshing static data ({Type}) by user {User}", type, Context.User.Username);
+
+                var embed = new EmbedBuilder()
+                    .WithTitle("Static Data Refresh Started")
+                    .WithColor(Color.Blue)
+                    .WithDescription($"Refreshing **{type}** from WoW API...\n\nThis may take a moment.")
+                    .WithCurrentTimestamp();
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+
+                var cts = new CancellationTokenSource();
+                var results = new List<string>();
+
+                switch (type.ToLower())
+                {
+                    case "realms":
+                        await _wowStaticData.ImportAllRealmsAsync(cts.Token);
+                        results.Add("Realms: Success");
+                        break;
+                    case "classes":
+                        await _wowStaticData.ImportAllClassesAsync(cts.Token);
+                        results.Add("Classes: Success");
+                        break;
+                    case "races":
+                        await _wowStaticData.ImportAllRacesAsync(cts.Token);
+                        results.Add("Races: Success");
+                        break;
+                    case "all":
+                    default:
+                        var refreshResult = await _wowStaticData.RefreshAllStaticDataAsync(cts.Token);
+                        results.Add(refreshResult);
+                        break;
+                }
+
+                var successEmbed = new EmbedBuilder()
+                    .WithTitle("Static Data Refresh Complete")
+                    .WithColor(Color.Green)
+                    .WithDescription(string.Join("\n", results))
+                    .WithCurrentTimestamp();
+
+                await Context.Interaction.FollowupAsync(embed: successEmbed.Build(), ephemeral: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error refreshing static data");
+                var errorEmbed = new EmbedBuilder()
+                    .WithTitle("Static Data Refresh Failed")
+                    .WithColor(Color.Red)
+                    .WithDescription($"Error: {ex.Message}");
+                await Context.Interaction.FollowupAsync(embed: errorEmbed.Build(), ephemeral: true);
+            }
+        }
+
+        [SlashCommand("static-data-stats", "Show statistics about cached static data")]
+        [Discord.Interactions.RequireOwner]
+        public async Task StaticDataStats()
+        {
+            await DeferAsync(ephemeral: true);
+
+            try
+            {
+                var realms = await _wowStaticData.GetAllRealmsAsync();
+                var classes = await _wowStaticData.GetAllClassesAsync();
+                var races = await _wowStaticData.GetAllRacesAsync();
+                var mounts = await _wowStaticData.GetAllMountsAsync();
+                var achievements = await _wowStaticData.GetAllAchievementsAsync();
+                var pets = await _wowStaticData.GetAllPetsAsync();
+
+                var embed = new EmbedBuilder()
+                    .WithTitle("Static Data Statistics")
+                    .WithColor(Color.Blue)
+                    .WithCurrentTimestamp();
+
+                // Realms by region
+                var realmsByRegion = realms.GroupBy(r => r.Region).OrderBy(g => g.Key);
+                var realmStats = string.Join("\n", realmsByRegion.Select(g => $"**{g.Key}:** {g.Count()} realms"));
+                embed.AddField($"Realms ({realms.Count} total)", realmStats.Length > 0 ? realmStats : "No realms cached");
+
+                // Classes
+                embed.AddField($"Playable Classes ({classes.Count})",
+                    classes.Count > 0 ? string.Join(", ", classes.OrderBy(c => c.Name).Select(c => c.Name)) : "No classes cached");
+
+                // Races by faction
+                var racesByFaction = races.GroupBy(r => r.Faction).OrderBy(g => g.Key);
+                var raceStats = string.Join("\n", racesByFaction.Select(g => $"**{g.Key}:** {string.Join(", ", g.Select(r => r.Name))}"));
+                embed.AddField($"Playable Races ({races.Count})", raceStats.Length > 0 ? raceStats : "No races cached");
+
+                // Mounts
+                embed.AddField("Mounts", $"{mounts.Count:N0} mounts cached");
+
+                // Achievements
+                var achievementsByCategory = achievements.GroupBy(a => a.ParentCategory ?? a.Category ?? "Uncategorized")
+                    .OrderByDescending(g => g.Count())
+                    .Take(5);
+                var achievementStats = string.Join("\n", achievementsByCategory.Select(g => $"**{g.Key}:** {g.Count()}"));
+                embed.AddField($"Achievements ({achievements.Count:N0} total)",
+                    achievements.Count > 0 ? $"Top categories:\n{achievementStats}" : "No achievements cached");
+
+                // Pets
+                var petsByType = pets.GroupBy(p => p.PetType ?? "Unknown")
+                    .OrderByDescending(g => g.Count());
+                var petStats = string.Join(", ", petsByType.Select(g => $"{g.Key}: {g.Count()}"));
+                embed.AddField($"Pets ({pets.Count:N0} total)",
+                    pets.Count > 0 ? petStats : "No pets cached");
+
+                // Last updated info
+                var oldestRealm = realms.OrderBy(r => r.LastUpdated).FirstOrDefault();
+                var oldestClass = classes.OrderBy(c => c.LastUpdated).FirstOrDefault();
+                var oldestRace = races.OrderBy(r => r.LastUpdated).FirstOrDefault();
+                var oldestAchievement = achievements.OrderBy(a => a.LastUpdated).FirstOrDefault();
+                var oldestPet = pets.OrderBy(p => p.LastUpdated).FirstOrDefault();
+
+                var lastUpdatedInfo = new List<string>();
+                if (oldestRealm != null) lastUpdatedInfo.Add($"Realms: {oldestRealm.LastUpdated:g}");
+                if (oldestClass != null) lastUpdatedInfo.Add($"Classes: {oldestClass.LastUpdated:g}");
+                if (oldestRace != null) lastUpdatedInfo.Add($"Races: {oldestRace.LastUpdated:g}");
+                if (oldestAchievement != null) lastUpdatedInfo.Add($"Achievements: {oldestAchievement.LastUpdated:g}");
+                if (oldestPet != null) lastUpdatedInfo.Add($"Pets: {oldestPet.LastUpdated:g}");
+
+                if (lastUpdatedInfo.Count > 0)
+                {
+                    embed.AddField("Oldest Update", string.Join("\n", lastUpdatedInfo));
+                }
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting static data stats");
+                await FollowupAsync($"Error: {ex.Message}", ephemeral: true);
+            }
+        }
+
         [SlashCommand("import-items", "Import items from the WoW API by ID range")]
         [Discord.Interactions.RequireOwner]
         public async Task ImportItems(
@@ -1451,6 +1475,168 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     .WithTitle("Error")
                     .WithColor(Color.Red)
                     .WithDescription($"Failed to start item import: {ex.Message}");
+                await FollowupAsync(embed: errorEmbed.Build(), ephemeral: true);
+            }
+        }
+
+        [SlashCommand("import-achievements", "Import all achievements from the WoW API")]
+        [Discord.Interactions.RequireOwner]
+        public async Task ImportAchievements()
+        {
+            await DeferAsync(ephemeral: true);
+
+            try
+            {
+                _logger.LogInformation("Admin command: Starting achievement import by user {User}", Context.User.Username);
+
+                var embed = new EmbedBuilder()
+                    .WithTitle("Achievement Import Started")
+                    .WithColor(Color.Blue)
+                    .WithDescription("Importing all achievements from the WoW API...\n\n**Estimated time:** 15-20 minutes (~5,500 achievements)\n\nThis runs in the background. You'll be notified when complete.")
+                    .WithCurrentTimestamp();
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+
+                // Run import in background
+                var cts = new CancellationTokenSource();
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _wowStaticData.ImportAllAchievementsAsync(cts.Token);
+
+                        var achievements = await _wowStaticData.GetAllAchievementsAsync();
+
+                        var successEmbed = new EmbedBuilder()
+                            .WithTitle("Achievement Import Complete")
+                            .WithColor(Color.Green)
+                            .WithDescription($"**Total achievements:** {achievements.Count:N0}")
+                            .WithCurrentTimestamp();
+
+                        await Context.Interaction.FollowupAsync(embed: successEmbed.Build(), ephemeral: true);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error during achievement import");
+
+                        var errorEmbed = new EmbedBuilder()
+                            .WithTitle("Achievement Import Failed")
+                            .WithColor(Color.Red)
+                            .WithDescription($"Error: {ex.Message}")
+                            .WithCurrentTimestamp();
+
+                        await Context.Interaction.FollowupAsync(embed: errorEmbed.Build(), ephemeral: true);
+                    }
+                }, cts.Token);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error initiating achievement import");
+                var errorEmbed = new EmbedBuilder()
+                    .WithTitle("Error")
+                    .WithColor(Color.Red)
+                    .WithDescription($"Failed to start achievement import: {ex.Message}");
+                await FollowupAsync(embed: errorEmbed.Build(), ephemeral: true);
+            }
+        }
+
+        [SlashCommand("recalc-mount-expansions", "Recalculate expansion tags for all mounts using smart detection")]
+        [Discord.Interactions.RequireOwner]
+        public async Task RecalculateMountExpansions()
+        {
+            await DeferAsync(ephemeral: true);
+
+            try
+            {
+                _logger.LogInformation("Admin command: Recalculating mount expansions by user {User}", Context.User.Username);
+
+                var embed = new EmbedBuilder()
+                    .WithTitle("Mount Expansion Recalculation Started")
+                    .WithColor(Color.Blue)
+                    .WithDescription("Recalculating expansion tags for all mounts...\n\nUsing smart detection: Description > Zone > ID-based fallback")
+                    .WithCurrentTimestamp();
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+
+                // Run recalculation
+                var result = await _wowStaticData.RecalculateMountExpansionsAsync();
+
+                var successEmbed = new EmbedBuilder()
+                    .WithTitle("Mount Expansion Recalculation Complete")
+                    .WithColor(Color.Green)
+                    .WithDescription(result)
+                    .WithCurrentTimestamp();
+
+                await Context.Interaction.FollowupAsync(embed: successEmbed.Build(), ephemeral: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error recalculating mount expansions");
+                var errorEmbed = new EmbedBuilder()
+                    .WithTitle("Recalculation Failed")
+                    .WithColor(Color.Red)
+                    .WithDescription($"Error: {ex.Message}");
+                await FollowupAsync(embed: errorEmbed.Build(), ephemeral: true);
+            }
+        }
+
+        [SlashCommand("import-pets", "Import all pets from the WoW API")]
+        [Discord.Interactions.RequireOwner]
+        public async Task ImportPets()
+        {
+            await DeferAsync(ephemeral: true);
+
+            try
+            {
+                _logger.LogInformation("Admin command: Starting pet import by user {User}", Context.User.Username);
+
+                var embed = new EmbedBuilder()
+                    .WithTitle("Pet Import Started")
+                    .WithColor(Color.Blue)
+                    .WithDescription("Importing all pets from the WoW API...\n\n**Estimated time:** 5-7 minutes (~1,700 pets)\n\nThis runs in the background. You'll be notified when complete.")
+                    .WithCurrentTimestamp();
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+
+                // Run import in background
+                var cts = new CancellationTokenSource();
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _wowStaticData.ImportAllPetsAsync(cts.Token);
+
+                        var pets = await _wowStaticData.GetAllPetsAsync();
+
+                        var successEmbed = new EmbedBuilder()
+                            .WithTitle("Pet Import Complete")
+                            .WithColor(Color.Green)
+                            .WithDescription($"**Total pets:** {pets.Count:N0}")
+                            .WithCurrentTimestamp();
+
+                        await Context.Interaction.FollowupAsync(embed: successEmbed.Build(), ephemeral: true);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error during pet import");
+
+                        var errorEmbed = new EmbedBuilder()
+                            .WithTitle("Pet Import Failed")
+                            .WithColor(Color.Red)
+                            .WithDescription($"Error: {ex.Message}")
+                            .WithCurrentTimestamp();
+
+                        await Context.Interaction.FollowupAsync(embed: errorEmbed.Build(), ephemeral: true);
+                    }
+                }, cts.Token);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error initiating pet import");
+                var errorEmbed = new EmbedBuilder()
+                    .WithTitle("Error")
+                    .WithColor(Color.Red)
+                    .WithDescription($"Failed to start pet import: {ex.Message}");
                 await FollowupAsync(embed: errorEmbed.Build(), ephemeral: true);
             }
         }

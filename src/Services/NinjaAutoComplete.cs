@@ -295,7 +295,8 @@ namespace NinjaBotCore.Services
 
     /// <summary>
     /// Autocomplete handler for WoW realm selection
-    /// Shows realms from the appropriate region based on user input
+    /// Uses database-backed realm data from WowStaticDataService for reliable results
+    /// Falls back to WowApi static data if database is empty
     /// </summary>
     public class RealmAutocomplete : AutocompleteHandler
     {
@@ -308,14 +309,39 @@ namespace NinjaBotCore.Services
             try
             {
                 var logger = services.GetService<ILogger<RealmAutocomplete>>();
-                var results = new List<AutocompleteResult>();
+                var staticDataService = services.GetService<WowStaticDataService>();
                 var userInput = (autocompleteInteraction.Data.Current.Value as string ?? "").ToLower().Trim();
 
                 // Get region parameter value to determine which realm list to use
                 var regionParam = autocompleteInteraction.Data.Options.FirstOrDefault(o => o.Name == "region");
                 var region = (regionParam?.Value as string ?? "us").ToLower();
 
-                // Select appropriate realm list
+                // Map region to uppercase for database query
+                var dbRegion = region.ToUpper();
+
+                // Try to get realms from database first (more reliable)
+                if (staticDataService != null)
+                {
+                    var dbRealms = await staticDataService.GetRealmsByRegionAsync(dbRegion);
+
+                    if (dbRealms.Count > 0)
+                    {
+                        var filteredRealms = dbRealms
+                            .Where(r => string.IsNullOrWhiteSpace(userInput) ||
+                                        r.Name.ToLower().Contains(userInput) ||
+                                        r.Slug.ToLower().Contains(userInput))
+                            .OrderBy(r => r.Name)
+                            .Take(25)
+                            .Select(r => new AutocompleteResult(r.Name, r.Slug))
+                            .ToList();
+
+                        return AutocompletionResult.FromSuccess(filteredRealms);
+                    }
+
+                    logger?.LogDebug("No realms in database for region {Region}, falling back to WowApi static data", region);
+                }
+
+                // Fallback to WowApi static data (startup-loaded)
                 WowRealm.Realm[] realms = region switch
                 {
                     "eu" => WowApi.RealmInfoEu?.realms ?? Array.Empty<WowRealm.Realm>(),
@@ -330,7 +356,7 @@ namespace NinjaBotCore.Services
                 }
 
                 // Filter realms by user input
-                var filteredRealms = realms
+                var filteredStaticRealms = realms
                     .Where(r => string.IsNullOrWhiteSpace(userInput) ||
                                 r.name.ToLower().Contains(userInput) ||
                                 r.slug.ToLower().Contains(userInput))
@@ -339,7 +365,7 @@ namespace NinjaBotCore.Services
                     .Select(r => new AutocompleteResult(r.name, r.slug))
                     .ToList();
 
-                return await Task.FromResult(AutocompletionResult.FromSuccess(filteredRealms));
+                return AutocompletionResult.FromSuccess(filteredStaticRealms);
             }
             catch (Exception ex)
             {
@@ -353,6 +379,7 @@ namespace NinjaBotCore.Services
     /// <summary>
     /// Autocomplete handler for WoW guild search
     /// Searches for guilds by name across all realms in the selected region
+    /// Uses database-backed realm data with fallback to WowApi static data
     /// Shows results as "GuildName (RealmName)"
     /// </summary>
     public class GuildSearchAutocomplete : AutocompleteHandler
@@ -367,6 +394,7 @@ namespace NinjaBotCore.Services
             {
                 var logger = services.GetService<ILogger<GuildSearchAutocomplete>>();
                 var wowApi = services.GetRequiredService<WowApi>();
+                var staticDataService = services.GetService<WowStaticDataService>();
                 var userInput = (autocompleteInteraction.Data.Current.Value as string ?? "").Trim();
 
                 // Need at least 2 characters to search
@@ -381,36 +409,60 @@ namespace NinjaBotCore.Services
                 // Get region parameter to determine search scope
                 var regionParam = autocompleteInteraction.Data.Options.FirstOrDefault(o => o.Name == "region");
                 var region = (regionParam?.Value as string ?? "us").ToLower();
-
-                // Get appropriate realm list for the region
-                WowRealm.Realm[] realms = region switch
-                {
-                    "eu" => WowApi.RealmInfoEu?.realms ?? Array.Empty<WowRealm.Realm>(),
-                    "ru" => WowApi.RealmInfoRu?.realms ?? Array.Empty<WowRealm.Realm>(),
-                    _ => WowApi.RealmInfo?.realms ?? Array.Empty<WowRealm.Realm>()
-                };
-
-                if (realms.Length == 0)
-                {
-                    return AutocompletionResult.FromSuccess(new[]
-                    {
-                        new AutocompleteResult("No realm data available", "error")
-                    });
-                }
+                var dbRegion = region.ToUpper();
 
                 var results = new List<AutocompleteResult>();
                 var foundGuilds = new HashSet<string>(); // Track unique guild+realm combos
 
-                // Search across all realms to find matches
-                // Start with high-pop realms first for better results, then expand to all
-                var realmsToSearch = realms
-                    .OrderByDescending(r => r.population == "full" ? 4 :
-                                           r.population == "high" ? 3 :
-                                           r.population == "medium" ? 2 :
-                                           r.population == "low" ? 1 : 0)
-                    .ThenBy(r => r.name)
-                    .Take(100) // Search up to 100 realms for better coverage
-                    .ToList();
+                // Try to get realms from database first
+                List<(string slug, string name, string population)> realmsToSearch = new();
+
+                if (staticDataService != null)
+                {
+                    var dbRealms = await staticDataService.GetRealmsByRegionAsync(dbRegion);
+
+                    if (dbRealms.Count > 0)
+                    {
+                        realmsToSearch = dbRealms
+                            .OrderByDescending(r => r.Population == "full" ? 4 :
+                                                    r.Population == "high" ? 3 :
+                                                    r.Population == "medium" ? 2 :
+                                                    r.Population == "low" ? 1 : 0)
+                            .ThenBy(r => r.Name)
+                            .Take(100)
+                            .Select(r => (r.Slug, r.Name, r.Population))
+                            .ToList();
+                    }
+                }
+
+                // Fallback to WowApi static data if no database realms
+                if (realmsToSearch.Count == 0)
+                {
+                    WowRealm.Realm[] realms = region switch
+                    {
+                        "eu" => WowApi.RealmInfoEu?.realms ?? Array.Empty<WowRealm.Realm>(),
+                        "ru" => WowApi.RealmInfoRu?.realms ?? Array.Empty<WowRealm.Realm>(),
+                        _ => WowApi.RealmInfo?.realms ?? Array.Empty<WowRealm.Realm>()
+                    };
+
+                    if (realms.Length == 0)
+                    {
+                        return AutocompletionResult.FromSuccess(new[]
+                        {
+                            new AutocompleteResult("No realm data available", "error")
+                        });
+                    }
+
+                    realmsToSearch = realms
+                        .OrderByDescending(r => r.population == "full" ? 4 :
+                                               r.population == "high" ? 3 :
+                                               r.population == "medium" ? 2 :
+                                               r.population == "low" ? 1 : 0)
+                        .ThenBy(r => r.name)
+                        .Take(100)
+                        .Select(r => (r.slug, r.name, r.population))
+                        .ToList();
+                }
 
                 foreach (var realm in realmsToSearch)
                 {

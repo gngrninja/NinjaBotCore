@@ -19,7 +19,6 @@ using NinjaBotCore.Modules.Wow;
 using NinjaBotCore.Models.Wow;
 using NinjaBotCore.Models.Wow.Housing;
 using NinjaBotCore.Database;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Data;
 using Microsoft.EntityFrameworkCore;
@@ -43,9 +42,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private WowUtilities _wowUtils;
         private WowCacheService _wowCache;
         private WowStaticDataService _wowStaticData;
-
-        // Track mount detail message IDs per user to allow replacing them
-        private static readonly ConcurrentDictionary<ulong, ulong> _mountDetailMessages = new ConcurrentDictionary<ulong, ulong>();
+        private WowTokenService _tokenService;
 
         // Pattern #3: Constructor injection instead of service locator
         public WowInteract(
@@ -60,7 +57,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             IConfigurationRoot config,
             WowUtilities wowUtils,
             WowCacheService wowCache,
-            WowStaticDataService wowStaticData)
+            WowStaticDataService wowStaticData,
+            WowTokenService tokenService)
             : base(scopeFactory)
         {
             _handler = handler;
@@ -74,6 +72,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             _wowUtils = wowUtils;
             _wowCache = wowCache;
             _wowStaticData = wowStaticData;
+            _tokenService = tokenService;
         }
 
         [SlashCommand("rio", "Get character's Raider.IO profile")]
@@ -1808,30 +1807,31 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var embed = new EmbedBuilder();            
 
             guildObject = await _wowUtils.GetGuildName(Context);
-            guildName = guildObject.guildName;
-            realmName = guildObject.realmName.Replace("'", string.Empty);
-            guildRegion = guildObject.regionName;
-            locale = guildObject.locale;
-            var realmInfo = new WowRealm.Realm();            
+            guildName = guildObject.guildName ?? string.Empty;
+            realmName = guildObject.realmName?.Replace("'", string.Empty) ?? string.Empty;
+            guildRegion = guildObject.regionName ?? string.Empty;
+            locale = guildObject.locale ?? string.Empty;
+            var realmInfo = new WowRealm.Realm();
             if (!string.IsNullOrEmpty(locale))
             {
-                switch (locale)
+                try
                 {
-                    case "en_US":
+                    WowRealm.Realm[] realms = locale switch
                     {
-                        realmInfo = WowApi.RealmInfo.realms.FirstOrDefault(r => r.name == guildObject.realmName);                        
-                        break;
-                    }
-                    case "en_GB":
+                        "en_US" => WowApi.RealmInfo?.realms,
+                        "en_GB" => WowApi.RealmInfoEu?.realms,
+                        "ru_RU" => WowApi.RealmInfoRu?.realms,
+                        _ => null
+                    };
+
+                    if (realms != null)
                     {
-                        realmInfo = WowApi.RealmInfoEu.realms.FirstOrDefault(r => r.name == guildObject.realmName);   
-                        break;
+                        realmInfo = realms.FirstOrDefault(r => r.name == guildObject.realmName) ?? new WowRealm.Realm();
                     }
-                    case "ru_RU":
-                    {
-                        realmInfo = WowApi.RealmInfoRu.realms.FirstOrDefault(r => r.name == guildObject.realmName);   
-                        break;
-                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error looking up realm info for {Realm} in locale {Locale}", guildObject.realmName, locale);
                 }
             }
             if (!string.IsNullOrEmpty(guildObject.locale))
@@ -5207,7 +5207,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             try
             {
-                var tokenPrice = await _wowStaticData.GetCurrentTokenPriceAsync(region);
+                var tokenPrice = await _tokenService.GetCurrentPriceAsync(region);
 
                 if (tokenPrice == null)
                 {
@@ -5220,7 +5220,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 }
 
                 var priceGold = tokenPrice.Price / 10000; // Convert copper to gold
-                var trend = await _wowStaticData.GetTokenPriceTrendAsync(region);
+                var trend = await _tokenService.GetPriceTrendAsync(region);
 
                 var embed = new EmbedBuilder()
                     .WithTitle($"💰 WoW Token Price - {region.ToUpper()}")
@@ -5524,7 +5524,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 }).ToList();
 
                 componentBuilder.WithSelectMenu(
-                    customId: $"mount_details~{userId}~{regionName}",
+                    customId: $"mount_details~{userId}~{regionName}~{charName}~{realmName}~{sourceFilter}~{expansionFilter}",
                     options: mountOptions,
                     placeholder: "View mount details...",
                     minValues: 1,
@@ -5688,8 +5688,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             await UpdateMountPage(charName, realmName, regionName, sourceFilter, newExpansion, 0); // Reset to page 0 when changing filter
         }
 
-        [ComponentInteraction("mount_details~*~*")]
-        public async Task HandleMountDetails(string userIdStr, string regionName, string[] selections)
+        [ComponentInteraction("mount_details~*~*~*~*~*~*")]
+        public async Task HandleMountDetails(string userIdStr, string regionName, string charName, string realmName, string sourceFilter, string expansionFilter, string[] selections)
         {
             if (!ulong.TryParse(userIdStr, out var userId) || Context.User.Id != userId)
             {
@@ -5703,29 +5703,13 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 return;
             }
 
-            await DeferAsync();
-
-            // Delete previous mount detail message if it exists
-            if (_mountDetailMessages.TryGetValue(userId, out var previousMessageId))
-            {
-                try
-                {
-                    var channel = Context.Channel;
-                    await channel.DeleteMessageAsync(previousMessageId);
-                    _mountDetailMessages.TryRemove(userId, out _);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Could not delete previous mount detail message {MessageId}", previousMessageId);
-                    // Continue anyway - the message might have been manually deleted
-                }
-            }
+            await DeferAsync(ephemeral: true);
 
             try
             {
                 if (!long.TryParse(selections[0], out var mountId))
                 {
-                    await FollowupAsync("❌ Invalid mount ID.");
+                    await FollowupAsync("❌ Invalid mount ID.", ephemeral: true);
                     return;
                 }
 
@@ -5734,7 +5718,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
                 if (mount == null)
                 {
-                    await FollowupAsync("❌ Mount not found in database.");
+                    await FollowupAsync("❌ Mount not found in database.", ephemeral: true);
                     return;
                 }
 
@@ -5864,16 +5848,36 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
                 embed.WithFooter($"Mount ID: {mount.Id} | Last updated: {mount.LastUpdated:yyyy-MM-dd}");
 
-                var message = await FollowupAsync(embed: embed.Build());
+                // Create back button to return to list
+                var backButton = new ComponentBuilder()
+                    .WithButton("← Back to List", $"mount_back~{userId}~{charName}~{realmName}~{regionName}~{sourceFilter}~{expansionFilter}", ButtonStyle.Secondary)
+                    .Build();
 
-                // Store the message ID so we can delete it when they select another mount
-                _mountDetailMessages[userId] = message.Id;
+                // Replace the original message with mount details
+                await ModifyOriginalResponseAsync(msg =>
+                {
+                    msg.Embed = embed.Build();
+                    msg.Components = backButton;
+                });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error displaying mount details for mount ID");
-                await FollowupAsync("❌ An error occurred while loading mount details.");
+                await FollowupAsync("❌ An error occurred while loading mount details.", ephemeral: true);
             }
+        }
+
+        [ComponentInteraction("mount_back~*~*~*~*~*~*")]
+        public async Task HandleMountBack(string userIdStr, string charName, string realmName, string regionName, string sourceFilter, string expansionFilter)
+        {
+            if (!ulong.TryParse(userIdStr, out var userId) || Context.User.Id != userId)
+            {
+                await RespondAsync("❌ This pagination belongs to another user.", ephemeral: true);
+                return;
+            }
+
+            await DeferAsync(ephemeral: true);
+            await UpdateMountPage(charName, realmName, regionName, sourceFilter, expansionFilter, 0);
         }
 
         private async Task UpdateMountPage(string charName, string realmName, string regionName, string sourceFilter, string expansionFilter, int page)

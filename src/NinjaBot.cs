@@ -89,6 +89,7 @@ namespace NinjaBotCore
                 .AddSingleton<AwaySystemService>()
                 .AddSingleton<WordFilterService>()
                 .AddSingleton<WowCacheService>()
+                .AddSingleton<WowTokenService>()
                 .AddSingleton<WowStaticDataService>()
                 .AddSingleton(x => new InteractionService(
                     x.GetRequiredService<DiscordShardedClient>(),

@@ -184,9 +184,12 @@ namespace NinjaBotCore.Tests
                 foreach (var prop in properties)
                 {
                     // Check if property name suggests it's a date/time field
-                    // Exclude known non-DateTime fields like "AuctionTimeLeft" which is a duration string
+                    // Exclude known non-DateTime fields:
+                    // - "AuctionTimeLeft" which is a duration string
+                    // - "Timezone" which is a timezone name string like "America/New_York"
                     if ((prop.Name.Contains("Time") || prop.Name.Contains("Date")) &&
-                        prop.Name != "AuctionTimeLeft") // This is a duration string, not a timestamp
+                        prop.Name != "AuctionTimeLeft" &&
+                        prop.Name != "Timezone") // Timezone is a string like "America/New_York"
                     {
                         // Should be DateTime or DateTime?, not string
                         if (prop.PropertyType == typeof(string))

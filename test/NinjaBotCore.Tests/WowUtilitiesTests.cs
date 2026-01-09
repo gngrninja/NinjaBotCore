@@ -32,6 +32,7 @@ namespace NinjaBotCore.Tests
                 .AddSingleton<WarcraftLogs>()
                 .AddSingleton<RaiderIOApi>()
                 .AddSingleton<DiscordShardedClient>()
+                .AddSingleton<WowTokenService>()
                 .AddSingleton<WowStaticDataService>()
                 .AddSingleton<StartupService>()
                 .AddSingleton<WowUtilities>()

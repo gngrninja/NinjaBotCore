@@ -181,6 +181,7 @@ namespace NinjaBotCore.Tests
             services.AddSingleton<DiscordShardedClient>();
             services.AddHttpClient();
             services.AddSingleton<WowApi>();
+            services.AddSingleton<WowTokenService>();
             services.AddSingleton<WowStaticDataService>();
 
             // Add DbContext with in-memory database

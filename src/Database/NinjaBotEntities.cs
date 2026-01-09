@@ -51,6 +51,12 @@ namespace NinjaBotCore.Database
         public virtual DbSet<WowItemDetails> WowItemDetails { get; set; }
         public virtual DbSet<WowTokenPrices> WowTokenPrices { get; set; }
         public virtual DbSet<WowMounts> WowMounts { get; set; }
+        public virtual DbSet<WowRealms> WowRealms { get; set; }
+        public virtual DbSet<WowPlayableClass> WowPlayableClasses { get; set; }
+        public virtual DbSet<WowRaces> WowRaces { get; set; }
+        public virtual DbSet<WowAchievements> WowAchievements { get; set; }
+        public virtual DbSet<WowAchievementCriteria> WowAchievementCriteria { get; set; }
+        public virtual DbSet<WowPets> WowPets { get; set; }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {

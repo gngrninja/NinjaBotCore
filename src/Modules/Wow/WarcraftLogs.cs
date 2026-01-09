@@ -216,62 +216,38 @@ namespace NinjaBotCore.Modules.Wow
         public async Task<List<Reports>> GetReportsFromGuild(string guildName, string realm, string region, bool isList = false, bool flip = false)
         {
             string url = string.Empty;
-            string realmSlug = string.Empty;
-            switch (region.ToLower())
-            {
-                case "us":
-                    {
-                        realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realm.ToLower())).Select(s => s.slug).FirstOrDefault();
-                        break;
-                    }
-                case "eu":
-                    {
-                        realmSlug = WowApi.RealmInfoEu.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realm.ToLower())).Select(s => s.slug).FirstOrDefault();
-                        break;
-                    }
-            }               
+            string realmSlug = GetRealmSlugSafe(realm, region.ToLower());
             url = $"reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?";
-            if (flip) 
+            if (flip)
             {
                 return await _api.Get<List<Reports>>(url);
             }
             else
             {
                 return await _apiCmd.Get<List<Reports>>(url);
-            } 
+            }
         }
 
         public async Task<List<Reports>> GetReportsFromGuild(string guildName, string realm, string locale, string region, bool isList = false, bool flip = false)
         {
             string url = string.Empty;
-            string realmSlug = string.Empty;
-            switch (locale)
+            string regionForLookup = locale switch
             {
-                case "en_US":
-                    {
-                        realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realm.ToLower())).Select(s => s.slug).FirstOrDefault();
-                        break;
-                    }
-                case "ru_RU":
-                    {                    
-                        realmSlug = WowApi.RealmInfoRu.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realm.ToLower())).Select(s => s.slug).FirstOrDefault();
-                        break;
-                    }
-                case "en_GB":
-                    {
-                        realmSlug = WowApi.RealmInfoEu.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realm.ToLower())).Select(s => s.slug).FirstOrDefault();
-                        break;
-                    }
-            }            
+                "en_US" => "us",
+                "ru_RU" => "ru",
+                "en_GB" => "eu",
+                _ => "us"
+            };
+            string realmSlug = GetRealmSlugSafe(realm, regionForLookup);
             url = $"reports/guild/{guildName.Replace(" ", "%20")}/{realmSlug}/{region}?";
-            if (flip) 
+            if (flip)
             {
                 return await _api.Get<List<Reports>>(url);
             }
             else
             {
                 return await _apiCmd.Get<List<Reports>>(url);
-            } 
+            }
         }
 
         public async Task<List<Reports>> GetReportsFromGuild(string guildName, string realm, string locale, string region, string realmSlug , bool isList = false, bool flip = false)
@@ -351,20 +327,7 @@ namespace NinjaBotCore.Modules.Wow
 
         public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounter(int encounterID, string realmName, string page = "1", string metric = "dps", int difficulty = 4, string regionName = "us")
         {
-            string realmSlug = string.Empty;
-            switch (regionName.ToLower())
-            {
-                case "us":
-                    {
-                        realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
-                        break;
-                    }
-                case "eu":
-                    {
-                        realmSlug = WowApi.RealmInfoEu.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
-                        break;
-                    }
-            }                        
+            string realmSlug = GetRealmSlugSafe(realmName, regionName);
             string url = $"rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&page={page}&";
             return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
@@ -393,20 +356,7 @@ namespace NinjaBotCore.Modules.Wow
         public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounterGuild(int encounterID, string realmName, string guildName, string partition, string page = "1", string metric = "dps", int difficulty = 4, string regionName = "us")
         {
             guildName = guildName.Replace(" ", "%20");
-            string realmSlug = string.Empty;
-            switch (regionName.ToLower())
-            {
-                case "us":
-                    {
-                        realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
-                        break;
-                    }
-                case "eu":
-                    {
-                        realmSlug = WowApi.RealmInfoEu.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
-                        break;
-                    }
-            }
+            string realmSlug = GetRealmSlugSafe(realmName, regionName);
             string url = $"rankings/encounter/{encounterID}?guild={guildName}&server={realmSlug}&region={regionName}&metric={metric}&difficulty={difficulty}&page={page}&partition={partition}&";
             return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
@@ -414,20 +364,7 @@ namespace NinjaBotCore.Modules.Wow
         public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounterGuild(int encounterID, string realmName, string guildName, string page = "1",string metric = "dps", int difficulty = 4, string regionName = "us")
         {
             guildName = guildName.Replace(" ", "%20");
-            string realmSlug = string.Empty;
-            switch (regionName.ToLower())
-            {
-                case "us":
-                    {
-                        realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
-                        break;
-                    }
-                case "eu":
-                    {
-                        realmSlug = WowApi.RealmInfoEu.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
-                        break;
-                    }
-            }
+            string realmSlug = GetRealmSlugSafe(realmName, regionName);
             string url = $"rankings/encounter/{encounterID}?guild={guildName}&server={realmSlug}&region={regionName}&metric={metric}&difficulty={difficulty}&page={page}&";
             return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
@@ -448,20 +385,7 @@ namespace NinjaBotCore.Modules.Wow
         
         public async Task<WarcraftlogRankings.RankingObject> GetRankingsByEncounter(int encounterID, string realmName, string partition, string page = "1", string metric = "dps", int difficulty = 4, string regionName = "us")
         {
-            string realmSlug = string.Empty;
-            switch (regionName.ToLower())
-            {
-                case "us":
-                    {
-                        realmSlug = WowApi.RealmInfo.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
-                        break;
-                    }
-                case "eu":
-                    {
-                        realmSlug = WowApi.RealmInfoEu.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.ToLower())).Select(s => s.slug).FirstOrDefault();
-                        break;
-                    }
-            }            
+            string realmSlug = GetRealmSlugSafe(realmName, regionName);
             string url = $"rankings/encounter/{encounterID}?metric={metric}&server={realmSlug}&region={regionName}&difficulty={difficulty}&page={page}&partition={partition}&";
             return await _apiCmd.Get<WarcraftlogRankings.RankingObject>(url);
         }
@@ -485,6 +409,51 @@ namespace NinjaBotCore.Modules.Wow
                 zone = v2Report.Zone?.Id ?? 0,
                 zoneName = v2Report.Zone?.Name  // Use zone name from v2 API directly (avoids lookup)
             };
+        }
+
+        /// <summary>
+        /// Safely gets a realm slug with null checks and fallback.
+        /// Returns a generated slug from the realm name if WowApi data is not available.
+        /// </summary>
+        private string GetRealmSlugSafe(string realmName, string region)
+        {
+            if (string.IsNullOrEmpty(realmName))
+                return string.Empty;
+
+            string realmSlug = null;
+            var realmLower = realmName.Replace("'", "").ToLower();
+
+            try
+            {
+                WowRealm.Realm[] realms = region.ToLower() switch
+                {
+                    "us" => WowApi.RealmInfo?.realms,
+                    "eu" => WowApi.RealmInfoEu?.realms,
+                    "ru" => WowApi.RealmInfoRu?.realms,
+                    _ => WowApi.RealmInfo?.realms
+                };
+
+                if (realms != null)
+                {
+                    realmSlug = realms
+                        .Where(r => r.name.Replace("'", "").ToLower().Contains(realmLower))
+                        .Select(s => s.slug)
+                        .FirstOrDefault();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error looking up realm slug for {Realm} in {Region}", realmName, region);
+            }
+
+            // Fallback: generate slug from realm name
+            if (string.IsNullOrEmpty(realmSlug))
+            {
+                realmSlug = realmName.ToLower().Replace(" ", "-").Replace("'", "");
+                _logger.LogDebug("Using generated realm slug for {Realm}: {Slug}", realmName, realmSlug);
+            }
+
+            return realmSlug;
         }
 
         /// <summary>
@@ -1381,32 +1350,33 @@ namespace NinjaBotCore.Modules.Wow
         private string GetLocalTz(WowGuildAssociations guild)
         {
             var locale = guild.Locale;
-            var realmInfo = new WowRealm.Realm();
-            WowRealmSearch.Result tzRealmInfo = new WowRealmSearch.Result();
+            WowRealmSearch.Result tzRealmInfo = null;
             var tz = string.Empty;
-            if (!string.IsNullOrEmpty(locale))
+
+            if (string.IsNullOrEmpty(locale))
+                return tz;
+
+            try
             {
-                switch (locale)
+                List<WowRealmSearch.Result> results = locale switch
                 {
-                    case "en_US":
-                        {                            
-                            tzRealmInfo = WowApi.RealmSearch.results.Where(r => r.data.slug == guild.WowRealm).FirstOrDefault();
-                            break;
-                        }
-                    case "en_GB":
-                        {                            
-                            tzRealmInfo = WowApi.RealmSearchEu.results.Where(r => r.data.slug == guild.WowRealm).FirstOrDefault();
-                            break;
-                        }
-                    case "ru_RU":
-                        {                            
-                            tzRealmInfo = WowApi.RealmSearchRu.results.Where(r => r.data.slug == guild.WowRealm).FirstOrDefault();
-                            break;
-                        }
+                    "en_US" => WowApi.RealmSearch?.results,
+                    "en_GB" => WowApi.RealmSearchEu?.results,
+                    "ru_RU" => WowApi.RealmSearchRu?.results,
+                    _ => null
+                };
+
+                if (results != null)
+                {
+                    tzRealmInfo = results.FirstOrDefault(r => r?.data?.slug == guild.WowRealm);
                 }
             }
-            
-            if (tzRealmInfo != null && !string.IsNullOrEmpty(tzRealmInfo.data.timezone))
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error looking up timezone for realm {Realm}", guild.WowRealm);
+            }
+
+            if (tzRealmInfo?.data?.timezone != null)
             {
                 tz = tzRealmInfo.data.timezone;
             }

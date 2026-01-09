@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NinjaBotCore.Database;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace NinjaBotCore.Migrations
 {
     [DbContext(typeof(NinjaBotEntities))]
-    partial class NinjaBotEntitiesModelSnapshot : ModelSnapshot
+    [Migration("20260108034104_AddWowRealmsClassesRaces")]
+    partial class AddWowRealmsClassesRaces
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -839,101 +842,6 @@ namespace NinjaBotCore.Migrations
                     b.ToTable("WordList");
                 });
 
-            modelBuilder.Entity("NinjaBotCore.Database.WowAchievementCriteria", b =>
-                {
-                    b.Property<long>("Id")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("AchievementId")
-                        .HasColumnType("bigint");
-
-                    b.Property<int>("Amount")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<bool>("IsCompleted")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTime>("LastUpdated")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("OrderIndex")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AchievementId");
-
-                    b.ToTable("WowAchievementCriteria");
-                });
-
-            modelBuilder.Entity("NinjaBotCore.Database.WowAchievements", b =>
-                {
-                    b.Property<long>("Id")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("Category")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<long?>("CategoryId")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<int>("DisplayOrder")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Faction")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<bool>("IsAccountWide")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTime>("LastUpdated")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("MediaUrl")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<string>("ParentCategory")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<int>("Points")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("RewardDescription")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<long?>("RewardItemId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long?>("RewardMountId")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("RewardTitle")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("WowAchievements");
-                });
-
             modelBuilder.Entity("NinjaBotCore.Database.WowAuctionPrice", b =>
                 {
                     b.Property<long>("AuctionPriceId")
@@ -1396,71 +1304,6 @@ namespace NinjaBotCore.Migrations
                     b.ToTable("WowMounts");
                 });
 
-            modelBuilder.Entity("NinjaBotCore.Database.WowPets", b =>
-                {
-                    b.Property<long>("Id")
-                        .HasColumnType("bigint");
-
-                    b.Property<long?>("CreatureId")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<string>("Faction")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<string>("IconUrl")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<bool>("IsBattlePet")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsCapturable")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsTradable")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTime>("LastUpdated")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("MediaUrl")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("PetType")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<string>("Source")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("SourceDetail")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<string>("SourceZone")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<long?>("SpeciesId")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("WowPets");
-                });
-
             modelBuilder.Entity("NinjaBotCore.Database.WowPlayableClass", b =>
                 {
                     b.Property<long>("Id")
@@ -1685,17 +1528,6 @@ namespace NinjaBotCore.Migrations
                     b.Navigation("TriviaQuestion");
                 });
 
-            modelBuilder.Entity("NinjaBotCore.Database.WowAchievementCriteria", b =>
-                {
-                    b.HasOne("NinjaBotCore.Database.WowAchievements", "Achievement")
-                        .WithMany("Criteria")
-                        .HasForeignKey("AchievementId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Achievement");
-                });
-
             modelBuilder.Entity("NinjaBotCore.Database.WowItemDetails", b =>
                 {
                     b.HasOne("NinjaBotCore.Database.WowItems", "Item")
@@ -1720,11 +1552,6 @@ namespace NinjaBotCore.Migrations
             modelBuilder.Entity("NinjaBotCore.Database.TriviaQuestion", b =>
                 {
                     b.Navigation("TriviaQuestionChoices");
-                });
-
-            modelBuilder.Entity("NinjaBotCore.Database.WowAchievements", b =>
-                {
-                    b.Navigation("Criteria");
                 });
 #pragma warning restore 612, 618
         }
