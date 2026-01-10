@@ -11,5 +11,10 @@ namespace NinjaBotCore.Database
         public string ServerName { get; set; }
         public Nullable<long> OwnerId { get; set; }
         public string OwnerName { get; set; }
+
+        // Bot presence tracking
+        public bool BotPresent { get; set; } = true;
+        public DateTime? JoinedAt { get; set; }
+        public DateTime? LeftAt { get; set; }
     }
 }

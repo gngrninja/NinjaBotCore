@@ -88,6 +88,7 @@ namespace NinjaBotCore
                 .AddSingleton<ModerationWatcherService>()
                 .AddSingleton<AwaySystemService>()
                 .AddSingleton<WordFilterService>()
+                .AddSingleton<DiscordServerTrackingService>()
                 .AddSingleton<WowCacheService>()
                 .AddSingleton<WowTokenService>()
                 .AddSingleton<WowStaticDataService>()
@@ -144,6 +145,10 @@ namespace NinjaBotCore
             serviceProvider.GetRequiredService<ModerationWatcherService>();
             serviceProvider.GetRequiredService<AwaySystemService>();
             serviceProvider.GetRequiredService<WordFilterService>();
+
+            // Initialize Discord server tracking (sync after shards are ready)
+            var serverTracking = serviceProvider.GetRequiredService<DiscordServerTrackingService>();
+            await serverTracking.InitializeAsync();
 
             //Setup graceful shutdown
             var shutdownCts = new CancellationTokenSource();
