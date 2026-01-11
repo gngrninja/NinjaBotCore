@@ -23,6 +23,7 @@ using System.Collections.Generic;
 using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
+using System.Net.Http;
 
 namespace NinjaBotCore.Modules.Interactions.Wow
 {
@@ -2809,59 +2810,111 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             await RespondAsync(embed: embed.Build(), ephemeral: true);            
         }
 
-        [SlashCommand("realminfo", "Return WoW realm information")]
-        public async Task GetRealmInfo(string args = "")
-        {
-            var embed = new EmbedBuilder();
-            StringBuilder sb = new StringBuilder();
-            var guildInfo = await _wowUtils.GetGuildName(Context);
-            string region = string.Empty;
-            string findMe = string.Empty;
-            findMe = args;
-            await DeferAsync(ephemeral: true);
-            
-            if (!string.IsNullOrEmpty(guildInfo.regionName))
-            {
-                region = guildInfo.regionName;
-            }
-            else
-            {
-                region = "us";
-            }
+        [SlashCommand("realminfo", "Get detailed information about a WoW realm")]
+        public async Task GetRealmInfo(
+            [Summary("realm", "Realm name (use autocomplete to select)")]
+            [Autocomplete(typeof(RealmAutocomplete))]
+            string realm = null,
 
-            if (!string.IsNullOrEmpty(guildInfo.realmName) && string.IsNullOrEmpty(findMe))
+            [Summary("region", "Region (defaults to your guild's region or US)")]
+            [Choice("US", "us")]
+            [Choice("EU", "eu")]
+            [Choice("RU", "ru")]
+            string region = null)
+        {
+            await DeferAsync(ephemeral: true);
+
+            var embed = new EmbedBuilder();
+            var guildInfo = await _wowUtils.GetGuildName(Context);
+
+            // Determine region
+            string regionName = region?.ToLower() ?? guildInfo.regionName?.ToLower() ?? "us";
+
+            // Determine realm slug
+            string realmSlug = realm;
+            if (string.IsNullOrEmpty(realmSlug))
             {
-                findMe = guildInfo.realmName;
-            }            
-            var getRealmList = await _wowApi.GetRealmStatusAsync(region, region);
-            var foundRealm = getRealmList.realms.Where(r => r.slug.ToLower().Contains(findMe.ToLower())).FirstOrDefault();
-            var connectedUrlFinder = await _wowApi.GetSingleRealmInfoAsync(foundRealm.slug);
-            var realmResult = await _wowApi.GetConnectedRealmInfoAsync(connectedUrlFinder.ConnectedRealm.Href.ToString());
-            if (foundRealm != null)
-            {
-                embed.Title = $"Realm Information for {foundRealm.name}!";
-                sb.AppendLine($":black_small_square: Type: **{realmResult.Realms[0].Type.Name}**");
-                sb.AppendLine($":black_small_square: Locale: **{realmResult.Realms[0].Locale}**");
-                sb.AppendLine($":black_small_square: Population: **{realmResult.Population.Name}**");
-                sb.AppendLine($":black_small_square: Status: **{realmResult.Status.Name}**");
-                sb.AppendLine($":black_small_square: TimeZone: **{realmResult.Realms[0].Timezone}**");
-                sb.AppendLine($":black_small_square: Queue: **{realmResult.HasQueue}**");
-                sb.AppendLine($":black_small_square: Connected Realms:");
-                foreach (var realm in realmResult.Realms)
+                // If no realm specified, use guild's realm
+                if (!string.IsNullOrEmpty(guildInfo.realmSlug))
                 {
-                    sb.AppendLine($"\t :black_small_square: **{realm.Name}**");
+                    realmSlug = guildInfo.realmSlug;
+                }
+                else
+                {
+                    embed.Title = "No Realm Specified";
+                    embed.WithColor(new Color(255, 165, 0));
+                    embed.Description = "Please specify a realm using the `realm` parameter or set a guild association with `/setguild`.";
+                    await FollowupAsync(embed: embed.Build(), ephemeral: true);
+                    return;
                 }
             }
-            if (foundRealm.status)
+
+            try
             {
-                embed.WithColor(new Color(0, 255, 0));
+                // Look up realm in static data service first
+                var staticRealm = await _wowStaticData.GetRealmBySlugAsync(realmSlug, regionName.ToUpper());
+
+                // Fetch detailed realm info from API
+                var singleRealmInfo = await _wowApi.GetSingleRealmInfoAsync(realmSlug, regionName);
+                var connectedRealmInfo = await _wowApi.GetConnectedRealmInfoAsync(singleRealmInfo.ConnectedRealm.Href.ToString(), regionName);
+
+                // Use the official name from the API response
+                string realmName = connectedRealmInfo.Realms[0].Name;
+
+                // Build embed
+                embed.Title = $"Realm: {realmName}";
+                embed.WithColor(connectedRealmInfo.Status.Name == "Up" ? new Color(0, 255, 0) : new Color(255, 0, 0));
+
+                // Status indicator
+                string statusEmoji = connectedRealmInfo.Status.Name == "Up" ? ":green_circle:" : ":red_circle:";
+
+                var sb = new StringBuilder();
+                sb.AppendLine($"## {statusEmoji} Status: **{connectedRealmInfo.Status.Name}**\n");
+
+                // Basic info
+                sb.AppendLine($"**Region:** {regionName.ToUpper()}");
+                sb.AppendLine($"**Type:** {connectedRealmInfo.Realms[0].Type.Name}");
+                sb.AppendLine($"**Locale:** {connectedRealmInfo.Realms[0].Locale}");
+                sb.AppendLine($"**Timezone:** {connectedRealmInfo.Realms[0].Timezone}");
+                sb.AppendLine($"**Population:** {connectedRealmInfo.Population.Name}");
+                sb.AppendLine($"**Queue:** {(connectedRealmInfo.HasQueue ? "Yes" : "No")}\n");
+
+                // Connected realms
+                if (connectedRealmInfo.Realms.Length > 1)
+                {
+                    sb.AppendLine($"**Connected Realms ({connectedRealmInfo.Realms.Length}):**");
+                    foreach (var connectedRealm in connectedRealmInfo.Realms.OrderBy(r => r.Name))
+                    {
+                        sb.AppendLine($"• {connectedRealm.Name}");
+                    }
+                }
+
+                embed.Description = sb.ToString();
+                embed.WithFooter($"Realm ID: {connectedRealmInfo.Id}");
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
             }
-            else
+            catch (HttpRequestException ex)
             {
+                _logger.LogError(ex, "HTTP error fetching realm info for {RealmSlug} in {Region}", realmSlug, regionName);
+                embed.Title = "Error Fetching Realm Data";
                 embed.WithColor(new Color(255, 0, 0));
+                embed.Description = $"Unable to find realm **{realmSlug}** in region **{regionName.ToUpper()}**.\n\n" +
+                    "**Possible reasons:**\n" +
+                    "• Realm name is incorrect\n" +
+                    "• Wrong region selected\n" +
+                    "• Blizzard API is temporarily unavailable\n\n" +
+                    "Use autocomplete to select a valid realm.";
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
             }
-            embed.Description = sb.ToString();
-            await FollowupAsync(embed: embed.Build(), ephemeral: true);
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching realm info for {RealmSlug} in {Region}", realmSlug, regionName);
+                embed.Title = "Error";
+                embed.WithColor(new Color(255, 0, 0));
+                embed.Description = "An error occurred while fetching realm information. Please try again later.";
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+            }
         }   
 
         [SlashCommand("yoink", "grab users from one voice channel and yoink them into another")]
