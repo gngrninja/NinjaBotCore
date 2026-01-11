@@ -11,8 +11,8 @@ namespace NinjaBotCore.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "PrefixList");
+            // Use IF EXISTS to handle both production (table exists) and fresh installs (table doesn't exist)
+            migrationBuilder.Sql(@"DROP TABLE IF EXISTS ""PrefixList"";");
         }
 
         /// <inheritdoc />
