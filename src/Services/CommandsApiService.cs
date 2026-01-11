@@ -44,13 +44,14 @@ namespace NinjaBotCore.Services
             }
 
             var port = _config.GetValue<int>("CommandsApi:Port", 5100);
+            var host = _config.GetValue<string>("CommandsApi:Host") ?? "0.0.0.0";
             var apiKey = _config.GetValue<string>("CommandsApi:ApiKey") ?? "";
 
             try
             {
                 var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
                 {
-                    Args = new[] { "--urls", $"http://localhost:{port}" }
+                    Args = new[] { "--urls", $"http://{host}:{port}" }
                 });
 
                 // Suppress noisy Kestrel logs
@@ -137,7 +138,7 @@ namespace NinjaBotCore.Services
                     }
                 }, cancellationToken);
 
-                _logger.LogInformation("Commands API started on http://localhost:{Port}", port);
+                _logger.LogInformation("Commands API started on http://{Host}:{Port}", host, port);
             }
             catch (Exception ex)
             {
