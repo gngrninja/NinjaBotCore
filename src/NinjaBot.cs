@@ -89,6 +89,8 @@ namespace NinjaBotCore
                 .AddSingleton<AwaySystemService>()
                 .AddSingleton<WordFilterService>()
                 .AddSingleton<DiscordServerTrackingService>()
+                .AddSingleton<HelpContentProvider>()
+                .AddSingleton<CommandsApiService>()
                 .AddSingleton<WowCacheService>()
                 .AddSingleton<WowTokenService>()
                 .AddSingleton<WowStaticDataService>()
@@ -150,6 +152,10 @@ namespace NinjaBotCore
             var serverTracking = serviceProvider.GetRequiredService<DiscordServerTrackingService>();
             await serverTracking.InitializeAsync();
 
+            // Start Commands API server (if enabled)
+            var commandsApi = serviceProvider.GetRequiredService<CommandsApiService>();
+            await commandsApi.StartAsync(CancellationToken.None);
+
             //Setup graceful shutdown
             var shutdownCts = new CancellationTokenSource();
             Console.CancelKeyPress += (sender, e) =>
@@ -176,7 +182,18 @@ namespace NinjaBotCore
 
             try
             {
-                // Stop Discord client first
+                // Stop Commands API first
+                Log.Information("Stopping Commands API...");
+                await commandsApi.StopAsync(CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error stopping Commands API");
+            }
+
+            try
+            {
+                // Stop Discord client
                 var client = serviceProvider.GetRequiredService<DiscordShardedClient>();
                 Log.Information("Disconnecting Discord client...");
                 await client.StopAsync();

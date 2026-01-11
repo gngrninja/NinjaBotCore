@@ -15,6 +15,7 @@ namespace NinjaBotCore.Models.Wow
             public string regionName { get; set; }
             public string locale { get; set; }
             public string realmSlug { get; set; }
+            public DateTime? timeSet { get; set; }
         }
     }
 }

@@ -69,6 +69,27 @@ namespace NinjaBotCore.Models.Help
 
         [JsonPropertyName("permission_badge")]
         public string PermissionBadge { get; set; }
+
+        [JsonPropertyName("parameters")]
+        public List<HelpParameter> Parameters { get; set; } = new();
+    }
+
+    public class HelpParameter
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; set; }
+
+        [JsonPropertyName("description")]
+        public string Description { get; set; }
+
+        [JsonPropertyName("type")]
+        public string Type { get; set; }
+
+        [JsonPropertyName("required")]
+        public bool Required { get; set; }
+
+        [JsonPropertyName("choices")]
+        public List<string> Choices { get; set; }
     }
 
     public class HelpMetadata

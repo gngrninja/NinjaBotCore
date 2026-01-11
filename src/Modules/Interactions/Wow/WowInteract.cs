@@ -2040,6 +2040,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             }
         }
 
+        // Cooldown for guild association changes (10 minutes)
+        private static readonly TimeSpan GuildChangeCooldown = TimeSpan.FromMinutes(10);
+
         [SlashCommand("setguild", "Associate a WoW guild with this Discord server")]
         public async Task SetGuild(
             [Summary("guild", "Guild name")]
@@ -2064,6 +2067,22 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 {
                     await FollowupAsync("You need **Kick Members** permission to set the guild association.", ephemeral: true);
                     return;
+                }
+
+                // Check cooldown
+                var existingAssociation = await _wowUtils.GetGuildAssociation(Context.Guild.Name);
+                if (!string.IsNullOrEmpty(existingAssociation?.guildName) && existingAssociation.timeSet.HasValue)
+                {
+                    var elapsed = DateTime.UtcNow - existingAssociation.timeSet.Value;
+                    if (elapsed < GuildChangeCooldown)
+                    {
+                        var remaining = GuildChangeCooldown - elapsed;
+                        await FollowupAsync(
+                            $"**Cooldown Active**\nGuild associations can only be changed once every 10 minutes.\n" +
+                            $"Please wait **{remaining.Minutes}m {remaining.Seconds}s** before changing the guild association.",
+                            ephemeral: true);
+                        return;
+                    }
                 }
             }
 

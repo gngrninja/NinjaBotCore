@@ -216,6 +216,7 @@ namespace NinjaBotCore.Modules.Wow
                 guildObject.regionName = foundGuild.WowRegion;
                 guildObject.locale = foundGuild.Locale;
                 guildObject.realmSlug = foundGuild.LocalRealmSlug;
+                guildObject.timeSet = foundGuild.TimeSet;
             }
 
             return guildObject;

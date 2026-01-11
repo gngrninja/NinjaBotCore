@@ -3,15 +3,13 @@ using Discord.Interactions;
 using Discord.WebSocket;
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Text;
-using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using NinjaBotCore.Models.Help;
+using NinjaBotCore.Services;
 
 namespace NinjaBotCore.Modules.Interactions.Misc
 {
@@ -19,33 +17,26 @@ namespace NinjaBotCore.Modules.Interactions.Misc
     {
         private readonly ILogger<HelpCommands> _logger;
         private readonly IConfigurationRoot _config;
-        private static HelpContent _helpContent;
-        private static readonly object _lockObject = new object();
+        private readonly HelpContentProvider _helpProvider;
 
-        public HelpCommands(ILogger<HelpCommands> logger, IConfigurationRoot config)
+        public HelpCommands(
+            ILogger<HelpCommands> logger,
+            IConfigurationRoot config,
+            HelpContentProvider helpProvider)
         {
             _logger = logger;
             _config = config;
-
-            // Load help content if not already loaded
-            if (_helpContent == null)
-            {
-                lock (_lockObject)
-                {
-                    if (_helpContent == null)
-                    {
-                        LoadHelpContent();
-                    }
-                }
-            }
+            _helpProvider = helpProvider;
         }
+
+        private HelpContent? HelpContent => _helpProvider.GetHelpContent();
 
         [SlashCommand("help", "Browse NinjaBot commands by category")]
         public async Task Help()
         {
             try
             {
-                if (_helpContent == null)
+                if (HelpContent == null)
                 {
                     await RespondAsync("Help system is not available. Please contact the bot owner.", ephemeral: true);
                     return;
@@ -100,31 +91,6 @@ namespace NinjaBotCore.Modules.Interactions.Misc
             }
         }
 
-        private void LoadHelpContent()
-        {
-            try
-            {
-                var basePath = Directory.GetCurrentDirectory();
-                var helpPath = Path.Combine(basePath, "help-commands.json");
-
-                if (!File.Exists(helpPath))
-                {
-                    _logger.LogError("help-commands.json not found at {Path}", helpPath);
-                    return;
-                }
-
-                var json = File.ReadAllText(helpPath);
-                _helpContent = JsonSerializer.Deserialize<HelpContent>(json);
-                _logger.LogInformation("Loaded {Count} help categories with {Commands} total commands",
-                    _helpContent.Categories.Count,
-                    _helpContent.Metadata.TotalCommands);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error loading help-commands.json");
-            }
-        }
-
         private EmbedBuilder BuildWelcomeEmbed()
         {
             var embed = new EmbedBuilder();
@@ -133,7 +99,7 @@ namespace NinjaBotCore.Modules.Interactions.Misc
                 "Commands are filtered based on your permissions.";
             embed.WithColor(new Color(0, 0, 255));
             embed.ThumbnailUrl = Context.Client.CurrentUser.GetAvatarUrl();
-            embed.WithFooter($"NinjaBot v{_helpContent?.Metadata?.Version ?? "1.0.0"}");
+            embed.WithFooter($"NinjaBot v{HelpContent?.Metadata?.Version ?? "1.0.0"}");
             embed.WithCurrentTimestamp();
 
             return embed;
@@ -141,7 +107,7 @@ namespace NinjaBotCore.Modules.Interactions.Misc
 
         private EmbedBuilder BuildCategoryEmbed(string categoryId, ShardedInteractionContext context)
         {
-            var category = _helpContent.Categories.FirstOrDefault(c => c.Id == categoryId);
+            var category = HelpContent.Categories.FirstOrDefault(c => c.Id == categoryId);
 
             if (category == null)
             {
@@ -229,7 +195,7 @@ namespace NinjaBotCore.Modules.Interactions.Misc
             var user = context.User as SocketGuildUser;
             var categories = new List<HelpCategory>();
 
-            foreach (var category in _helpContent.Categories)
+            foreach (var category in HelpContent.Categories)
             {
                 // Owner sees everything
                 if (IsOwner(context.User.Id))
@@ -283,54 +249,17 @@ namespace NinjaBotCore.Modules.Interactions.Misc
 
             try
             {
-                var commands = ScanAllSlashCommands();
-                var categories = OrganizeCommandsIntoCategories(commands);
+                _helpProvider.RegenerateHelpContent();
 
-                var helpContent = new HelpContent
-                {
-                    Categories = categories,
-                    PermissionBadges = new Dictionary<string, string>
-                    {
-                        { "public", null },
-                        { "moderator", "🛡️" },
-                        { "administrator", "👑" },
-                        { "manage_messages", "🛡️" },
-                        { "owner", "🔒" }
-                    },
-                    Metadata = new HelpMetadata
-                    {
-                        Version = "1.0.0",
-                        LastUpdated = DateTime.UtcNow.ToString("yyyy-MM-dd"),
-                        TotalCommands = commands.Count
-                    }
-                };
-
-                var basePath = Directory.GetCurrentDirectory();
-                var helpPath = Path.Combine(basePath, "help-commands.json");
-
-                var options = new JsonSerializerOptions
-                {
-                    WriteIndented = true,
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-                };
-
-                var json = JsonSerializer.Serialize(helpContent, options);
-                await File.WriteAllTextAsync(helpPath, json);
-
-                // Reload the help content
-                lock (_lockObject)
-                {
-                    _helpContent = helpContent;
-                }
-
-                _logger.LogInformation("Regenerated help-commands.json with {Count} commands in {Categories} categories",
-                    commands.Count, categories.Count);
+                var content = HelpContent;
+                var commandCount = content?.Metadata?.TotalCommands ?? 0;
+                var categoryCount = content?.Categories?.Count ?? 0;
 
                 await FollowupAsync(
                     $"✅ Successfully regenerated help-commands.json!\n\n" +
-                    $"**Commands found:** {commands.Count}\n" +
-                    $"**Categories:** {categories.Count}\n" +
-                    $"**File location:** `{helpPath}`",
+                    $"**Commands found:** {commandCount}\n" +
+                    $"**Categories:** {categoryCount}\n" +
+                    $"**Last updated:** {content?.Metadata?.LastUpdated ?? "unknown"}",
                     ephemeral: true);
             }
             catch (Exception ex)
@@ -340,274 +269,5 @@ namespace NinjaBotCore.Modules.Interactions.Misc
             }
         }
 
-        private List<CommandInfo> ScanAllSlashCommands()
-        {
-            var commandInfos = new List<CommandInfo>();
-            var assembly = Assembly.GetExecutingAssembly();
-
-            var interactionModules = assembly.GetTypes()
-                .Where(t => t.IsSubclassOf(typeof(InteractionModuleBase<ShardedInteractionContext>)))
-                .ToList();
-
-            foreach (var moduleType in interactionModules)
-            {
-                var methods = moduleType.GetMethods(BindingFlags.Public | BindingFlags.Instance);
-
-                foreach (var method in methods)
-                {
-                    var slashCommandAttr = method.GetCustomAttribute<SlashCommandAttribute>();
-                    if (slashCommandAttr == null) continue;
-
-                    var requireOwnerAttr = method.GetCustomAttribute<RequireOwnerAttribute>();
-                    var requireUserPermAttr = method.GetCustomAttribute<RequireUserPermissionAttribute>();
-                    var requireBotPermAttr = method.GetCustomAttribute<RequireBotPermissionAttribute>();
-                    var defaultMemberPermAttr = method.GetCustomAttribute<DefaultMemberPermissionsAttribute>();
-
-                    var permission = "public";
-                    var badge = (string)null;
-
-                    if (requireOwnerAttr != null)
-                    {
-                        permission = "owner";
-                        badge = "🔒";
-                    }
-                    else if (requireUserPermAttr != null)
-                    {
-                        if (requireUserPermAttr.GuildPermission.HasValue)
-                        {
-                            var perm = requireUserPermAttr.GuildPermission.Value;
-                            if (perm == GuildPermission.Administrator)
-                            {
-                                permission = "administrator";
-                                badge = "👑";
-                            }
-                            else if (perm == GuildPermission.KickMembers || perm == GuildPermission.BanMembers)
-                            {
-                                permission = "moderator";
-                                badge = "🛡️";
-                            }
-                            else if (perm == GuildPermission.ManageMessages)
-                            {
-                                permission = "manage_messages";
-                                badge = "🛡️";
-                            }
-                        }
-                    }
-                    else if (requireBotPermAttr != null && requireBotPermAttr.GuildPermission.HasValue)
-                    {
-                        var perm = requireBotPermAttr.GuildPermission.Value;
-                        if (perm == GuildPermission.ManageMessages)
-                        {
-                            permission = "manage_messages";
-                            badge = "🛡️";
-                        }
-                    }
-
-                    commandInfos.Add(new CommandInfo
-                    {
-                        Name = slashCommandAttr.Name,
-                        Description = slashCommandAttr.Description,
-                        Permission = permission,
-                        PermissionBadge = badge,
-                        ModuleName = moduleType.Namespace,
-                        ModuleTypeName = moduleType.Name
-                    });
-                }
-            }
-
-            return commandInfos;
-        }
-
-        private List<HelpCategory> OrganizeCommandsIntoCategories(List<CommandInfo> commands)
-        {
-            var categories = new List<HelpCategory>();
-
-            // WoW Main commands
-            var wowMainCommands = commands
-                .Where(c => c.ModuleName.Contains("Wow") &&
-                           c.ModuleTypeName == "WowInteract")
-                .Select(c => new HelpCommand
-                {
-                    Name = c.Name,
-                    Description = c.Description,
-                    Usage = $"/{c.Name}",
-                    Example = null,
-                    Permission = c.Permission,
-                    PermissionBadge = c.PermissionBadge
-                })
-                .OrderBy(c => c.Name)
-                .ToList();
-
-            if (wowMainCommands.Any())
-            {
-                categories.Add(new HelpCategory
-                {
-                    Id = "wow_main",
-                    Name = "World of Warcraft - Main",
-                    Emoji = "⚔️",
-                    Description = "Character lookups, guild info, and Mythic+ tracking",
-                    PermissionLevel = "public",
-                    Commands = wowMainCommands
-                });
-            }
-
-            // WoW Classic & Vanilla
-            var wowClassicCommands = commands
-                .Where(c => c.ModuleName.Contains("Wow") &&
-                           (c.ModuleTypeName.Contains("Classic") || c.ModuleTypeName.Contains("Vanilla")))
-                .Select(c => new HelpCommand
-                {
-                    Name = c.Name,
-                    Description = c.Description,
-                    Usage = $"/{c.Name}",
-                    Example = null,
-                    Permission = c.Permission,
-                    PermissionBadge = c.PermissionBadge
-                })
-                .OrderBy(c => c.Name)
-                .ToList();
-
-            if (wowClassicCommands.Any())
-            {
-                categories.Add(new HelpCategory
-                {
-                    Id = "wow_classic",
-                    Name = "WoW Classic & Vanilla",
-                    Emoji = "🏛️",
-                    Description = "Classic and Vanilla WoW guild management and logs",
-                    PermissionLevel = "public",
-                    Commands = wowClassicCommands
-                });
-            }
-
-            // Moderation commands
-            var moderationCommands = commands
-                .Where(c => c.ModuleName.Contains("Admin") &&
-                           (c.ModuleTypeName == "Admin" || c.ModuleTypeName == "DiscordHelpers") &&
-                           c.Permission != "owner")
-                .Select(c => new HelpCommand
-                {
-                    Name = c.Name,
-                    Description = c.Description,
-                    Usage = $"/{c.Name}",
-                    Example = null,
-                    Permission = c.Permission,
-                    PermissionBadge = c.PermissionBadge
-                })
-                .OrderBy(c => c.Name)
-                .ToList();
-
-            if (moderationCommands.Any())
-            {
-                categories.Add(new HelpCategory
-                {
-                    Id = "moderation",
-                    Name = "Moderation & Admin",
-                    Emoji = "🛡️",
-                    Description = "Server moderation and administrative tools",
-                    PermissionLevel = "moderator",
-                    Commands = moderationCommands
-                });
-            }
-
-            // Away System
-            var awayCommands = commands
-                .Where(c => c.ModuleName.Contains("Away"))
-                .Select(c => new HelpCommand
-                {
-                    Name = c.Name,
-                    Description = c.Description,
-                    Usage = $"/{c.Name}",
-                    Example = null,
-                    Permission = c.Permission,
-                    PermissionBadge = c.PermissionBadge
-                })
-                .OrderBy(c => c.Name)
-                .ToList();
-
-            if (awayCommands.Any())
-            {
-                categories.Add(new HelpCategory
-                {
-                    Id = "away_system",
-                    Name = "Away System",
-                    Emoji = "💤",
-                    Description = "Set yourself as away and auto-respond to mentions",
-                    PermissionLevel = "public",
-                    Commands = awayCommands
-                });
-            }
-
-            // Fun & Utility
-            var funCommands = commands
-                .Where(c => (c.ModuleName.Contains("Fun") || c.ModuleName.Contains("YouTube") ||
-                            c.ModuleName.Contains("Misc")) &&
-                           !c.Name.Contains("help") &&
-                           c.Permission == "public")
-                .Select(c => new HelpCommand
-                {
-                    Name = c.Name,
-                    Description = c.Description,
-                    Usage = $"/{c.Name}",
-                    Example = null,
-                    Permission = c.Permission,
-                    PermissionBadge = c.PermissionBadge
-                })
-                .OrderBy(c => c.Name)
-                .ToList();
-
-            if (funCommands.Any())
-            {
-                categories.Add(new HelpCategory
-                {
-                    Id = "fun_utility",
-                    Name = "Fun & Utility",
-                    Emoji = "🎮",
-                    Description = "Fun commands and bot utilities",
-                    PermissionLevel = "public",
-                    Commands = funCommands
-                });
-            }
-
-            // Owner Only commands
-            var ownerCommands = commands
-                .Where(c => c.Permission == "owner" && !c.Name.Contains("regenerate-help"))
-                .Select(c => new HelpCommand
-                {
-                    Name = c.Name,
-                    Description = c.Description,
-                    Usage = $"/{c.Name}",
-                    Example = null,
-                    Permission = c.Permission,
-                    PermissionBadge = c.PermissionBadge
-                })
-                .OrderBy(c => c.Name)
-                .ToList();
-
-            if (ownerCommands.Any())
-            {
-                categories.Add(new HelpCategory
-                {
-                    Id = "owner_only",
-                    Name = "Owner Only",
-                    Emoji = "🔒",
-                    Description = "Bot owner administrative commands",
-                    PermissionLevel = "owner",
-                    Commands = ownerCommands
-                });
-            }
-
-            return categories;
-        }
-
-        private class CommandInfo
-        {
-            public string Name { get; set; }
-            public string Description { get; set; }
-            public string Permission { get; set; }
-            public string PermissionBadge { get; set; }
-            public string ModuleName { get; set; }
-            public string ModuleTypeName { get; set; }
-        }
     }
 }
