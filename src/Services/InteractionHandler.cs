@@ -66,8 +66,9 @@ namespace NinjaBotCore.Services
             }
             catch (Exception ex)
             {
-                _logger.LogCritical(ex, "CRITICAL: Failed to register slash commands! Bot startup failed.");
-                throw; // Fail fast - don't continue startup if commands can't register
+                _logger.LogWarning(ex, "Failed to register slash commands. Bot will continue running, but commands may not be available. " +
+                    "Common causes: Missing 'applications.commands' scope in OAuth2 URL, or bot was kicked and re-invited without proper permissions.");
+                // Don't throw - allow bot to continue running even if command registration fails
             }
         }
 

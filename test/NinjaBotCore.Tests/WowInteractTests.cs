@@ -6,6 +6,15 @@ namespace NinjaBotCore.Tests
 {
     /// <summary>
     /// Tests for WowInteract utility methods
+    ///
+    /// TODO: Add integration tests for slash commands when Discord.Net mocking infrastructure is available:
+    /// - /setguild should call RefreshGuildRosterAsync after successful guild association
+    /// - /setguild should handle roster refresh failures gracefully without failing the command
+    /// - /realminfo should handle realm not found gracefully (null check before accessing foundRealm.slug)
+    /// - /realminfo should return user-friendly error message when realm doesn't exist
+    ///
+    /// These tests require complex Discord.Net interaction mocking (ShardedInteractionContext, etc.)
+    /// and should be implemented when a proper mocking framework for Discord.Net is established.
     /// </summary>
     public class WowInteractTests
     {

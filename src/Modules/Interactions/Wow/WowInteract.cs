@@ -1427,6 +1427,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     db.WowCharAssociation.Add(new WowCharAssociation
                     {
                         UserId = (long)Context.User.Id,
+                        ServerId = (long)Context.Guild.Id,
                         IsMain = isMain,
                         CharName = charName,
                         WowRealm = realmName,
@@ -2126,6 +2127,20 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         locale: locale,
                         regionName: regionName,
                         context: Context);
+
+                    // Refresh guild roster to populate database
+                    var guildObject = await _wowUtils.GetGuildName(Context);
+                    if (guildObject != null)
+                    {
+                        try
+                        {
+                            await _wowUtils.RefreshGuildRosterAsync(guildObject);
+                        }
+                        catch (Exception rosterEx)
+                        {
+                            _logger.LogWarning(rosterEx, "Failed to refresh guild roster for {Guild}", officialGuildName);
+                        }
+                    }
 
                     var embed = new EmbedBuilder();
                     embed.Title = "Guild Association Set!";
@@ -3948,6 +3963,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         db.WowCharAssociation.Add(new WowCharAssociation
                         {
                             UserId = (long)Context.User.Id,
+                            ServerId = (long)Context.Guild.Id,
                             IsMain = false,
                             CharName = charName,
                             WowRealm = realmName,

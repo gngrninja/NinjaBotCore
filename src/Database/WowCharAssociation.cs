@@ -8,6 +8,7 @@ namespace NinjaBotCore.Database
         [Key]
         public long Id { get; set; }
         public Nullable<long> UserId { get; set; }
+        public Nullable<long> ServerId { get; set; }
         public bool IsMain { get; set; }
         public string CharName { get; set; }
         public string ServerName { get; set; }

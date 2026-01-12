@@ -88,6 +88,19 @@ namespace NinjaBotCore.Repositories
             return await _dbSet.Where(predicate).ToListAsync(ct);
         }
 
+        /// <summary>
+        /// Exposes the queryable DbSet for advanced LINQ queries.
+        /// Use this when you need database-side operations like Contains with large lists.
+        /// </summary>
+        public IQueryable<TEntity> Query
+        {
+            get
+            {
+                EnsureContext();
+                return _dbSet;
+            }
+        }
+
         public async Task<TEntity> UpsertAsync(
             Expression<Func<TEntity, bool>> findPredicate,
             Action<TEntity> updateAction,

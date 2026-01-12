@@ -2,10 +2,11 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Discord.WebSocket;
-using NinjaBotCore.Database;
-using NinjaBotCore.Repositories;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using NinjaBotCore.Database;
+using NinjaBotCore.Repositories;
 
 namespace NinjaBotCore.Services
 {
@@ -47,28 +48,51 @@ namespace NinjaBotCore.Services
 
         /// <summary>
         /// Syncs all Discord servers from all connected shards.
+        /// Also cleans up any stale servers the bot was removed from while offline.
         /// </summary>
         private async Task SyncAllShardsAsync()
         {
             try
             {
                 var allGuilds = _client.Guilds.ToList();
-                if (allGuilds.Count == 0)
-                {
-                    _logger.LogWarning("No Discord servers found to sync");
-                    return;
-                }
 
                 _logger.LogInformation("Syncing {Count} Discord servers to database", allGuilds.Count);
 
                 await using var repo = new Repository<DiscordServer>(_scopeFactory);
 
+                // Update/insert all current servers
                 foreach (var guild in allGuilds)
                 {
                     await UpsertDiscordServerAsync(repo, guild, isJoining: true);
                 }
 
+                // Cleanup: Mark servers we're no longer in as BotPresent = false
+                // Use database-side filtering for performance with large server counts
+                // This runs even if allGuilds.Count == 0 to clean up all stale records
+                var currentGuildIds = allGuilds.Select(g => (long)g.Id).ToList();
+                var staleServers = await repo.Query
+                    .Where(s => s.BotPresent && !currentGuildIds.Contains(s.ServerId))
+                    .ToListAsync();
+
+                foreach (var staleServer in staleServers)
+                {
+                    _logger.LogInformation(
+                        "Cleaning up stale server record: {ServerName} ({ServerId}) - bot no longer present",
+                        staleServer.ServerName, staleServer.ServerId);
+
+                    staleServer.BotPresent = false;
+                    staleServer.LeftAt = DateTime.UtcNow;
+                    repo.Update(staleServer);
+                }
+
+                int cleanedCount = staleServers.Count;
+
                 await repo.SaveChangesAsync();
+
+                if (cleanedCount > 0)
+                {
+                    _logger.LogInformation("Cleaned up {Count} stale server records", cleanedCount);
+                }
 
                 _logger.LogInformation("Sync complete - {Count} Discord servers tracked", allGuilds.Count);
             }
