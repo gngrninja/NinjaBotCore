@@ -60,6 +60,7 @@ namespace NinjaBotCore.Database
         public virtual DbSet<Poll> Polls { get; set; }
         public virtual DbSet<PollOption> PollOptions { get; set; }
         public virtual DbSet<PollVote> PollVotes { get; set; }
+        public virtual DbSet<ServerPollSettings> ServerPollSettings { get; set; }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {

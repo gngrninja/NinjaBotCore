@@ -14,6 +14,9 @@ FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS final
 WORKDIR /app
 COPY --from=build /app/publish .
 
+# Expose Commands API port
+EXPOSE 5100
+
 # Expose log path for bind mounts
 VOLUME ["/app/logs"]
 

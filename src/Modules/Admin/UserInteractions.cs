@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Discord.WebSocket;
 using Microsoft.EntityFrameworkCore;
 using NinjaBotCore.Database;
+using NinjaBotCore.Modules.Interactions.Polls;
 using NinjaBotCore.Repositories;
 using NinjaBotCore.Services;
 using Microsoft.Extensions.Logging;
@@ -1039,8 +1040,70 @@ namespace NinjaBotCore.Modules.Admin
             // Update poll message
             await UpdatePollMessageAsync(pollId);
 
+            // Post poll results
+            await PostPollResultsAsync(poll, guildUser?.Username ?? "Unknown", db);
+
             var totalVotes = poll.PollVotes.Count;
             return (true, $"✅ Poll closed successfully. Total votes: {totalVotes}");
+        }
+
+        private async Task PostPollResultsAsync(Database.Poll poll, string closedBy, NinjaBotEntities db)
+        {
+            try
+            {
+                // Get server poll settings
+                var settings = await db.ServerPollSettings
+                    .FirstOrDefaultAsync(s => s.DiscordGuildId == poll.GuildId);
+
+                // Determine target channel
+                var targetChannelId = settings?.ResultsChannelId ?? poll.ChannelId;
+
+                var guild = _client.GetGuild((ulong)poll.GuildId);
+                if (guild == null)
+                {
+                    _logger.LogWarning("Guild {GuildId} not found for poll results {PollId}", poll.GuildId, poll.Id);
+                    return;
+                }
+
+                var channel = guild.GetTextChannel((ulong)targetChannelId);
+                if (channel == null)
+                {
+                    _logger.LogWarning("Channel {ChannelId} not found for poll results {PollId}", targetChannelId, poll.Id);
+                    return;
+                }
+
+                // Build results embed
+                var resultsBuilder = new PollResultsBuilder();
+                var options = poll.PollOptions?.ToList() ?? new List<Database.PollOption>();
+                var votes = poll.PollVotes?.ToList() ?? new List<Database.PollVote>();
+                var embed = resultsBuilder.BuildResultsEmbed(poll, options, votes, closedBy: closedBy, wasExpired: false);
+
+                // Build voter mentions if enabled
+                string? content = null;
+                if (settings?.MentionVotersOnClose == true && !poll.IsAnonymous)
+                {
+                    content = resultsBuilder.BuildVoterMentions(votes, poll.IsAnonymous);
+                }
+
+                // Send results message as a reply to the original poll
+                var messageReference = new MessageReference(
+                    messageId: (ulong)poll.MessageId,
+                    channelId: (ulong)poll.ChannelId,
+                    guildId: (ulong)poll.GuildId,
+                    failIfNotExists: false);
+
+                await channel.SendMessageAsync(
+                    text: string.IsNullOrEmpty(content) ? null : content,
+                    embed: embed,
+                    messageReference: messageReference,
+                    allowedMentions: AllowedMentions.All);
+
+                _logger.LogInformation("Posted poll results for poll {PollId} to channel {ChannelId}", poll.Id, targetChannelId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error posting poll results for poll {PollId}", poll.Id);
+            }
         }
 
         /// <summary>

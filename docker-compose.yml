@@ -1,4 +1,11 @@
-version: "3.9"
+# Production environment - runs the bot in Docker
+# Database: External PostgreSQL (configured via .env.production)
+#
+# Usage:
+#   docker compose up -d --build
+#
+# Exposed Ports:
+#   - 5100: Commands API (web dashboard integration)
 
 services:
   ninjabot:
@@ -7,7 +14,8 @@ services:
       dockerfile: Dockerfile
     container_name: ninjabot
     restart: unless-stopped
-    network_mode: "host"
+    ports:
+      - "5100:5100"  # Commands API for web dashboard
     environment:
       - DOTNET_ENVIRONMENT=Production
     env_file:
@@ -16,6 +24,7 @@ services:
       - ./config:/app/config:ro  # Optional: config.json fallback (env vars take precedence)
       - ./logs:/app/logs
       - ./help.txt:/app/help.txt:ro
+
 volumes:
-  # SQLite volume no longer needed with PostgreSQL, but kept for backwards compatibility
+  # Legacy volume (kept for backwards compatibility)
   ninjabot-sqlite:

@@ -15,6 +15,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NinjaBotCore.Database;
 using NinjaBotCore.Models.Wow;
+using NinjaBotCore.Modules.Interactions.Polls;
 using NinjaBotCore.Modules.Wow;
 
 namespace NinjaBotCore.Services
@@ -663,16 +664,24 @@ namespace NinjaBotCore.Services
                     // Post results to Discord
                     try
                     {
+                        // Get server poll settings
+                        var settings = await db.ServerPollSettings
+                            .FirstOrDefaultAsync(s => s.DiscordGuildId == poll.GuildId);
+
+                        // Determine target channel (settings override or poll channel)
+                        var targetChannelId = settings?.ResultsChannelId ?? poll.ChannelId;
+
                         var client = _serviceProvider.GetService<DiscordShardedClient>();
                         var guild = client?.GetGuild((ulong)poll.GuildId);
-                        var channel = guild?.GetTextChannel((ulong)poll.ChannelId);
+                        var pollChannel = guild?.GetTextChannel((ulong)poll.ChannelId);
+                        var resultsChannel = guild?.GetTextChannel((ulong)targetChannelId);
 
-                        if (channel != null)
+                        // Update original poll message (change color to red, disable buttons)
+                        if (pollChannel != null && poll.MessageId > 0)
                         {
-                            // Update original poll message (change color to red, disable buttons)
-                            if (poll.MessageId > 0)
+                            try
                             {
-                                var message = await channel.GetMessageAsync((ulong)poll.MessageId);
+                                var message = await pollChannel.GetMessageAsync((ulong)poll.MessageId);
                                 if (message is IUserMessage userMessage)
                                 {
                                     var closedEmbed = BuildClosedPollEmbed(poll, totalVotes);
@@ -686,17 +695,39 @@ namespace NinjaBotCore.Services
                                     });
                                 }
                             }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Failed to update original poll message {PollId}", poll.Id);
+                            }
+                        }
 
-                            // Post a notification with results
-                            var notificationEmbed = new EmbedBuilder()
-                                .WithColor(Color.Orange)
-                                .WithTitle("📊 Poll Closed")
-                                .WithDescription($"The poll **\"{poll.Question}\"** has been closed by {poll.CreatedByName}.")
-                                .WithFooter($"Poll ID: {poll.Id} • {totalVotes} total votes")
-                                .WithTimestamp(DateTimeOffset.UtcNow)
-                                .Build();
+                        // Post full results using PollResultsBuilder
+                        if (resultsChannel != null)
+                        {
+                            var resultsBuilder = new PollResultsBuilder();
+                            var options = poll.PollOptions?.ToList() ?? new List<PollOption>();
+                            var votes = poll.PollVotes?.ToList() ?? new List<PollVote>();
+                            var resultsEmbed = resultsBuilder.BuildResultsEmbed(poll, options, votes, closedBy: poll.CreatedByName, wasExpired: false);
 
-                            await channel.SendMessageAsync(embed: notificationEmbed);
+                            // Build voter mentions if enabled
+                            string? content = null;
+                            if (settings?.MentionVotersOnClose == true && !poll.IsAnonymous)
+                            {
+                                content = resultsBuilder.BuildVoterMentions(votes, poll.IsAnonymous);
+                            }
+
+                            // Send as reply to original poll
+                            var messageReference = new MessageReference(
+                                messageId: (ulong)poll.MessageId,
+                                channelId: (ulong)poll.ChannelId,
+                                guildId: (ulong)poll.GuildId,
+                                failIfNotExists: false);
+
+                            await resultsChannel.SendMessageAsync(
+                                text: string.IsNullOrEmpty(content) ? null : content,
+                                embed: resultsEmbed,
+                                messageReference: messageReference,
+                                allowedMentions: AllowedMentions.All);
                         }
                     }
                     catch (Exception ex)
@@ -977,6 +1008,1095 @@ namespace NinjaBotCore.Services
                     });
                 });
 
+                // GET /api/guilds/{guildId}/poll-settings - Get poll settings for a guild
+                _app.MapGet("/api/guilds/{guildId}/poll-settings", async (HttpContext context, string guildId) =>
+                {
+                    // Validate API key
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        var providedKey = context.Request.Headers["X-Api-Key"].ToString();
+                        if (providedKey != apiKey)
+                        {
+                            return Results.Unauthorized();
+                        }
+                    }
+
+                    if (!long.TryParse(guildId, out var guildIdLong))
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid guild_id format" });
+                    }
+
+                    using var scope = _serviceProvider.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                    var settings = await db.ServerPollSettings
+                        .FirstOrDefaultAsync(s => s.DiscordGuildId == guildIdLong);
+
+                    if (settings == null)
+                    {
+                        // Return defaults
+                        return Results.Json(new
+                        {
+                            success = true,
+                            settings = new
+                            {
+                                guild_id = guildId,
+                                results_channel_id = (string?)null,
+                                mention_voters_on_close = false,
+                                default_anonymous = false,
+                                set_by_id = (string?)null,
+                                set_by_name = (string?)null,
+                                time_set = (DateTime?)null
+                            }
+                        }, new JsonSerializerOptions
+                        {
+                            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                        });
+                    }
+
+                    return Results.Json(new
+                    {
+                        success = true,
+                        settings = new
+                        {
+                            guild_id = settings.DiscordGuildId.ToString(),
+                            results_channel_id = settings.ResultsChannelId?.ToString(),
+                            mention_voters_on_close = settings.MentionVotersOnClose,
+                            default_anonymous = settings.DefaultAnonymous,
+                            set_by_id = settings.SetById?.ToString(),
+                            set_by_name = settings.SetByName,
+                            time_set = settings.TimeSet
+                        }
+                    }, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                    });
+                });
+
+                // PUT /api/guilds/{guildId}/poll-settings - Update poll settings for a guild
+                _app.MapPut("/api/guilds/{guildId}/poll-settings", async (HttpContext context, string guildId) =>
+                {
+                    // Validate API key
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        var providedKey = context.Request.Headers["X-Api-Key"].ToString();
+                        if (providedKey != apiKey)
+                        {
+                            return Results.Unauthorized();
+                        }
+                    }
+
+                    if (!long.TryParse(guildId, out var guildIdLong))
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid guild_id format" });
+                    }
+
+                    var body = await context.Request.ReadFromJsonAsync<UpdatePollSettingsRequest>(
+                        new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
+
+                    if (body == null)
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid request body" });
+                    }
+
+                    using var scope = _serviceProvider.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                    var settings = await db.ServerPollSettings
+                        .FirstOrDefaultAsync(s => s.DiscordGuildId == guildIdLong);
+
+                    if (settings == null)
+                    {
+                        settings = new ServerPollSettings
+                        {
+                            DiscordGuildId = guildIdLong,
+                            MentionVotersOnClose = false,
+                            ResultsChannelId = null
+                        };
+                        db.ServerPollSettings.Add(settings);
+                    }
+
+                    // Update settings
+                    if (body.ResultsChannelId != null)
+                    {
+                        if (body.ResultsChannelId == "")
+                        {
+                            settings.ResultsChannelId = null; // Clear the setting
+                        }
+                        else if (long.TryParse(body.ResultsChannelId, out var channelId))
+                        {
+                            settings.ResultsChannelId = channelId;
+                        }
+                    }
+
+                    if (body.MentionVotersOnClose.HasValue)
+                    {
+                        settings.MentionVotersOnClose = body.MentionVotersOnClose.Value;
+                    }
+
+                    if (body.DefaultAnonymous.HasValue)
+                    {
+                        settings.DefaultAnonymous = body.DefaultAnonymous.Value;
+                    }
+
+                    if (!string.IsNullOrEmpty(body.UserId) && long.TryParse(body.UserId, out var userId))
+                    {
+                        settings.SetById = userId;
+                    }
+                    if (!string.IsNullOrEmpty(body.UserName))
+                    {
+                        settings.SetByName = body.UserName;
+                    }
+                    settings.TimeSet = DateTime.UtcNow;
+
+                    await db.SaveChangesAsync();
+
+                    return Results.Json(new
+                    {
+                        success = true,
+                        message = "Poll settings updated",
+                        settings = new
+                        {
+                            guild_id = settings.DiscordGuildId.ToString(),
+                            results_channel_id = settings.ResultsChannelId?.ToString(),
+                            mention_voters_on_close = settings.MentionVotersOnClose,
+                            default_anonymous = settings.DefaultAnonymous,
+                            set_by_id = settings.SetById?.ToString(),
+                            set_by_name = settings.SetByName,
+                            time_set = settings.TimeSet
+                        }
+                    }, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                    });
+                });
+
+                // GET /api/guilds/{guildId}/log-monitoring - Get log monitoring settings for a guild
+                _app.MapGet("/api/guilds/{guildId}/log-monitoring", async (HttpContext context, string guildId) =>
+                {
+                    // Validate API key
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        var providedKey = context.Request.Headers["X-Api-Key"].ToString();
+                        if (providedKey != apiKey)
+                        {
+                            return Results.Unauthorized();
+                        }
+                    }
+
+                    if (!long.TryParse(guildId, out var guildIdLong))
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid guild_id format" });
+                    }
+
+                    using var scope = _serviceProvider.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                    var settings = await db.LogMonitoring
+                        .FirstOrDefaultAsync(s => s.ServerId == guildIdLong);
+
+                    if (settings == null)
+                    {
+                        // Return defaults
+                        return Results.Json(new
+                        {
+                            success = true,
+                            settings = new
+                            {
+                                guild_id = guildId,
+                                channel_id = (string?)null,
+                                channel_name = (string?)null,
+                                monitor_logs = false,
+                                latest_log_retail = (DateTime?)null
+                            }
+                        }, new JsonSerializerOptions
+                        {
+                            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                        });
+                    }
+
+                    return Results.Json(new
+                    {
+                        success = true,
+                        settings = new
+                        {
+                            guild_id = settings.ServerId.ToString(),
+                            channel_id = settings.ChannelId > 0 ? settings.ChannelId.ToString() : null,
+                            channel_name = settings.ChannelName,
+                            monitor_logs = settings.MonitorLogs,
+                            latest_log_retail = settings.LatestLogRetail
+                        }
+                    }, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                    });
+                });
+
+                // PUT /api/guilds/{guildId}/log-monitoring - Update log monitoring settings for a guild
+                _app.MapPut("/api/guilds/{guildId}/log-monitoring", async (HttpContext context, string guildId) =>
+                {
+                    // Validate API key
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        var providedKey = context.Request.Headers["X-Api-Key"].ToString();
+                        if (providedKey != apiKey)
+                        {
+                            return Results.Unauthorized();
+                        }
+                    }
+
+                    if (!long.TryParse(guildId, out var guildIdLong))
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid guild_id format" });
+                    }
+
+                    var body = await context.Request.ReadFromJsonAsync<UpdateLogMonitoringRequest>(
+                        new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
+
+                    if (body == null)
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid request body" });
+                    }
+
+                    using var scope = _serviceProvider.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                    var settings = await db.LogMonitoring
+                        .FirstOrDefaultAsync(s => s.ServerId == guildIdLong);
+
+                    if (settings == null)
+                    {
+                        // Create new
+                        settings = new LogMonitoring
+                        {
+                            ServerId = guildIdLong,
+                            ServerName = body.ServerName ?? "",
+                            ChannelId = 0,
+                            ChannelName = "",
+                            MonitorLogs = false,
+                            WatchLog = false
+                        };
+                        db.LogMonitoring.Add(settings);
+                    }
+
+                    // Update settings
+                    if (body.ChannelId != null)
+                    {
+                        if (body.ChannelId == "")
+                        {
+                            settings.ChannelId = 0;
+                            settings.ChannelName = "";
+                        }
+                        else if (long.TryParse(body.ChannelId, out var channelId))
+                        {
+                            settings.ChannelId = channelId;
+                            settings.ChannelName = body.ChannelName ?? "";
+                        }
+                    }
+
+                    if (body.MonitorLogs.HasValue)
+                    {
+                        settings.MonitorLogs = body.MonitorLogs.Value;
+
+                        // If enabling and no LatestLogRetail, set it to now
+                        if (body.MonitorLogs.Value && !settings.LatestLogRetail.HasValue)
+                        {
+                            settings.LatestLogRetail = DateTime.UtcNow;
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(body.ServerName))
+                    {
+                        settings.ServerName = body.ServerName;
+                    }
+
+                    await db.SaveChangesAsync();
+
+                    return Results.Json(new
+                    {
+                        success = true,
+                        message = "Log monitoring settings updated",
+                        settings = new
+                        {
+                            guild_id = settings.ServerId.ToString(),
+                            channel_id = settings.ChannelId > 0 ? settings.ChannelId.ToString() : null,
+                            channel_name = settings.ChannelName,
+                            monitor_logs = settings.MonitorLogs,
+                            latest_log_retail = settings.LatestLogRetail
+                        }
+                    }, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                    });
+                });
+
+                // GET /api/guilds/{guildId}/greeting-settings - Get greeting settings for a guild
+                _app.MapGet("/api/guilds/{guildId}/greeting-settings", async (HttpContext context, string guildId) =>
+                {
+                    // Validate API key
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        var providedKey = context.Request.Headers["X-Api-Key"].ToString();
+                        if (providedKey != apiKey)
+                        {
+                            return Results.Unauthorized();
+                        }
+                    }
+
+                    if (!long.TryParse(guildId, out var guildIdLong))
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid guild ID" });
+                    }
+
+                    using var scope = _serviceProvider.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                    var settings = await db.ServerGreetings
+                        .FirstOrDefaultAsync(s => s.DiscordGuildId == guildIdLong);
+
+                    // Return defaults if no settings exist
+                    if (settings == null)
+                    {
+                        return Results.Json(new
+                        {
+                            success = true,
+                            settings = new
+                            {
+                                guild_id = guildId,
+                                greet_users = false,
+                                greeting = (string?)null,
+                                greeting_channel_id = (string?)null,
+                                greeting_channel_name = (string?)null,
+                                parting_message = (string?)null,
+                                parting_channel_id = (string?)null,
+                                set_by_id = (string?)null,
+                                set_by_name = (string?)null,
+                                time_set = (DateTime?)null
+                            }
+                        }, new JsonSerializerOptions
+                        {
+                            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                        });
+                    }
+
+                    return Results.Json(new
+                    {
+                        success = true,
+                        settings = new
+                        {
+                            guild_id = settings.DiscordGuildId.ToString(),
+                            greet_users = settings.GreetUsers ?? false,
+                            greeting = settings.Greeting,
+                            greeting_channel_id = settings.GreetingChannelId?.ToString(),
+                            greeting_channel_name = settings.GreetingChannelName,
+                            parting_message = settings.PartingMessage,
+                            parting_channel_id = settings.PartingChannelId?.ToString(),
+                            set_by_id = settings.SetById?.ToString(),
+                            set_by_name = settings.SetByName,
+                            time_set = settings.TimeSet
+                        }
+                    }, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                    });
+                });
+
+                // PUT /api/guilds/{guildId}/greeting-settings - Update greeting settings for a guild
+                _app.MapPut("/api/guilds/{guildId}/greeting-settings", async (HttpContext context, string guildId) =>
+                {
+                    // Validate API key
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        var providedKey = context.Request.Headers["X-Api-Key"].ToString();
+                        if (providedKey != apiKey)
+                        {
+                            return Results.Unauthorized();
+                        }
+                    }
+
+                    if (!long.TryParse(guildId, out var guildIdLong))
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid guild ID" });
+                    }
+
+                    var body = await context.Request.ReadFromJsonAsync<UpdateGreetingSettingsRequest>(
+                        new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
+
+                    if (body == null)
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid request body" });
+                    }
+
+                    using var scope = _serviceProvider.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                    var settings = await db.ServerGreetings
+                        .FirstOrDefaultAsync(s => s.DiscordGuildId == guildIdLong);
+
+                    if (settings == null)
+                    {
+                        // Create new settings
+                        settings = new Database.ServerGreeting
+                        {
+                            DiscordGuildId = guildIdLong
+                        };
+                        db.ServerGreetings.Add(settings);
+                    }
+
+                    // Update fields
+                    if (body.GreetUsers.HasValue)
+                        settings.GreetUsers = body.GreetUsers.Value;
+
+                    if (body.Greeting != null)
+                        settings.Greeting = body.Greeting;
+
+                    if (body.GreetingChannelId != null)
+                    {
+                        if (string.IsNullOrEmpty(body.GreetingChannelId))
+                            settings.GreetingChannelId = null;
+                        else if (long.TryParse(body.GreetingChannelId, out var channelId))
+                            settings.GreetingChannelId = channelId;
+                    }
+
+                    if (body.GreetingChannelName != null)
+                        settings.GreetingChannelName = body.GreetingChannelName;
+
+                    if (body.PartingMessage != null)
+                        settings.PartingMessage = body.PartingMessage;
+
+                    if (body.PartingChannelId != null)
+                    {
+                        if (string.IsNullOrEmpty(body.PartingChannelId))
+                            settings.PartingChannelId = null;
+                        else if (long.TryParse(body.PartingChannelId, out var channelId))
+                            settings.PartingChannelId = channelId;
+                    }
+
+                    // Track who made the change
+                    if (!string.IsNullOrEmpty(body.SetById) && long.TryParse(body.SetById, out var setById))
+                        settings.SetById = setById;
+
+                    if (!string.IsNullOrEmpty(body.SetByName))
+                        settings.SetByName = body.SetByName;
+
+                    settings.TimeSet = DateTime.UtcNow;
+
+                    await db.SaveChangesAsync();
+
+                    return Results.Json(new
+                    {
+                        success = true,
+                        settings = new
+                        {
+                            guild_id = settings.DiscordGuildId.ToString(),
+                            greet_users = settings.GreetUsers ?? false,
+                            greeting = settings.Greeting,
+                            greeting_channel_id = settings.GreetingChannelId?.ToString(),
+                            greeting_channel_name = settings.GreetingChannelName,
+                            parting_message = settings.PartingMessage,
+                            parting_channel_id = settings.PartingChannelId?.ToString(),
+                            set_by_id = settings.SetById?.ToString(),
+                            set_by_name = settings.SetByName,
+                            time_set = settings.TimeSet
+                        }
+                    }, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                    });
+                });
+
+                // GET /api/guilds/{guildId}/moderation-watcher - Get moderation watcher settings for a guild
+                _app.MapGet("/api/guilds/{guildId}/moderation-watcher", async (HttpContext context, string guildId) =>
+                {
+                    // Validate API key
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        var providedKey = context.Request.Headers["X-Api-Key"].ToString();
+                        if (providedKey != apiKey)
+                        {
+                            return Results.Unauthorized();
+                        }
+                    }
+
+                    if (!long.TryParse(guildId, out var guildIdLong))
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid guild ID" });
+                    }
+
+                    using var scope = _serviceProvider.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                    var settings = await db.ModerationWatcher
+                        .FirstOrDefaultAsync(s => s.DiscordGuildId == guildIdLong);
+
+                    // Return defaults if no settings exist
+                    if (settings == null)
+                    {
+                        return Results.Json(new
+                        {
+                            success = true,
+                            settings = new
+                            {
+                                guild_id = guildId,
+                                channel_id = (string?)null,
+                                channel_name = (string?)null,
+                                watch_voice = false,
+                                watch_messages = false,
+                                watch_roles = false,
+                                watch_bans = false,
+                                watch_nicknames = false,
+                                set_by_id = (string?)null,
+                                set_by_name = (string?)null,
+                                time_set = (DateTime?)null
+                            }
+                        }, new JsonSerializerOptions
+                        {
+                            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                        });
+                    }
+
+                    return Results.Json(new
+                    {
+                        success = true,
+                        settings = new
+                        {
+                            guild_id = settings.DiscordGuildId.ToString(),
+                            channel_id = settings.ChannelId?.ToString(),
+                            channel_name = settings.ChannelName,
+                            watch_voice = settings.WatchVoice ?? false,
+                            watch_messages = settings.WatchMessages ?? false,
+                            watch_roles = settings.WatchRoles ?? false,
+                            watch_bans = settings.WatchBans ?? false,
+                            watch_nicknames = settings.WatchNicknames ?? false,
+                            set_by_id = settings.SetById?.ToString(),
+                            set_by_name = settings.SetByName,
+                            time_set = settings.TimeSet
+                        }
+                    }, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                    });
+                });
+
+                // PUT /api/guilds/{guildId}/moderation-watcher - Update moderation watcher settings for a guild
+                _app.MapPut("/api/guilds/{guildId}/moderation-watcher", async (HttpContext context, string guildId) =>
+                {
+                    // Validate API key
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        var providedKey = context.Request.Headers["X-Api-Key"].ToString();
+                        if (providedKey != apiKey)
+                        {
+                            return Results.Unauthorized();
+                        }
+                    }
+
+                    if (!long.TryParse(guildId, out var guildIdLong))
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid guild ID" });
+                    }
+
+                    var body = await context.Request.ReadFromJsonAsync<UpdateModerationWatcherRequest>(
+                        new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
+
+                    if (body == null)
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid request body" });
+                    }
+
+                    using var scope = _serviceProvider.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                    var settings = await db.ModerationWatcher
+                        .FirstOrDefaultAsync(s => s.DiscordGuildId == guildIdLong);
+
+                    if (settings == null)
+                    {
+                        // Create new settings
+                        settings = new Database.ModerationWatcher
+                        {
+                            DiscordGuildId = guildIdLong
+                        };
+                        db.ModerationWatcher.Add(settings);
+                    }
+
+                    // Update fields
+                    if (body.ChannelId != null)
+                    {
+                        if (string.IsNullOrEmpty(body.ChannelId))
+                            settings.ChannelId = null;
+                        else if (long.TryParse(body.ChannelId, out var channelId))
+                            settings.ChannelId = channelId;
+                    }
+
+                    if (body.ChannelName != null)
+                        settings.ChannelName = body.ChannelName;
+
+                    if (body.WatchVoice.HasValue)
+                        settings.WatchVoice = body.WatchVoice.Value;
+
+                    if (body.WatchMessages.HasValue)
+                        settings.WatchMessages = body.WatchMessages.Value;
+
+                    if (body.WatchRoles.HasValue)
+                        settings.WatchRoles = body.WatchRoles.Value;
+
+                    if (body.WatchBans.HasValue)
+                        settings.WatchBans = body.WatchBans.Value;
+
+                    if (body.WatchNicknames.HasValue)
+                        settings.WatchNicknames = body.WatchNicknames.Value;
+
+                    // Track who made the change
+                    if (!string.IsNullOrEmpty(body.SetById) && long.TryParse(body.SetById, out var setById))
+                        settings.SetById = setById;
+
+                    if (!string.IsNullOrEmpty(body.SetByName))
+                        settings.SetByName = body.SetByName;
+
+                    settings.TimeSet = DateTime.UtcNow;
+
+                    await db.SaveChangesAsync();
+
+                    return Results.Json(new
+                    {
+                        success = true,
+                        settings = new
+                        {
+                            guild_id = settings.DiscordGuildId.ToString(),
+                            channel_id = settings.ChannelId?.ToString(),
+                            channel_name = settings.ChannelName,
+                            watch_voice = settings.WatchVoice ?? false,
+                            watch_messages = settings.WatchMessages ?? false,
+                            watch_roles = settings.WatchRoles ?? false,
+                            watch_bans = settings.WatchBans ?? false,
+                            watch_nicknames = settings.WatchNicknames ?? false,
+                            set_by_id = settings.SetById?.ToString(),
+                            set_by_name = settings.SetByName,
+                            time_set = settings.TimeSet
+                        }
+                    }, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                    });
+                });
+
+                // GET /api/guilds/{guildId}/wow-association - Get WoW guild association for a Discord server
+                _app.MapGet("/api/guilds/{guildId}/wow-association", async (HttpContext context, string guildId) =>
+                {
+                    // Validate API key
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        var providedKey = context.Request.Headers["X-Api-Key"].ToString();
+                        if (providedKey != apiKey)
+                        {
+                            return Results.Unauthorized();
+                        }
+                    }
+
+                    if (!long.TryParse(guildId, out var guildIdLong))
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid guild ID" });
+                    }
+
+                    using var scope = _serviceProvider.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                    var assoc = await db.WowGuildAssociations
+                        .FirstOrDefaultAsync(a => a.ServerId == guildIdLong);
+
+                    if (assoc == null)
+                    {
+                        return Results.Json(new
+                        {
+                            success = true,
+                            association = (object?)null
+                        }, new JsonSerializerOptions
+                        {
+                            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                        });
+                    }
+
+                    return Results.Json(new
+                    {
+                        success = true,
+                        association = new
+                        {
+                            guild_id = assoc.ServerId?.ToString(),
+                            wow_guild_name = assoc.WowGuild,
+                            wow_realm = assoc.WowRealm,
+                            wow_realm_slug = assoc.LocalRealmSlug,
+                            wow_region = assoc.WowRegion,
+                            locale = assoc.Locale,
+                            set_by_id = assoc.SetById?.ToString(),
+                            set_by_name = assoc.SetBy,
+                            time_set = assoc.TimeSet
+                        }
+                    }, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                    });
+                });
+
+                // PUT /api/guilds/{guildId}/wow-association - Set WoW guild association for a Discord server
+                _app.MapPut("/api/guilds/{guildId}/wow-association", async (HttpContext context, string guildId) =>
+                {
+                    // Validate API key
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        var providedKey = context.Request.Headers["X-Api-Key"].ToString();
+                        if (providedKey != apiKey)
+                        {
+                            return Results.Unauthorized();
+                        }
+                    }
+
+                    if (!long.TryParse(guildId, out var guildIdLong))
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid guild ID" });
+                    }
+
+                    var body = await context.Request.ReadFromJsonAsync<UpdateWowAssociationRequest>(
+                        new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
+
+                    if (body == null)
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid request body" });
+                    }
+
+                    // Validate required fields
+                    if (string.IsNullOrWhiteSpace(body.WowGuildName) ||
+                        string.IsNullOrWhiteSpace(body.WowRealm) ||
+                        string.IsNullOrWhiteSpace(body.WowRegion))
+                    {
+                        return Results.BadRequest(new { success = false, error = "wow_guild_name, wow_realm, and wow_region are required" });
+                    }
+
+                    using var scope = _serviceProvider.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                    var assoc = await db.WowGuildAssociations
+                        .FirstOrDefaultAsync(a => a.ServerId == guildIdLong);
+
+                    if (assoc == null)
+                    {
+                        // Create new association
+                        assoc = new Database.WowGuildAssociations
+                        {
+                            ServerId = guildIdLong
+                        };
+                        db.WowGuildAssociations.Add(assoc);
+                    }
+
+                    // Update fields
+                    assoc.WowGuild = body.WowGuildName;
+                    assoc.WowRealm = body.WowRealm;
+                    assoc.LocalRealmSlug = body.WowRealmSlug ?? "";
+                    assoc.WowRegion = body.WowRegion;
+                    assoc.Locale = body.Locale ?? "en_US";
+                    assoc.ServerName = body.ServerName ?? "";
+
+                    // Track who made the change
+                    if (!string.IsNullOrEmpty(body.SetById) && long.TryParse(body.SetById, out var setById))
+                        assoc.SetById = setById;
+
+                    if (!string.IsNullOrEmpty(body.SetByName))
+                        assoc.SetBy = body.SetByName;
+
+                    assoc.TimeSet = DateTime.UtcNow;
+
+                    await db.SaveChangesAsync();
+
+                    return Results.Json(new
+                    {
+                        success = true,
+                        association = new
+                        {
+                            guild_id = assoc.ServerId?.ToString(),
+                            wow_guild_name = assoc.WowGuild,
+                            wow_realm = assoc.WowRealm,
+                            wow_realm_slug = assoc.LocalRealmSlug,
+                            wow_region = assoc.WowRegion,
+                            locale = assoc.Locale,
+                            set_by_id = assoc.SetById?.ToString(),
+                            set_by_name = assoc.SetBy,
+                            time_set = assoc.TimeSet
+                        }
+                    }, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                    });
+                });
+
+                // GET /api/users/{userId}/away-status - Get away status for a user
+                _app.MapGet("/api/users/{userId}/away-status", async (HttpContext context, string userId) =>
+                {
+                    // Validate API key
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        var providedKey = context.Request.Headers["X-Api-Key"].ToString();
+                        if (providedKey != apiKey)
+                        {
+                            return Results.Unauthorized();
+                        }
+                    }
+
+                    if (!ulong.TryParse(userId, out var userIdLong))
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid user ID" });
+                    }
+
+                    using var scope = _serviceProvider.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                    var status = await db.AwaySystem
+                        .FirstOrDefaultAsync(a => a.UserId == userIdLong);
+
+                    if (status == null)
+                    {
+                        return Results.Json(new
+                        {
+                            success = true,
+                            status = (object?)null
+                        }, new JsonSerializerOptions
+                        {
+                            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                        });
+                    }
+
+                    return Results.Json(new
+                    {
+                        success = true,
+                        status = new
+                        {
+                            user_id = status.UserId.ToString(),
+                            user_name = status.UserName,
+                            is_away = status.Status ?? false,
+                            message = status.Message,
+                            time_away = status.TimeAway
+                        }
+                    }, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                    });
+                });
+
+                // PUT /api/users/{userId}/away-status - Set away status for a user
+                _app.MapPut("/api/users/{userId}/away-status", async (HttpContext context, string userId) =>
+                {
+                    // Validate API key
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        var providedKey = context.Request.Headers["X-Api-Key"].ToString();
+                        if (providedKey != apiKey)
+                        {
+                            return Results.Unauthorized();
+                        }
+                    }
+
+                    if (!ulong.TryParse(userId, out var userIdLong))
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid user ID" });
+                    }
+
+                    var body = await context.Request.ReadFromJsonAsync<UpdateAwayStatusRequest>(
+                        new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
+
+                    if (body == null)
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid request body" });
+                    }
+
+                    using var scope = _serviceProvider.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                    var status = await db.AwaySystem
+                        .FirstOrDefaultAsync(a => a.UserId == userIdLong);
+
+                    if (status == null)
+                    {
+                        // Create new status
+                        status = new Database.AwaySystem
+                        {
+                            UserId = userIdLong
+                        };
+                        db.AwaySystem.Add(status);
+                    }
+
+                    // Update fields
+                    if (!string.IsNullOrEmpty(body.UserName))
+                        status.UserName = body.UserName;
+
+                    if (body.IsAway.HasValue)
+                    {
+                        status.Status = body.IsAway.Value;
+                        status.TimeAway = body.IsAway.Value ? DateTime.UtcNow : null;
+                    }
+
+                    if (body.Message != null)
+                        status.Message = body.Message;
+
+                    await db.SaveChangesAsync();
+
+                    return Results.Json(new
+                    {
+                        success = true,
+                        status = new
+                        {
+                            user_id = status.UserId.ToString(),
+                            user_name = status.UserName,
+                            is_away = status.Status ?? false,
+                            message = status.Message,
+                            time_away = status.TimeAway
+                        }
+                    }, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                    });
+                });
+
+                // PUT /api/characters/{characterId}/main - Set a character as main
+                _app.MapPut("/api/characters/{characterId}/main", async (HttpContext context, string characterId) =>
+                {
+                    // Validate API key
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        var providedKey = context.Request.Headers["X-Api-Key"].ToString();
+                        if (providedKey != apiKey)
+                        {
+                            return Results.Unauthorized();
+                        }
+                    }
+
+                    if (!long.TryParse(characterId, out var charIdLong))
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid character ID" });
+                    }
+
+                    var body = await context.Request.ReadFromJsonAsync<SetMainCharacterRequest>(
+                        new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
+
+                    if (body == null || string.IsNullOrEmpty(body.UserId))
+                    {
+                        return Results.BadRequest(new { success = false, error = "user_id is required" });
+                    }
+
+                    if (!long.TryParse(body.UserId, out var userIdLong))
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid user_id" });
+                    }
+
+                    using var scope = _serviceProvider.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                    // Find the character and verify ownership
+                    var character = await db.WowCharAssociation
+                        .FirstOrDefaultAsync(c => c.Id == charIdLong && c.UserId == userIdLong);
+
+                    if (character == null)
+                    {
+                        return Results.NotFound(new { success = false, error = "Character not found or not owned by user" });
+                    }
+
+                    // Use transaction to ensure atomicity
+                    using var transaction = await db.Database.BeginTransactionAsync();
+                    try
+                    {
+                        // Unset any existing main character for this user
+                        var existingMains = await db.WowCharAssociation
+                            .Where(c => c.UserId == userIdLong && c.IsMain)
+                            .ToListAsync();
+
+                        foreach (var existing in existingMains)
+                        {
+                            existing.IsMain = false;
+                        }
+
+                        // Set the new main
+                        character.IsMain = true;
+                        character.TimeSet = DateTime.UtcNow;
+
+                        await db.SaveChangesAsync();
+                        await transaction.CommitAsync();
+
+                        return Results.Json(new
+                        {
+                            success = true,
+                            character = new
+                            {
+                                id = character.Id,
+                                name = character.CharName,
+                                realm = character.WowRealm,
+                                region = character.WowRegion,
+                                is_main = character.IsMain
+                            }
+                        }, new JsonSerializerOptions
+                        {
+                            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        await transaction.RollbackAsync();
+                        _logger.LogError(ex, "Failed to set main character {CharId} for user {UserId}", charIdLong, userIdLong);
+                        return Results.Json(new { success = false, error = "Failed to set main character" },
+                            statusCode: 500);
+                    }
+                });
+
+                // DELETE /api/characters/{characterId} - Remove a character association
+                _app.MapDelete("/api/characters/{characterId}", async (HttpContext context, string characterId) =>
+                {
+                    // Validate API key
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        var providedKey = context.Request.Headers["X-Api-Key"].ToString();
+                        if (providedKey != apiKey)
+                        {
+                            return Results.Unauthorized();
+                        }
+                    }
+
+                    if (!long.TryParse(characterId, out var charIdLong))
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid character ID" });
+                    }
+
+                    // Get user_id from query string
+                    var userIdStr = context.Request.Query["user_id"].ToString();
+                    if (string.IsNullOrEmpty(userIdStr) || !long.TryParse(userIdStr, out var userIdLong))
+                    {
+                        return Results.BadRequest(new { success = false, error = "user_id query parameter is required" });
+                    }
+
+                    using var scope = _serviceProvider.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                    // Find the character and verify ownership
+                    var character = await db.WowCharAssociation
+                        .FirstOrDefaultAsync(c => c.Id == charIdLong && c.UserId == userIdLong);
+
+                    if (character == null)
+                    {
+                        return Results.NotFound(new { success = false, error = "Character not found or not owned by user" });
+                    }
+
+                    var charName = character.CharName;
+                    var realm = character.WowRealm;
+
+                    db.WowCharAssociation.Remove(character);
+                    await db.SaveChangesAsync();
+
+                    return Results.Json(new
+                    {
+                        success = true,
+                        message = $"Character {charName} ({realm}) removed"
+                    }, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                    });
+                });
+
                 // POST /api/polls/create - Create a new poll and post to Discord
                 _app.MapPost("/api/polls/create", async (HttpContext context) =>
                 {
@@ -1103,7 +2223,7 @@ namespace NinjaBotCore.Services
                             Question = body.Question.Trim(),
                             PollType = pollType,
                             AllowVoteChange = body.AllowVoteChange ?? true,
-                            IsAnonymous = false,
+                            IsAnonymous = body.IsAnonymous ?? false,
                             IsClosed = false,
                             CreatedAt = DateTime.UtcNow,
                             ExpiresAt = expiresAt,
@@ -1410,6 +2530,87 @@ namespace NinjaBotCore.Services
         string? Question,
         System.Collections.Generic.List<string>? Options,
         string? Duration,
-        bool? AllowVoteChange
+        bool? AllowVoteChange,
+        bool? IsAnonymous
+    );
+
+    /// <summary>
+    /// Request body for updating poll settings.
+    /// </summary>
+    public record UpdatePollSettingsRequest(
+        string? ResultsChannelId,
+        bool? MentionVotersOnClose,
+        bool? DefaultAnonymous,
+        string? UserId,
+        string? UserName
+    );
+
+    /// <summary>
+    /// Request body for updating log monitoring settings.
+    /// </summary>
+    public record UpdateLogMonitoringRequest(
+        string? ChannelId,
+        string? ChannelName,
+        bool? MonitorLogs,
+        string? ServerName
+    );
+
+    /// <summary>
+    /// Request body for updating greeting settings.
+    /// </summary>
+    public record UpdateGreetingSettingsRequest(
+        bool? GreetUsers,
+        string? Greeting,
+        string? GreetingChannelId,
+        string? GreetingChannelName,
+        string? PartingMessage,
+        string? PartingChannelId,
+        string? SetById,
+        string? SetByName
+    );
+
+    /// <summary>
+    /// Request body for updating moderation watcher settings.
+    /// </summary>
+    public record UpdateModerationWatcherRequest(
+        string? ChannelId,
+        string? ChannelName,
+        bool? WatchVoice,
+        bool? WatchMessages,
+        bool? WatchRoles,
+        bool? WatchBans,
+        bool? WatchNicknames,
+        string? SetById,
+        string? SetByName
+    );
+
+    /// <summary>
+    /// Request body for updating WoW guild association.
+    /// </summary>
+    public record UpdateWowAssociationRequest(
+        string? WowGuildName,
+        string? WowRealm,
+        string? WowRealmSlug,
+        string? WowRegion,
+        string? Locale,
+        string? ServerName,
+        string? SetById,
+        string? SetByName
+    );
+
+    /// <summary>
+    /// Request body for updating away status.
+    /// </summary>
+    public record UpdateAwayStatusRequest(
+        string? UserName,
+        bool? IsAway,
+        string? Message
+    );
+
+    /// <summary>
+    /// Request body for setting a character as main.
+    /// </summary>
+    public record SetMainCharacterRequest(
+        string? UserId
     );
 }

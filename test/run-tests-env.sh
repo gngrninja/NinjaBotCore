@@ -19,7 +19,7 @@ fi
 if ! docker ps | grep -q ninjabot-test-db; then
     echo "Starting PostgreSQL test database..."
     cd "$PROJECT_ROOT"
-    docker-compose -f docker-compose.test.yml up -d
+    docker-compose -f docker-compose.dev.yml up -d postgres-dev
 
     echo "Waiting for PostgreSQL to be ready..."
     sleep 3

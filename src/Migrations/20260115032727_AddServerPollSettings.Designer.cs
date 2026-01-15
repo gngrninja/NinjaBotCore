@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NinjaBotCore.Database;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace NinjaBotCore.Migrations
 {
     [DbContext(typeof(NinjaBotEntities))]
-    partial class NinjaBotEntitiesModelSnapshot : ModelSnapshot
+    [Migration("20260115032727_AddServerPollSettings")]
+    partial class AddServerPollSettings
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -763,9 +766,6 @@ namespace NinjaBotCore.Migrations
                         .HasColumnType("bigint");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("DiscordGuildId"));
-
-                    b.Property<bool>("DefaultAnonymous")
-                        .HasColumnType("boolean");
 
                     b.Property<bool>("MentionVotersOnClose")
                         .HasColumnType("boolean");

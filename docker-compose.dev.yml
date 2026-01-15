@@ -1,0 +1,55 @@
+# Development environment - runs both database and bot in Docker
+# Usage: docker compose -f docker-compose.dev.yml up --build
+# API available at: http://localhost:5100
+
+services:
+  postgres-dev:
+    image: postgres:16-alpine
+    container_name: ninjabot-test-db
+    environment:
+      POSTGRES_DB: ninjabot_test
+      POSTGRES_USER: ninjabot_test
+      POSTGRES_PASSWORD: test_password_local_only
+      POSTGRES_INITDB_ARGS: "-E UTF8"
+    ports:
+      - "5433:5432"  # Exposed for migrations and debugging
+    volumes:
+      - ninjabot-test-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ninjabot_test -d ninjabot_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - ninjabot-dev-network
+
+  ninjabot-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ninjabot-dev
+    restart: unless-stopped
+    depends_on:
+      postgres-dev:
+        condition: service_healthy
+    ports:
+      - "5100:5100"  # Commands API
+    environment:
+      # API configuration - bind to all interfaces for Docker
+      - NINJABOT_CommandsApi__Host=0.0.0.0
+    env_file:
+      - .env.development         # Base config (Discord token, API keys, etc.)
+      - .env.development.docker  # Docker-specific overrides (DB connection)
+    volumes:
+      - ./logs:/app/logs
+      - ./config:/app/config:ro
+    networks:
+      - ninjabot-dev-network
+
+networks:
+  ninjabot-dev-network:
+    driver: bridge
+
+volumes:
+  ninjabot-test-data:
+    driver: local

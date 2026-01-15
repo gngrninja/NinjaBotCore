@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NinjaBotCore.Database;
+using NinjaBotCore.Modules.Interactions.Polls;
 using NinjaBotCore.Repositories;
 
 // Type aliases to avoid naming conflict with Discord.Poll
@@ -112,8 +113,8 @@ namespace NinjaBotCore.Services
                                 // Update Discord message
                                 await UpdatePollMessageAsync(poll);
 
-                                // Send notification
-                                await SendExpirationNotificationAsync(poll);
+                                // Post poll results
+                                await PostPollResultsAsync(poll, db);
                             }
                             catch (Exception ex)
                             {
@@ -192,29 +193,62 @@ namespace NinjaBotCore.Services
             }
         }
 
-        private async Task SendExpirationNotificationAsync(DbPoll poll)
+        private async Task PostPollResultsAsync(DbPoll poll, NinjaBotEntities db)
         {
             try
             {
+                // Get server poll settings
+                var settings = await db.ServerPollSettings
+                    .FirstOrDefaultAsync(s => s.DiscordGuildId == poll.GuildId);
+
+                // Determine target channel
+                var targetChannelId = settings?.ResultsChannelId ?? poll.ChannelId;
+
                 var guild = _client.GetGuild((ulong)poll.GuildId);
-                if (guild == null) return;
+                if (guild == null)
+                {
+                    _logger.LogWarning("Guild {GuildId} not found for poll results {PollId}", poll.GuildId, poll.Id);
+                    return;
+                }
 
-                var channel = guild.GetTextChannel((ulong)poll.ChannelId);
-                if (channel == null) return;
+                var channel = guild.GetTextChannel((ulong)targetChannelId);
+                if (channel == null)
+                {
+                    _logger.LogWarning("Channel {ChannelId} not found for poll results {PollId}", targetChannelId, poll.Id);
+                    return;
+                }
 
-                var embed = new EmbedBuilder()
-                    .WithColor(Color.Orange)
-                    .WithTitle("📊 Poll Expired")
-                    .WithDescription($"The poll **\"{poll.Question}\"** has expired and been automatically closed.")
-                    .WithFooter($"Poll ID: {poll.Id}")
-                    .WithTimestamp(DateTimeOffset.UtcNow)
-                    .Build();
+                // Build results embed
+                var resultsBuilder = new PollResultsBuilder();
+                var options = poll.PollOptions?.ToList() ?? new List<DbPollOption>();
+                var votes = poll.PollVotes?.ToList() ?? new List<DbPollVote>();
+                var embed = resultsBuilder.BuildResultsEmbed(poll, options, votes, closedBy: null, wasExpired: true);
 
-                await channel.SendMessageAsync(embed: embed);
+                // Build voter mentions if enabled
+                string? content = null;
+                if (settings?.MentionVotersOnClose == true && !poll.IsAnonymous)
+                {
+                    content = resultsBuilder.BuildVoterMentions(votes, poll.IsAnonymous);
+                }
+
+                // Send results message as a reply to the original poll
+                var messageReference = new MessageReference(
+                    messageId: (ulong)poll.MessageId,
+                    channelId: (ulong)poll.ChannelId,
+                    guildId: (ulong)poll.GuildId,
+                    failIfNotExists: false);
+
+                await channel.SendMessageAsync(
+                    text: string.IsNullOrEmpty(content) ? null : content,
+                    embed: embed,
+                    messageReference: messageReference,
+                    allowedMentions: AllowedMentions.All);
+
+                _logger.LogInformation("Posted poll results for expired poll {PollId} to channel {ChannelId}", poll.Id, targetChannelId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error sending expiration notification for poll {PollId}", poll.Id);
+                _logger.LogError(ex, "Error posting poll results for poll {PollId}", poll.Id);
             }
         }
 

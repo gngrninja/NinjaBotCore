@@ -26,6 +26,7 @@ ninjabot.db-journal
 .env.local
 .env.test
 .env.development
+.env.development.docker
 .env.production
 
 #Ignore misc files

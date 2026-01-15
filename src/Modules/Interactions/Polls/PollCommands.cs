@@ -15,6 +15,7 @@ using NinjaBotCore.Modules.Interactions;
 using DbPoll = NinjaBotCore.Database.Poll;
 using DbPollOption = NinjaBotCore.Database.PollOption;
 using DbPollVote = NinjaBotCore.Database.PollVote;
+using DbServerPollSettings = NinjaBotCore.Database.ServerPollSettings;
 
 namespace NinjaBotCore.Modules.Interactions.Polls
 {
@@ -63,11 +64,14 @@ namespace NinjaBotCore.Modules.Interactions.Polls
 
             try
             {
-                var (success, message) = await ClosePollAsync(pollId, (long)Context.User.Id);
+                var (success, message, poll) = await ClosePollAsync(pollId, (long)Context.User.Id);
 
-                if (success)
+                if (success && poll != null)
                 {
                     _logger.LogInformation("Poll closed: {PollId} by {UserId}", pollId, Context.User.Id);
+
+                    // Post results message
+                    await PostPollResultsAsync(poll, closedBy: Context.User.Username, wasExpired: false);
                 }
 
                 await FollowupAsync(message, ephemeral: true);
@@ -76,6 +80,99 @@ namespace NinjaBotCore.Modules.Interactions.Polls
             {
                 _logger.LogError(ex, "Error closing poll {PollId}", pollId);
                 await FollowupAsync("❌ An error occurred while closing the poll.", ephemeral: true);
+            }
+        }
+
+        [SlashCommand("settings", "Configure poll settings for this server")]
+        [RequireUserPermission(GuildPermission.ManageGuild)]
+        public async Task PollSettings(
+            [Summary("results_channel", "Channel where poll results are posted (leave empty for same channel)")] ITextChannel? resultsChannel = null,
+            [Summary("mention_voters", "Mention voters when polls close")] bool? mentionVoters = null)
+        {
+            await DeferAsync(ephemeral: true);
+
+            try
+            {
+                var guildId = (long)Context.Guild.Id;
+
+                // Get or create settings
+                var settings = await WithScopedUnitOfWorkAsync(async uow =>
+                {
+                    var settingsRepo = uow.Repository<DbServerPollSettings>();
+                    var existing = await uow.Context.ServerPollSettings
+                        .FirstOrDefaultAsync(s => s.DiscordGuildId == guildId);
+
+                    if (existing == null)
+                    {
+                        existing = new DbServerPollSettings
+                        {
+                            DiscordGuildId = guildId,
+                            MentionVotersOnClose = false,
+                            ResultsChannelId = null
+                        };
+                        await settingsRepo.AddAsync(existing);
+                    }
+
+                    // Update settings if provided
+                    bool changed = false;
+                    if (resultsChannel != null)
+                    {
+                        existing.ResultsChannelId = (long)resultsChannel.Id;
+                        changed = true;
+                    }
+                    if (mentionVoters.HasValue)
+                    {
+                        existing.MentionVotersOnClose = mentionVoters.Value;
+                        changed = true;
+                    }
+
+                    if (changed)
+                    {
+                        existing.SetById = (long)Context.User.Id;
+                        existing.SetByName = Context.User.Username;
+                        existing.TimeSet = DateTime.UtcNow;
+                        await uow.SaveChangesAsync();
+                    }
+
+                    return existing;
+                });
+
+                // Build response embed
+                var embed = new EmbedBuilder()
+                    .WithTitle("📊 Poll Settings")
+                    .WithColor(Color.Blue)
+                    .WithTimestamp(DateTimeOffset.UtcNow);
+
+                // Results channel
+                if (settings.ResultsChannelId.HasValue)
+                {
+                    embed.AddField("Results Channel", $"<#{settings.ResultsChannelId.Value}>", inline: true);
+                }
+                else
+                {
+                    embed.AddField("Results Channel", "Same as poll (default)", inline: true);
+                }
+
+                // Mention voters
+                embed.AddField("Mention Voters", settings.MentionVotersOnClose ? "✅ Yes" : "❌ No", inline: true);
+
+                // Last updated
+                if (settings.TimeSet.HasValue && !string.IsNullOrEmpty(settings.SetByName))
+                {
+                    embed.WithFooter($"Last updated by {settings.SetByName}");
+                }
+
+                var description = resultsChannel != null || mentionVoters.HasValue
+                    ? "✅ Settings updated successfully!"
+                    : "Current poll settings for this server:";
+                embed.WithDescription(description);
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating poll settings");
+                await FollowupAsync("❌ An error occurred while updating settings.", ephemeral: true);
             }
         }
 
@@ -232,7 +329,7 @@ namespace NinjaBotCore.Modules.Interactions.Polls
             }
         }
 
-        private async Task<(bool success, string message)> ClosePollAsync(long pollId, long userId)
+        private async Task<(bool success, string message, DbPoll? poll)> ClosePollAsync(long pollId, long userId)
         {
             return await WithScopedUnitOfWorkAsync(async uow =>
             {
@@ -244,10 +341,10 @@ namespace NinjaBotCore.Modules.Interactions.Polls
                     .FirstOrDefaultAsync(p => p.Id == pollId);
 
                 if (poll == null)
-                    return (false, "❌ Poll not found.");
+                    return (false, "❌ Poll not found.", null);
 
                 if (poll.IsClosed)
-                    return (false, "❌ Poll is already closed.");
+                    return (false, "❌ Poll is already closed.", null);
 
                 // Check permissions - only creator or moderators can close
                 var guildUser = Context.User as SocketGuildUser;
@@ -255,7 +352,7 @@ namespace NinjaBotCore.Modules.Interactions.Polls
                 var isModerator = guildUser?.GuildPermissions.ManageMessages ?? false;
 
                 if (!isCreator && !isModerator)
-                    return (false, "❌ Only the poll creator or moderators can close this poll.");
+                    return (false, "❌ Only the poll creator or moderators can close this poll.", null);
 
                 poll.IsClosed = true;
                 poll.ClosedAt = DateTime.UtcNow;
@@ -265,8 +362,67 @@ namespace NinjaBotCore.Modules.Interactions.Polls
                 await UpdatePollMessageAsync(pollId);
 
                 var totalVotes = poll.PollVotes.Count;
-                return (true, $"✅ Poll closed successfully. Total votes: {totalVotes}");
+                return (true, $"✅ Poll closed successfully. Total votes: {totalVotes}", poll);
             });
+        }
+
+        /// <summary>
+        /// Posts a poll results message to the appropriate channel.
+        /// </summary>
+        public async Task PostPollResultsAsync(DbPoll poll, string? closedBy = null, bool wasExpired = false)
+        {
+            try
+            {
+                var guildId = (long)poll.GuildId;
+
+                // Get server poll settings
+                var settings = await WithDbAsync(async db =>
+                    await db.ServerPollSettings.FirstOrDefaultAsync(s => s.DiscordGuildId == guildId));
+
+                // Determine target channel
+                var targetChannelId = settings?.ResultsChannelId ?? poll.ChannelId;
+
+                var guild = _client.GetGuild((ulong)poll.GuildId);
+                var channel = guild?.GetChannel((ulong)targetChannelId) as IMessageChannel;
+
+                if (channel == null)
+                {
+                    _logger.LogWarning("Could not find channel {ChannelId} for poll results", targetChannelId);
+                    return;
+                }
+
+                // Build results embed
+                var resultsBuilder = new PollResultsBuilder();
+                var options = poll.PollOptions?.ToList() ?? new List<DbPollOption>();
+                var votes = poll.PollVotes?.ToList() ?? new List<DbPollVote>();
+                var embed = resultsBuilder.BuildResultsEmbed(poll, options, votes, closedBy, wasExpired);
+
+                // Build voter mentions if enabled
+                string? content = null;
+                if (settings?.MentionVotersOnClose == true && !poll.IsAnonymous)
+                {
+                    content = resultsBuilder.BuildVoterMentions(votes, poll.IsAnonymous);
+                }
+
+                // Send results message as a reply to the original poll
+                var messageReference = new MessageReference(
+                    messageId: (ulong)poll.MessageId,
+                    channelId: (ulong)poll.ChannelId,
+                    guildId: (ulong)poll.GuildId,
+                    failIfNotExists: false);
+
+                await channel.SendMessageAsync(
+                    text: string.IsNullOrEmpty(content) ? null : content,
+                    embed: embed,
+                    messageReference: messageReference,
+                    allowedMentions: AllowedMentions.All);
+
+                _logger.LogInformation("Posted poll results for poll {PollId} to channel {ChannelId}", poll.Id, targetChannelId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error posting poll results for poll {PollId}", poll.Id);
+            }
         }
     }
 }
