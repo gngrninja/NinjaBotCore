@@ -28,7 +28,21 @@ namespace NinjaBotCore
         private IConfigurationRoot _config;
         
         public async Task StartAsync()
-        {    
+        {
+            try
+            {
+                await StartAsyncInternal();
+            }
+            catch (Exception ex)
+            {
+                Log.Fatal(ex, "FATAL ERROR during bot startup: {Message}", ex.Message);
+                Log.Fatal("Stack trace: {StackTrace}", ex.StackTrace);
+                throw;
+            }
+        }
+
+        private async Task StartAsyncInternal()
+        {
             //Create the configuration
             var basePath = Directory.GetCurrentDirectory();
             var configCandidates = new[]
@@ -91,6 +105,7 @@ namespace NinjaBotCore
                 .AddSingleton<DiscordServerTrackingService>()
                 .AddSingleton<HelpContentProvider>()
                 .AddSingleton<CommandsApiService>()
+                .AddSingleton<PollExpirationService>()
                 .AddSingleton<WowCacheService>()
                 .AddSingleton<WowTokenService>()
                 .AddSingleton<WowStaticDataService>()
@@ -155,6 +170,10 @@ namespace NinjaBotCore
             // Start Commands API server (if enabled)
             var commandsApi = serviceProvider.GetRequiredService<CommandsApiService>();
             await commandsApi.StartAsync(CancellationToken.None);
+
+            // Start Poll Expiration Service
+            var pollExpirationService = serviceProvider.GetRequiredService<PollExpirationService>();
+            await pollExpirationService.StartAsync(CancellationToken.None);
 
             //Setup graceful shutdown
             var shutdownCts = new CancellationTokenSource();

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Discord;
 using Microsoft.Extensions.DependencyInjection;
 using Discord.WebSocket;
+using Microsoft.EntityFrameworkCore;
 using NinjaBotCore.Database;
 using NinjaBotCore.Repositories;
 using NinjaBotCore.Services;
@@ -18,14 +19,17 @@ namespace NinjaBotCore.Modules.Admin
         private readonly ILogger _logger;
         private readonly DiscordShardedClient _client;
         private readonly IServiceScopeFactory _scopeFactory;
+        private readonly IServiceProvider _services;
         private readonly WowCacheService _greetingCache;
         private bool _disposed;
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, byte> _handledInteractions = new();
 
         // NOTE: UserInteraction is registered as Singleton to hook Discord events at startup
         // Therefore, it cannot use scoped repository injection (Pattern #3)
         // Instead, it uses Pattern #1 (GetRepository) like AwayCommands and WowUtilities
         public UserInteraction(IServiceProvider services)
         {
+            _services = services;
             _logger = services.GetRequiredService<ILogger<UserInteraction>>();
             _client = services.GetRequiredService<DiscordShardedClient>();
             _scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
@@ -33,7 +37,9 @@ namespace NinjaBotCore.Modules.Admin
 
             services.GetRequiredService<DiscordShardedClient>().UserJoined += HandleGreeting;
             services.GetRequiredService<DiscordShardedClient>().UserLeft += HandleParting;
-            services.GetRequiredService<DiscordShardedClient>().ModalSubmitted += HandleModal;
+            // Subscribe to specific events instead of generic InteractionCreated to avoid conflicts with InteractionHandler
+            services.GetRequiredService<DiscordShardedClient>().ModalSubmitted += HandleModalSubmitted;
+            services.GetRequiredService<DiscordShardedClient>().ButtonExecuted += HandleButtonExecuted;
 
             _logger.LogInformation($"UserInteractions loaded");
         }
@@ -44,33 +50,302 @@ namespace NinjaBotCore.Modules.Admin
             return new Repository<TEntity>(_scopeFactory);
         }
 
-        private async Task HandleModal(SocketModal modal)
+        /// <summary>
+        /// Handles modal submissions for join/part messages and polls.
+        /// Uses ModalSubmitted event (not InteractionCreated) to avoid conflicts with slash command handling.
+        /// </summary>
+        private async Task HandleModalSubmitted(SocketModal modal)
         {
-            // Defer the interaction immediately to prevent timeout (Discord requires response within 3 seconds)
-            await modal.DeferAsync(ephemeral: true);
+            var customId = modal.Data.CustomId;
+            var legacyModals = new[] { "joining_message", "parting_message", "discord_server_note" };
+            var pollModals = new[] { "poll_create_modal" };
 
-            // Get the values of components.
-            List<SocketMessageComponentData> components =
-                modal.Data.Components.ToList();
-            var embed = new EmbedBuilder();
-            StringBuilder sb = new StringBuilder();
-            var guildInfo = _client.GetGuild((ulong)modal.GuildId);
-            switch (modal.Data.CustomId)
+            // Skip modals that aren't handled here
+            if (!legacyModals.Contains(customId) && !pollModals.Contains(customId))
             {
-                case "joining_message":
+                return;
+            }
+
+            // Prevent duplicate handling (sharded client may fire event multiple times)
+            if (!_handledInteractions.TryAdd(modal.Id, 0))
+            {
+                _logger.LogWarning("Modal {CustomId} already being handled, skipping duplicate", customId);
+                return;
+            }
+
+            try
+            {
+                // Defer the interaction immediately
+                // ModalSubmitted fires AFTER InteractionCreated, ensuring Discord's API is synced
+                if (!modal.HasResponded)
                 {
-                    await HandleJoiningModal(modal, components, embed, sb, guildInfo);
-                    break;
+                    try
+                    {
+                        await modal.DeferAsync(ephemeral: true);
+                    }
+                    catch (Discord.Net.HttpException ex) when (ex.DiscordCode.GetValueOrDefault() == (DiscordErrorCode)10062)
+                    {
+                        // Error 10062 typically means the defer actually succeeded on Discord's backend
+                        // but the REST API hasn't synced yet. Continue processing and use FollowupAsync.
+                        _logger.LogDebug("Received error 10062 on modal defer for {CustomId} - assuming defer succeeded", customId);
+                    }
+                    catch (Discord.Net.HttpException ex)
+                    {
+                        _logger.LogError(ex, "Failed to defer modal {CustomId} (DiscordCode: {Code})", customId, ex.DiscordCode);
+                        throw; // Can't proceed without deferring
+                    }
                 }
-                case "parting_message":
+
+                _logger.LogDebug("Processing modal {CustomId}", customId);
+
+                // Get the values of components.
+                List<SocketMessageComponentData> components =
+                    modal.Data.Components.ToList();
+                var embed = new EmbedBuilder();
+                StringBuilder sb = new StringBuilder();
+                var guildInfo = _client.GetGuild((ulong)modal.GuildId);
+
+                switch (customId)
                 {
-                    await HandlePartingModal(modal, components, embed, sb, guildInfo);
-                    break;
+                    case "joining_message":
+                    {
+                        await HandleJoiningModal(modal, components, embed, sb, guildInfo);
+                        break;
+                    }
+                    case "parting_message":
+                    {
+                        await HandlePartingModal(modal, components, embed, sb, guildInfo);
+                        break;
+                    }
+                    case "discord_server_note":
+                    {
+                        await HandleNoteModal(modal, components, embed, sb, guildInfo);
+                        break;
+                    }
+                    case "poll_create_modal":
+                    {
+                        await HandlePollModal(modal, components);
+                        break;
+                    }
                 }
-                case "discord_server_note":
+            }
+            finally
+            {
+                // Clean up handled interaction after processing (or after 1 second for safety)
+                _ = Task.Delay(1000).ContinueWith(_ => _handledInteractions.TryRemove(modal.Id, out byte _));
+            }
+        }
+
+        /// <summary>
+        /// Handles button clicks for poll voting and closing.
+        /// Uses ButtonExecuted event (not InteractionCreated) to avoid conflicts with slash command handling.
+        /// </summary>
+        private async Task HandleButtonExecuted(SocketMessageComponent component)
+        {
+            var customId = component.Data.CustomId;
+
+            // Only handle poll-related components
+            if (!customId.StartsWith("poll_vote~") && !customId.StartsWith("poll_close~"))
+                return;
+
+            // Prevent duplicate handling (sharded client may fire event multiple times)
+            if (!_handledInteractions.TryAdd(component.Id, 0))
+            {
+                _logger.LogWarning("Component {CustomId} already being handled, skipping duplicate", customId);
+                return;
+            }
+
+            try
+            {
+                // Defer is handled in the individual component handlers (HandlePollVoteComponent, HandlePollCloseComponent)
+                // ButtonExecuted fires AFTER InteractionCreated, ensuring Discord's API is synced
+                _logger.LogDebug("Processing poll component {CustomId}", customId);
+
+                if (customId.StartsWith("poll_vote~"))
                 {
-                    await HandleNoteModal(modal, components, embed, sb, guildInfo);
-                    break;
+                    await HandlePollVoteComponent(component);
+                }
+                else if (customId.StartsWith("poll_close~"))
+                {
+                    await HandlePollCloseComponent(component);
+                }
+            }
+            finally
+            {
+                // Clean up handled interaction after processing
+                _ = Task.Delay(1000).ContinueWith(_ => _handledInteractions.TryRemove(component.Id, out byte _));
+            }
+        }
+
+        private async Task HandlePollVoteComponent(SocketMessageComponent component)
+        {
+            try
+            {
+                // Try to defer the interaction
+                // Note: This can fail with "Unknown interaction" if the message was recently updated
+                // but Discord often processes the defer successfully despite the error
+                bool deferred = false;
+                if (!component.HasResponded)
+                {
+                    try
+                    {
+                        await component.DeferAsync(ephemeral: true);
+                        deferred = true;
+                    }
+                    catch (Discord.Net.HttpException ex) when (ex.DiscordCode.GetValueOrDefault() == (DiscordErrorCode)10062)
+                    {
+                        // Error 10062 typically means the defer actually succeeded on Discord's backend
+                        // but the REST API hasn't synced yet. Always assume it succeeded and use FollowupAsync.
+                        _logger.LogDebug("Received error 10062 on vote defer - assuming defer succeeded");
+                        deferred = true;
+                    }
+                    catch (Discord.Net.HttpException ex)
+                    {
+                        _logger.LogError(ex, "Failed to defer poll vote (DiscordCode: {Code})", ex.DiscordCode);
+                        throw;
+                    }
+                }
+
+                // Parse custom ID: poll_vote~userId~pollId~optionId
+                var parts = component.Data.CustomId.Split('~');
+                if (parts.Length != 4 ||
+                    !ulong.TryParse(parts[1], out var userId) ||
+                    !long.TryParse(parts[2], out var pollId) ||
+                    !long.TryParse(parts[3], out var optionId))
+                {
+                    _logger.LogWarning("Invalid poll vote CustomId format: {CustomId}", component.Data.CustomId);
+                    var errorMsg = "❌ Invalid poll data.";
+                    try
+                    {
+                        if (deferred)
+                            await component.FollowupAsync(errorMsg, ephemeral: true);
+                        else
+                            await component.RespondAsync(errorMsg, ephemeral: true);
+                    }
+                    catch (Discord.Net.HttpException ex) when (ex.DiscordCode.GetValueOrDefault() == (DiscordErrorCode)40060)
+                    {
+                        await component.FollowupAsync(errorMsg, ephemeral: true);
+                    }
+                    return;
+                }
+
+                // Process vote
+                var result = await ProcessPollVoteAsync(pollId, optionId, (long)component.User.Id, component.User.Username);
+
+                // Update poll message
+                await UpdatePollMessageAsync(pollId);
+
+                // Send response
+                try
+                {
+                    if (deferred)
+                    {
+                        await component.FollowupAsync(result, ephemeral: true);
+                    }
+                    else
+                    {
+                        await component.RespondAsync(result, ephemeral: true);
+                    }
+                }
+                catch (Discord.Net.HttpException ex) when (ex.DiscordCode.GetValueOrDefault() == (DiscordErrorCode)40060)
+                {
+                    // Interaction already acknowledged - try followup instead
+                    _logger.LogDebug("Interaction already acknowledged (40060), using followup");
+                    await component.FollowupAsync(result, ephemeral: true);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing poll vote");
+                try
+                {
+                    await component.FollowupAsync("❌ An error occurred while processing your vote.", ephemeral: true);
+                }
+                catch
+                {
+                    _logger.LogWarning("Could not send error followup - interaction may have expired");
+                }
+            }
+        }
+
+        private async Task HandlePollCloseComponent(SocketMessageComponent component)
+        {
+            try
+            {
+                // Try to defer the interaction
+                // Note: This can fail with "Unknown interaction" if the message was recently updated
+                // but Discord often processes the defer successfully despite the error
+                bool deferred = false;
+                if (!component.HasResponded)
+                {
+                    try
+                    {
+                        await component.DeferAsync(ephemeral: true);
+                        deferred = true;
+                    }
+                    catch (Discord.Net.HttpException ex) when (ex.DiscordCode.GetValueOrDefault() == (DiscordErrorCode)10062)
+                    {
+                        // Error 10062 typically means the defer actually succeeded on Discord's backend
+                        // but the REST API hasn't synced yet. Always assume it succeeded and use FollowupAsync.
+                        _logger.LogDebug("Received error 10062 on close defer - assuming defer succeeded");
+                        deferred = true;
+                    }
+                    catch (Discord.Net.HttpException ex)
+                    {
+                        _logger.LogError(ex, "Failed to defer poll close (DiscordCode: {Code})", ex.DiscordCode);
+                        throw;
+                    }
+                }
+
+                // Parse custom ID: poll_close~creatorId~pollId
+                var parts = component.Data.CustomId.Split('~');
+                if (parts.Length != 3 ||
+                    !long.TryParse(parts[1], out var creatorId) ||
+                    !long.TryParse(parts[2], out var pollId))
+                {
+                    _logger.LogWarning("Invalid poll close CustomId format: {CustomId}", component.Data.CustomId);
+                    var errorMsg = "❌ Invalid poll data.";
+                    try
+                    {
+                        if (deferred)
+                            await component.FollowupAsync(errorMsg, ephemeral: true);
+                        else
+                            await component.RespondAsync(errorMsg, ephemeral: true);
+                    }
+                    catch (Discord.Net.HttpException ex) when (ex.DiscordCode.GetValueOrDefault() == (DiscordErrorCode)40060)
+                    {
+                        await component.FollowupAsync(errorMsg, ephemeral: true);
+                    }
+                    return;
+                }
+
+                var (success, message) = await ClosePollAsync(pollId, (long)component.User.Id, component.Channel as SocketGuildChannel);
+
+                // Send response
+                try
+                {
+                    if (deferred)
+                        await component.FollowupAsync(message, ephemeral: true);
+                    else
+                        await component.RespondAsync(message, ephemeral: true);
+                }
+                catch (Discord.Net.HttpException ex) when (ex.DiscordCode.GetValueOrDefault() == (DiscordErrorCode)40060)
+                {
+                    // Interaction already acknowledged - try followup instead
+                    _logger.LogDebug("Interaction already acknowledged (40060), using followup");
+                    await component.FollowupAsync(message, ephemeral: true);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error closing poll");
+                try
+                {
+                    await component.FollowupAsync("❌ An error occurred while closing the poll.", ephemeral: true);
+                }
+                catch
+                {
+                    _logger.LogWarning("Could not send error followup - interaction may have expired");
                 }
             }
         }
@@ -318,6 +593,456 @@ namespace NinjaBotCore.Modules.Admin
             return await _greetingCache.GetServerGreetingAsync((long)guildId);
         }
 
+        private async Task HandlePollModal(SocketModal modal, List<SocketMessageComponentData> components)
+        {
+            try
+            {
+                // Extract form values
+                var question = components.First(x => x.CustomId == "poll_question").Value?.Trim();
+                var optionsText = components.FirstOrDefault(x => x.CustomId == "poll_options")?.Value?.Trim();
+                var durationText = components.FirstOrDefault(x => x.CustomId == "poll_duration")?.Value?.Trim();
+
+                // Validate question
+                if (string.IsNullOrWhiteSpace(question))
+                {
+                    await modal.FollowupAsync("❌ Poll question cannot be empty.", ephemeral: true);
+                    return;
+                }
+
+                // Parse options
+                List<string> options;
+                string pollType;
+
+                if (string.IsNullOrWhiteSpace(optionsText))
+                {
+                    // Default to Yes/No poll
+                    options = new List<string> { "Yes", "No" };
+                    pollType = "YesNo";
+                }
+                else
+                {
+                    // Parse newline-separated options
+                    options = optionsText.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Where(o => !string.IsNullOrWhiteSpace(o))
+                        .Take(25) // Discord limit: 25 buttons max (5 rows x 5 buttons)
+                        .ToList();
+
+                    if (options.Count < 2)
+                    {
+                        await modal.FollowupAsync("❌ Poll must have at least 2 options.", ephemeral: true);
+                        return;
+                    }
+
+                    pollType = "SingleChoice";
+                }
+
+                // Parse duration
+                DateTime? expiresAt = null;
+                if (!string.IsNullOrWhiteSpace(durationText))
+                {
+                    expiresAt = ParsePollDuration(durationText);
+                    if (!expiresAt.HasValue)
+                    {
+                        await modal.FollowupAsync("❌ Invalid duration format. Use: 1h, 12h, 24h, 1d, 7d, 1w", ephemeral: true);
+                        return;
+                    }
+                }
+
+                // Create poll in database
+                Database.Poll poll;
+                await using (var pollRepo = new Repository<Database.Poll>(_scopeFactory))
+                await using (var optionRepo = new Repository<Database.PollOption>(_scopeFactory))
+                {
+                    var newPoll = new Database.Poll
+                    {
+                        Question = question,
+                        PollType = pollType,
+                        AllowVoteChange = true,
+                        IsAnonymous = false,
+                        IsClosed = false,
+                        CreatedAt = DateTime.UtcNow,
+                        ExpiresAt = expiresAt,
+                        CreatedById = (long)modal.User.Id,
+                        CreatedByName = modal.User.Username,
+                        GuildId = (long)modal.GuildId,
+                        ChannelId = (long)modal.Channel.Id,
+                        MessageId = 0 // Will be updated after posting message
+                    };
+
+                    await pollRepo.AddAsync(newPoll);
+                    await pollRepo.SaveChangesAsync();
+
+                    // Add options
+                    for (int i = 0; i < options.Count; i++)
+                    {
+                        var option = new Database.PollOption
+                        {
+                            PollId = newPoll.Id,
+                            OptionText = options[i],
+                            DisplayOrder = i,
+                            Emote = GetPollEmote(i)
+                        };
+                        await optionRepo.AddAsync(option);
+                    }
+
+                    await optionRepo.SaveChangesAsync();
+
+                    // Reload with options
+                    poll = await pollRepo.Query
+                        .Include(p => p.PollOptions)
+                        .FirstOrDefaultAsync(p => p.Id == newPoll.Id);
+                }
+
+                if (poll == null)
+                {
+                    await modal.FollowupAsync("❌ Failed to create poll.", ephemeral: true);
+                    return;
+                }
+
+                // Post poll message to channel
+                var embed = BuildPollEmbed(poll);
+                var pollComponents = BuildPollComponents(poll, modal.User.Id);
+
+                var guild = _client.GetGuild((ulong)modal.GuildId);
+                var channel = guild?.GetChannel((ulong)modal.Channel.Id) as ISocketMessageChannel;
+                if (channel == null)
+                {
+                    await modal.FollowupAsync("❌ Could not access channel.", ephemeral: true);
+                    return;
+                }
+
+                var message = await channel.SendMessageAsync(embed: embed.Build(), components: pollComponents.Build());
+
+                // Update poll with message ID
+                await using (var updateRepo = new Repository<Database.Poll>(_scopeFactory))
+                {
+                    var pollToUpdate = await updateRepo.Query.FirstOrDefaultAsync(p => p.Id == poll.Id);
+                    if (pollToUpdate != null)
+                    {
+                        pollToUpdate.MessageId = (long)message.Id;
+                        updateRepo.Update(pollToUpdate);
+                        await updateRepo.SaveChangesAsync();
+                    }
+                }
+
+                _logger.LogInformation("Poll created: {PollId} by {UserId} in {GuildId}",
+                    poll.Id, modal.User.Id, modal.GuildId);
+
+                await modal.FollowupAsync($"✅ Poll created successfully! Check <#{modal.Channel.Id}>", ephemeral: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling poll modal");
+                try
+                {
+                    await modal.FollowupAsync("❌ An error occurred while creating the poll.", ephemeral: true);
+                }
+                catch
+                {
+                    // Ignore followup errors
+                }
+            }
+        }
+
+        private DateTime? ParseDuration(string duration)
+        {
+            if (string.IsNullOrWhiteSpace(duration))
+                return null;
+
+            var match = System.Text.RegularExpressions.Regex.Match(duration.Trim().ToLower(), @"^(\d+)(h|d|w)$");
+            if (!match.Success)
+                return null;
+
+            var value = int.Parse(match.Groups[1].Value);
+            var unit = match.Groups[2].Value;
+
+            return unit switch
+            {
+                "h" => DateTime.UtcNow.AddHours(value),
+                "d" => DateTime.UtcNow.AddDays(value),
+                "w" => DateTime.UtcNow.AddDays(value * 7),
+                _ => null
+            };
+        }
+
+        private DateTime? ParsePollDuration(string duration)
+        {
+            return ParseDuration(duration); // Same logic
+        }
+
+        private string GetPollEmote(int index)
+        {
+            var emotes = new[] { "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟",
+                               "🇦", "🇧", "🇨", "🇩", "🇪", "🇫", "🇬", "🇭", "🇮", "🇯" };
+            return index < emotes.Length ? emotes[index] : "▪️";
+        }
+
+        private EmbedBuilder BuildPollEmbed(Database.Poll poll)
+        {
+            var embed = new EmbedBuilder()
+                .WithTitle($"📊 {poll.Question}")
+                .WithColor(poll.IsClosed ? Color.Red : Color.Blue)
+                .WithFooter($"Created by {poll.CreatedByName} • 0 votes")
+                .WithTimestamp(poll.CreatedAt);
+
+            // Add fields for each option with initial zero counts
+            foreach (var option in poll.PollOptions.OrderBy(o => o.DisplayOrder))
+            {
+                var bar = new string('░', 20);
+                var emote = !string.IsNullOrEmpty(option.Emote) ? option.Emote + " " : "";
+                embed.AddField($"{emote}{option.OptionText}",
+                    $"`{bar}` 0.0% (0 votes)",
+                    inline: false);
+            }
+
+            // Add expiration info
+            if (poll.ExpiresAt.HasValue && !poll.IsClosed)
+            {
+                embed.AddField("Expires", $"<t:{new DateTimeOffset(poll.ExpiresAt.Value).ToUnixTimeSeconds()}:R>", inline: true);
+            }
+
+            return embed;
+        }
+
+        private ComponentBuilder BuildPollComponents(Database.Poll poll, ulong userId)
+        {
+            var builder = new ComponentBuilder();
+
+            if (poll.IsClosed)
+            {
+                return builder;
+            }
+
+            var options = poll.PollOptions.OrderBy(o => o.DisplayOrder).ToList();
+
+            // Build vote buttons (up to 25 options across 5 rows)
+            if (options.Count <= 25)
+            {
+                int currentRow = 0;
+                int buttonsInRow = 0;
+
+                foreach (var option in options)
+                {
+                    var customId = $"poll_vote~{userId}~{poll.Id}~{option.Id}";
+                    var button = new ButtonBuilder()
+                        .WithLabel(TruncatePollLabel(option.OptionText, 80))
+                        .WithCustomId(customId)
+                        .WithStyle(ButtonStyle.Primary);
+
+                    if (!string.IsNullOrEmpty(option.Emote))
+                    {
+                        try
+                        {
+                            button.WithEmote(new Emoji(option.Emote));
+                        }
+                        catch
+                        {
+                            // Ignore invalid emotes
+                        }
+                    }
+
+                    builder.WithButton(button, row: currentRow);
+
+                    buttonsInRow++;
+                    if (buttonsInRow >= 5)
+                    {
+                        currentRow++;
+                        buttonsInRow = 0;
+                    }
+                }
+
+                // Add close button on next available row (if space)
+                if (currentRow < 4 || (currentRow == 4 && buttonsInRow == 0))
+                {
+                    var closeRow = buttonsInRow > 0 ? currentRow + 1 : currentRow;
+                    var closeButton = new ButtonBuilder()
+                        .WithLabel("Close Poll")
+                        .WithCustomId($"poll_close~{poll.CreatedById}~{poll.Id}")
+                        .WithStyle(ButtonStyle.Danger)
+                        .WithEmote(new Emoji("🔒"));
+                    builder.WithButton(closeButton, row: closeRow);
+                }
+            }
+
+            return builder;
+        }
+
+        private string TruncatePollLabel(string label, int maxLength)
+        {
+            if (label.Length <= maxLength)
+                return label;
+            return label.Substring(0, maxLength - 3) + "...";
+        }
+
+        private async Task<string> ProcessPollVoteAsync(long pollId, long optionId, long userId, string userName)
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+            var poll = await db.Polls
+                .Include(p => p.PollOptions)
+                .FirstOrDefaultAsync(p => p.Id == pollId);
+
+            if (poll == null)
+                return "❌ Poll not found.";
+
+            if (poll.IsClosed)
+                return "❌ This poll is closed.";
+
+            if (poll.ExpiresAt.HasValue && DateTime.UtcNow > poll.ExpiresAt.Value)
+                return "❌ This poll has expired.";
+
+            // Check if option exists
+            if (!poll.PollOptions.Any(o => o.Id == optionId))
+                return "❌ Invalid option.";
+
+            // Check existing votes
+            var existingVotes = await db.PollVotes
+                .Where(v => v.PollId == pollId && v.UserId == userId)
+                .ToListAsync();
+
+            if (poll.PollType == "SingleChoice" || poll.PollType == "YesNo")
+            {
+                if (existingVotes.Any())
+                {
+                    if (!poll.AllowVoteChange)
+                        return "❌ You've already voted and cannot change your vote.";
+
+                    // Remove old votes
+                    db.PollVotes.RemoveRange(existingVotes);
+                }
+            }
+            else if (poll.PollType == "MultipleChoice")
+            {
+                // Check if already voted for this option
+                var existingVote = existingVotes.FirstOrDefault(v => v.OptionId == optionId);
+                if (existingVote != null)
+                {
+                    // Toggle off
+                    db.PollVotes.Remove(existingVote);
+                    await db.SaveChangesAsync();
+                    return "✅ Vote removed.";
+                }
+            }
+
+            // Add new vote
+            var newVote = new Database.PollVote
+            {
+                PollId = pollId,
+                OptionId = optionId,
+                UserId = userId,
+                UserName = userName,
+                VotedAt = DateTime.UtcNow
+            };
+
+            await db.PollVotes.AddAsync(newVote);
+            await db.SaveChangesAsync();
+
+            return "✅ Vote recorded!";
+        }
+
+        private async Task UpdatePollMessageAsync(long pollId)
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+            var poll = await db.Polls
+                .Include(p => p.PollOptions)
+                .FirstOrDefaultAsync(p => p.Id == pollId);
+
+            if (poll == null)
+                return;
+
+            var votes = await db.PollVotes
+                .Where(vote => vote.PollId == pollId)
+                .ToListAsync();
+
+            var totalVotes = votes.Count;
+            var embed = new EmbedBuilder()
+                .WithTitle($"📊 {poll.Question}")
+                .WithColor(poll.IsClosed ? Color.Red : Color.Blue)
+                .WithFooter($"Created by {poll.CreatedByName} • {totalVotes} vote{(totalVotes != 1 ? "s" : "")}")
+                .WithTimestamp(poll.CreatedAt);
+
+            // Add fields for each option with vote counts
+            foreach (var option in poll.PollOptions.OrderBy(o => o.DisplayOrder))
+            {
+                var optionVotes = votes.Count(v => v.OptionId == option.Id);
+                var percentage = totalVotes > 0 ? (optionVotes * 100.0 / totalVotes) : 0;
+                var barLength = (int)(percentage / 5); // 20 chars max
+                var bar = new string('█', Math.Min(barLength, 20)) + new string('░', Math.Max(20 - barLength, 0));
+
+                var emote = !string.IsNullOrEmpty(option.Emote) ? option.Emote + " " : "";
+                embed.AddField($"{emote}{option.OptionText}",
+                    $"`{bar}` {percentage:F1}% ({optionVotes} vote{(optionVotes != 1 ? "s" : "")})",
+                    inline: false);
+            }
+
+            // Add expiration info
+            if (poll.ExpiresAt.HasValue && !poll.IsClosed)
+            {
+                embed.AddField("Expires", $"<t:{new DateTimeOffset(poll.ExpiresAt.Value).ToUnixTimeSeconds()}:R>", inline: true);
+            }
+
+            if (poll.IsClosed)
+            {
+                embed.WithDescription("🔒 **This poll is closed**");
+            }
+
+            var components = BuildPollComponents(poll, 0); // Use 0 as placeholder
+
+            var guild = _client.GetGuild((ulong)poll.GuildId);
+            var channel = guild?.GetChannel((ulong)poll.ChannelId) as IMessageChannel;
+            if (channel == null)
+                return;
+
+            var message = await channel.GetMessageAsync((ulong)poll.MessageId);
+            if (message is IUserMessage userMessage)
+            {
+                await userMessage.ModifyAsync(msg =>
+                {
+                    msg.Embed = embed.Build();
+                    msg.Components = components.Build();
+                });
+            }
+        }
+
+        private async Task<(bool success, string message)> ClosePollAsync(long pollId, long userId, SocketGuildChannel channel)
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+            var poll = await db.Polls
+                .Include(p => p.PollOptions)
+                .Include(p => p.PollVotes)
+                .AsSplitQuery()
+                .FirstOrDefaultAsync(p => p.Id == pollId);
+
+            if (poll == null)
+                return (false, "❌ Poll not found.");
+
+            if (poll.IsClosed)
+                return (false, "❌ Poll is already closed.");
+
+            // Check permissions - only creator or moderators can close
+            var guildUser = channel?.Guild?.GetUser((ulong)userId);
+            var isCreator = poll.CreatedById == userId;
+            var isModerator = guildUser?.GuildPermissions.ManageMessages ?? false;
+
+            if (!isCreator && !isModerator)
+                return (false, "❌ Only the poll creator or moderators can close this poll.");
+
+            poll.IsClosed = true;
+            poll.ClosedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+
+            // Update poll message
+            await UpdatePollMessageAsync(pollId);
+
+            var totalVotes = poll.PollVotes.Count;
+            return (true, $"✅ Poll closed successfully. Total votes: {totalVotes}");
+        }
+
         /// <summary>
         /// Disposes resources and unsubscribes from event handlers
         /// </summary>
@@ -329,7 +1054,8 @@ namespace NinjaBotCore.Modules.Admin
             {
                 _client.UserJoined -= HandleGreeting;
                 _client.UserLeft -= HandleParting;
-                _client.ModalSubmitted -= HandleModal;
+                _client.ModalSubmitted -= HandleModalSubmitted;
+                _client.ButtonExecuted -= HandleButtonExecuted;
 
                 _logger.LogInformation("UserInteraction disposed");
             }

@@ -42,6 +42,18 @@ namespace NinjaBotCore.Services
                 modules.Count,
                 string.Join(", ", modules.Select(m => m.Name)));
 
+            // Log registered modal handlers for debugging
+            var modalCommands = _handler.ModalCommands;
+            _logger.LogInformation("Registered {Count} modal handlers: {Modals}",
+                modalCommands.Count,
+                string.Join(", ", modalCommands.Select(m => m.Name)));
+
+            // Log registered component handlers for debugging
+            var componentCommands = _handler.ComponentCommands;
+            _logger.LogInformation("Registered {Count} component handlers: {Components}",
+                componentCommands.Count,
+                string.Join(", ", componentCommands.Select(c => c.Name)));
+
             // Hook up InteractionService internal logging
             _handler.Log += LogAsync;
 
@@ -102,18 +114,36 @@ namespace NinjaBotCore.Services
                     interaction.User.Username,
                     interaction is SocketSlashCommand cmd ? cmd.Data.Name : interaction.GetType().Name);
 
-                // Skip modal interactions that are handled by event-based handlers (UserInteraction.HandleModal)
-                // These modals use custom IDs like "joining_message", "parting_message", "discord_server_note"
-                // and are processed via the ModalSubmitted event
+                // Skip modals and poll components - they're handled by UserInteractions event handlers
+                // The event-specific handlers (ModalSubmitted, ButtonExecuted) fire after InteractionCreated
+                // and have properly-synced interaction objects for reliable deferral
                 if (interaction is SocketModal modal)
                 {
-                    var customId = modal.Data.CustomId;
-                    if (customId == "joining_message" || customId == "parting_message" || customId == "discord_server_note")
+                    var legacyModals = new[] { "joining_message", "parting_message", "discord_server_note" };
+                    var pollModals = new[] { "poll_create_modal" };
+                    if (legacyModals.Contains(modal.Data.CustomId) || pollModals.Contains(modal.Data.CustomId))
                     {
-                        // This modal is handled by the ModalSubmitted event handler in UserInteraction
-                        // Don't process it here to avoid "Cannot respond twice" error
-                        _logger.LogInformation("Skipping modal {CustomId} - handled by UserInteraction", customId);
+                        _logger.LogInformation("[INTERACTION HANDLER] Modal {CustomId} will be handled by event system", modal.Data.CustomId);
                         return;
+                    }
+                }
+
+                if (interaction is SocketMessageComponent component)
+                {
+                    var customId = component.Data?.CustomId;
+
+                    if (!string.IsNullOrEmpty(customId))
+                    {
+                        // Skip poll interactions - they're handled by UserInteractions event handlers
+                        if (customId.StartsWith("poll_vote~") || customId.StartsWith("poll_close~"))
+                        {
+                            _logger.LogDebug("[INTERACTION HANDLER] Poll component {CustomId} will be handled by event system", customId);
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("[INTERACTION HANDLER] Component has null or empty CustomId");
                     }
                 }
 
@@ -122,10 +152,8 @@ namespace NinjaBotCore.Services
                 // We pass the root service provider, and Discord.NET handles scope creation/disposal
                 var context = new ShardedInteractionContext(_client, interaction);
 
-                _logger.LogInformation("Executing command with AutoServiceScopes");
                 // Execute the incoming command - Discord.NET will create and manage the scope
                 await _handler.ExecuteCommandAsync(context, _services);
-                _logger.LogInformation("Command execution completed");
 
                 // Note: Error handling is now done in HandleInteractionExecutedAsync
             }
@@ -168,6 +196,37 @@ namespace NinjaBotCore.Services
             IInteractionContext context,
             IResult result)
         {
+            // Skip UnknownCommand errors for interactions handled by event system
+            // These are poll modals and components handled via ModalSubmitted/ButtonExecuted events
+            if (result.Error == InteractionCommandError.UnknownCommand &&
+                context.Interaction is SocketMessageComponent msgComponent)
+            {
+                var customId = msgComponent.Data?.CustomId;
+
+                if (!string.IsNullOrEmpty(customId))
+                {
+                    // Skip error for poll components - they're handled by event handlers
+                    if (customId.StartsWith("poll_vote~") || customId.StartsWith("poll_close~"))
+                    {
+                        _logger.LogDebug("[INTERACTION HANDLER] Skipping UnknownCommand error for poll component {CustomId}", customId);
+                        return;
+                    }
+                }
+            }
+
+            if (result.Error == InteractionCommandError.UnknownCommand &&
+                context.Interaction is SocketModal modal)
+            {
+                var legacyModals = new[] { "joining_message", "parting_message", "discord_server_note" };
+                var pollModals = new[] { "poll_create_modal" };
+                var customId = modal.Data.CustomId;
+                if (legacyModals.Contains(customId) || pollModals.Contains(customId))
+                {
+                    _logger.LogInformation("[INTERACTION HANDLER] Skipping UnknownCommand error for modal {CustomId} - handled by event system", customId);
+                    return;
+                }
+            }
+
             // Handle command execution exceptions
             if (result.Error == InteractionCommandError.Exception && result is ExecuteResult executeResult)
             {

@@ -57,6 +57,9 @@ namespace NinjaBotCore.Database
         public virtual DbSet<WowAchievements> WowAchievements { get; set; }
         public virtual DbSet<WowAchievementCriteria> WowAchievementCriteria { get; set; }
         public virtual DbSet<WowPets> WowPets { get; set; }
+        public virtual DbSet<Poll> Polls { get; set; }
+        public virtual DbSet<PollOption> PollOptions { get; set; }
+        public virtual DbSet<PollVote> PollVotes { get; set; }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
