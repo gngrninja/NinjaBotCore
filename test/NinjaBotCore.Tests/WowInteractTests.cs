@@ -5,7 +5,7 @@ using NinjaBotCore.Modules.Interactions.Wow;
 namespace NinjaBotCore.Tests
 {
     /// <summary>
-    /// Tests for WowInteract utility methods
+    /// Tests for WoW module utility methods
     ///
     /// TODO: Add integration tests for slash commands when Discord.Net mocking infrastructure is available:
     /// - /setguild should call RefreshGuildRosterAsync after successful guild association
@@ -20,7 +20,8 @@ namespace NinjaBotCore.Tests
     {
         private static string InvokeProgressBar(long current, long total, int length = 10)
         {
-            var method = typeof(WowInteract).GetMethod("GetProgressBar", BindingFlags.NonPublic | BindingFlags.Static);
+            // GetProgressBar was moved from WowInteract to RioCommands during refactoring
+            var method = typeof(RioCommands).GetMethod("GetProgressBar", BindingFlags.NonPublic | BindingFlags.Static);
             return (string)method.Invoke(null, new object[] { current, total, length });
         }
 
