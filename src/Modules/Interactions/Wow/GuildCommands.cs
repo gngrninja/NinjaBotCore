@@ -26,6 +26,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private readonly WowApi _wowApi;
         private readonly RaiderIOApi _rioApi;
         private readonly WowUtilities _wowUtils;
+        private readonly WowStaticDataService _staticDataService;
 
         // Cooldown for guild association changes (10 minutes)
         private static readonly TimeSpan GuildChangeCooldown = TimeSpan.FromMinutes(10);
@@ -35,13 +36,15 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             ILogger<GuildCommands> logger,
             WowApi wowApi,
             RaiderIOApi rioApi,
-            WowUtilities wowUtils)
+            WowUtilities wowUtils,
+            WowStaticDataService staticDataService)
             : base(scopeFactory)
         {
             _logger = logger;
             _wowApi = wowApi;
             _rioApi = rioApi;
             _wowUtils = wowUtils;
+            _staticDataService = staticDataService;
         }
 
         [SlashCommand("ginfo", "Get guild information")]
@@ -170,11 +173,16 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     string officialGuildName = members.guild.name;
                     string officialRealmSlug = members.guild.realm.slug;
 
+                    // Look up the display name for the realm from our database
+                    var realmInfo = await _staticDataService.GetRealmBySlugAsync(officialRealmSlug, regionName.ToUpper());
+                    string officialRealmName = realmInfo?.Name ?? officialRealmSlug; // Fallback to slug if not found
+
                     await FollowupAsync($"Found **{officialGuildName}** with **{members.members.Count()}** members!", ephemeral: true);
 
-                    // Save the association
+                    // Save the association with both display name and slug
                     await _wowUtils.SetGuildAssociation(
                         officialGuildName,
+                        officialRealmName,
                         officialRealmSlug,
                         locale: locale,
                         regionName: regionName,
@@ -199,7 +207,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     embed.WithColor(new Color(0, 200, 150));
                     embed.Description = $"**{discordGuildName}** is now associated with:\n\n" +
                         $"**Guild:** {officialGuildName}\n" +
-                        $"**Realm:** {officialRealmSlug}\n" +
+                        $"**Realm:** {officialRealmName}\n" +
                         $"**Region:** {regionName.ToUpper()}\n" +
                         $"**Members:** {members.members.Count()}\n\n" +
                         $"Use `/getguild` to see the full guild info!";

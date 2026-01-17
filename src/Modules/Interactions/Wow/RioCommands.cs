@@ -145,9 +145,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
                 if (!string.IsNullOrEmpty(guildObject.guildName))
                 {
+                    // Use realmSlug for API calls, fallback to slugifying realmName
+                    var effectiveRealmSlug = !string.IsNullOrEmpty(guildObject.realmSlug)
+                        ? guildObject.realmSlug
+                        : guildObject.realmName?.ToLower().Replace(" ", "-").Replace("'", "");
+
                     var guildie = await _wowApi.GetCharFromGuildAsync(
                         charName,
-                        guildObject.realmName,
+                        effectiveRealmSlug,
                         guildObject.guildName,
                         guildObject.regionName);
 
@@ -726,12 +731,17 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 var guildObject = await _wowUtils.GetGuildName(Context);
                 if (!string.IsNullOrEmpty(guildObject.guildName))
                 {
+                    // Use realmSlug for API calls, fallback to slugifying realmName
+                    var effectiveRealmSlug = !string.IsNullOrEmpty(guildObject.realmSlug)
+                        ? guildObject.realmSlug
+                        : guildObject.realmName?.ToLower().Replace(" ", "-").Replace("'", "");
+
                     try
                     {
                         // Use async method with timeout to prevent blocking
                         var guildTask = _wowApi.GetCharFromGuildAsync(
                             char2Name,
-                            guildObject.realmName,
+                            effectiveRealmSlug,
                             guildObject.guildName,
                             guildObject.regionName);
 

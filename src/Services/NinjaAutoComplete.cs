@@ -133,8 +133,14 @@ namespace NinjaBotCore.Services
 
                     if (!string.IsNullOrEmpty(guildObject.guildName) && !string.IsNullOrEmpty(guildObject.realmName))
                     {
+                        // Ensure we have a valid realm slug (fallback to slugifying realmName if not set)
+                        if (string.IsNullOrEmpty(guildObject.realmSlug))
+                        {
+                            guildObject.realmSlug = guildObject.realmName.ToLower().Replace(" ", "-").Replace("'", "");
+                        }
+
                         // Create cache key based on guild+realm+region
-                        var cacheKey = $"guild_roster_{guildObject.regionName}_{guildObject.realmName}_{guildObject.guildName}".ToLower();
+                        var cacheKey = $"guild_roster_{guildObject.regionName}_{guildObject.realmSlug}_{guildObject.guildName}".ToLower();
                         var staleCacheKey = $"{cacheKey}_stale";
 
                         // Try to get from cache first (primary cache)
@@ -156,7 +162,7 @@ namespace NinjaBotCore.Services
                                     if (!string.IsNullOrEmpty(guildObject.locale))
                                     {
                                         guildMembers = wowApi.GetGuildMembersBySlug(
-                                            guildObject.realmName,
+                                            guildObject.realmSlug,
                                             guildObject.guildName,
                                             locale: guildObject.locale,
                                             regionName: guildObject.regionName);
@@ -164,7 +170,7 @@ namespace NinjaBotCore.Services
                                     else
                                     {
                                         guildMembers = wowApi.GetGuildMembersBySlug(
-                                            guildObject.realmName,
+                                            guildObject.realmSlug,
                                             guildObject.guildName,
                                             regionName: guildObject.regionName);
                                     }
@@ -209,7 +215,7 @@ namespace NinjaBotCore.Services
                                         if (!string.IsNullOrEmpty(guildObject.locale))
                                         {
                                             freshData = wowApi.GetGuildMembersBySlug(
-                                                guildObject.realmName,
+                                                guildObject.realmSlug,
                                                 guildObject.guildName,
                                                 locale: guildObject.locale,
                                                 regionName: guildObject.regionName);
@@ -217,7 +223,7 @@ namespace NinjaBotCore.Services
                                         else
                                         {
                                             freshData = wowApi.GetGuildMembersBySlug(
-                                                guildObject.realmName,
+                                                guildObject.realmSlug,
                                                 guildObject.guildName,
                                                 regionName: guildObject.regionName);
                                         }

@@ -122,7 +122,12 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 if (guildObject.guildName != null && guildObject.realmName != null)
                 {
-                    guildie = _wowApi.GetCharFromGuild(charName, guildObject.realmName, guildObject.guildName, guildObject.regionName);
+                    // Use realmSlug for API calls, fallback to slugifying realmName
+                    var effectiveRealmSlug = !string.IsNullOrEmpty(guildObject.realmSlug)
+                        ? guildObject.realmSlug
+                        : guildObject.realmName?.ToLower().Replace(" ", "-").Replace("'", "");
+
+                    guildie = _wowApi.GetCharFromGuild(charName, effectiveRealmSlug, guildObject.guildName, guildObject.regionName);
                     if (string.IsNullOrEmpty(guildie.charName))
                     {
                         guildie = null;
@@ -222,15 +227,14 @@ namespace NinjaBotCore.Modules.Wow
             return guildObject;
         }
 
-        public async Task SetGuildAssociation(string wowGuildName, string realmName, string locale, string regionName, ICommandContext context)
+        public async Task SetGuildAssociation(string wowGuildName, string realmName, string realmSlug, string locale, string regionName, ICommandContext context)
         {
             try
             {
                 var guildInfo = context.Guild;
 
                 string guildName = string.Empty;
-                string realmSlug = string.Empty;
-                string apiRegion = string.Empty;                
+                string apiRegion = string.Empty;
                 ulong guildId;
 
                 //guild in this context is the Discord server
@@ -239,8 +243,8 @@ namespace NinjaBotCore.Modules.Wow
                 {
                     guildName = context.User.Username;
                     guildId = context.User.Id;
-                }  
-                else 
+                }
+                else
                 {
                     guildName = guildInfo.Name;
                     guildId = guildInfo.Id;
@@ -253,44 +257,6 @@ namespace NinjaBotCore.Modules.Wow
                 else
                 {
                     apiRegion = "eu";
-                }
-
-                //use locale to determine realm slug
-                for (int i = 0; i < 500; i++)
-                {
-                    _logger.LogInformation("Attempting to find slug!");
-                    var slugs = _wowApi.GetRealmStatus(locale: locale, region: apiRegion);   
-                    realmSlug = realmName;         
-                    /*            
-                    switch (locale)
-                    {
-                        case "ru_RU":
-                            {                                                        
-                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();
-                                break;
-                            }
-                        case "en_GB":
-                            {                            
-                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();
-                                break;
-                            }
-                        case "en_US":
-                            {                            
-                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();
-                                break;
-                            }
-                        default: 
-                            {                            
-                                realmSlug = slugs.realms.Where(r => r.name.Replace("'","").ToLower().Contains(realmName.Replace("'","").ToLower())).Select(s => s.slug).FirstOrDefault();
-                                break;
-                            }
-                    }
-                    */
-                    if (!string.IsNullOrEmpty(realmSlug))
-                    {
-                        _logger.LogInformation($"Found slug {realmSlug}!");
-                        break;
-                    }
                 }
 
                 // Use UnitOfWork for multi-entity operation
@@ -687,7 +653,12 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 if (guildObject.guildName != null && guildObject.realmName != null)
                 {
-                    guildie = _wowApi.GetCharFromGuild(charName, guildObject.realmName, guildObject.guildName, guildObject.regionName);
+                    // Use realmSlug for API calls, fallback to slugifying realmName
+                    var effectiveRealmSlug = !string.IsNullOrEmpty(guildObject.realmSlug)
+                        ? guildObject.realmSlug
+                        : guildObject.realmName?.ToLower().Replace(" ", "-").Replace("'", "");
+
+                    guildie = _wowApi.GetCharFromGuild(charName, effectiveRealmSlug, guildObject.guildName, guildObject.regionName);
                     if (string.IsNullOrEmpty(guildie.charName))
                     {
                         guildie = null;
@@ -745,15 +716,14 @@ namespace NinjaBotCore.Modules.Wow
             return guildObject;
         }
 
-        public async Task SetGuildAssociation(string wowGuildName, string realmName, string locale, string regionName, ShardedInteractionContext context)
+        public async Task SetGuildAssociation(string wowGuildName, string realmName, string realmSlug, string locale, string regionName, ShardedInteractionContext context)
         {
             try
             {
                 var guildInfo = context.Guild;
 
                 string guildName = string.Empty;
-                string realmSlug = string.Empty;
-                string apiRegion = string.Empty;                
+                string apiRegion = string.Empty;
                 ulong guildId;
 
                 //guild in this context is the Discord server
@@ -762,8 +732,8 @@ namespace NinjaBotCore.Modules.Wow
                 {
                     guildName = context.User.Username;
                     guildId = context.User.Id;
-                }  
-                else 
+                }
+                else
                 {
                     guildName = guildInfo.Name;
                     guildId = guildInfo.Id;
@@ -777,7 +747,6 @@ namespace NinjaBotCore.Modules.Wow
                 {
                     apiRegion = "eu";
                 }
-                realmSlug = realmName;
 
                 // Use UnitOfWork for multi-entity operation
                 await using var uow = GetUnitOfWork();
