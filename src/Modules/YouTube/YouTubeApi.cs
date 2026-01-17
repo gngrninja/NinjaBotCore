@@ -17,7 +17,9 @@ using Microsoft.Extensions.Configuration;
 
 namespace NinjaBotCore.Modules.YouTube
 {
-    public class YouTubeApi
+    using NinjaBotCore.Common;
+
+    public class YouTubeApi : IYouTubeApi
     {
         private string _key;
         private readonly IConfigurationRoot _config;

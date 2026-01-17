@@ -22,7 +22,7 @@ using NinjaBotCore.Common;
 
 namespace NinjaBotCore.Modules.Wow
 {
-    public class RaiderIOApi
+    public class RaiderIOApi : IRaiderIOApi
     {
         private readonly IConfigurationRoot _config;
         private readonly ILogger _logger;

@@ -127,7 +127,7 @@ namespace NinjaBotCore.Modules.Wow
                         ? guildObject.realmSlug
                         : guildObject.realmName?.ToLower().Replace(" ", "-").Replace("'", "");
 
-                    guildie = _wowApi.GetCharFromGuild(charName, effectiveRealmSlug, guildObject.guildName, guildObject.regionName);
+                    guildie = await _wowApi.GetCharFromGuildAsync(charName, effectiveRealmSlug, guildObject.guildName, guildObject.regionName);
                     if (string.IsNullOrEmpty(guildie.charName))
                     {
                         guildie = null;
@@ -142,7 +142,7 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 else
                 {
-                    chars = _wowApi.SearchArmory(charName);
+                    chars = await _wowApi.SearchArmoryAsync(charName);
                     if (chars != null)
                     {
                         charName = chars[0].charName;
@@ -159,7 +159,7 @@ namespace NinjaBotCore.Modules.Wow
             if (!string.IsNullOrEmpty(guildObject.locale))
             {
                 charInfo.locale = guildObject.locale;
-            }       
+            }
             return charInfo;
         }
 
@@ -172,7 +172,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             StringBuilder sb = new StringBuilder();
             string charName = args;
-            List<FoundChar> found = _wowApi.SearchArmory(charName);
+            List<FoundChar> found = await _wowApi.SearchArmoryAsync(charName);
             var embed = new EmbedBuilder();
             embed.Title = $"__WoW Armory Search Results For: **{charName}**__";
 
@@ -658,7 +658,7 @@ namespace NinjaBotCore.Modules.Wow
                         ? guildObject.realmSlug
                         : guildObject.realmName?.ToLower().Replace(" ", "-").Replace("'", "");
 
-                    guildie = _wowApi.GetCharFromGuild(charName, effectiveRealmSlug, guildObject.guildName, guildObject.regionName);
+                    guildie = await _wowApi.GetCharFromGuildAsync(charName, effectiveRealmSlug, guildObject.guildName, guildObject.regionName);
                     if (string.IsNullOrEmpty(guildie.charName))
                     {
                         guildie = null;
@@ -673,7 +673,7 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 else
                 {
-                    chars = _wowApi.SearchArmory(charName);
+                    chars = await _wowApi.SearchArmoryAsync(charName);
                     if (chars != null)
                     {
                         charName = chars[0].charName;
@@ -690,7 +690,7 @@ namespace NinjaBotCore.Modules.Wow
             if (!string.IsNullOrEmpty(guildObject.locale))
             {
                 charInfo.locale = guildObject.locale;
-            }       
+            }
             return charInfo;
         }
 
@@ -829,11 +829,12 @@ namespace NinjaBotCore.Modules.Wow
                 return;
 
             // 🔹 Fetch API first
-            var apiResult = _wowApi.GetGuildMembersBySlug(
+            var apiResult = await _wowApi.GetGuildMembersBySlugAsync(
                 guildObject.realmSlug,
                 guildObject.guildName,
                 locale: guildObject.locale,
-                regionName: guildObject.regionName);
+                regionName: guildObject.regionName,
+                cancellationToken: cancellationToken);
 
             using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
 

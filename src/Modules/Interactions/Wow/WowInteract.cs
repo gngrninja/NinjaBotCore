@@ -200,8 +200,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 StringBuilder sb = new StringBuilder();
                 var embed = new EmbedBuilder();
                 embed.WithColor(new Color(255, 255, 0));
-                var ranking = wowProgressApi.GetGuildRank(guildName, realmName, regionName);
-                var realmObject = wowProgressApi.GetRealmObject(realmName, wowProgressApi._links, regionName);
+                var ranking = await wowProgressApi.GetGuildRankAsync(guildName, realmName, regionName);
+                var realmObject = await wowProgressApi.GetRealmObjectAsync(realmName, wowProgressApi._links, regionName);
                 var topGuilds = realmObject.OrderBy(r => r.realm_rank).Take(3);
                 var guild = realmObject.Where(r => r.name.ToLower() == guildName.ToLower()).FirstOrDefault();
                 int guildRank = guild.realm_rank;
@@ -357,7 +357,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var userRoles    = user.RoleIds;
             var guild        = (IGuild)Context.Guild;
             var channels     = await guild.GetTextChannelsAsync();
-            var raidCat      = guild.GetCategoriesAsync().Result.Where(c => c.Name.ToLower() == "raiding").FirstOrDefault();            
+            var raidCat      = (await guild.GetCategoriesAsync()).Where(c => c.Name.ToLower() == "raiding").FirstOrDefault();            
             var raiderRole   = serverRoles.Where(r => r.Name.ToLower() == "raider").FirstOrDefault();
                         
             if (raiderRole == null)

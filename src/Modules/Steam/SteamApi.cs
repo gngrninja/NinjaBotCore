@@ -12,7 +12,9 @@ using Microsoft.Extensions.Configuration;
 
 namespace NinjaBotCore.Modules.Steam
 {
-    public class SteamApi
+    using NinjaBotCore.Common;
+
+    public class SteamApi : ISteamApi
     {
         private readonly IConfigurationRoot _config;
         private string _key;

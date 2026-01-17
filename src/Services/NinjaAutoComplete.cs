@@ -161,7 +161,7 @@ namespace NinjaBotCore.Services
                                     // Fetch guild members based on locale/region
                                     if (!string.IsNullOrEmpty(guildObject.locale))
                                     {
-                                        guildMembers = wowApi.GetGuildMembersBySlug(
+                                        guildMembers = await wowApi.GetGuildMembersBySlugAsync(
                                             guildObject.realmSlug,
                                             guildObject.guildName,
                                             locale: guildObject.locale,
@@ -169,7 +169,7 @@ namespace NinjaBotCore.Services
                                     }
                                     else
                                     {
-                                        guildMembers = wowApi.GetGuildMembersBySlug(
+                                        guildMembers = await wowApi.GetGuildMembersBySlugAsync(
                                             guildObject.realmSlug,
                                             guildObject.guildName,
                                             regionName: guildObject.regionName);
@@ -214,7 +214,7 @@ namespace NinjaBotCore.Services
 
                                         if (!string.IsNullOrEmpty(guildObject.locale))
                                         {
-                                            freshData = wowApi.GetGuildMembersBySlug(
+                                            freshData = await wowApi.GetGuildMembersBySlugAsync(
                                                 guildObject.realmSlug,
                                                 guildObject.guildName,
                                                 locale: guildObject.locale,
@@ -222,7 +222,7 @@ namespace NinjaBotCore.Services
                                         }
                                         else
                                         {
-                                            freshData = wowApi.GetGuildMembersBySlug(
+                                            freshData = await wowApi.GetGuildMembersBySlugAsync(
                                                 guildObject.realmSlug,
                                                 guildObject.guildName,
                                                 regionName: guildObject.regionName);
@@ -484,7 +484,7 @@ namespace NinjaBotCore.Services
                             _ => "en_US"
                         };
 
-                        var guildMembers = wowApi.GetGuildMembers(realm.slug, userInput, locale, region);
+                        var guildMembers = await wowApi.GetGuildMembersBySlugAsync(realm.slug, userInput, locale, region);
 
                         if (guildMembers?.guild != null)
                         {

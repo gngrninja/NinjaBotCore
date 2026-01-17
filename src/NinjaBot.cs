@@ -11,6 +11,7 @@ using NinjaBotCore.Modules.Steam;
 using Microsoft.Extensions.Configuration;
 using NinjaBotCore.Services;
 using NinjaBotCore.Modules.YouTube;
+using NinjaBotCore.Common;
 using Serilog;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Http;
@@ -94,8 +95,10 @@ namespace NinjaBotCore
                     options.SizeLimit = 1000; // Limit to 1000 cached entries across all caches
                 })
                 .AddSingleton<WowApi>()
+                .AddSingleton<IWowApi>(sp => sp.GetRequiredService<WowApi>())
                 .AddSingleton<WowUtilities>()
                 .AddSingleton<WarcraftLogs>()
+                .AddSingleton<IWarcraftLogs>(sp => sp.GetRequiredService<WarcraftLogs>())
                 .AddSingleton<WarcraftLogsV2Client>()
                 .AddSingleton<WarcraftLogsV2Test>()
                 .AddSingleton<UserInteraction>()
@@ -124,9 +127,12 @@ namespace NinjaBotCore
                 .AddScoped<Repositories.IUnitOfWork, Repositories.UnitOfWork>()
                 // Repository uses [ActivatorUtilitiesConstructor] to prefer NinjaBotEntities constructor
                 .AddScoped(typeof(Repositories.IRepository<>), typeof(Repositories.Repository<>))
-                .AddSingleton<SteamApi>()         
+                .AddSingleton<SteamApi>()
+                .AddSingleton<ISteamApi>(sp => sp.GetRequiredService<SteamApi>())
                 .AddSingleton<RaiderIOApi>()
-                .AddSingleton<YouTubeApi>()                
+                .AddSingleton<IRaiderIOApi>(sp => sp.GetRequiredService<RaiderIOApi>())
+                .AddSingleton<YouTubeApi>()
+                .AddSingleton<IYouTubeApi>(sp => sp.GetRequiredService<YouTubeApi>())
                 .AddSingleton<AudioService>()       
                 .AddWarcraftClients(_config["WoWClient"], _config["WoWSecret"])         
                 .AddSingleton<LoggingService>();                   

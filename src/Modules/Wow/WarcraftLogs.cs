@@ -21,12 +21,16 @@ using NinjaBotCore.Services;
 
 namespace NinjaBotCore.Modules.Wow
 {
-    public class WarcraftLogs
+    using NinjaBotCore.Common;
+
+    public class WarcraftLogs : IWarcraftLogs
     {
         private static CancellationTokenSource _tokenSource;
-        private static List<Zones> _zones;
-        private static List<Zones> _classicZones;
-        private static List<CharClasses> _charClasses;
+        private static Lazy<List<Zones>> _zones;
+        private static Lazy<List<Zones>> _classicZones;
+        private static Lazy<List<CharClasses>> _charClasses;
+        private static bool _lazyInitialized = false;
+        private static readonly object _initLock = new object();
         private readonly IConfigurationRoot _config;
         private DiscordShardedClient _client;
         private readonly WclApiRequestor _api;
@@ -84,11 +88,12 @@ namespace NinjaBotCore.Modules.Wow
                 _apiClassic = new ApiRequestorThrottle(_config["WarcraftLogsApi"], baseUrl: "https://classic.warcraftlogs.com:443/v1/" , services.GetRequiredService<IHttpClientFactory>().CreateClient());
                 _apiClassicCmd = new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"], baseUrl: "https://classic.warcraftlogs.com:443/v1/", services.GetRequiredService<IHttpClientFactory>().CreateClient());
                 _apiVanilla = new ApiRequestorThrottle(_config["WarcraftLogsApi"], baseUrl: "https://vanilla.warcraftlogs.com:443/v1/" , services.GetRequiredService<IHttpClientFactory>().CreateClient());
-                _apiVanillaCmd = new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"], baseUrl: "https://vanilla.warcraftlogs.com:443/v1/", services.GetRequiredService<IHttpClientFactory>().CreateClient());                
-                CharClasses = this.GetCharClasses().Result;
-                Zones = this.GetZones().Result;
-                ClassicZones = this.GetClassicZones().Result;
-                
+                _apiVanillaCmd = new ApiRequestorThrottle(_config["WarcraftLogsApiCmd"], baseUrl: "https://vanilla.warcraftlogs.com:443/v1/", services.GetRequiredService<IHttpClientFactory>().CreateClient());
+
+                // Initialize lazy loaders for WCL static data (thread-safe, loads on first access)
+                // This moves the blocking API calls out of the constructor to prevent DI deadlocks
+                InitializeLazyLoaders();
+
                 _currentRaidTier = this.SetCurrentTier();
                 //this.MigrateOldReports();
                 _ = StartTimer(); // Fire-and-forget background timer
@@ -103,11 +108,7 @@ namespace NinjaBotCore.Modules.Wow
         {
             get
             {
-                return _zones;
-            }
-            private set
-            {
-                _zones = value;
+                return _zones?.Value;
             }
         }
 
@@ -115,11 +116,7 @@ namespace NinjaBotCore.Modules.Wow
         {
             get
             {
-                return _classicZones;
-            }
-            private set
-            {
-                _classicZones = value;
+                return _classicZones?.Value;
             }
         }
 
@@ -139,11 +136,70 @@ namespace NinjaBotCore.Modules.Wow
         {
             get
             {
-                return _charClasses;
+                return _charClasses?.Value;
             }
-            private set
+        }
+
+        /// <summary>
+        /// Initializes the lazy loaders for WCL static data.
+        /// The actual API calls are deferred until first property access.
+        /// This prevents blocking during DI/constructor execution.
+        /// </summary>
+        private void InitializeLazyLoaders()
+        {
+            lock (_initLock)
             {
-                _charClasses = value;
+                if (_lazyInitialized) return;
+
+                // Capture instance fields for use in lazy factories
+                var api = _api;
+                var apiClassic = _apiClassic;
+                var logger = _logger;
+
+                _charClasses = new Lazy<List<CharClasses>>(() =>
+                {
+                    try
+                    {
+                        logger.LogInformation("Loading WCL character classes (lazy initialization)...");
+                        return api.Get<List<CharClasses>>("classes?").GetAwaiter().GetResult();
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Failed to load WCL character classes");
+                        return new List<CharClasses>();
+                    }
+                }, LazyThreadSafetyMode.ExecutionAndPublication);
+
+                _zones = new Lazy<List<Zones>>(() =>
+                {
+                    try
+                    {
+                        logger.LogInformation("Loading WCL zones (lazy initialization)...");
+                        return api.Get<List<Zones>>("zones?").GetAwaiter().GetResult();
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Failed to load WCL zones");
+                        return new List<Zones>();
+                    }
+                }, LazyThreadSafetyMode.ExecutionAndPublication);
+
+                _classicZones = new Lazy<List<Zones>>(() =>
+                {
+                    try
+                    {
+                        logger.LogInformation("Loading WCL classic zones (lazy initialization)...");
+                        return apiClassic.Get<List<Zones>>("zones?").GetAwaiter().GetResult();
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Failed to load WCL classic zones");
+                        return new List<Zones>();
+                    }
+                }, LazyThreadSafetyMode.ExecutionAndPublication);
+
+                _lazyInitialized = true;
+                logger.LogInformation("WCL lazy loaders initialized (data will load on first access)");
             }
         }
 

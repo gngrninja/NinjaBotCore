@@ -169,9 +169,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 var mediaTask = _wowApi.GetArmoryMediaAsync(charName, realmName, regionName);
 
                 await Task.WhenAll(summaryTask, equipmentTask, mediaTask);
-                armorySummary = summaryTask.Result;
-                armoryEquipment = equipmentTask.Result;
-                armoryMedia = mediaTask.Result;
+                armorySummary = await summaryTask;
+                armoryEquipment = await equipmentTask;
+                armoryMedia = await mediaTask;
 
                 // Cache the equipment and media data for subsequent item detail requests
                 if (armoryEquipment != null && armoryMedia != null)
@@ -470,8 +470,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     var itemMediaTask = _wowApi.GetItemMediaAsync(itemId, regionName);
 
                     await Task.WhenAll(equipmentTask, itemMediaTask);
-                    armoryEquipment = equipmentTask.Result;
-                    itemMedia = itemMediaTask.Result;
+                    armoryEquipment = await equipmentTask;
+                    itemMedia = await itemMediaTask;
                 }
                 catch (Exception ex)
                 {
