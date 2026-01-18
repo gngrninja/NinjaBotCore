@@ -636,15 +636,26 @@ namespace NinjaBotCore.Services
                         return Results.BadRequest(new { success = false, error = "Poll is already closed" });
                     }
 
-                    // Check permissions - only creator can close via API
-                    if (poll.CreatedById != userId)
+                    // Check permissions - creator OR moderators (ManageMessages) can close
+                    var isCreator = poll.CreatedById == userId;
+                    var isModerator = false;
+
+                    var client = _serviceProvider.GetService<DiscordShardedClient>();
+                    var guild = client?.GetGuild((ulong)poll.GuildId);
+                    var member = guild?.GetUser((ulong)userId);
+                    if (member != null)
                     {
-                        return Results.Forbid();
+                        isModerator = member.GuildPermissions.ManageMessages;
                     }
 
+                    if (!isCreator && !isModerator)
+                    {
+                        return Results.Json(new { success = false, error = "Only the poll creator or moderators can close this poll" }, statusCode: 403);
+                    }
+
+                    // Mark as closed in memory (but don't save until Discord update succeeds)
                     poll.IsClosed = true;
                     poll.ClosedAt = DateTime.UtcNow;
-                    await db.SaveChangesAsync();
 
                     var totalVotes = poll.PollVotes.Count;
                     var results = poll.PollOptions.OrderBy(o => o.DisplayOrder).Select(option =>
@@ -661,7 +672,7 @@ namespace NinjaBotCore.Services
                         };
                     }).ToList();
 
-                    // Post results to Discord
+                    // Update Discord and save to DB
                     try
                     {
                         // Get server poll settings
@@ -671,69 +682,75 @@ namespace NinjaBotCore.Services
                         // Determine target channel (settings override or poll channel)
                         var targetChannelId = settings?.ResultsChannelId ?? poll.ChannelId;
 
-                        var client = _serviceProvider.GetService<DiscordShardedClient>();
-                        var guild = client?.GetGuild((ulong)poll.GuildId);
+                        // Use guild reference from earlier permission check
                         var pollChannel = guild?.GetTextChannel((ulong)poll.ChannelId);
                         var resultsChannel = guild?.GetTextChannel((ulong)targetChannelId);
 
                         // Update original poll message (change color to red, disable buttons)
                         if (pollChannel != null && poll.MessageId > 0)
                         {
-                            try
+                            var message = await pollChannel.GetMessageAsync((ulong)poll.MessageId);
+                            if (message is IUserMessage userMessage)
                             {
-                                var message = await pollChannel.GetMessageAsync((ulong)poll.MessageId);
-                                if (message is IUserMessage userMessage)
-                                {
-                                    var closedEmbed = BuildClosedPollEmbed(poll, totalVotes);
-                                    var disabledComponents = new ComponentBuilder()
-                                        .WithButton("Poll Closed", "poll_closed", ButtonStyle.Secondary, disabled: true);
+                                var closedEmbed = BuildClosedPollEmbed(poll, totalVotes);
+                                var disabledComponents = new ComponentBuilder()
+                                    .WithButton("Poll Closed", "poll_closed", ButtonStyle.Secondary, disabled: true);
 
-                                    await userMessage.ModifyAsync(msg =>
-                                    {
-                                        msg.Embed = closedEmbed.Build();
-                                        msg.Components = disabledComponents.Build();
-                                    });
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogWarning(ex, "Failed to update original poll message {PollId}", poll.Id);
+                                await userMessage.ModifyAsync(msg =>
+                                {
+                                    msg.Embed = closedEmbed.Build();
+                                    msg.Components = disabledComponents.Build();
+                                });
                             }
                         }
 
-                        // Post full results using PollResultsBuilder
-                        if (resultsChannel != null)
+                        // Save to DB only after Discord update succeeds
+                        await db.SaveChangesAsync();
+
+                        // Post full results using PollResultsBuilder (non-critical, don't fail if this errors)
+                        try
                         {
-                            var resultsBuilder = new PollResultsBuilder();
-                            var options = poll.PollOptions?.ToList() ?? new List<PollOption>();
-                            var votes = poll.PollVotes?.ToList() ?? new List<PollVote>();
-                            var resultsEmbed = resultsBuilder.BuildResultsEmbed(poll, options, votes, closedBy: poll.CreatedByName, wasExpired: false);
-
-                            // Build voter mentions if enabled
-                            string? content = null;
-                            if (settings?.MentionVotersOnClose == true && !poll.IsAnonymous)
+                            if (resultsChannel != null)
                             {
-                                content = resultsBuilder.BuildVoterMentions(votes, poll.IsAnonymous);
+                                var resultsBuilder = new PollResultsBuilder();
+                                var options = poll.PollOptions?.ToList() ?? new List<PollOption>();
+                                var votes = poll.PollVotes?.ToList() ?? new List<PollVote>();
+                                var resultsEmbed = resultsBuilder.BuildResultsEmbed(poll, options, votes, closedBy: poll.CreatedByName, wasExpired: false);
+
+                                // Build voter mentions if enabled
+                                string? content = null;
+                                if (settings?.MentionVotersOnClose == true && !poll.IsAnonymous)
+                                {
+                                    content = resultsBuilder.BuildVoterMentions(votes, poll.IsAnonymous);
+                                }
+
+                                // Send as reply to original poll
+                                var messageReference = new MessageReference(
+                                    messageId: (ulong)poll.MessageId,
+                                    channelId: (ulong)poll.ChannelId,
+                                    guildId: (ulong)poll.GuildId,
+                                    failIfNotExists: false);
+
+                                await resultsChannel.SendMessageAsync(
+                                    text: string.IsNullOrEmpty(content) ? null : content,
+                                    embed: resultsEmbed,
+                                    messageReference: messageReference,
+                                    allowedMentions: AllowedMentions.All);
                             }
-
-                            // Send as reply to original poll
-                            var messageReference = new MessageReference(
-                                messageId: (ulong)poll.MessageId,
-                                channelId: (ulong)poll.ChannelId,
-                                guildId: (ulong)poll.GuildId,
-                                failIfNotExists: false);
-
-                            await resultsChannel.SendMessageAsync(
-                                text: string.IsNullOrEmpty(content) ? null : content,
-                                embed: resultsEmbed,
-                                messageReference: messageReference,
-                                allowedMentions: AllowedMentions.All);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to post results message for poll {PollId}", poll.Id);
+                            // Non-critical - poll is already closed
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Failed to update Discord for closed poll {PollId}", poll.Id);
-                        // Don't fail the API call - poll is already closed in DB
+                        // Discord update failed - revert in-memory changes and don't save
+                        poll.IsClosed = false;
+                        poll.ClosedAt = null;
+                        _logger.LogError(ex, "Failed to close poll {PollId} - Discord update failed", poll.Id);
+                        return Results.Json(new { success = false, error = "Failed to update Discord message. Poll not closed." }, statusCode: 500);
                     }
 
                     return Results.Json(new

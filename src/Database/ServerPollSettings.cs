@@ -23,6 +23,13 @@ namespace NinjaBotCore.Database
         /// </summary>
         public bool DefaultAnonymous { get; set; } = false;
 
+        /// <summary>
+        /// Default role IDs that can vote on new polls. Null = everyone can vote.
+        /// Comma-separated list of role IDs.
+        /// </summary>
+        [MaxLength(1000)]
+        public string? DefaultAllowedRoleIds { get; set; }
+
         public long? SetById { get; set; }
 
         [MaxLength(100)]

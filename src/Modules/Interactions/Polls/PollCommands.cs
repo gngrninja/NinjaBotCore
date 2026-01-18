@@ -50,8 +50,11 @@ namespace NinjaBotCore.Modules.Interactions.Polls
                 .AddTextInput("Options (one per line)", "poll_options", TextInputStyle.Paragraph,
                     placeholder: "Enter options separated by newlines. Leave empty for Yes/No poll.",
                     required: false, maxLength: 1000)
-                .AddTextInput("Duration (optional)", "poll_duration", placeholder: "1h, 12h, 24h, 1w, or leave empty",
+                .AddTextInput("Duration (optional)", "poll_duration", placeholder: "1h-720h, 1d-30d, or 1w-4w (max 30 days)",
                     required: false, maxLength: 20)
+                .AddTextInput("Anonymous voting? (yes/no)", "poll_anonymous",
+                    placeholder: "Leave empty for server default, 'yes' or 'no' to override",
+                    required: false, maxLength: 10)
                 .Build();
 
             await Context.Interaction.RespondWithModalAsync(modal);
@@ -87,7 +90,10 @@ namespace NinjaBotCore.Modules.Interactions.Polls
         [RequireUserPermission(GuildPermission.ManageGuild)]
         public async Task PollSettings(
             [Summary("results_channel", "Channel where poll results are posted (leave empty for same channel)")] ITextChannel? resultsChannel = null,
-            [Summary("mention_voters", "Mention voters when polls close")] bool? mentionVoters = null)
+            [Summary("mention_voters", "Mention voters when polls close")] bool? mentionVoters = null,
+            [Summary("default_anonymous", "New polls default to anonymous voting")] bool? defaultAnonymous = null,
+            [Summary("default_role", "Add a role that can vote on new polls (use multiple times to add more)")] IRole? defaultRole = null,
+            [Summary("clear_roles", "Clear all default voting roles (everyone can vote)")] bool clearRoles = false)
         {
             await DeferAsync(ephemeral: true);
 
@@ -108,7 +114,9 @@ namespace NinjaBotCore.Modules.Interactions.Polls
                         {
                             DiscordGuildId = guildId,
                             MentionVotersOnClose = false,
-                            ResultsChannelId = null
+                            ResultsChannelId = null,
+                            DefaultAnonymous = false,
+                            DefaultAllowedRoleIds = null
                         };
                         await settingsRepo.AddAsync(existing);
                     }
@@ -123,6 +131,34 @@ namespace NinjaBotCore.Modules.Interactions.Polls
                     if (mentionVoters.HasValue)
                     {
                         existing.MentionVotersOnClose = mentionVoters.Value;
+                        changed = true;
+                    }
+                    if (defaultAnonymous.HasValue)
+                    {
+                        existing.DefaultAnonymous = defaultAnonymous.Value;
+                        changed = true;
+                    }
+                    if (clearRoles)
+                    {
+                        existing.DefaultAllowedRoleIds = null;
+                        changed = true;
+                    }
+                    else if (defaultRole != null)
+                    {
+                        // Add role to the list (avoid duplicates)
+                        var roleId = ((long)defaultRole.Id).ToString();
+                        if (string.IsNullOrEmpty(existing.DefaultAllowedRoleIds))
+                        {
+                            existing.DefaultAllowedRoleIds = roleId;
+                        }
+                        else
+                        {
+                            var existingRoles = existing.DefaultAllowedRoleIds.Split(',', StringSplitOptions.RemoveEmptyEntries);
+                            if (!existingRoles.Contains(roleId))
+                            {
+                                existing.DefaultAllowedRoleIds = existing.DefaultAllowedRoleIds + "," + roleId;
+                            }
+                        }
                         changed = true;
                     }
 
@@ -156,13 +192,29 @@ namespace NinjaBotCore.Modules.Interactions.Polls
                 // Mention voters
                 embed.AddField("Mention Voters", settings.MentionVotersOnClose ? "✅ Yes" : "❌ No", inline: true);
 
+                // Default anonymous
+                embed.AddField("Default Anonymous", settings.DefaultAnonymous ? "✅ Yes" : "❌ No", inline: true);
+
+                // Default allowed roles
+                if (!string.IsNullOrEmpty(settings.DefaultAllowedRoleIds))
+                {
+                    var roleIds = settings.DefaultAllowedRoleIds.Split(',', StringSplitOptions.RemoveEmptyEntries);
+                    var roleMentions = roleIds.Select(id => $"<@&{id}>").ToList();
+                    embed.AddField("Default Voting Roles", string.Join(", ", roleMentions), inline: false);
+                }
+                else
+                {
+                    embed.AddField("Default Voting Roles", "Everyone (no restrictions)", inline: false);
+                }
+
                 // Last updated
                 if (settings.TimeSet.HasValue && !string.IsNullOrEmpty(settings.SetByName))
                 {
                     embed.WithFooter($"Last updated by {settings.SetByName}");
                 }
 
-                var description = resultsChannel != null || mentionVoters.HasValue
+                var anyChanges = resultsChannel != null || mentionVoters.HasValue || defaultAnonymous.HasValue || defaultRole != null || clearRoles;
+                var description = anyChanges
                     ? "✅ Settings updated successfully!"
                     : "Current poll settings for this server:";
                 embed.WithDescription(description);

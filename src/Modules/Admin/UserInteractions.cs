@@ -602,6 +602,7 @@ namespace NinjaBotCore.Modules.Admin
                 var question = components.First(x => x.CustomId == "poll_question").Value?.Trim();
                 var optionsText = components.FirstOrDefault(x => x.CustomId == "poll_options")?.Value?.Trim();
                 var durationText = components.FirstOrDefault(x => x.CustomId == "poll_duration")?.Value?.Trim();
+                var anonymousText = components.FirstOrDefault(x => x.CustomId == "poll_anonymous")?.Value?.Trim();
 
                 // Validate question
                 if (string.IsNullOrWhiteSpace(question))
@@ -644,10 +645,32 @@ namespace NinjaBotCore.Modules.Admin
                     expiresAt = ParsePollDuration(durationText);
                     if (!expiresAt.HasValue)
                     {
-                        await modal.FollowupAsync("❌ Invalid duration format. Use: 1h, 12h, 24h, 1d, 7d, 1w", ephemeral: true);
+                        await modal.FollowupAsync("❌ Invalid duration. Use 1h-720h, 1d-30d, or 1w-4w (max 30 days).", ephemeral: true);
                         return;
                     }
                 }
+
+                // Get server defaults
+                Database.ServerPollSettings? serverSettings = null;
+                await using (var settingsRepo = new Repository<Database.ServerPollSettings>(_scopeFactory))
+                {
+                    serverSettings = await settingsRepo.Query
+                        .FirstOrDefaultAsync(s => s.DiscordGuildId == (long)modal.GuildId);
+                }
+
+                // Determine anonymous setting (modal override > server default > false)
+                bool isAnonymous;
+                if (!string.IsNullOrWhiteSpace(anonymousText))
+                {
+                    isAnonymous = anonymousText.Equals("yes", StringComparison.OrdinalIgnoreCase);
+                }
+                else
+                {
+                    isAnonymous = serverSettings?.DefaultAnonymous ?? false;
+                }
+
+                // Inherit role restrictions from server defaults
+                var allowedRoleIds = serverSettings?.DefaultAllowedRoleIds;
 
                 // Create poll in database
                 Database.Poll poll;
@@ -659,7 +682,7 @@ namespace NinjaBotCore.Modules.Admin
                         Question = question,
                         PollType = pollType,
                         AllowVoteChange = true,
-                        IsAnonymous = false,
+                        IsAnonymous = isAnonymous,
                         IsClosed = false,
                         CreatedAt = DateTime.UtcNow,
                         ExpiresAt = expiresAt,
@@ -667,7 +690,8 @@ namespace NinjaBotCore.Modules.Admin
                         CreatedByName = modal.User.Username,
                         GuildId = (long)modal.GuildId,
                         ChannelId = (long)modal.Channel.Id,
-                        MessageId = 0 // Will be updated after posting message
+                        MessageId = 0, // Will be updated after posting message
+                        AllowedRoleIds = allowedRoleIds
                     };
 
                     await pollRepo.AddAsync(newPoll);
@@ -708,11 +732,24 @@ namespace NinjaBotCore.Modules.Admin
                 var channel = guild?.GetChannel((ulong)modal.Channel.Id) as ISocketMessageChannel;
                 if (channel == null)
                 {
+                    // Clean up orphaned poll
+                    await CleanupOrphanedPollAsync(poll.Id);
                     await modal.FollowupAsync("❌ Could not access channel.", ephemeral: true);
                     return;
                 }
 
-                var message = await channel.SendMessageAsync(embed: embed.Build(), components: pollComponents.Build());
+                IUserMessage message;
+                try
+                {
+                    message = await channel.SendMessageAsync(embed: embed.Build(), components: pollComponents.Build());
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to post poll message, cleaning up poll {PollId}", poll.Id);
+                    await CleanupOrphanedPollAsync(poll.Id);
+                    await modal.FollowupAsync("❌ Failed to post poll message. Please try again.", ephemeral: true);
+                    return;
+                }
 
                 // Update poll with message ID
                 await using (var updateRepo = new Repository<Database.Poll>(_scopeFactory))
@@ -745,6 +782,37 @@ namespace NinjaBotCore.Modules.Admin
             }
         }
 
+        private async Task CleanupOrphanedPollAsync(long pollId)
+        {
+            try
+            {
+                await using var pollRepo = new Repository<Database.Poll>(_scopeFactory);
+                await using var optionRepo = new Repository<Database.PollOption>(_scopeFactory);
+
+                // Delete options first (foreign key constraint)
+                var options = await optionRepo.Query.Where(o => o.PollId == pollId).ToListAsync();
+                foreach (var option in options)
+                {
+                    optionRepo.Delete(option);
+                }
+                await optionRepo.SaveChangesAsync();
+
+                // Delete the poll
+                var orphan = await pollRepo.Query.FirstOrDefaultAsync(p => p.Id == pollId);
+                if (orphan != null)
+                {
+                    pollRepo.Delete(orphan);
+                    await pollRepo.SaveChangesAsync();
+                }
+
+                _logger.LogInformation("Cleaned up orphaned poll {PollId}", pollId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to cleanup orphaned poll {PollId}", pollId);
+            }
+        }
+
         private DateTime? ParseDuration(string duration)
         {
             if (string.IsNullOrWhiteSpace(duration))
@@ -756,6 +824,18 @@ namespace NinjaBotCore.Modules.Admin
 
             var value = int.Parse(match.Groups[1].Value);
             var unit = match.Groups[2].Value;
+
+            // Calculate total hours to enforce 30-day maximum (720 hours)
+            var totalHours = unit switch
+            {
+                "h" => value,
+                "d" => value * 24,
+                "w" => value * 24 * 7,
+                _ => 0
+            };
+
+            if (totalHours > 720 || totalHours <= 0)
+                return null;
 
             return unit switch
             {
@@ -796,10 +876,25 @@ namespace NinjaBotCore.Modules.Admin
                     inline: false);
             }
 
-            // Add expiration info
+            // Add info fields
             if (poll.ExpiresAt.HasValue && !poll.IsClosed)
             {
                 embed.AddField("Expires", $"<t:{new DateTimeOffset(poll.ExpiresAt.Value).ToUnixTimeSeconds()}:R>", inline: true);
+            }
+
+            if (poll.IsAnonymous)
+            {
+                embed.AddField("Voting", "🔒 Anonymous", inline: true);
+            }
+
+            if (!string.IsNullOrEmpty(poll.AllowedRoleIds))
+            {
+                var roleIds = poll.AllowedRoleIds.Split(',', StringSplitOptions.RemoveEmptyEntries);
+                var roleMentions = roleIds.Select(id => $"<@&{id}>").Take(5).ToList();
+                var roleText = string.Join(", ", roleMentions);
+                if (roleIds.Length > 5)
+                    roleText += $" +{roleIds.Length - 5} more";
+                embed.AddField("Restricted to", roleText, inline: true);
             }
 
             return embed;
@@ -893,53 +988,87 @@ namespace NinjaBotCore.Modules.Admin
             if (poll.ExpiresAt.HasValue && DateTime.UtcNow > poll.ExpiresAt.Value)
                 return "❌ This poll has expired.";
 
+            // Check role restrictions
+            if (!string.IsNullOrEmpty(poll.AllowedRoleIds))
+            {
+                var allowedRoles = poll.AllowedRoleIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(r => long.TryParse(r.Trim(), out var id) ? id : 0)
+                    .Where(id => id > 0)
+                    .ToHashSet();
+
+                var guild = _client.GetGuild((ulong)poll.GuildId);
+                var member = guild?.GetUser((ulong)userId);
+
+                if (member == null || !member.Roles.Any(r => allowedRoles.Contains((long)r.Id)))
+                    return "❌ You don't have permission to vote on this poll.";
+            }
+
             // Check if option exists
             if (!poll.PollOptions.Any(o => o.Id == optionId))
                 return "❌ Invalid option.";
 
-            // Check existing votes
-            var existingVotes = await db.PollVotes
-                .Where(v => v.PollId == pollId && v.UserId == userId)
-                .ToListAsync();
-
-            if (poll.PollType == "SingleChoice" || poll.PollType == "YesNo")
+            // Use transaction to prevent race conditions in vote changes
+            var strategy = db.Database.CreateExecutionStrategy();
+            return await strategy.ExecuteAsync(async () =>
             {
-                if (existingVotes.Any())
+                await using var transaction = await db.Database.BeginTransactionAsync();
+                try
                 {
-                    if (!poll.AllowVoteChange)
-                        return "❌ You've already voted and cannot change your vote.";
+                    // Check existing votes within transaction
+                    var existingVotes = await db.PollVotes
+                        .Where(v => v.PollId == pollId && v.UserId == userId)
+                        .ToListAsync();
 
-                    // Remove old votes
-                    db.PollVotes.RemoveRange(existingVotes);
-                }
-            }
-            else if (poll.PollType == "MultipleChoice")
-            {
-                // Check if already voted for this option
-                var existingVote = existingVotes.FirstOrDefault(v => v.OptionId == optionId);
-                if (existingVote != null)
-                {
-                    // Toggle off
-                    db.PollVotes.Remove(existingVote);
+                    if (poll.PollType == "SingleChoice" || poll.PollType == "YesNo")
+                    {
+                        if (existingVotes.Any())
+                        {
+                            if (!poll.AllowVoteChange)
+                            {
+                                await transaction.RollbackAsync();
+                                return "❌ You've already voted and cannot change your vote.";
+                            }
+
+                            // Remove old votes
+                            db.PollVotes.RemoveRange(existingVotes);
+                        }
+                    }
+                    else if (poll.PollType == "MultipleChoice")
+                    {
+                        // Check if already voted for this option
+                        var existingVote = existingVotes.FirstOrDefault(v => v.OptionId == optionId);
+                        if (existingVote != null)
+                        {
+                            // Toggle off
+                            db.PollVotes.Remove(existingVote);
+                            await db.SaveChangesAsync();
+                            await transaction.CommitAsync();
+                            return "✅ Vote removed.";
+                        }
+                    }
+
+                    // Add new vote
+                    var newVote = new Database.PollVote
+                    {
+                        PollId = pollId,
+                        OptionId = optionId,
+                        UserId = userId,
+                        UserName = userName,
+                        VotedAt = DateTime.UtcNow
+                    };
+
+                    await db.PollVotes.AddAsync(newVote);
                     await db.SaveChangesAsync();
-                    return "✅ Vote removed.";
+                    await transaction.CommitAsync();
+
+                    return "✅ Vote recorded!";
                 }
-            }
-
-            // Add new vote
-            var newVote = new Database.PollVote
-            {
-                PollId = pollId,
-                OptionId = optionId,
-                UserId = userId,
-                UserName = userName,
-                VotedAt = DateTime.UtcNow
-            };
-
-            await db.PollVotes.AddAsync(newVote);
-            await db.SaveChangesAsync();
-
-            return "✅ Vote recorded!";
+                catch (Exception)
+                {
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+            });
         }
 
         private async Task UpdatePollMessageAsync(long pollId)
@@ -979,10 +1108,25 @@ namespace NinjaBotCore.Modules.Admin
                     inline: false);
             }
 
-            // Add expiration info
+            // Add info fields
             if (poll.ExpiresAt.HasValue && !poll.IsClosed)
             {
                 embed.AddField("Expires", $"<t:{new DateTimeOffset(poll.ExpiresAt.Value).ToUnixTimeSeconds()}:R>", inline: true);
+            }
+
+            if (poll.IsAnonymous)
+            {
+                embed.AddField("Voting", "🔒 Anonymous", inline: true);
+            }
+
+            if (!string.IsNullOrEmpty(poll.AllowedRoleIds))
+            {
+                var roleIds = poll.AllowedRoleIds.Split(',', StringSplitOptions.RemoveEmptyEntries);
+                var roleMentions = roleIds.Select(id => $"<@&{id}>").Take(5).ToList();
+                var roleText = string.Join(", ", roleMentions);
+                if (roleIds.Length > 5)
+                    roleText += $" +{roleIds.Length - 5} more";
+                embed.AddField("Restricted to", roleText, inline: true);
             }
 
             if (poll.IsClosed)
