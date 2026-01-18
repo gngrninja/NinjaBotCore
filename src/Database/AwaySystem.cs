@@ -8,7 +8,7 @@ namespace NinjaBotCore.Database
     {
         [Key]
         public long AwayId { get; set; }
-        public ulong UserId { get; set; }
+        public long UserId { get; set; }
         public string UserName { get; set; }
         public string Message { get; set; }
         public Nullable<bool> Status { get; set; }

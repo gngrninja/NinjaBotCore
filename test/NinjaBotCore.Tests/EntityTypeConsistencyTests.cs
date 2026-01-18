@@ -40,7 +40,9 @@ namespace NinjaBotCore.Tests
                                (p.PropertyType == typeof(int) ||
                                 p.PropertyType == typeof(long) ||
                                 p.PropertyType == typeof(int?) ||
-                                p.PropertyType == typeof(long?)))
+                                p.PropertyType == typeof(long?) ||
+                                p.PropertyType == typeof(ulong) ||
+                                p.PropertyType == typeof(ulong?)))
                     .ToList();
 
                 foreach (var prop in idProperties)
@@ -51,6 +53,10 @@ namespace NinjaBotCore.Tests
                     if (actualType == typeof(int))
                     {
                         inconsistentEntities.Add($"{entityType.Name}.{prop.Name} is int, should be long");
+                    }
+                    else if (actualType == typeof(ulong))
+                    {
+                        inconsistentEntities.Add($"{entityType.Name}.{prop.Name} is ulong, should be long");
                     }
                 }
             }

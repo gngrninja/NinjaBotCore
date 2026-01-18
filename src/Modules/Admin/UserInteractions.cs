@@ -7,6 +7,7 @@ using Discord;
 using Microsoft.Extensions.DependencyInjection;
 using Discord.WebSocket;
 using Microsoft.EntityFrameworkCore;
+using NinjaBotCore.Common;
 using NinjaBotCore.Database;
 using NinjaBotCore.Modules.Interactions.Polls;
 using NinjaBotCore.Repositories;
@@ -58,11 +59,10 @@ namespace NinjaBotCore.Modules.Admin
         private async Task HandleModalSubmitted(SocketModal modal)
         {
             var customId = modal.Data.CustomId;
-            var legacyModals = new[] { "joining_message", "parting_message", "discord_server_note" };
-            var pollModals = new[] { "poll_create_modal" };
 
             // Skip modals that aren't handled here
-            if (!legacyModals.Contains(customId) && !pollModals.Contains(customId))
+            if (!ModalConstants.LegacyModals.Contains(customId) &&
+                !ModalConstants.PollModals.Contains(customId))
             {
                 return;
             }
@@ -146,7 +146,8 @@ namespace NinjaBotCore.Modules.Admin
             var customId = component.Data.CustomId;
 
             // Only handle poll-related components
-            if (!customId.StartsWith("poll_vote~") && !customId.StartsWith("poll_close~"))
+            if (!customId.StartsWith(ModalConstants.PollVotePrefix) &&
+                !customId.StartsWith(ModalConstants.PollClosePrefix))
                 return;
 
             // Prevent duplicate handling (sharded client may fire event multiple times)
@@ -162,11 +163,11 @@ namespace NinjaBotCore.Modules.Admin
                 // ButtonExecuted fires AFTER InteractionCreated, ensuring Discord's API is synced
                 _logger.LogDebug("Processing poll component {CustomId}", customId);
 
-                if (customId.StartsWith("poll_vote~"))
+                if (customId.StartsWith(ModalConstants.PollVotePrefix))
                 {
                     await HandlePollVoteComponent(component);
                 }
-                else if (customId.StartsWith("poll_close~"))
+                else if (customId.StartsWith(ModalConstants.PollClosePrefix))
                 {
                     await HandlePollCloseComponent(component);
                 }
@@ -919,7 +920,7 @@ namespace NinjaBotCore.Modules.Admin
 
                 foreach (var option in options)
                 {
-                    var customId = $"poll_vote~{userId}~{poll.Id}~{option.Id}";
+                    var customId = $"{ModalConstants.PollVotePrefix}{userId}~{poll.Id}~{option.Id}";
                     var button = new ButtonBuilder()
                         .WithLabel(TruncatePollLabel(option.OptionText, 80))
                         .WithCustomId(customId)
@@ -953,7 +954,7 @@ namespace NinjaBotCore.Modules.Admin
                     var closeRow = buttonsInRow > 0 ? currentRow + 1 : currentRow;
                     var closeButton = new ButtonBuilder()
                         .WithLabel("Close Poll")
-                        .WithCustomId($"poll_close~{poll.CreatedById}~{poll.Id}")
+                        .WithCustomId($"{ModalConstants.PollClosePrefix}{poll.CreatedById}~{poll.Id}")
                         .WithStyle(ButtonStyle.Danger)
                         .WithEmote(new Emoji("🔒"));
                     builder.WithButton(closeButton, row: closeRow);

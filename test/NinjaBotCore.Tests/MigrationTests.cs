@@ -109,7 +109,7 @@ namespace NinjaBotCore.Tests
             // Assert - Record with UserId saved successfully
             var record = await _context.AwaySystem.FirstOrDefaultAsync();
             Assert.NotNull(record);
-            Assert.Equal(12345uL, record.UserId);
+            Assert.Equal(12345L, record.UserId);
         }
 
         [Fact]
@@ -148,7 +148,7 @@ namespace NinjaBotCore.Tests
 
             // Verify new schema works
             var newRecord = await _context.AwaySystem.FirstOrDefaultAsync();
-            Assert.Equal(99999uL, newRecord.UserId);
+            Assert.Equal(99999L, newRecord.UserId);
         }
 
         [Fact]

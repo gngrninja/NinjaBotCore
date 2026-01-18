@@ -37,7 +37,7 @@ namespace NinjaBotCore.Modules.Interactions.Away
                 string userMentionName = user.Mention;
 
                 await using var awayRepo = GetRepository<AwaySystem>();
-                var existing = await awayRepo.FirstOrDefaultAsync(a => a.UserId == user.Id);
+                var existing = await awayRepo.FirstOrDefaultAsync(a => a.UserId == (long)user.Id);
 
                 if (existing != null && existing.Status == true)
                 {
@@ -48,7 +48,7 @@ namespace NinjaBotCore.Modules.Interactions.Away
                     sb.AppendLine($"Marking you as away, **{userMentionName}**, with the message: *{message}*");
 
                     await awayRepo.UpsertAsync(
-                        findPredicate: a => a.UserId == user.Id,
+                        findPredicate: a => a.UserId == (long)user.Id,
                         updateAction: away =>
                         {
                             away.Status = true;
@@ -58,7 +58,7 @@ namespace NinjaBotCore.Modules.Interactions.Away
                         },
                         createFactory: () => new AwaySystem
                         {
-                            UserId = user.Id,
+                            UserId = (long)user.Id,
                             UserName = userName,
                             Status = true,
                             Message = message,
@@ -91,7 +91,7 @@ namespace NinjaBotCore.Modules.Interactions.Away
                 string userMentionName = user.Mention;
 
                 await using var awayRepo = GetRepository<AwaySystem>();
-                var existing = await awayRepo.FirstOrDefaultAsync(a => a.UserId == user.Id);
+                var existing = await awayRepo.FirstOrDefaultAsync(a => a.UserId == (long)user.Id);
 
                 if (existing == null || existing.Status != true)
                 {
@@ -110,7 +110,7 @@ namespace NinjaBotCore.Modules.Interactions.Away
                     }
 
                     await awayRepo.UpsertAsync(
-                        findPredicate: a => a.UserId == user.Id,
+                        findPredicate: a => a.UserId == (long)user.Id,
                         updateAction: away =>
                         {
                             away.Status = false;
@@ -119,7 +119,7 @@ namespace NinjaBotCore.Modules.Interactions.Away
                         },
                         createFactory: () => new AwaySystem
                         {
-                            UserId = user.Id,
+                            UserId = (long)user.Id,
                             UserName = userName,
                             Status = false,
                             Message = string.Empty

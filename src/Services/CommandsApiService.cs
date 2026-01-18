@@ -13,6 +13,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using NinjaBotCore.Common;
 using NinjaBotCore.Database;
 using NinjaBotCore.Models.Wow;
 using NinjaBotCore.Modules.Interactions.Polls;
@@ -1858,7 +1859,7 @@ namespace NinjaBotCore.Services
                         }
                     }
 
-                    if (!ulong.TryParse(userId, out var userIdLong))
+                    if (!long.TryParse(userId, out var userIdParsed))
                     {
                         return Results.BadRequest(new { success = false, error = "Invalid user ID" });
                     }
@@ -1867,7 +1868,7 @@ namespace NinjaBotCore.Services
                     var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
 
                     var status = await db.AwaySystem
-                        .FirstOrDefaultAsync(a => a.UserId == userIdLong);
+                        .FirstOrDefaultAsync(a => a.UserId == userIdParsed);
 
                     if (status == null)
                     {
@@ -1911,7 +1912,7 @@ namespace NinjaBotCore.Services
                         }
                     }
 
-                    if (!ulong.TryParse(userId, out var userIdLong))
+                    if (!long.TryParse(userId, out var userIdParsed))
                     {
                         return Results.BadRequest(new { success = false, error = "Invalid user ID" });
                     }
@@ -1928,14 +1929,14 @@ namespace NinjaBotCore.Services
                     var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
 
                     var status = await db.AwaySystem
-                        .FirstOrDefaultAsync(a => a.UserId == userIdLong);
+                        .FirstOrDefaultAsync(a => a.UserId == userIdParsed);
 
                     if (status == null)
                     {
                         // Create new status
                         status = new Database.AwaySystem
                         {
-                            UserId = userIdLong
+                            UserId = userIdParsed
                         };
                         db.AwaySystem.Add(status);
                     }
@@ -2312,7 +2313,7 @@ namespace NinjaBotCore.Services
 
                         foreach (var opt in pollOptions)
                         {
-                            var customId = $"poll_vote~{userId}~{poll.Id}~{opt.Id}";
+                            var customId = $"{ModalConstants.PollVotePrefix}{userId}~{poll.Id}~{opt.Id}";
                             var label = opt.OptionText.Length > 80 ? opt.OptionText.Substring(0, 77) + "..." : opt.OptionText;
                             var button = new Discord.ButtonBuilder()
                                 .WithLabel(label)
@@ -2344,7 +2345,7 @@ namespace NinjaBotCore.Services
                             var closeRow = buttonsInRow > 0 ? currentRow + 1 : currentRow;
                             var closeButton = new Discord.ButtonBuilder()
                                 .WithLabel("Close Poll")
-                                .WithCustomId($"poll_close~{poll.CreatedById}~{poll.Id}")
+                                .WithCustomId($"{ModalConstants.PollClosePrefix}{poll.CreatedById}~{poll.Id}")
                                 .WithStyle(Discord.ButtonStyle.Danger)
                                 .WithEmote(new Discord.Emoji("🔒"));
                             builder.WithButton(closeButton, row: closeRow);

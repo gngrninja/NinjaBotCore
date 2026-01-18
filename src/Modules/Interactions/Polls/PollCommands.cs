@@ -10,6 +10,7 @@ using Discord.WebSocket;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using NinjaBotCore.Common;
 using NinjaBotCore.Database;
 using NinjaBotCore.Modules.Interactions;
 using DbPoll = NinjaBotCore.Database.Poll;
@@ -290,7 +291,7 @@ namespace NinjaBotCore.Modules.Interactions.Polls
 
                 foreach (var option in options)
                 {
-                    var customId = $"poll_vote~{contextUserId}~{poll.Id}~{option.Id}";
+                    var customId = $"{ModalConstants.PollVotePrefix}{contextUserId}~{poll.Id}~{option.Id}";
                     var button = new ButtonBuilder()
                         .WithLabel(TruncateLabel(option.OptionText, 80))
                         .WithCustomId(customId)
@@ -324,7 +325,7 @@ namespace NinjaBotCore.Modules.Interactions.Polls
                     var closeRow = buttonsInRow > 0 ? currentRow + 1 : currentRow;
                     var closeButton = new ButtonBuilder()
                         .WithLabel("Close Poll")
-                        .WithCustomId($"poll_close~{poll.CreatedById}~{poll.Id}")
+                        .WithCustomId($"{ModalConstants.PollClosePrefix}{poll.CreatedById}~{poll.Id}")
                         .WithStyle(ButtonStyle.Danger)
                         .WithEmote(new Emoji("🔒"));
                     builder.WithButton(closeButton, row: closeRow);

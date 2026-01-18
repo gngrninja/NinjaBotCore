@@ -52,7 +52,7 @@ namespace NinjaBotCore.Services
                 foreach (var user in mentionedUsers)
                 {
                     var awayUser = await awayRepo.FirstOrDefaultAsync(a =>
-                        a.UserId == user.Id && a.Status == true);
+                        a.UserId == (long)user.Id && a.Status == true);
 
                     if (awayUser == null) continue;
 

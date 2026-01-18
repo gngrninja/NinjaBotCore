@@ -41,7 +41,7 @@ namespace NinjaBotCore.Tests
         {
             // Arrange
             var awayRepo = _serviceProvider.GetRequiredService<IRepository<AwaySystem>>();
-            ulong userId = 12345;
+            long userId = 12345;
             string userName = "TestUser";
             string message = "Gone fishing";
 
@@ -79,7 +79,7 @@ namespace NinjaBotCore.Tests
         {
             // Arrange
             var awayRepo = _serviceProvider.GetRequiredService<IRepository<AwaySystem>>();
-            ulong userId = 23456;
+            long userId = 23456;
 
             // Create existing away entry
             await awayRepo.AddAsync(new AwaySystem
@@ -106,7 +106,7 @@ namespace NinjaBotCore.Tests
         {
             // Arrange
             var awayRepo = _serviceProvider.GetRequiredService<IRepository<AwaySystem>>();
-            ulong userId = 34567;
+            long userId = 34567;
             string userName = "TestUser";
             string input = "";
             string message = string.IsNullOrEmpty(input) ? "No message set!" : input;
@@ -142,7 +142,7 @@ namespace NinjaBotCore.Tests
         {
             // Arrange
             var awayRepo = _serviceProvider.GetRequiredService<IRepository<AwaySystem>>();
-            ulong userId = 45678;
+            long userId = 45678;
             var awayTime = DateTime.UtcNow.AddDays(-2).AddHours(-3).AddMinutes(-15);
 
             // Create away entry
@@ -175,7 +175,7 @@ namespace NinjaBotCore.Tests
         {
             // Arrange
             var awayRepo = _serviceProvider.GetRequiredService<IRepository<AwaySystem>>();
-            ulong userId = 56789;
+            long userId = 56789;
             string userName = "BackUser";
 
             // Create away entry
@@ -219,7 +219,7 @@ namespace NinjaBotCore.Tests
         {
             // Arrange
             var awayRepo = _serviceProvider.GetRequiredService<IRepository<AwaySystem>>();
-            ulong userId = 67890;
+            long userId = 67890;
 
             // Create user entry with status = false (not away)
             await awayRepo.AddAsync(new AwaySystem
@@ -244,7 +244,7 @@ namespace NinjaBotCore.Tests
         {
             // Arrange
             var awayRepo = _serviceProvider.GetRequiredService<IRepository<AwaySystem>>();
-            ulong userId = 78901;
+            long userId = 78901;
 
             // Act - Check for non-existent user
             var existing = await awayRepo.FirstOrDefaultAsync(a => a.UserId == userId);
@@ -258,7 +258,7 @@ namespace NinjaBotCore.Tests
         {
             // Arrange
             var awayRepo = _serviceProvider.GetRequiredService<IRepository<AwaySystem>>();
-            ulong targetUserId = 89012;
+            long targetUserId = 89012;
             string targetUserName = "ForcedBackUser";
 
             // Create away entry for target user
@@ -332,7 +332,7 @@ namespace NinjaBotCore.Tests
         {
             // Arrange
             var awayRepo = _serviceProvider.GetRequiredService<IRepository<AwaySystem>>();
-            ulong userId = 200001;
+            long userId = 200001;
 
             // Create entry with old username
             await awayRepo.AddAsync(new AwaySystem

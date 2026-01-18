@@ -4,6 +4,7 @@ using Discord.WebSocket;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using NinjaBotCore.Common;
 using NinjaBotCore.Services.ErrorHandling;
 using System;
 using System.Linq;
@@ -119,9 +120,8 @@ namespace NinjaBotCore.Services
                 // and have properly-synced interaction objects for reliable deferral
                 if (interaction is SocketModal modal)
                 {
-                    var legacyModals = new[] { "joining_message", "parting_message", "discord_server_note" };
-                    var pollModals = new[] { "poll_create_modal" };
-                    if (legacyModals.Contains(modal.Data.CustomId) || pollModals.Contains(modal.Data.CustomId))
+                    if (ModalConstants.LegacyModals.Contains(modal.Data.CustomId) ||
+                        ModalConstants.PollModals.Contains(modal.Data.CustomId))
                     {
                         _logger.LogInformation("[INTERACTION HANDLER] Modal {CustomId} will be handled by event system", modal.Data.CustomId);
                         return;
@@ -135,7 +135,8 @@ namespace NinjaBotCore.Services
                     if (!string.IsNullOrEmpty(customId))
                     {
                         // Skip poll interactions - they're handled by UserInteractions event handlers
-                        if (customId.StartsWith("poll_vote~") || customId.StartsWith("poll_close~"))
+                        if (customId.StartsWith(ModalConstants.PollVotePrefix) ||
+                            customId.StartsWith(ModalConstants.PollClosePrefix))
                         {
                             _logger.LogDebug("[INTERACTION HANDLER] Poll component {CustomId} will be handled by event system", customId);
                             return;
@@ -206,7 +207,8 @@ namespace NinjaBotCore.Services
                 if (!string.IsNullOrEmpty(customId))
                 {
                     // Skip error for poll components - they're handled by event handlers
-                    if (customId.StartsWith("poll_vote~") || customId.StartsWith("poll_close~"))
+                    if (customId.StartsWith(ModalConstants.PollVotePrefix) ||
+                        customId.StartsWith(ModalConstants.PollClosePrefix))
                     {
                         _logger.LogDebug("[INTERACTION HANDLER] Skipping UnknownCommand error for poll component {CustomId}", customId);
                         return;
@@ -217,10 +219,9 @@ namespace NinjaBotCore.Services
             if (result.Error == InteractionCommandError.UnknownCommand &&
                 context.Interaction is SocketModal modal)
             {
-                var legacyModals = new[] { "joining_message", "parting_message", "discord_server_note" };
-                var pollModals = new[] { "poll_create_modal" };
                 var customId = modal.Data.CustomId;
-                if (legacyModals.Contains(customId) || pollModals.Contains(customId))
+                if (ModalConstants.LegacyModals.Contains(customId) ||
+                    ModalConstants.PollModals.Contains(customId))
                 {
                     _logger.LogInformation("[INTERACTION HANDLER] Skipping UnknownCommand error for modal {CustomId} - handled by event system", customId);
                     return;
