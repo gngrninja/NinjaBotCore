@@ -16,7 +16,7 @@ using Newtonsoft.Json;
 
 namespace NinjaBotCore.Services
 {
-    public class WowStaticDataService : IDisposable
+    public class WowStaticDataService : IDisposable, IAsyncDisposable
     {
         private readonly ILogger _logger;
         private readonly IServiceScopeFactory _scopeFactory;
@@ -2637,17 +2637,24 @@ namespace NinjaBotCore.Services
 
         #endregion
 
-        public void Dispose()
+        public async ValueTask DisposeAsync()
         {
             if (_disposed) return;
 
             try
             {
                 _updateCancellation?.Cancel();
-                _updateTask?.Wait(TimeSpan.FromSeconds(5));
+                if (_updateTask != null)
+                {
+                    await _updateTask.WaitAsync(TimeSpan.FromSeconds(5));
+                }
                 _updateCancellation?.Dispose();
 
-                _logger.LogInformation("WowStaticDataService disposed");
+                _logger.LogInformation("WowStaticDataService disposed async");
+            }
+            catch (TimeoutException)
+            {
+                _logger.LogWarning("WowStaticDataService update task did not complete within timeout");
             }
             catch (Exception ex)
             {
@@ -2657,6 +2664,13 @@ namespace NinjaBotCore.Services
             {
                 _disposed = true;
             }
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            // Sync fallback - calls async version
+            DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
     }
 }

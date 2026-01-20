@@ -132,8 +132,19 @@ namespace NinjaBotCore.Modules.Admin
             }
             finally
             {
-                // Clean up handled interaction after processing (or after 1 second for safety)
-                _ = Task.Delay(1000).ContinueWith(_ => _handledInteractions.TryRemove(modal.Id, out byte _));
+                // Clean up handled interaction after processing (delay prevents race with duplicate events)
+                var modalId = modal.Id;
+                _ = Task.Delay(1000).ContinueWith(_ =>
+                {
+                    try
+                    {
+                        _handledInteractions.TryRemove(modalId, out byte _);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error cleaning up handled modal interaction {Id}", modalId);
+                    }
+                }, TaskScheduler.Default);
             }
         }
 
@@ -174,8 +185,19 @@ namespace NinjaBotCore.Modules.Admin
             }
             finally
             {
-                // Clean up handled interaction after processing
-                _ = Task.Delay(1000).ContinueWith(_ => _handledInteractions.TryRemove(component.Id, out byte _));
+                // Clean up handled interaction after processing (delay prevents race with duplicate events)
+                var componentId = component.Id;
+                _ = Task.Delay(1000).ContinueWith(_ =>
+                {
+                    try
+                    {
+                        _handledInteractions.TryRemove(componentId, out byte _);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error cleaning up handled component interaction {Id}", componentId);
+                    }
+                }, TaskScheduler.Default);
             }
         }
 
