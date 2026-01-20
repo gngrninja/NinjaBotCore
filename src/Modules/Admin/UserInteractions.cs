@@ -673,33 +673,34 @@ namespace NinjaBotCore.Modules.Admin
                     }
                 }
 
-                // Get server defaults
-                Database.ServerPollSettings? serverSettings = null;
-                await using (var settingsRepo = new Repository<Database.ServerPollSettings>(_scopeFactory))
-                {
-                    serverSettings = await settingsRepo.Query
-                        .FirstOrDefaultAsync(s => s.DiscordGuildId == (long)modal.GuildId);
-                }
-
-                // Determine anonymous setting (modal override > server default > false)
-                bool isAnonymous;
-                if (!string.IsNullOrWhiteSpace(anonymousText))
-                {
-                    isAnonymous = anonymousText.Equals("yes", StringComparison.OrdinalIgnoreCase);
-                }
-                else
-                {
-                    isAnonymous = serverSettings?.DefaultAnonymous ?? false;
-                }
-
-                // Inherit role restrictions from server defaults
-                var allowedRoleIds = serverSettings?.DefaultAllowedRoleIds;
-
-                // Create poll in database
+                // Create poll in database using UnitOfWork for atomic operation
+                // All repositories share the same context, ensuring poll + options save together
                 Database.Poll poll;
-                await using (var pollRepo = new Repository<Database.Poll>(_scopeFactory))
-                await using (var optionRepo = new Repository<Database.PollOption>(_scopeFactory))
+                await using (var uow = new UnitOfWork(_scopeFactory))
                 {
+                    var settingsRepo = uow.Repository<Database.ServerPollSettings>();
+                    var pollRepo = uow.Repository<Database.Poll>();
+                    var optionRepo = uow.Repository<Database.PollOption>();
+
+                    // Get server defaults
+                    var serverSettings = await settingsRepo.FirstOrDefaultAsync(
+                        s => s.DiscordGuildId == (long)modal.GuildId);
+
+                    // Determine anonymous setting (modal override > server default > false)
+                    bool isAnonymous;
+                    if (!string.IsNullOrWhiteSpace(anonymousText))
+                    {
+                        isAnonymous = anonymousText.Equals("yes", StringComparison.OrdinalIgnoreCase);
+                    }
+                    else
+                    {
+                        isAnonymous = serverSettings?.DefaultAnonymous ?? false;
+                    }
+
+                    // Inherit role restrictions from server defaults
+                    var allowedRoleIds = serverSettings?.DefaultAllowedRoleIds;
+
+                    // Create poll entity
                     var newPoll = new Database.Poll
                     {
                         Question = question,
@@ -718,14 +719,13 @@ namespace NinjaBotCore.Modules.Admin
                     };
 
                     await pollRepo.AddAsync(newPoll);
-                    await pollRepo.SaveChangesAsync();
 
-                    // Add options
+                    // Add options (EF Core will assign PollId after SaveChanges due to navigation)
                     for (int i = 0; i < options.Count; i++)
                     {
                         var option = new Database.PollOption
                         {
-                            PollId = newPoll.Id,
+                            Poll = newPoll, // Use navigation property for proper FK assignment
                             OptionText = options[i],
                             DisplayOrder = i,
                             Emote = GetPollEmote(i)
@@ -733,10 +733,11 @@ namespace NinjaBotCore.Modules.Admin
                         await optionRepo.AddAsync(option);
                     }
 
-                    await optionRepo.SaveChangesAsync();
+                    // Single SaveChanges - poll and options saved atomically
+                    await uow.SaveChangesAsync();
 
-                    // Reload with options
-                    poll = await pollRepo.Query
+                    // Reload with options using Context directly for Include support
+                    poll = await uow.Context.Set<Database.Poll>()
                         .Include(p => p.PollOptions)
                         .FirstOrDefaultAsync(p => p.Id == newPoll.Id);
                 }
