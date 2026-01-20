@@ -721,5 +721,328 @@ namespace NinjaBotCore.Modules.Wow
                 return $"Test failed: {ex.Message}\n{ex.StackTrace}";
             }
         }
+
+        // ===== Encounter Rankings Methods (for /top10 command) =====
+
+        /// <summary>
+        /// Gets encounter rankings for a server (realm-wide top performers)
+        /// </summary>
+        /// <param name="encounterId">WCL encounter ID</param>
+        /// <param name="serverSlug">Realm slug (e.g., "illidan")</param>
+        /// <param name="serverRegion">Region (us, eu, etc.)</param>
+        /// <param name="metric">Ranking metric: dps or hps</param>
+        /// <param name="difficulty">Difficulty ID: 1=LFR, 2=Flex, 3=Normal, 4=Heroic, 5=Mythic</param>
+        /// <param name="page">Page number (1-based)</param>
+        /// <param name="gameVersion">Game version (Retail, Classic, etc.)</param>
+        public async Task<WclV2CharacterRankingsPage> GetEncounterRankingsAsync(
+            int encounterId,
+            string serverSlug,
+            string serverRegion,
+            string metric = "dps",
+            int difficulty = 4,
+            int page = 1,
+            WowGameVersion gameVersion = WowGameVersion.Retail)
+        {
+            var query = @"
+                query($encounterId: Int!, $serverSlug: String!, $serverRegion: String!, $metric: CharacterRankingMetricType!, $difficulty: Int!, $page: Int!) {
+                    worldData {
+                        encounter(id: $encounterId) {
+                            id
+                            name
+                            characterRankings(
+                                serverSlug: $serverSlug
+                                serverRegion: $serverRegion
+                                metric: $metric
+                                difficulty: $difficulty
+                                page: $page
+                            )
+                        }
+                    }
+                }
+            ";
+
+            var variables = new
+            {
+                encounterId,
+                serverSlug,
+                serverRegion,
+                metric,
+                difficulty,
+                page
+            };
+
+            try
+            {
+                var result = await ExecuteGraphQLAsync<WclV2EncounterRankingsResponse>(query, variables, gameVersion);
+
+                if (result.Data?.WorldData?.Encounter?.CharacterRankings != null)
+                {
+                    var rankings = result.Data.WorldData.Encounter.CharacterRankings;
+                    _logger.LogInformation($"[v2] Retrieved {rankings.Rankings?.Count ?? 0} rankings for encounter {encounterId} on {serverSlug}-{serverRegion}");
+                    return rankings;
+                }
+
+                _logger.LogWarning($"[v2] No rankings found for encounter {encounterId} on {serverSlug}-{serverRegion}");
+                return new WclV2CharacterRankingsPage { Rankings = new List<WclV2CharacterRanking>() };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"[v2] Failed to get encounter rankings: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Gets encounter rankings filtered by guild (guild-specific top performers)
+        /// </summary>
+        public async Task<WclV2CharacterRankingsPage> GetEncounterRankingsForGuildAsync(
+            int encounterId,
+            string serverSlug,
+            string serverRegion,
+            string guildName,
+            string metric = "dps",
+            int difficulty = 4,
+            int page = 1,
+            WowGameVersion gameVersion = WowGameVersion.Retail)
+        {
+            // Note: The v2 API doesn't have a direct guild filter for characterRankings
+            // We fetch server-wide rankings and filter client-side, or use multiple pages
+            // For guild-specific rankings, we use the includedGuilds filter
+            var query = @"
+                query($encounterId: Int!, $serverSlug: String!, $serverRegion: String!, $metric: CharacterRankingMetricType!, $difficulty: Int!, $page: Int!, $guildName: String!) {
+                    worldData {
+                        encounter(id: $encounterId) {
+                            id
+                            name
+                            characterRankings(
+                                serverSlug: $serverSlug
+                                serverRegion: $serverRegion
+                                metric: $metric
+                                difficulty: $difficulty
+                                page: $page
+                                includedGuilds: $guildName
+                            )
+                        }
+                    }
+                }
+            ";
+
+            var variables = new
+            {
+                encounterId,
+                serverSlug,
+                serverRegion,
+                metric,
+                difficulty,
+                page,
+                guildName
+            };
+
+            try
+            {
+                var result = await ExecuteGraphQLAsync<WclV2EncounterRankingsResponse>(query, variables, gameVersion);
+
+                if (result.Data?.WorldData?.Encounter?.CharacterRankings != null)
+                {
+                    var rankings = result.Data.WorldData.Encounter.CharacterRankings;
+                    _logger.LogInformation($"[v2] Retrieved {rankings.Rankings?.Count ?? 0} guild rankings for {guildName} on encounter {encounterId}");
+                    return rankings;
+                }
+
+                _logger.LogWarning($"[v2] No guild rankings found for {guildName} on encounter {encounterId}");
+                return new WclV2CharacterRankingsPage { Rankings = new List<WclV2CharacterRanking>() };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"[v2] Failed to get guild encounter rankings: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Gets all rankings for a guild by fetching multiple pages and filtering
+        /// </summary>
+        public async Task<List<WclV2CharacterRanking>> GetAllGuildRankingsForEncounterAsync(
+            int encounterId,
+            string serverSlug,
+            string serverRegion,
+            string guildName,
+            string metric = "dps",
+            int difficulty = 4,
+            int maxPages = 25,
+            WowGameVersion gameVersion = WowGameVersion.Retail)
+        {
+            var allRankings = new List<WclV2CharacterRanking>();
+            var page = 1;
+            var hasMore = true;
+
+            while (hasMore && page <= maxPages)
+            {
+                try
+                {
+                    var result = await GetEncounterRankingsForGuildAsync(
+                        encounterId, serverSlug, serverRegion, guildName,
+                        metric, difficulty, page, gameVersion);
+
+                    if (result.Rankings != null && result.Rankings.Count > 0)
+                    {
+                        // Filter to just the specified guild
+                        var guildRankings = result.Rankings
+                            .Where(r => r.GuildName?.Equals(guildName, StringComparison.OrdinalIgnoreCase) == true)
+                            .ToList();
+
+                        allRankings.AddRange(guildRankings);
+                        _logger.LogDebug($"[v2] Page {page}: Added {guildRankings.Count} rankings for {guildName}");
+                    }
+
+                    hasMore = result.HasMorePages;
+                    page++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning($"[v2] Error fetching page {page} of guild rankings: {ex.Message}");
+                    break;
+                }
+            }
+
+            _logger.LogInformation($"[v2] Retrieved total {allRankings.Count} rankings for {guildName} across {page - 1} pages");
+            return allRankings;
+        }
+
+        // ===== Zone/Encounter Static Data Methods =====
+
+        /// <summary>
+        /// Gets zones and encounters for an expansion
+        /// </summary>
+        /// <param name="expansionId">Expansion ID (e.g., 5 for The War Within)</param>
+        /// <param name="gameVersion">Game version</param>
+        public async Task<List<WclV2ZoneDetail>> GetZonesAsync(int expansionId, WowGameVersion gameVersion = WowGameVersion.Retail)
+        {
+            var query = @"
+                query($expansionId: Int!) {
+                    worldData {
+                        expansion(id: $expansionId) {
+                            id
+                            name
+                            zones {
+                                id
+                                name
+                                frozen
+                                encounters {
+                                    id
+                                    name
+                                }
+                                brackets {
+                                    min
+                                    max
+                                    bucket
+                                    type
+                                }
+                                partitions {
+                                    id
+                                    name
+                                    compactName
+                                    default
+                                }
+                                difficulties {
+                                    id
+                                    name
+                                }
+                            }
+                        }
+                    }
+                }
+            ";
+
+            var variables = new { expansionId };
+
+            try
+            {
+                var result = await ExecuteGraphQLAsync<WclV2ZonesResponse>(query, variables, gameVersion);
+
+                if (result.Data?.WorldData?.Expansion?.Zones != null)
+                {
+                    var zones = result.Data.WorldData.Expansion.Zones;
+                    _logger.LogInformation($"[v2] Retrieved {zones.Count} zones for expansion {expansionId}");
+                    return zones;
+                }
+
+                _logger.LogWarning($"[v2] No zones found for expansion {expansionId}");
+                return new List<WclV2ZoneDetail>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"[v2] Failed to get zones: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Gets character classes from the game data
+        /// </summary>
+        public async Task<List<WclV2Class>> GetCharacterClassesAsync(WowGameVersion gameVersion = WowGameVersion.Retail)
+        {
+            var query = @"
+                query {
+                    gameData {
+                        classes {
+                            id
+                            name
+                            slug
+                        }
+                    }
+                }
+            ";
+
+            try
+            {
+                var result = await ExecuteGraphQLAsync<WclV2GameDataResponse>(query, null, gameVersion);
+
+                if (result.Data?.GameData?.Classes != null)
+                {
+                    var classes = result.Data.GameData.Classes;
+                    _logger.LogInformation($"[v2] Retrieved {classes.Count} character classes");
+                    return classes;
+                }
+
+                _logger.LogWarning($"[v2] No character classes found");
+                return new List<WclV2Class>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"[v2] Failed to get character classes: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Gets encounter info by ID
+        /// </summary>
+        public async Task<WclV2Encounter> GetEncounterAsync(int encounterId, WowGameVersion gameVersion = WowGameVersion.Retail)
+        {
+            var query = @"
+                query($encounterId: Int!) {
+                    worldData {
+                        encounter(id: $encounterId) {
+                            id
+                            name
+                        }
+                    }
+                }
+            ";
+
+            var variables = new { encounterId };
+
+            try
+            {
+                var result = await ExecuteGraphQLAsync<WclV2EncounterRankingsResponse>(query, variables, gameVersion);
+                return result.Data?.WorldData?.Encounter;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"[v2] Failed to get encounter {encounterId}: {ex.Message}");
+                throw;
+            }
+        }
     }
 }

@@ -383,15 +383,17 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             string region = "us";
 
             NinjaObjects.GuildObject guildObject = await _wowUtils.GetGuildName(Context);
-            string realmName = guildObject.realmName.Replace("'", string.Empty);
+            string realmName = guildObject.realmName?.Replace("'", string.Empty) ?? string.Empty;
+            string realmSlug = guildObject.realmSlug ?? realmName.ToLower().Replace(" ", "-");
             string guildName = guildObject.guildName;
-            region = guildObject.regionName;
+            region = guildObject.regionName ?? "us";
 
-            var fightList = WarcraftLogs.Zones.Where(z => z.id == WarcraftLogs.CurrentRaidTier.WclZoneId)
+            // Use the static zones data for encounter list
+            var fightList = WarcraftLogs.Zones?.Where(z => z.id == WarcraftLogs.CurrentRaidTier?.WclZoneId)
                                                 .Select(z => z.encounters)
                                                 .FirstOrDefault();
 
-            raidName = WarcraftLogs.CurrentRaidTier.RaidName;
+            raidName = WarcraftLogs.CurrentRaidTier?.RaidName ?? "Current Raid";
 
             if (Context.Channel is IDMChannel)
             {
@@ -412,19 +414,19 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 sb.AppendLine($"Get a list of all encounters and shortcut IDs");
                 sb.AppendLine();
                 sb.AppendLine($"**/top10** 1");
-                sb.AppendLine($"The above command would get all top 10 **dps** results for **Garothi Worldbreaker** on **{realmName}**.");
+                sb.AppendLine($"The above command would get all top 10 **dps** results for the first boss on **{realmName}**.");
                 sb.AppendLine();
                 sb.AppendLine($"**/top10** 1, guild");
-                sb.AppendLine($"The above command would get the top 10 **dps** results for **Garothi Worldbreaker** on **{realmName}** for **{guildName}**.");
+                sb.AppendLine($"The above command would get the top 10 **dps** results for the first boss on **{realmName}** for **{guildName}**.");
                 sb.AppendLine();
                 sb.AppendLine($"**/top10** 1, guild, hps");
-                sb.AppendLine($"The above command would get the top 10 **hps** results for **Garothi Worldbreaker** on **{realmName}** for **{guildName}**.");
+                sb.AppendLine($"The above command would get the top 10 **hps** results for the first boss on **{realmName}** for **{guildName}**.");
                 sb.AppendLine();
                 sb.AppendLine($"**/top10** 1, all, hps");
-                sb.AppendLine($"The above command would get all top 10 **hps** results for **Garothi Worldbreaker** on **{realmName}**.");
+                sb.AppendLine($"The above command would get all top 10 **hps** results for the first boss on **{realmName}**.");
                 sb.AppendLine();
                 sb.AppendLine($"**/top10** 1, guild, dps, mythic");
-                sb.AppendLine($"The above command would get the top 10 **dps** results for **Garothi Worldbreaker** on **{realmName}** for **{guildName}** on **mythic** difficulty.");
+                sb.AppendLine($"The above command would get the top 10 **dps** results for the first boss on **{realmName}** for **{guildName}** on **mythic** difficulty.");
                 embed.Title = $"{Context.User.Username}, here are some examples for **/top10**";
                 embed.Description = sb.ToString();
                 await RespondAsync(embed: embed.Build(), ephemeral: true);
@@ -445,6 +447,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         }
                         embed.Description = sb.ToString();
                         await RespondAsync(embed: embed.Build(), ephemeral: true);
+                    }
+                    else
+                    {
+                        await RespondAsync("No encounter list available. Please check the current raid tier configuration.", ephemeral: true);
                     }
                     return;
                 }
@@ -487,10 +493,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     _ => 4
                 };
 
-                WarcraftlogRankings.RankingObject l = new WarcraftlogRankings.RankingObject();
+                // Parse encounter ID from argument
                 if (fightName.Length <= 2)
                 {
-                    if (int.TryParse(fightName, out int fightIndex) && fightIndex >= 1 && fightIndex <= fightList.Length)
+                    if (fightList != null && int.TryParse(fightName, out int fightIndex) && fightIndex >= 1 && fightIndex <= fightList.Length)
                     {
                         encounterID = fightList[fightIndex - 1].id;
                     }
@@ -498,6 +504,15 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 else
                 {
                     encounterID = _wowUtils.GetEncounterID(fightName);
+                }
+
+                if (encounterID == 0)
+                {
+                    sb.AppendLine($"{Context.User.Username}, could not find that encounter!");
+                    sb.AppendLine($"**Example:** /top10 1");
+                    sb.AppendLine($"**Encounter Lists:** /top10 list");
+                    await FollowupAsync(sb.ToString(), ephemeral: true);
+                    return;
                 }
 
                 string metricEmoji = string.Empty;
@@ -531,86 +546,53 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     return;
                 }
 
-                IEnumerable<WarcraftlogRankings.Ranking> top10 = null;
-                var guildOnlyList = new List<WarcraftlogRankings.RankingObject>();
+                // Use v2 GraphQL API for rankings
+                List<WclV2CharacterRanking> top10Rankings = null;
 
-                if (!(string.IsNullOrEmpty(guildOnly) || guildOnly.ToLower() != "guild"))
+                try
                 {
-                    bool proceed = true;
-                    int page = 1;
-                    while (proceed)
+                    if (!string.IsNullOrEmpty(guildOnly) && guildOnly.ToLower() == "guild")
                     {
-                        try
-                        {
-                            if (!string.IsNullOrEmpty(guildObject.realmSlug))
-                            {
-                                l = await _logsApi.GetRankingsByEncounterGuildSlug(
-                                        encounterID: encounterID,
-                                        realmSlug: guildObject.realmSlug,
-                                        guildName: guildObject.guildName,
-                                        page: page.ToString(),
-                                        metric: metric,
-                                        difficulty: difficultyID,
-                                        regionName: region);
-                            }
-                            else
-                            {
-                                l = await _logsApi.GetRankingsByEncounterGuild(
-                                        encounterID: encounterID,
-                                        realmName: guildObject.realmName,
-                                        guildName: guildObject.guildName,
-                                        page: page.ToString(),
-                                        metric: metric,
-                                        difficulty: difficultyID,
-                                        regionName: region);
-                            }
-                            _logger.LogInformation($"Adding page {page}!");
+                        // Guild-specific rankings
+                        _logger.LogInformation($"[v2] Fetching guild rankings for {guildName} on {realmSlug}-{region}, encounter {encounterID}");
+                        var allGuildRankings = await _logsApiV2.GetAllGuildRankingsForEncounterAsync(
+                            encounterId: encounterID,
+                            serverSlug: realmSlug,
+                            serverRegion: region,
+                            guildName: guildName,
+                            metric: metric,
+                            difficulty: difficultyID,
+                            maxPages: 25);
 
-                            if (l != null)
-                            {
-                                guildOnlyList.Add(l);
-                                page++;
-                            }
-                            else
-                            {
-                                proceed = false;
-                            }
-                            if (!l.hasMorePages || page >= 25)
-                            {
-                                proceed = false;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError($"Error getting top 10 data -> [{ex.Message}]");
-                            proceed = false;
-                        }
-
-                        top10 = guildOnlyList.SelectMany(p => p.rankings).Where(r => r.guildName == guildObject.guildName).OrderByDescending(o => o.total).Take(10);
-                    }
-                }
-                else
-                {
-                    if (!string.IsNullOrEmpty(guildObject.realmSlug))
-                    {
-                        l = await _logsApi.GetRankingsByEncounterSlug(
-                                encounterID: encounterID,
-                                realmSlug: guildObject.realmSlug,
-                                metric: metric,
-                                difficulty: difficultyID,
-                                regionName: region);
+                        top10Rankings = allGuildRankings
+                            .OrderByDescending(r => r.Amount)
+                            .Take(10)
+                            .ToList();
                     }
                     else
                     {
-                        l = await _logsApi.GetRankingsByEncounter(
-                                encounterID: encounterID,
-                                realmName: realmName,
-                                metric: metric,
-                                difficulty: difficultyID,
-                                regionName: region);
-                    }
+                        // Server-wide rankings
+                        _logger.LogInformation($"[v2] Fetching server rankings on {realmSlug}-{region}, encounter {encounterID}");
+                        var rankingsPage = await _logsApiV2.GetEncounterRankingsAsync(
+                            encounterId: encounterID,
+                            serverSlug: realmSlug,
+                            serverRegion: region,
+                            metric: metric,
+                            difficulty: difficultyID,
+                            page: 1);
 
-                    top10 = l.rankings.OrderByDescending(a => a.total).Take(10);
+                        top10Rankings = rankingsPage.Rankings?
+                            .OrderByDescending(r => r.Amount)
+                            .Take(10)
+                            .ToList() ?? new List<WclV2CharacterRanking>();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError($"[v2] Error fetching rankings: {ex.Message}");
+                    sb.AppendLine($"Error fetching rankings from Warcraft Logs: {ex.Message}");
+                    await FollowupAsync(sb.ToString(), ephemeral: true);
+                    return;
                 }
 
                 string difficultyName = difficultyID switch
@@ -623,18 +605,58 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     _ => "Heroic"
                 };
 
-                string fightNameFromEncounterID = fightList.Where(f => f.id == encounterID).Select(f => f.name).FirstOrDefault();
+                // Get encounter name
+                string fightNameFromEncounterID = fightList?.Where(f => f.id == encounterID).Select(f => f.name).FirstOrDefault();
+                if (string.IsNullOrEmpty(fightNameFromEncounterID))
+                {
+                    // Try to get from v2 API
+                    try
+                    {
+                        var encounter = await _logsApiV2.GetEncounterAsync(encounterID);
+                        fightNameFromEncounterID = encounter?.Name ?? $"Encounter {encounterID}";
+                    }
+                    catch
+                    {
+                        fightNameFromEncounterID = $"Encounter {encounterID}";
+                    }
+                }
 
                 embed.Title = $"__Top 10 for fight [**{fightNameFromEncounterID}** (Metric [**{metric.ToUpper()}**] Difficulty [**{difficultyName}**]) Realm [**{guildObject.realmName}**]]__";
 
                 int i = 1;
-                if (top10 != null)
+                if (top10Rankings != null && top10Rankings.Count > 0)
                 {
-                    foreach (var rank in top10)
+                    // Get class info from v2 API or fallback to static data
+                    List<WclV2Class> v2Classes = null;
+                    try
                     {
-                        var classInfo = WarcraftLogs.CharClasses.Where(c => c.id == rank._class).FirstOrDefault();
-                        sb.AppendLine($"**{i}** [{rank.name}](http://{region}.battle.net/wow/en/character/{rank.serverName.Replace(" ", "-")}/{rank.name}/advanced) ilvl **{rank.itemLevel}** {classInfo.name} from *[{rank.guildName}]*");
-                        sb.AppendLine($"\t{metricEmoji}[**{rank.total.ToString("###,###")}** {metric.ToLower()}]");
+                        v2Classes = await _logsApiV2.GetCharacterClassesAsync();
+                    }
+                    catch
+                    {
+                        _logger.LogWarning("[v2] Could not fetch character classes, using static data");
+                    }
+
+                    foreach (var rank in top10Rankings)
+                    {
+                        // Get class name
+                        string className = "Unknown";
+                        if (v2Classes != null)
+                        {
+                            var classInfo = v2Classes.FirstOrDefault(c => c.Id == rank.ClassId);
+                            className = classInfo?.Name ?? "Unknown";
+                        }
+                        else if (WarcraftLogs.CharClasses != null)
+                        {
+                            var classInfo = WarcraftLogs.CharClasses.FirstOrDefault(c => c.id == rank.ClassId);
+                            className = classInfo?.name ?? "Unknown";
+                        }
+
+                        string serverName = rank.Server?.Slug ?? rank.ServerName;
+                        string playerGuild = rank.GuildName;
+
+                        sb.AppendLine($"**{i}** [{rank.Name}](https://worldofwarcraft.blizzard.com/en-{region}/character/{serverName}/{rank.Name.ToLower()}) ilvl **{rank.ItemLevel}** {className} from *[{playerGuild}]*");
+                        sb.AppendLine($"\t{metricEmoji}[**{rank.Amount:###,###}** {metric.ToLower()}]");
                         i++;
                     }
                     sb.AppendLine($"Data gathered from **https://www.warcraftlogs.com**");
@@ -643,9 +665,15 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 }
                 else
                 {
-                    sb.AppendLine($"Error getting top 10 for {guildObject.guildName}!");
-                    _logger.LogError($"Variable top10 was null for {guildObject.guildName} on {guildObject.realmSlug} [{guildObject.regionName}]");
+                    sb.AppendLine($"No rankings found for **{fightNameFromEncounterID}** on **{guildObject.realmName}** ({difficultyName}).");
+                    if (!string.IsNullOrEmpty(guildOnly) && guildOnly.ToLower() == "guild")
+                    {
+                        sb.AppendLine($"Guild **{guildName}** may not have logged this encounter yet.");
+                    }
+                    embed.Description = sb.ToString();
+                    _logger.LogInformation($"[v2] No rankings found for encounter {encounterID} on {realmSlug} [{region}]");
                 }
+
                 try
                 {
                     await FollowupAsync(embed: embed.Build(), ephemeral: true);

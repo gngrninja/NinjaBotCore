@@ -165,6 +165,265 @@ namespace NinjaBotCore.Models.Wow
         public HashSet<string> GuildsWithNoReports { get; set; } = new HashSet<string>();
     }
 
+    // ===== Encounter Rankings (for /top10 command) =====
+
+    /// <summary>
+    /// Response wrapper for worldData encounter rankings query
+    /// </summary>
+    public class WclV2EncounterRankingsResponse
+    {
+        [JsonProperty("worldData")]
+        public WclV2WorldData WorldData { get; set; }
+    }
+
+    public class WclV2WorldData
+    {
+        [JsonProperty("encounter")]
+        public WclV2Encounter Encounter { get; set; }
+
+        [JsonProperty("expansion")]
+        public WclV2Expansion Expansion { get; set; }
+    }
+
+    public class WclV2Encounter
+    {
+        [JsonProperty("id")]
+        public int Id { get; set; }
+
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("characterRankings")]
+        public WclV2CharacterRankingsPage CharacterRankings { get; set; }
+    }
+
+    public class WclV2CharacterRankingsPage
+    {
+        [JsonProperty("rankings")]
+        public List<WclV2CharacterRanking> Rankings { get; set; }
+
+        [JsonProperty("page")]
+        public int Page { get; set; }
+
+        [JsonProperty("hasMorePages")]
+        public bool HasMorePages { get; set; }
+
+        [JsonProperty("count")]
+        public int Count { get; set; }
+    }
+
+    public class WclV2CharacterRanking
+    {
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("class")]
+        public int ClassId { get; set; }
+
+        [JsonProperty("spec")]
+        public string Spec { get; set; }
+
+        [JsonProperty("amount")]
+        public double Amount { get; set; }
+
+        [JsonProperty("hardModeLevel")]
+        public int HardModeLevel { get; set; }
+
+        [JsonProperty("duration")]
+        public long Duration { get; set; }
+
+        [JsonProperty("startTime")]
+        public long StartTime { get; set; }
+
+        [JsonProperty("report")]
+        public WclV2ReportReference Report { get; set; }
+
+        [JsonProperty("guild")]
+        public WclV2GuildReference Guild { get; set; }
+
+        [JsonProperty("server")]
+        public WclV2ServerReference Server { get; set; }
+
+        [JsonProperty("faction")]
+        public int Faction { get; set; }
+
+        [JsonProperty("bracketData")]
+        public int BracketData { get; set; }
+
+        [JsonProperty("rank")]
+        public int? Rank { get; set; }
+
+        [JsonProperty("best")]
+        public bool? Best { get; set; }
+
+        // Compatibility with v1 field names
+        [JsonIgnore]
+        public double Total => Amount;
+
+        [JsonIgnore]
+        public int ItemLevel => BracketData;
+
+        [JsonIgnore]
+        public string GuildName => Guild?.Name ?? "No Guild";
+
+        [JsonIgnore]
+        public string ServerName => Server?.Slug ?? "";
+    }
+
+    public class WclV2ReportReference
+    {
+        [JsonProperty("code")]
+        public string Code { get; set; }
+    }
+
+    public class WclV2GuildReference
+    {
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("id")]
+        public int? Id { get; set; }
+    }
+
+    public class WclV2ServerReference
+    {
+        [JsonProperty("slug")]
+        public string Slug { get; set; }
+
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("region")]
+        public WclV2RegionReference Region { get; set; }
+    }
+
+    public class WclV2RegionReference
+    {
+        [JsonProperty("slug")]
+        public string Slug { get; set; }
+    }
+
+    // ===== Zones/Encounters (for encounter list) =====
+
+    /// <summary>
+    /// Response wrapper for worldData zones query
+    /// </summary>
+    public class WclV2ZonesResponse
+    {
+        [JsonProperty("worldData")]
+        public WclV2WorldData WorldData { get; set; }
+    }
+
+    public class WclV2Expansion
+    {
+        [JsonProperty("id")]
+        public int Id { get; set; }
+
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("zones")]
+        public List<WclV2ZoneDetail> Zones { get; set; }
+    }
+
+    public class WclV2ZoneDetail
+    {
+        [JsonProperty("id")]
+        public int Id { get; set; }
+
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("frozen")]
+        public bool? Frozen { get; set; }
+
+        [JsonProperty("encounters")]
+        public List<WclV2EncounterBasic> Encounters { get; set; }
+
+        [JsonProperty("brackets")]
+        public WclV2Brackets Brackets { get; set; }
+
+        [JsonProperty("partitions")]
+        public List<WclV2Partition> Partitions { get; set; }
+
+        [JsonProperty("difficulties")]
+        public List<WclV2Difficulty> Difficulties { get; set; }
+    }
+
+    public class WclV2EncounterBasic
+    {
+        [JsonProperty("id")]
+        public int Id { get; set; }
+
+        [JsonProperty("name")]
+        public string Name { get; set; }
+    }
+
+    public class WclV2Brackets
+    {
+        [JsonProperty("min")]
+        public int? Min { get; set; }
+
+        [JsonProperty("max")]
+        public int? Max { get; set; }
+
+        [JsonProperty("bucket")]
+        public double? Bucket { get; set; }
+
+        [JsonProperty("type")]
+        public string Type { get; set; }
+    }
+
+    public class WclV2Partition
+    {
+        [JsonProperty("id")]
+        public int Id { get; set; }
+
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("compactName")]
+        public string CompactName { get; set; }
+
+        [JsonProperty("default")]
+        public bool? IsDefault { get; set; }
+    }
+
+    public class WclV2Difficulty
+    {
+        [JsonProperty("id")]
+        public int Id { get; set; }
+
+        [JsonProperty("name")]
+        public string Name { get; set; }
+    }
+
+    // ===== Character Classes =====
+
+    public class WclV2GameDataResponse
+    {
+        [JsonProperty("gameData")]
+        public WclV2GameData GameData { get; set; }
+    }
+
+    public class WclV2GameData
+    {
+        [JsonProperty("classes")]
+        public List<WclV2Class> Classes { get; set; }
+    }
+
+    public class WclV2Class
+    {
+        [JsonProperty("id")]
+        public int Id { get; set; }
+
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("slug")]
+        public string Slug { get; set; }
+    }
+
     // Rate Limit Data
     public class WclV2RateLimitResponse
     {
