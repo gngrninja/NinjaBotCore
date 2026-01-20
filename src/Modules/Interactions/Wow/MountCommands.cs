@@ -289,7 +289,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             // Paginated display
             int page = 0;
-            int pageSize = 5;
+            int pageSize = 10;
             var pageData = await BuildMountPageAsync(missingMounts, page, pageSize, charName, realmName, regionName, collectedCount, totalCount, source, expansion);
 
             var pageMounts = missingMounts.Skip(page * pageSize).Take(pageSize).ToList();
@@ -534,7 +534,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 var collectedCount = filteredList.Count(m => collectedMountIds.Contains(m.Id));
                 var totalCount = filteredList.Count;
 
-                int pageSize = 5;
+                int pageSize = 10;
                 var pageData = await BuildMountPageAsync(missingMounts, page, pageSize, charName, realmName, regionName, collectedCount, totalCount, sourceFilter, expansionFilter);
 
                 var pageMounts = missingMounts.Skip(page * pageSize).Take(pageSize).ToList();
@@ -604,25 +604,24 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 }
             }
 
-            // Mount list
+            // Mount list - compact format
+            var mountList = new StringBuilder();
             foreach (var mount in mounts.Skip(page * pageSize).Take(pageSize))
             {
-                var wowheadUrl = $"https://www.wowhead.com/search?q={Uri.EscapeDataString(mount.Name)}";
-                var fieldValue = new StringBuilder();
-                fieldValue.AppendLine($"[Search on Wowhead]({wowheadUrl})");
-                fieldValue.AppendLine($"{GetSourceEmoji(mount.Source)} {GetDisplaySource(mount)}");
+                var typeEmoji = GetMountTypeEmoji(mount);
+                var sourceEmoji = GetSourceEmoji(mount.Source);
+                mountList.AppendLine($"{typeEmoji} **{mount.Name}**");
+                mountList.AppendLine($"　{sourceEmoji} {GetDisplaySource(mount)}");
+                mountList.AppendLine(); // Padding between entries
+            }
 
-                if (!string.IsNullOrEmpty(mount.Description))
-                {
-                    var desc = mount.Description.Length > 100 ? mount.Description[..97] + "..." : mount.Description;
-                    fieldValue.AppendLine($"_{desc}_");
-                }
-
-                embed.AddField(mount.Name, fieldValue.ToString().TrimEnd(), inline: false);
+            if (mountList.Length > 0)
+            {
+                embed.AddField("Mounts", mountList.ToString().TrimEnd(), inline: false);
             }
 
             var totalPages = (int)Math.Ceiling(mounts.Count / (double)pageSize);
-            embed.Footer = new EmbedFooterBuilder { Text = $"Page {page + 1}/{totalPages} | {mounts.Count} missing mount(s)" };
+            embed.Footer = new EmbedFooterBuilder { Text = $"Page {page + 1}/{totalPages} | {mounts.Count} missing • Use dropdown below for mount details" };
 
             return embed;
         }
@@ -719,6 +718,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             return builder;
         }
 
+        private static string GetMountTypeEmoji(WowMounts mount)
+        {
+            if (mount.IsFlying && mount.IsGround) return "🦅"; // Flying (can also walk)
+            if (mount.IsFlying) return "🦅";
+            if (mount.IsAquatic) return "🐠";
+            return "🐎"; // Ground
+        }
+
         private static string GetSourceEmoji(string source) => source?.ToUpper() switch
         {
             "DROP" => "💀",
@@ -759,6 +766,19 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
         private static string GetDisplaySource(WowMounts mount)
         {
+            // For vendors: show vendor name with optional zone
+            if (mount.Source?.Equals("VENDOR", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                var vendorName = mount.SourceDetail;
+                if (!string.IsNullOrEmpty(vendorName) && !vendorName.Equals("Vendor", StringComparison.OrdinalIgnoreCase))
+                {
+                    return !string.IsNullOrEmpty(mount.InstanceName)
+                        ? $"{vendorName} ({mount.InstanceName})"
+                        : vendorName;
+                }
+            }
+
+            // For raid/dungeon drops: show instance + boss
             if (!string.IsNullOrEmpty(mount.InstanceName))
             {
                 return !string.IsNullOrEmpty(mount.EncounterName)
@@ -766,6 +786,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     : mount.InstanceName;
             }
 
+            // Fallback to SourceDetail if not generic
             var detail = mount.SourceDetail;
             var isGeneric = string.IsNullOrEmpty(detail) ||
                 detail.Equals(mount.Source, StringComparison.OrdinalIgnoreCase) ||
@@ -774,7 +795,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 detail.Equals("Vendor", StringComparison.OrdinalIgnoreCase) ||
                 detail.Equals("Quest", StringComparison.OrdinalIgnoreCase);
 
-            return isGeneric ? GetFriendlySourceName(mount.Source) : detail;
+            if (!isGeneric)
+                return detail;
+
+            // Last fallback: DropLocation or friendly source name
+            if (!string.IsNullOrEmpty(mount.DropLocation))
+                return mount.DropLocation;
+
+            return GetFriendlySourceName(mount.Source);
         }
 
         #endregion
