@@ -61,6 +61,63 @@ namespace NinjaBotCore.Models.Wow
             public RaidProgression RaidProgression { get; set; }
         }
 
+        /// <summary>
+        /// Guild roster response from RaiderIO API
+        /// </summary>
+        public partial class RioGuildRoster
+        {
+            [JsonProperty("name")]
+            public string Name { get; set; }
+
+            [JsonProperty("faction")]
+            public string Faction { get; set; }
+
+            [JsonProperty("region")]
+            public string Region { get; set; }
+
+            [JsonProperty("realm")]
+            public string Realm { get; set; }
+
+            [JsonProperty("profile_url")]
+            public Uri ProfileUrl { get; set; }
+
+            [JsonProperty("members")]
+            public RioGuildMember[] Members { get; set; }
+        }
+
+        public partial class RioGuildMember
+        {
+            [JsonProperty("rank")]
+            public int Rank { get; set; }
+
+            [JsonProperty("character")]
+            public RioGuildCharacter Character { get; set; }
+        }
+
+        public partial class RioGuildCharacter
+        {
+            [JsonProperty("name")]
+            public string Name { get; set; }
+
+            [JsonProperty("class")]
+            public string Class { get; set; }
+
+            [JsonProperty("active_spec_name")]
+            public string ActiveSpecName { get; set; }
+
+            [JsonProperty("active_spec_role")]
+            public string ActiveSpecRole { get; set; }
+
+            [JsonProperty("realm")]
+            public string Realm { get; set; }
+
+            [JsonProperty("region")]
+            public string Region { get; set; }
+
+            [JsonProperty("profile_url")]
+            public Uri ProfileUrl { get; set; }
+        }
+
         public partial class RaidProgression
         {
             [JsonProperty("antorus-the-burning-throne")]
@@ -310,10 +367,12 @@ namespace NinjaBotCore.Models.Wow
             public RaidProgression RaidProgression { get; set; }
 
             [JsonProperty("raid_achievement_meta")]
-            public object RaidAchievementMeta { get; set; }
+            [JsonConverter(typeof(RaidAchievementMetaConverter))]
+            public RaidAchievementMeta RaidAchievementMeta { get; set; }
 
             [JsonProperty("raid_achievement_curve")]
-            public object RaidAchievementCurve { get; set; }
+            [JsonConverter(typeof(RaidAchievementCurveConverter))]
+            public RaidAchievementCurve RaidAchievementCurve { get; set; }
         }
 
         public partial class MythicPlusRun
@@ -618,6 +677,64 @@ namespace NinjaBotCore.Models.Wow
         public override void WriteJson(JsonWriter writer, RaiderIOModels.GearItem value, JsonSerializer serializer)
         {
             // We don't serialize back to RaiderIO, so just use default serialization
+            serializer.Serialize(writer, value);
+        }
+    }
+
+    /// <summary>
+    /// Custom converter to handle RaiderIO API inconsistency where 'raid_achievement_meta' can be either an object or an empty array
+    /// </summary>
+    public class RaidAchievementMetaConverter : JsonConverter<RaiderIOModels.RaidAchievementMeta>
+    {
+        public override RaiderIOModels.RaidAchievementMeta ReadJson(JsonReader reader, Type objectType, RaiderIOModels.RaidAchievementMeta existingValue, bool hasExistingValue, JsonSerializer serializer)
+        {
+            var token = JToken.Load(reader);
+
+            // RaiderIO returns [] when no achievements, but we expect an object
+            if (token.Type == JTokenType.Array)
+            {
+                return null;
+            }
+
+            if (token.Type == JTokenType.Object)
+            {
+                return token.ToObject<RaiderIOModels.RaidAchievementMeta>(serializer);
+            }
+
+            return null;
+        }
+
+        public override void WriteJson(JsonWriter writer, RaiderIOModels.RaidAchievementMeta value, JsonSerializer serializer)
+        {
+            serializer.Serialize(writer, value);
+        }
+    }
+
+    /// <summary>
+    /// Custom converter to handle RaiderIO API inconsistency where 'raid_achievement_curve' can be either an object or an empty array
+    /// </summary>
+    public class RaidAchievementCurveConverter : JsonConverter<RaiderIOModels.RaidAchievementCurve>
+    {
+        public override RaiderIOModels.RaidAchievementCurve ReadJson(JsonReader reader, Type objectType, RaiderIOModels.RaidAchievementCurve existingValue, bool hasExistingValue, JsonSerializer serializer)
+        {
+            var token = JToken.Load(reader);
+
+            // RaiderIO returns [] when no achievements, but we expect an object
+            if (token.Type == JTokenType.Array)
+            {
+                return null;
+            }
+
+            if (token.Type == JTokenType.Object)
+            {
+                return token.ToObject<RaiderIOModels.RaidAchievementCurve>(serializer);
+            }
+
+            return null;
+        }
+
+        public override void WriteJson(JsonWriter writer, RaiderIOModels.RaidAchievementCurve value, JsonSerializer serializer)
+        {
             serializer.Serialize(writer, value);
         }
     }

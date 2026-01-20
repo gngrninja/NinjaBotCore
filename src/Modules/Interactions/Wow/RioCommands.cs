@@ -12,6 +12,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace NinjaBotCore.Modules.Interactions.Wow
@@ -27,6 +28,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private readonly RaiderIOApi _rioApi;
         private readonly WowUtilities _wowUtils;
         private readonly WowCacheService _wowCache;
+
+        // Cooldown tracking for refresh button (10 minute cooldown per character)
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _refreshCooldowns = new();
+        private static readonly TimeSpan RefreshCooldown = TimeSpan.FromMinutes(10);
 
         public RioCommands(
             IServiceScopeFactory scopeFactory,
@@ -271,6 +276,17 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 sb.AppendLine($"**Normal** [{normalKilled} / {totalBosses}] {GetProgressBar(raid.NormalBossesKilled, raid.TotalBosses)}");
                 sb.AppendLine($"**Heroic** [{heroicKilled} / {totalBosses}] {GetProgressBar(raid.HeroicBossesKilled, raid.TotalBosses)}");
                 sb.AppendLine($"**Mythic** [{mythicKilled} / {totalBosses}] {GetProgressBar(raid.MythicBossesKilled, raid.TotalBosses)}");
+
+                // AOTC / Cutting Edge badges (derived from progression - API achievement fields are often empty)
+                var hasAotc = raid.HeroicBossesKilled == raid.TotalBosses && raid.TotalBosses > 0;
+                var hasCe = raid.MythicBossesKilled == raid.TotalBosses && raid.TotalBosses > 0;
+                if (hasAotc || hasCe)
+                {
+                    sb.Append("**Achievements:** ");
+                    if (hasAotc) sb.Append("🏆 AOTC ");
+                    if (hasCe) sb.Append("⚔️ Cutting Edge");
+                    sb.AppendLine();
+                }
                 sb.AppendLine();
             }
 
@@ -293,40 +309,57 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             sb.AppendLine($"Realm [**{mPlusInfo.MythicPlusRanks.Class.Realm}**] Region [**{mPlusInfo.MythicPlusRanks.Class.Region}**] World [**{mPlusInfo.MythicPlusRanks.Class.World}**]");
             sb.AppendLine();
 
-            // Best Runs
+            // Best Runs (with timed/depleted indicators)
             if (mPlusInfo.MythicPlusBestRuns?.Length > 0)
             {
                 sb.AppendLine($"**__Best Runs__**");
                 foreach (var run in mPlusInfo.MythicPlusBestRuns)
                 {
-                    var keyEmoji = run.MythicLevel >= 20 ? "🔑" : "▪️";
+                    var timedIndicator = GetTimedIndicator(run.NumKeystoneUpgrades);
+                    var keyEmoji = run.NumKeystoneUpgrades > 0 ? "🔑" : "💀";
                     var minutes = run.ClearTimeMs / 60000;
                     if (run.Url != null)
                     {
-                        sb.AppendLine($"{keyEmoji} [{run.ShortName}(**+{run.MythicLevel}**) - {minutes}m]({run.Url.AbsoluteUri})");
+                        sb.AppendLine($"{keyEmoji} [{run.ShortName}(**+{run.MythicLevel}**) - {minutes}m {timedIndicator}]({run.Url.AbsoluteUri})");
                     }
                     else
                     {
-                        sb.AppendLine($"{keyEmoji} {run.ShortName}(**+{run.MythicLevel}**) - {minutes}m");
+                        sb.AppendLine($"{keyEmoji} {run.ShortName}(**+{run.MythicLevel}**) - {minutes}m {timedIndicator}");
                     }
                 }
                 sb.AppendLine();
             }
 
-            // Weekly Progress (if available)
+            // Weekly Progress with week-over-week comparison
             if (mPlusInfo.MythicPlusWeeklyHighestLevelRuns?.Length > 0)
             {
-                sb.AppendLine($"**__This Week's Highest Keys__**");
+                sb.AppendLine($"**__Weekly Progress__**");
+
+                var previousRuns = mPlusInfo.MythicPlusPreviousWeeklyHighestLevelRuns ?? Array.Empty<RaiderIOModels.MythicPlusRun>();
+
                 foreach (var run in mPlusInfo.MythicPlusWeeklyHighestLevelRuns.Take(4))
                 {
-                    var keyEmoji = run.MythicLevel >= 15 ? "⭐" : "▪️";
+                    var timedIndicator = GetTimedIndicator(run.NumKeystoneUpgrades);
+                    var keyEmoji = run.NumKeystoneUpgrades > 0 ? "⭐" : "💀";
+
+                    // Find matching dungeon from last week
+                    var lastWeekRun = previousRuns.FirstOrDefault(r => r.ShortName == run.ShortName);
+                    var comparison = "";
+                    if (lastWeekRun != null)
+                    {
+                        var diff = run.MythicLevel - lastWeekRun.MythicLevel;
+                        if (diff > 0) comparison = $" *(+{diff} from last week)*";
+                        else if (diff < 0) comparison = $" *({diff} from last week)*";
+                        else comparison = " *(same as last week)*";
+                    }
+
                     if (run.Url != null)
                     {
-                        sb.AppendLine($"{keyEmoji} [{run.ShortName} **+{run.MythicLevel}**]({run.Url.AbsoluteUri})");
+                        sb.AppendLine($"{keyEmoji} [{run.ShortName} **+{run.MythicLevel}** {timedIndicator}]({run.Url.AbsoluteUri}){comparison}");
                     }
                     else
                     {
-                        sb.AppendLine($"{keyEmoji} {run.ShortName} **+{run.MythicLevel}**");
+                        sb.AppendLine($"{keyEmoji} {run.ShortName} **+{run.MythicLevel}** {timedIndicator}{comparison}");
                     }
                 }
                 sb.AppendLine();
@@ -334,7 +367,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             embed.AddField("Raider.IO", $"[{mPlusInfo.Name}]({mPlusInfo.ProfileUrl.AbsoluteUri})", true);
             embed.AddField("Warcraftlogs", $"[{mPlusInfo.Name}](https://www.warcraftlogs.com/character/{regionName}/{realmSlug}/{mPlusInfo.Name})", true);
-            embed.ThumbnailUrl = $"{mPlusInfo.ThumbnailUrl.AbsoluteUri}";
+            embed.ThumbnailUrl = mPlusInfo.ThumbnailUrl?.AbsoluteUri;
             embed.Description = sb.ToString();
 
             // Color based on M+ score
@@ -403,6 +436,152 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             {
                 _logger.LogError(ex, "Error clearing RIO search history for user {UserId}", Context.User.Id);
                 await FollowupAsync("❌ An error occurred while clearing your search history.", ephemeral: true);
+            }
+        }
+
+        [SlashCommand("rio-guild", "Show guild M+ leaderboard")]
+        public async Task GetGuildMythicPlusLeaderboard(
+            [Summary("top", "Number of members to show (default 10, max 25)")]
+            int top = 10)
+        {
+            await DeferAsync(ephemeral: true);
+
+            try
+            {
+                // Clamp top value
+                top = Math.Clamp(top, 1, 25);
+
+                // Get guild association
+                var guildObject = await _wowUtils.GetGuildName(Context);
+                if (string.IsNullOrEmpty(guildObject?.guildName))
+                {
+                    await FollowupAsync("❌ No guild association found for this server. Use `/setguild` first.", ephemeral: true);
+                    return;
+                }
+
+                await FollowupAsync($"🔍 Fetching M+ scores for **{guildObject.guildName}**... This may take a moment.", ephemeral: true);
+
+                // Get guild roster from RIO
+                RaiderIOModels.RioGuildRoster roster;
+                try
+                {
+                    roster = await _rioApi.GetGuildRosterAsync(
+                        guildObject.guildName,
+                        guildObject.realmSlug,
+                        guildObject.regionName);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error fetching guild roster from RIO for {Guild}", guildObject.guildName);
+                    await ModifyOriginalResponseAsync(msg => msg.Content = "❌ Failed to fetch guild roster from Raider.IO.");
+                    return;
+                }
+
+                if (roster?.Members == null || roster.Members.Length == 0)
+                {
+                    await ModifyOriginalResponseAsync(msg => msg.Content = "❌ No members found in guild roster.");
+                    return;
+                }
+
+                // Fetch M+ scores for members in parallel (with semaphore to limit concurrency)
+                var memberScores = new List<(string Name, string Class, string Spec, string Realm, double Score, long HighestKey)>();
+                var semaphore = new SemaphoreSlim(5); // Max 5 concurrent requests
+
+                var fetchTasks = roster.Members.Select(async member =>
+                {
+                    await semaphore.WaitAsync();
+                    try
+                    {
+                        var charData = await _rioApi.GetCharMythicPlusScoreAsync(
+                            member.Character.Name,
+                            member.Character.Realm.Replace(" ", "%20"),
+                            member.Character.Region ?? guildObject.regionName);
+
+                        if (charData?.MythicPlusScores?.Length > 0)
+                        {
+                            var score = charData.MythicPlusScores[0].Scores?.All ?? 0;
+                            var highestKey = charData.MythicPlusBestRuns?.FirstOrDefault()?.MythicLevel ?? 0;
+                            return (
+                                Name: member.Character.Name,
+                                Class: member.Character.Class,
+                                Spec: member.Character.ActiveSpecName,
+                                Realm: member.Character.Realm,
+                                Score: score,
+                                HighestKey: highestKey
+                            );
+                        }
+                        return (Name: member.Character.Name, Class: member.Character.Class, Spec: member.Character.ActiveSpecName ?? "", Realm: member.Character.Realm, Score: 0.0, HighestKey: 0L);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Failed to fetch RIO score for {Character}", member.Character.Name);
+                        return (Name: member.Character.Name, Class: member.Character.Class, Spec: "", Realm: member.Character.Realm, Score: 0.0, HighestKey: 0L);
+                    }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                }).ToList();
+
+                var results = await Task.WhenAll(fetchTasks);
+                memberScores = results
+                    .Where(r => r.Score > 0)
+                    .OrderByDescending(r => r.Score)
+                    .Take(top)
+                    .ToList();
+
+                // Build embed
+                var embed = new EmbedBuilder();
+                embed.Title = $"🏆 {guildObject.guildName} - M+ Leaderboard";
+                embed.WithColor(new Color(255, 128, 0)); // Orange for M+
+
+                var sb = new StringBuilder();
+                int rank = 1;
+                foreach (var member in memberScores)
+                {
+                    var medal = rank switch
+                    {
+                        1 => "🥇",
+                        2 => "🥈",
+                        3 => "🥉",
+                        _ => $"**{rank}.**"
+                    };
+                    sb.AppendLine($"{medal} **{member.Name}** ({member.Spec} {member.Class})");
+                    sb.AppendLine($"    Score: **{member.Score:F1}** | iLvl: — | Highest: +{member.HighestKey}");
+                    rank++;
+                }
+
+                if (memberScores.Count == 0)
+                {
+                    sb.AppendLine("*No members with M+ scores found.*");
+                }
+                else
+                {
+                    // Summary stats
+                    var avgScore = memberScores.Average(m => m.Score);
+                    var above2500 = memberScores.Count(m => m.Score >= 2500);
+                    var above3000 = memberScores.Count(m => m.Score >= 3000);
+
+                    sb.AppendLine();
+                    sb.AppendLine("**__Summary__**");
+                    sb.AppendLine($"Avg Score (Top {memberScores.Count}): **{avgScore:F0}**");
+                    if (above2500 > 0) sb.AppendLine($"2500+ Score: **{above2500}** members");
+                    if (above3000 > 0) sb.AppendLine($"3000+ Score: **{above3000}** members");
+                }
+
+                embed.Description = sb.ToString();
+                embed.WithFooter($"Showing top {memberScores.Count} of {roster.Members.Length} members | {guildObject.realmName} ({guildObject.regionName.ToUpper()})");
+
+                await ModifyOriginalResponseAsync(msg =>
+                {
+                    msg.Content = null;
+                    msg.Embed = embed.Build();
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetGuildMythicPlusLeaderboard");
+                await ModifyOriginalResponseAsync(msg => msg.Content = "❌ An error occurred while fetching the guild leaderboard.");
             }
         }
 
@@ -687,6 +866,130 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             }
         }
 
+        /// <summary>
+        /// Handle "Refresh" button - re-fetch latest RIO data and update embed
+        /// </summary>
+        [ComponentInteraction("rio_refresh~*~*~*~*")]
+        public async Task HandleRefreshButton(string originalUserIdStr, string charName, string realmName, string regionName)
+        {
+            // Validate the original user
+            if (!ulong.TryParse(originalUserIdStr, out var originalUserId) || Context.User.Id != originalUserId)
+            {
+                await RespondAsync("❌ Only the original requester can refresh this data.", ephemeral: true);
+                return;
+            }
+
+            // Check cooldown (10 minute limit per character)
+            var cooldownKey = $"{Context.User.Id}~{charName.ToLower()}~{realmName.ToLower()}~{regionName.ToLower()}";
+            if (_refreshCooldowns.TryGetValue(cooldownKey, out var lastRefresh))
+            {
+                var elapsed = DateTime.UtcNow - lastRefresh;
+                if (elapsed < RefreshCooldown)
+                {
+                    var remaining = RefreshCooldown - elapsed;
+                    await RespondAsync($"⏳ Refresh is on cooldown. Try again in **{remaining.Minutes}m {remaining.Seconds}s**.", ephemeral: true);
+                    return;
+                }
+            }
+
+            await DeferAsync();
+
+            try
+            {
+                var sb = new StringBuilder();
+                var embed = new EmbedBuilder();
+
+                // Fetch fresh RaiderIO data
+                RaiderIOModels.RioMythicPlusChar mPlusInfo;
+                try
+                {
+                    mPlusInfo = await _rioApi.GetCharMythicPlusInfoAsync(
+                        charName: charName,
+                        realmName: realmName.Replace(" ", "%20"),
+                        region: regionName.ToLower());
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error refreshing RaiderIO data for {Character} on {Realm}", charName, realmName);
+                    await FollowupAsync("❌ Failed to refresh data. Please try again.", ephemeral: true);
+                    return;
+                }
+
+                // Update cooldown timestamp
+                _refreshCooldowns[cooldownKey] = DateTime.UtcNow;
+
+                var realmSlug = GetRealmSlug(realmName, regionName);
+                BuildRioEmbed(embed, sb, mPlusInfo, charName, realmName, regionName, realmSlug);
+
+                // Update search history timestamp
+                await SaveSearchHistoryAsync(Context.User.Id, charName, realmName, regionName);
+
+                var components = await BuildRioComponents(Context.User.Id, charName, realmName, regionName);
+                await ModifyOriginalResponseAsync(msg =>
+                {
+                    msg.Embed = embed.Build();
+                    msg.Components = components.Build();
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling refresh for user {UserId}", Context.User.Id);
+                await FollowupAsync("❌ An error occurred while refreshing.", ephemeral: true);
+            }
+        }
+
+        /// <summary>
+        /// Handle "Share" button - post the RIO profile publicly
+        /// </summary>
+        [ComponentInteraction("rio_share~*~*~*~*")]
+        public async Task HandleShareButton(string originalUserIdStr, string charName, string realmName, string regionName)
+        {
+            // Validate the original user
+            if (!ulong.TryParse(originalUserIdStr, out var originalUserId) || Context.User.Id != originalUserId)
+            {
+                await RespondAsync("❌ Only the original requester can share this profile.", ephemeral: true);
+                return;
+            }
+
+            await DeferAsync();
+
+            try
+            {
+                var sb = new StringBuilder();
+                var embed = new EmbedBuilder();
+
+                // Fetch RaiderIO data
+                RaiderIOModels.RioMythicPlusChar mPlusInfo;
+                try
+                {
+                    mPlusInfo = await _rioApi.GetCharMythicPlusInfoAsync(
+                        charName: charName,
+                        realmName: realmName.Replace(" ", "%20"),
+                        region: regionName.ToLower());
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error fetching RaiderIO data for share: {Character} on {Realm}", charName, realmName);
+                    await FollowupAsync("❌ Failed to fetch profile for sharing. Please try again.", ephemeral: true);
+                    return;
+                }
+
+                var realmSlug = GetRealmSlug(realmName, regionName);
+                BuildRioEmbed(embed, sb, mPlusInfo, charName, realmName, regionName, realmSlug);
+
+                // Post publicly (no components on public share to keep it clean)
+                await FollowupAsync(
+                    text: $"📢 **{Context.User.Username}** shared a Raider.IO profile:",
+                    embed: embed.Build(),
+                    ephemeral: false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling share for user {UserId}", Context.User.Id);
+                await FollowupAsync("❌ An error occurred while sharing.", ephemeral: true);
+            }
+        }
+
         #region Private Helper Methods
 
         private async Task HandleCompareMode(
@@ -905,6 +1208,20 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         }
 
         /// <summary>
+        /// Get timed indicator arrows based on keystone upgrades
+        /// </summary>
+        private static string GetTimedIndicator(long numKeystoneUpgrades)
+        {
+            return numKeystoneUpgrades switch
+            {
+                >= 3 => "⬆⬆⬆",  // +3 (big time)
+                2 => "⬆⬆",      // +2
+                1 => "⬆",       // +1 (just timed)
+                _ => ""          // depleted
+            };
+        }
+
+        /// <summary>
         /// Save or update search history for a character lookup
         /// </summary>
         private async Task SaveSearchHistoryAsync(ulong discordUserId, string characterName, string realmName, string region)
@@ -1016,18 +1333,34 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     builder.WithSelectMenu(selectMenuBuilder);
                 }
 
-                // Add "Save Character" button if character info is provided
+                // Add action buttons if character info is provided
                 if (!string.IsNullOrEmpty(charName) && !string.IsNullOrEmpty(realmName) && !string.IsNullOrEmpty(regionName))
                 {
-                    // Encode character info in custom ID: "rio_save_char~CharName~RealmName~Region"
-                    var customId = $"rio_save_char~{charName}~{realmName}~{regionName}";
-
+                    // Save Character button
                     builder.WithButton(
                         label: "Save Character",
-                        customId: customId,
+                        customId: $"rio_save_char~{charName}~{realmName}~{regionName}",
                         style: ButtonStyle.Primary,
                         emote: new Emoji("💾"),
-                        row: 1 // Put button on second row so it doesn't conflict with select menu
+                        row: 1
+                    );
+
+                    // Refresh button - re-fetch latest data
+                    builder.WithButton(
+                        label: "Refresh",
+                        customId: $"rio_refresh~{userId}~{charName}~{realmName}~{regionName}",
+                        style: ButtonStyle.Secondary,
+                        emote: new Emoji("🔄"),
+                        row: 1
+                    );
+
+                    // Share button - post publicly
+                    builder.WithButton(
+                        label: "Share",
+                        customId: $"rio_share~{userId}~{charName}~{realmName}~{regionName}",
+                        style: ButtonStyle.Success,
+                        emote: new Emoji("📢"),
+                        row: 1
                     );
                 }
             }
@@ -1117,6 +1450,17 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 sb.AppendLine($"**Normal** [{normalKilled} / {totalBosses}] {GetProgressBar(raid.NormalBossesKilled, raid.TotalBosses)}");
                 sb.AppendLine($"**Heroic** [{heroicKilled} / {totalBosses}] {GetProgressBar(raid.HeroicBossesKilled, raid.TotalBosses)}");
                 sb.AppendLine($"**Mythic** [{mythicKilled} / {totalBosses}] {GetProgressBar(raid.MythicBossesKilled, raid.TotalBosses)}");
+
+                // AOTC / Cutting Edge badges (derived from progression - API achievement fields are often empty)
+                var hasAotc = raid.HeroicBossesKilled == raid.TotalBosses && raid.TotalBosses > 0;
+                var hasCe = raid.MythicBossesKilled == raid.TotalBosses && raid.TotalBosses > 0;
+                if (hasAotc || hasCe)
+                {
+                    sb.Append("**Achievements:** ");
+                    if (hasAotc) sb.Append("🏆 AOTC ");
+                    if (hasCe) sb.Append("⚔️ Cutting Edge");
+                    sb.AppendLine();
+                }
                 sb.AppendLine();
             }
 
@@ -1139,40 +1483,57 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             sb.AppendLine($"Realm [**{mPlusInfo.MythicPlusRanks.Class.Realm}**] Region [**{mPlusInfo.MythicPlusRanks.Class.Region}**] World [**{mPlusInfo.MythicPlusRanks.Class.World}**]");
             sb.AppendLine();
 
-            // Best Runs
+            // Best Runs (with timed/depleted indicators)
             if (mPlusInfo.MythicPlusBestRuns?.Length > 0)
             {
                 sb.AppendLine($"**__Best Runs__**");
                 foreach (var run in mPlusInfo.MythicPlusBestRuns)
                 {
-                    var keyEmoji = run.MythicLevel >= 20 ? "🔑" : "▪️";
+                    var timedIndicator = GetTimedIndicator(run.NumKeystoneUpgrades);
+                    var keyEmoji = run.NumKeystoneUpgrades > 0 ? "🔑" : "💀";
                     var minutes = run.ClearTimeMs / 60000;
                     if (run.Url != null)
                     {
-                        sb.AppendLine($"{keyEmoji} [{run.ShortName}(**+{run.MythicLevel}**) - {minutes}m]({run.Url.AbsoluteUri})");
+                        sb.AppendLine($"{keyEmoji} [{run.ShortName}(**+{run.MythicLevel}**) - {minutes}m {timedIndicator}]({run.Url.AbsoluteUri})");
                     }
                     else
                     {
-                        sb.AppendLine($"{keyEmoji} {run.ShortName}(**+{run.MythicLevel}**) - {minutes}m");
+                        sb.AppendLine($"{keyEmoji} {run.ShortName}(**+{run.MythicLevel}**) - {minutes}m {timedIndicator}");
                     }
                 }
                 sb.AppendLine();
             }
 
-            // Weekly Progress (if available)
+            // Weekly Progress with week-over-week comparison
             if (mPlusInfo.MythicPlusWeeklyHighestLevelRuns?.Length > 0)
             {
-                sb.AppendLine($"**__This Week's Highest Keys__**");
+                sb.AppendLine($"**__Weekly Progress__**");
+
+                var previousRuns = mPlusInfo.MythicPlusPreviousWeeklyHighestLevelRuns ?? Array.Empty<RaiderIOModels.MythicPlusRun>();
+
                 foreach (var run in mPlusInfo.MythicPlusWeeklyHighestLevelRuns.Take(4))
                 {
-                    var keyEmoji = run.MythicLevel >= 15 ? "⭐" : "▪️";
+                    var timedIndicator = GetTimedIndicator(run.NumKeystoneUpgrades);
+                    var keyEmoji = run.NumKeystoneUpgrades > 0 ? "⭐" : "💀";
+
+                    // Find matching dungeon from last week
+                    var lastWeekRun = previousRuns.FirstOrDefault(r => r.ShortName == run.ShortName);
+                    var comparison = "";
+                    if (lastWeekRun != null)
+                    {
+                        var diff = run.MythicLevel - lastWeekRun.MythicLevel;
+                        if (diff > 0) comparison = $" *(+{diff} from last week)*";
+                        else if (diff < 0) comparison = $" *({diff} from last week)*";
+                        else comparison = " *(same as last week)*";
+                    }
+
                     if (run.Url != null)
                     {
-                        sb.AppendLine($"{keyEmoji} [{run.ShortName} **+{run.MythicLevel}**]({run.Url.AbsoluteUri})");
+                        sb.AppendLine($"{keyEmoji} [{run.ShortName} **+{run.MythicLevel}** {timedIndicator}]({run.Url.AbsoluteUri}){comparison}");
                     }
                     else
                     {
-                        sb.AppendLine($"{keyEmoji} {run.ShortName} **+{run.MythicLevel}**");
+                        sb.AppendLine($"{keyEmoji} {run.ShortName} **+{run.MythicLevel}** {timedIndicator}{comparison}");
                     }
                 }
                 sb.AppendLine();
