@@ -1,0 +1,286 @@
+using Discord;
+using NinjaBotCore.Models.Wow;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+
+namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
+{
+    /// <summary>
+    /// Builds the WarcraftLogs view embed for character profiles
+    /// </summary>
+    public static class CharLogsView
+    {
+        /// <summary>
+        /// Build the logs view embed from WCL ranking data
+        /// </summary>
+        public static EmbedBuilder Build(
+            CharacterInfo charInfo,
+            List<LogCharRankings> rankings,
+            string specName = null,
+            string className = null)
+        {
+            var embed = new EmbedBuilder();
+            var sb = new StringBuilder();
+
+            // Title
+            var titleParts = new List<string>();
+            if (!string.IsNullOrEmpty(specName)) titleParts.Add(specName);
+            if (!string.IsNullOrEmpty(className)) titleParts.Add(className);
+            titleParts.Add(charInfo.Name);
+
+            embed.Title = titleParts.Count > 1
+                ? $"{string.Join(" ", titleParts.Take(titleParts.Count - 1))} - {titleParts.Last()}"
+                : charInfo.Name;
+
+            if (rankings == null || rankings.Count == 0)
+            {
+                embed.WithColor(new Color(128, 128, 128));
+                embed.Description = "No raid logs found for this character.\n\n" +
+                    "This could mean:\n" +
+                    "- Character has no logged raids this tier\n" +
+                    "- Character name/realm might be different on WarcraftLogs\n" +
+                    "- Logs are set to private";
+
+                embed.AddField("WarcraftLogs", $"[View Profile]({charInfo.WarcraftLogsUrl})", true);
+                return embed;
+            }
+
+            // Group rankings by difficulty (prioritize Mythic > Heroic > Normal)
+            var mythicRankings = rankings.Where(r => r.difficulty == 5).ToList();
+            var heroicRankings = rankings.Where(r => r.difficulty == 4).ToList();
+            var normalRankings = rankings.Where(r => r.difficulty == 3).ToList();
+
+            // Determine best average parse percentile for color
+            var allPercentiles = rankings.Select(r => r.percentile).ToList();
+            var avgPercentile = allPercentiles.Any() ? allPercentiles.Average() : 0;
+            embed.WithColor(CharViewHelpers.GetParseColor(avgPercentile));
+
+            // Show Mythic parses if available
+            if (mythicRankings.Any())
+            {
+                sb.AppendLine("**__Mythic Parses__**");
+                AppendRankings(sb, mythicRankings);
+                sb.AppendLine();
+            }
+
+            // Show Heroic parses
+            if (heroicRankings.Any())
+            {
+                sb.AppendLine("**__Heroic Parses__**");
+                AppendRankings(sb, heroicRankings);
+                sb.AppendLine();
+            }
+
+            // Show Normal parses only if no higher difficulty
+            if (normalRankings.Any() && !mythicRankings.Any() && !heroicRankings.Any())
+            {
+                sb.AppendLine("**__Normal Parses__**");
+                AppendRankings(sb, normalRankings);
+                sb.AppendLine();
+            }
+
+            // Summary statistics
+            var bestParse = allPercentiles.Any() ? allPercentiles.Max() : 0;
+            var medianParse = allPercentiles.Any() ? allPercentiles.OrderBy(p => p).ElementAt(allPercentiles.Count / 2) : 0;
+            var uniqueEncounters = rankings.Select(r => r.encounterId).Distinct().Count();
+
+            sb.AppendLine("**__Summary__**");
+            sb.AppendLine($"Best Parse: {CharViewHelpers.GetParseEmoji(bestParse)} **{bestParse:F0}%**");
+            sb.AppendLine($"Median Parse: {CharViewHelpers.GetParseEmoji(medianParse)} **{medianParse:F0}%**");
+            sb.AppendLine($"Bosses: **{uniqueEncounters}** | Kills: **{rankings.Count}**");
+
+            embed.Description = sb.ToString();
+
+            // Links
+            embed.AddField("WarcraftLogs", $"[View Full Profile]({charInfo.WarcraftLogsUrl})", true);
+
+            embed.Footer = new EmbedFooterBuilder
+            {
+                Text = $"{charInfo.Realm} ({charInfo.Region.ToUpper()}) | Data from WarcraftLogs"
+            };
+
+            return embed;
+        }
+
+        /// <summary>
+        /// Build a compact logs summary for the overview view
+        /// </summary>
+        public static string BuildCompactSummary(List<LogCharRankings> rankings)
+        {
+            if (rankings == null || rankings.Count == 0)
+                return "No logs";
+
+            // Get best mythic or heroic parses
+            var mythicRankings = rankings.Where(r => r.difficulty == 5).ToList();
+            var heroicRankings = rankings.Where(r => r.difficulty == 4).ToList();
+
+            var relevantRankings = mythicRankings.Any() ? mythicRankings : heroicRankings;
+            if (!relevantRankings.Any())
+                relevantRankings = rankings;
+
+            var percentiles = relevantRankings.Select(r => r.percentile).ToList();
+            var best = percentiles.Max();
+            var avg = percentiles.Average();
+            var difficulty = mythicRankings.Any() ? "M" : (heroicRankings.Any() ? "H" : "N");
+
+            return $"{CharViewHelpers.GetParseEmoji(avg)} {avg:F0}% avg ({difficulty})";
+        }
+
+        private static void AppendRankings(StringBuilder sb, List<LogCharRankings> rankings)
+        {
+            // Sort by encounter, taking best parse per encounter
+            var sortedRankings = rankings
+                .GroupBy(r => r.encounterId)
+                .Select(g => g.OrderByDescending(r => r.percentile).First())
+                .OrderByDescending(r => r.percentile) // Show best parses first
+                .ToList();
+
+            foreach (var ranking in sortedRankings.Take(8)) // Limit to 8 bosses
+            {
+                var pct = ranking.percentile;
+                var emoji = CharViewHelpers.GetParseEmoji(pct);
+                var encounterName = CharViewHelpers.Truncate(ranking.encounterName, 18);
+
+                // Format DPS/HPS (total is damage/healing done, duration is in ms)
+                var dpsHps = ranking.duration > 0
+                    ? (ranking.total / (ranking.duration / 1000.0))
+                    : 0;
+                var dpsFormatted = FormatNumber(dpsHps);
+
+                // Build the line with more info
+                sb.AppendLine($"{emoji} **{pct:F0}%** {encounterName}");
+                sb.AppendLine($"   `{dpsFormatted}` | ilvl {ranking.itemLevel} | [{ranking.specName}]({ranking.reportURL})");
+            }
+
+            if (sortedRankings.Count > 8)
+            {
+                sb.AppendLine($"*...and {sortedRankings.Count - 8} more encounters*");
+            }
+        }
+
+        private static string FormatNumber(double value)
+        {
+            if (value >= 1_000_000)
+                return $"{value / 1_000_000:F2}M";
+            if (value >= 1_000)
+                return $"{value / 1_000:F1}K";
+            return $"{value:F0}";
+        }
+
+        /// <summary>
+        /// Build a select menu for choosing encounters
+        /// </summary>
+        public static SelectMenuBuilder BuildEncounterSelectMenu(
+            ulong userId,
+            CharacterInfo charInfo,
+            List<LogCharRankings> rankings)
+        {
+            if (rankings == null || rankings.Count == 0)
+                return null;
+
+            // Get unique encounters, sorted by best parse
+            var encounters = rankings
+                .GroupBy(r => r.encounterId)
+                .Select(g => new
+                {
+                    Id = g.Key,
+                    Name = g.First().encounterName,
+                    BestParse = g.Max(r => r.percentile),
+                    Difficulty = g.Max(r => r.difficulty),
+                    KillCount = g.Count()
+                })
+                .OrderByDescending(e => e.BestParse)
+                .Take(25) // Discord limit
+                .ToList();
+
+            if (!encounters.Any())
+                return null;
+
+            var charParam = $"{charInfo.Name}~{charInfo.Realm}~{charInfo.Region}";
+            var menu = new SelectMenuBuilder()
+                .WithCustomId($"char_logs_encounter~{userId}~{charParam}")
+                .WithPlaceholder("Select encounter for details...")
+                .WithMinValues(1)
+                .WithMaxValues(1);
+
+            foreach (var enc in encounters)
+            {
+                var emoji = CharViewHelpers.GetParseEmoji(enc.BestParse);
+                var diffLabel = enc.Difficulty == 5 ? "M" : (enc.Difficulty == 4 ? "H" : "N");
+                menu.AddOption(
+                    label: CharViewHelpers.Truncate(enc.Name, 25),
+                    value: enc.Id.ToString(),
+                    description: $"{emoji} {enc.BestParse:F0}% best | {enc.KillCount} kill(s) ({diffLabel})",
+                    emote: new Emoji(emoji));
+            }
+
+            return menu;
+        }
+
+        /// <summary>
+        /// Build detailed view for a specific encounter
+        /// </summary>
+        public static EmbedBuilder BuildEncounterDetail(
+            CharacterInfo charInfo,
+            List<LogCharRankings> allRankings,
+            int encounterId)
+        {
+            var embed = new EmbedBuilder();
+            var sb = new StringBuilder();
+
+            var encounterRankings = allRankings
+                .Where(r => r.encounterId == encounterId)
+                .OrderByDescending(r => r.percentile)
+                .ToList();
+
+            if (!encounterRankings.Any())
+            {
+                embed.WithColor(new Color(128, 128, 128));
+                embed.Description = "No data found for this encounter.";
+                return embed;
+            }
+
+            var firstRanking = encounterRankings.First();
+            embed.Title = $"{firstRanking.encounterName} - {charInfo.Name}";
+
+            var bestPct = encounterRankings.Max(r => r.percentile);
+            embed.WithColor(CharViewHelpers.GetParseColor(bestPct));
+
+            // Show all parses for this encounter
+            foreach (var ranking in encounterRankings.Take(10))
+            {
+                var pct = ranking.percentile;
+                var emoji = CharViewHelpers.GetParseEmoji(pct);
+                var diffName = ranking.difficultyName;
+                var dpsHps = ranking.duration > 0
+                    ? (ranking.total / (ranking.duration / 1000.0))
+                    : 0;
+
+                // Format duration
+                var durationSec = ranking.duration / 1000;
+                var durationStr = $"{durationSec / 60}:{durationSec % 60:D2}";
+
+                sb.AppendLine($"{emoji} **{pct:F0}%** ({diffName})");
+                sb.AppendLine($"   `{FormatNumber(dpsHps)}` | ilvl {ranking.itemLevel} | {durationStr}");
+                sb.AppendLine($"   Rank {ranking.rank:N0} / {ranking.outOf:N0} | [{ranking.specName}]({ranking.reportURL}#fight={ranking.fightID})");
+                sb.AppendLine();
+            }
+
+            if (encounterRankings.Count > 10)
+            {
+                sb.AppendLine($"*...and {encounterRankings.Count - 10} more kills*");
+            }
+
+            embed.Description = sb.ToString();
+
+            embed.Footer = new EmbedFooterBuilder
+            {
+                Text = $"{charInfo.Realm} ({charInfo.Region.ToUpper()}) | Use dropdown for other encounters"
+            };
+
+            return embed;
+        }
+    }
+}

@@ -166,27 +166,5 @@ namespace NinjaBotCore.Modules.Wow
             return JsonConvert.DeserializeObject<RaiderIOModels.RioMythicPlusChar>(response);
         }
 
-        /// <summary>
-        /// Get a lightweight character M+ score (just scores, no runs/gear) - faster for leaderboards
-        /// </summary>
-        public async Task<RaiderIOModels.RioMythicPlusChar> GetCharMythicPlusScoreAsync(string charName, string realmName, string region = "us", CancellationToken cancellationToken = default)
-        {
-            string url = $"/characters/profile?region={region}&realm={realmName}&name={charName}" +
-                $"&fields=mythic_plus_scores_by_season:current%2Cgear";
-            var response = await GetApiRequestAsync(url, cancellationToken);
-            return JsonConvert.DeserializeObject<RaiderIOModels.RioMythicPlusChar>(response);
-        }
-
-        /// <summary>
-        /// Get guild roster with basic member info from RaiderIO
-        /// </summary>
-        public async Task<RaiderIOModels.RioGuildRoster> GetGuildRosterAsync(string guildName, string realmName, string region, CancellationToken cancellationToken = default)
-        {
-            guildName = guildName.Replace(" ", "%20");
-            realmName = realmName.Replace(" ", "%20");
-            string url = $"/guilds/profile?region={region}&realm={realmName}&name={guildName}&fields=members";
-            var response = await GetApiRequestAsync(url, cancellationToken);
-            return JsonConvert.DeserializeObject<RaiderIOModels.RioGuildRoster>(response);
-        }
     }
 }

@@ -1,6 +1,5 @@
-using System.Reflection;
 using Xunit;
-using NinjaBotCore.Modules.Interactions.Wow;
+using NinjaBotCore.Modules.Interactions.Wow.CharViews;
 
 namespace NinjaBotCore.Tests
 {
@@ -20,9 +19,8 @@ namespace NinjaBotCore.Tests
     {
         private static string InvokeProgressBar(long current, long total, int length = 10)
         {
-            // GetProgressBar was moved from WowInteract to RioCommands during refactoring
-            var method = typeof(RioCommands).GetMethod("GetProgressBar", BindingFlags.NonPublic | BindingFlags.Static);
-            return (string)method.Invoke(null, new object[] { current, total, length });
+            // GetProgressBar is now in CharViewHelpers (shared utility class)
+            return CharViewHelpers.GetProgressBar(current, total, length);
         }
 
         #region Progress Bar Tests
@@ -67,9 +65,8 @@ namespace NinjaBotCore.Tests
         {
             // Edge case: Negative total causes ArgumentOutOfRangeException
             // due to negative string repetition count
-            var exception = Assert.Throws<System.Reflection.TargetInvocationException>(
+            Assert.Throws<System.ArgumentOutOfRangeException>(
                 () => InvokeProgressBar(5, -10));
-            Assert.IsType<System.ArgumentOutOfRangeException>(exception.InnerException);
         }
 
         [Fact]
@@ -77,9 +74,8 @@ namespace NinjaBotCore.Tests
         {
             // Edge case: When current > total, the calculation produces negative count
             // for empty blocks, causing ArgumentOutOfRangeException
-            var exception = Assert.Throws<System.Reflection.TargetInvocationException>(
+            Assert.Throws<System.ArgumentOutOfRangeException>(
                 () => InvokeProgressBar(15, 10, 10));
-            Assert.IsType<System.ArgumentOutOfRangeException>(exception.InnerException);
         }
 
         [Theory]

@@ -61,63 +61,6 @@ namespace NinjaBotCore.Models.Wow
             public RaidProgression RaidProgression { get; set; }
         }
 
-        /// <summary>
-        /// Guild roster response from RaiderIO API
-        /// </summary>
-        public partial class RioGuildRoster
-        {
-            [JsonProperty("name")]
-            public string Name { get; set; }
-
-            [JsonProperty("faction")]
-            public string Faction { get; set; }
-
-            [JsonProperty("region")]
-            public string Region { get; set; }
-
-            [JsonProperty("realm")]
-            public string Realm { get; set; }
-
-            [JsonProperty("profile_url")]
-            public Uri ProfileUrl { get; set; }
-
-            [JsonProperty("members")]
-            public RioGuildMember[] Members { get; set; }
-        }
-
-        public partial class RioGuildMember
-        {
-            [JsonProperty("rank")]
-            public int Rank { get; set; }
-
-            [JsonProperty("character")]
-            public RioGuildCharacter Character { get; set; }
-        }
-
-        public partial class RioGuildCharacter
-        {
-            [JsonProperty("name")]
-            public string Name { get; set; }
-
-            [JsonProperty("class")]
-            public string Class { get; set; }
-
-            [JsonProperty("active_spec_name")]
-            public string ActiveSpecName { get; set; }
-
-            [JsonProperty("active_spec_role")]
-            public string ActiveSpecRole { get; set; }
-
-            [JsonProperty("realm")]
-            public string Realm { get; set; }
-
-            [JsonProperty("region")]
-            public string Region { get; set; }
-
-            [JsonProperty("profile_url")]
-            public Uri ProfileUrl { get; set; }
-        }
-
         public partial class RaidProgression
         {
             [JsonProperty("antorus-the-burning-throne")]

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using System;
 using NinjaBotCore.Modules.Wow;
+using NinjaBotCore.Modules.Interactions.Wow;
 using NinjaBotCore.Modules.Admin;
 using NinjaBotCore.Modules.Steam;
 using Microsoft.Extensions.Configuration;
@@ -110,6 +111,7 @@ namespace NinjaBotCore
                 .AddSingleton<CommandsApiService>()
                 .AddSingleton<PollExpirationService>()
                 .AddSingleton<WowCacheService>()
+                .AddSingleton<CharacterResolver>()
                 .AddSingleton<WowTokenService>()
                 .AddSingleton<WowStaticDataService>()
                 .AddSingleton(x => new InteractionService(

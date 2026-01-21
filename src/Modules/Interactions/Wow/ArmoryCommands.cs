@@ -24,19 +24,22 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private readonly WowApi _wowApi;
         private readonly WowUtilities _wowUtils;
         private readonly WowCacheService _wowCache;
+        private readonly CharacterResolver _charResolver;
 
         public ArmoryCommands(
             IServiceScopeFactory scopeFactory,
             ILogger<ArmoryCommands> logger,
             WowApi wowApi,
             WowUtilities wowUtils,
-            WowCacheService wowCache)
+            WowCacheService wowCache,
+            CharacterResolver charResolver)
             : base(scopeFactory)
         {
             _logger = logger;
             _wowApi = wowApi;
             _wowUtils = wowUtils;
             _wowCache = wowCache;
+            _charResolver = charResolver;
         }
 
         [SlashCommand("armory", "Show a character's gear from the Armory")]
@@ -69,93 +72,25 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 return;
             }
 
-            string charName = null;
-            string realmName = null;
-            string regionName = region;
             var embed = new EmbedBuilder();
 
-            if (string.IsNullOrEmpty(character))
+            // Resolve character using shared resolver
+            var resolution = await _charResolver.ResolveCharacterAsync(
+                character, realm, region, Context.User.Id, Context);
+
+            if (!resolution.IsSuccess)
             {
-                var charAssociation = await _wowCache.GetUserMainCharacterAsync((long)Context.User.Id);
-
-                if (charAssociation != null)
-                {
-                    charName = charAssociation.CharName;
-                    realmName = charAssociation.WowRealm;
-                    regionName ??= charAssociation.WowRegion;
-                }
-                else
-                {
-                    embed.Title = "No Main Character Set";
-                    embed.WithColor(new Color(255, 165, 0));
-                    embed.Description = "You haven't set a main character yet!\n\nUse `/getchars` to manage your saved characters.";
-                    await FollowupAsync(embed: embed.Build(), ephemeral: true);
-                    return;
-                }
-            }
-            else
-            {
-                var parts = character.Split('~', 3);
-                charName = parts[0];
-
-                if (string.IsNullOrEmpty(realmName) && parts.Length >= 2)
-                {
-                    realmName = parts[1];
-                }
-                else if (!string.IsNullOrEmpty(realm))
-                {
-                    realmName = realm;
-                }
-
-                if (string.IsNullOrEmpty(regionName) && parts.Length >= 3)
-                {
-                    regionName = parts[2];
-                }
+                embed.Title = resolution.ErrorTitle;
+                embed.WithColor(new Color(255, 0, 0));
+                embed.Description = resolution.ErrorMessage;
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+                return;
             }
 
-            if (string.IsNullOrEmpty(realmName))
-            {
-                var guildObject = await _wowUtils.GetGuildName(Context);
-
-                if (!string.IsNullOrEmpty(guildObject.guildName))
-                {
-                    // Use realmSlug for API calls, fallback to slugifying realmName
-                    var effectiveRealmSlug = !string.IsNullOrEmpty(guildObject.realmSlug)
-                        ? guildObject.realmSlug
-                        : guildObject.realmName?.ToLower().Replace(" ", "-").Replace("'", "");
-
-                    var guildie = await _wowApi.GetCharFromGuildAsync(
-                        charName,
-                        effectiveRealmSlug,
-                        guildObject.guildName,
-                        guildObject.regionName);
-
-                    if (!string.IsNullOrEmpty(guildie.charName))
-                    {
-                        realmName = guildie.realmName;
-                        regionName ??= guildie.regionName;
-                    }
-                }
-
-                if (string.IsNullOrEmpty(realmName))
-                {
-                    var chars = await _wowApi.SearchArmoryAsync(charName);
-                    if (chars != null && chars.Count > 0)
-                    {
-                        realmName = chars[0].realmName;
-                    }
-                    else
-                    {
-                        embed.Title = "Character Not Found";
-                        embed.WithColor(new Color(255, 0, 0));
-                        embed.Description = $"Could not find character **{charName}**.\n\nPlease specify the realm name using the `realm` parameter, or use autocomplete to select your character.";
-                        await FollowupAsync(embed: embed.Build(), ephemeral: true);
-                        return;
-                    }
-                }
-            }
-
-            regionName ??= "us";
+            var charInfo = resolution.Character;
+            string charName = charInfo.Name;
+            string realmName = charInfo.Realm;
+            string regionName = charInfo.Region;
 
             ArmorySummary armorySummary;
             ArmoryEquipment armoryEquipment;
@@ -369,13 +304,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             embed.Description = descriptionBuilder.ToString();
 
-            var armoryLocale = regionName.ToLower() switch
-            {
-                "us" => "en-us",
-                "eu" => "en-gb",
-                "ru" => "ru-ru",
-                _ => "en-us"
-            };
+            var armoryLocale = CharacterResolver.GetArmoryLocaleFromRegion(regionName);
 
             var armoryUrl = $"https://worldofwarcraft.blizzard.com/{armoryLocale}/character/{regionName.ToLower()}/{realmSlug}/{armorySummary.Name.ToLower()}";
             embed.AddField("Armory", $"[View on Battle.net]({armoryUrl})", true);
@@ -580,13 +509,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 detailEmbed.Description += setSb.ToString();
             }
 
-            var armoryLocale = regionName.ToLower() switch
-            {
-                "us" => "en-us",
-                "eu" => "en-gb",
-                "ru" => "ru-ru",
-                _ => "en-us"
-            };
+            var armoryLocale = CharacterResolver.GetArmoryLocaleFromRegion(regionName);
             var armoryUrl = $"https://worldofwarcraft.blizzard.com/{armoryLocale}/character/{regionName.ToLower()}/{realmSlug}/{characterName.ToLower()}";
             detailEmbed.AddField("Armory", $"[View on Battle.net]({armoryUrl})", true);
 

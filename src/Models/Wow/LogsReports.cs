@@ -236,70 +236,153 @@ namespace NinjaBotCore.Models.Wow
     [JsonObject]
     public class LogCharRankings
     {
-        public int encounter { get; set; }
+        // API returns "encounterID" (capital ID)
+        [JsonProperty(PropertyName = "encounterID")]
+        public int encounterId { get; set; }
+
+        // WCL API returns encounterName directly - use JsonIgnore on the computed property
+        // to avoid conflicts, and map JSON to this backing field
+        [JsonProperty(PropertyName = "encounterName")]
+        public string encounterNameFromApi { get; set; }
+
+        [JsonIgnore]
         public string encounterName
         {
             get
             {
-                string encounterName = string.Empty;
-                foreach (Zones zone in WarcraftLogs.Zones)
+                // Use API-provided name if available
+                if (!string.IsNullOrEmpty(encounterNameFromApi))
+                    return encounterNameFromApi;
+
+                // Fall back to lookup from zones
+                string name = string.Empty;
+                if (WarcraftLogs.Zones != null)
                 {
-                    foreach (Encounter encounter in zone.encounters)
+                    foreach (Zones zone in WarcraftLogs.Zones)
                     {
-                        if (encounter.id == this.encounter)
+                        if (zone.encounters == null) continue;
+                        foreach (Encounter encounter in zone.encounters)
                         {
-                            encounterName = encounter.name;
+                            if (encounter.id == this.encounterId)
+                            {
+                                name = encounter.name;
+                            }
                         }
                     }
                 }
 
-                return encounterName;
+                // If still empty, return a placeholder with the ID
+                if (string.IsNullOrEmpty(name))
+                    return $"Encounter #{encounterId}";
+
+                return name;
             }
         }
+
+        // WCL API returns class as either int (old) or string (new)
+        // Store raw value and provide classID/className accessors
         [JsonProperty(PropertyName = "class")]
-        public int classID { get; set; }
+        public object classRaw { get; set; }
+
+        public int classID
+        {
+            get
+            {
+                if (classRaw is int intVal) return intVal;
+                if (classRaw is long longVal) return (int)longVal;
+                if (classRaw is string strVal)
+                {
+                    // Try to look up class ID by name
+                    var charClass = WarcraftLogs.CharClasses?.FirstOrDefault(c =>
+                        string.Equals(c.name, strVal, StringComparison.OrdinalIgnoreCase));
+                    return charClass?.id ?? 0;
+                }
+                return 0;
+            }
+        }
+
         public string className
         {
             get
             {
-                string name = string.Empty;                
+                // If raw value is already a string, use it directly
+                if (classRaw is string strVal) return strVal;
+
+                // Otherwise look up by ID
+                string name = string.Empty;
                 List<CharClasses> charClasses = WarcraftLogs.CharClasses;
-
-                name = charClasses.Where(c => c.id == this.classID).Select(c => c.name).FirstOrDefault();
-
-                return name;
+                name = charClasses?.Where(c => c.id == this.classID).Select(c => c.name).FirstOrDefault();
+                return name ?? string.Empty;
             }
         }
-        public int spec { get; set; }
+
+        // WCL API returns spec as either int (old) or string (new)
+        [JsonProperty(PropertyName = "spec")]
+        public object specRaw { get; set; }
+
+        public int specID
+        {
+            get
+            {
+                if (specRaw is int intVal) return intVal;
+                if (specRaw is long longVal) return (int)longVal;
+                if (specRaw is string strVal)
+                {
+                    // Try to look up spec ID by name within the class
+                    var charClass = WarcraftLogs.CharClasses?.FirstOrDefault(c => c.id == this.classID);
+                    var spec = charClass?.specs?.FirstOrDefault(s =>
+                        string.Equals(s.name, strVal, StringComparison.OrdinalIgnoreCase));
+                    return spec?.id ?? 0;
+                }
+                return 0;
+            }
+        }
+
         public string specName
         {
             get
             {
-                string name = string.Empty;                
+                // If raw value is already a string, use it directly
+                if (specRaw is string strVal) return strVal;
+
+                // Otherwise look up by ID
+                string name = string.Empty;
                 List<CharClasses> charClasses = WarcraftLogs.CharClasses;
 
-                foreach (CharClasses classItem in charClasses)
+                foreach (CharClasses classItem in charClasses ?? new List<CharClasses>())
                 {
                     if (classItem.id == this.classID)
                     {
-                        name = classItem.specs.Where(c => c.id == this.spec).Select(c => c.name).FirstOrDefault();
+                        name = classItem.specs?.Where(c => c.id == this.specID).Select(c => c.name).FirstOrDefault();
                     }
                 }
 
-                return name;
+                return name ?? string.Empty;
             }
         }
         public string guildName { get; set; }
         public int rank { get; set; }
         public int outOf { get; set; }
+
+        // API provides percentile directly - more accurate than calculating
+        public double percentile { get; set; }
+
+        // Computed inverse for ranking display (keeping for backwards compat)
+        [JsonIgnore]
         public int rankPercentage
         {
             get
             {
-                int rankPercentage = (int)Math.Round((double)(100 * this.rank) / this.outOf);
-                return rankPercentage;
+                // If API provided percentile, use it
+                if (percentile > 0)
+                    return (int)Math.Round(100 - percentile);
+                // Fall back to calculation
+                if (outOf > 0)
+                    return (int)Math.Round((double)(100 * this.rank) / this.outOf);
+                return 0;
             }
         }
+
         public int duration { get; set; }
         public long startTime { get; set; }
         public string reportID { get; set; }
@@ -353,9 +436,18 @@ namespace NinjaBotCore.Models.Wow
             }
         }
         public int size { get; set; }
+
+        // API returns ilvlKeyOrPatch for item level
+        [JsonProperty(PropertyName = "ilvlKeyOrPatch")]
         public int itemLevel { get; set; }
-        public int total { get; set; }
+
+        public double total { get; set; }
         public bool estimated { get; set; }
+
+        // Additional fields from API
+        public int characterID { get; set; }
+        public string characterName { get; set; }
+        public string server { get; set; }
     }
 
     public class CharClasses
