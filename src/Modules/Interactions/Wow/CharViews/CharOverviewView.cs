@@ -21,7 +21,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             ArmoryEquipment armoryEquipment,
             ArmorySummary armorySummary,
             ArmoryMedia armoryMedia,
-            List<LogCharRankings> wclRankings)
+            List<LogCharRankings> wclRankings = null,
+            ArmoryAchievementsSummary achievements = null)
         {
             var embed = new EmbedBuilder();
             var sb = new StringBuilder();
@@ -39,9 +40,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             var mPlusScore = rioData?.MythicPlusScores?.FirstOrDefault()?.Scores?.All ?? 0;
             embed.WithColor(CharViewHelpers.GetMythicPlusScoreColor(mPlusScore));
 
-            // Item Level
-            var equippedIlvl = armoryEquipment?.EquippedItemLevel ?? armorySummary?.EquippedItemLevel ?? 0;
-            var maxIlvl = armoryEquipment?.AverageItemLevel ?? armorySummary?.AverageItemLevel ?? equippedIlvl;
+            // Item Level - prefer summary endpoint as equipment endpoint doesn't always include these fields
+            var equippedIlvl = armorySummary?.EquippedItemLevel ?? armoryEquipment?.EquippedItemLevel ?? 0;
+            var maxIlvl = armorySummary?.AverageItemLevel ?? armoryEquipment?.AverageItemLevel ?? equippedIlvl;
 
             if (equippedIlvl > 0)
             {
@@ -79,11 +80,28 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 }
             }
 
-            // WCL Summary
+            // WCL Summary (lazy loaded - show placeholder if not yet fetched)
             if (wclRankings != null && wclRankings.Any())
             {
                 var logsSummary = CharLogsView.BuildCompactSummary(wclRankings);
                 sb.AppendLine($"**Logs:** {logsSummary}");
+            }
+            else
+            {
+                sb.AppendLine($"**Logs:** *Click WarcraftLogs for parses*");
+            }
+
+            // Recent Achievements
+            if (achievements?.RecentEvents?.Any() == true)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"**Recent Achievements** ({achievements.TotalPoints:N0} pts)");
+                foreach (var ach in achievements.RecentEvents.Take(4))
+                {
+                    var date = DateTimeOffset.FromUnixTimeMilliseconds(ach.Timestamp).ToString("MMM d");
+                    var achName = ach.Achievement?.Name ?? "Unknown Achievement";
+                    sb.AppendLine($"• {achName} ({date})");
+                }
             }
 
             sb.AppendLine();
@@ -119,8 +137,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             CharacterInfo charInfo,
             bool hasRioData,
             bool hasArmoryData,
-            bool hasWclData,
-            bool isAlreadySaved = false)
+            bool isAlreadySaved = false,
+            bool hasAchievements = false)
         {
             var builder = new ComponentBuilder();
 
@@ -132,7 +150,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 label: "Armory",
                 customId: $"char_view_gear~{userId}~{charParam}",
                 style: hasArmoryData ? ButtonStyle.Primary : ButtonStyle.Secondary,
-                emote: new Emoji("🛡️"),
+                emote: new Emoji("\U0001F6E1\uFE0F"),
                 disabled: !hasArmoryData,
                 row: 0);
 
@@ -140,16 +158,24 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 label: "Raider.IO",
                 customId: $"char_view_mplus~{userId}~{charParam}",
                 style: hasRioData ? ButtonStyle.Primary : ButtonStyle.Secondary,
-                emote: new Emoji("🔑"),
+                emote: new Emoji("\U0001F511"),
                 disabled: !hasRioData,
                 row: 0);
 
+            // WarcraftLogs button is always enabled (data is lazy-loaded on click)
             builder.WithButton(
                 label: "WarcraftLogs",
                 customId: $"char_view_logs~{userId}~{charParam}",
-                style: hasWclData ? ButtonStyle.Primary : ButtonStyle.Secondary,
-                emote: new Emoji("📊"),
-                disabled: !hasWclData,
+                style: ButtonStyle.Primary,
+                emote: new Emoji("\U0001F4CA"),
+                row: 0);
+
+            builder.WithButton(
+                label: "Achievements",
+                customId: $"char_view_achievements~{userId}~{charParam}",
+                style: hasAchievements ? ButtonStyle.Primary : ButtonStyle.Secondary,
+                emote: new Emoji("🏆"),
+                disabled: !hasAchievements,
                 row: 0);
 
             // Row 2: Action buttons
@@ -185,6 +211,13 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 customId: $"char_share~{userId}~{charParam}",
                 style: ButtonStyle.Secondary,
                 emote: new Emoji("📢"),
+                row: 1);
+
+            builder.WithButton(
+                label: "My Characters",
+                customId: $"char_manage_ret~{userId}~{charParam}",
+                style: ButtonStyle.Secondary,
+                emote: new Emoji("📋"),
                 row: 1);
 
             return builder;
@@ -231,6 +264,13 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 emote: new Emoji("📊"),
                 row: 0);
 
+            builder.WithButton(
+                label: "Achievements",
+                customId: $"char_view_achievements~{userId}~{charParam}",
+                style: currentView == "achievements" ? ButtonStyle.Success : ButtonStyle.Primary,
+                emote: new Emoji("🏆"),
+                row: 0);
+
             // Row 2: Actions
             if (isAlreadySaved)
             {
@@ -257,6 +297,13 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 customId: $"char_share~{userId}~{charParam}",
                 style: ButtonStyle.Secondary,
                 emote: new Emoji("📢"),
+                row: 1);
+
+            builder.WithButton(
+                label: "My Characters",
+                customId: $"char_manage_ret~{userId}~{charParam}",
+                style: ButtonStyle.Secondary,
+                emote: new Emoji("📋"),
                 row: 1);
 
             return builder;

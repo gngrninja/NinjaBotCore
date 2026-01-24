@@ -22,15 +22,8 @@ namespace NinjaBotCore.Modules.Interactions.Fun
         public FunCommands(DiscordShardedClient client, IConfigurationRoot config, IServiceScopeFactory scopeFactory)
             : base(scopeFactory)
         {
-            try
-            {
-                _client = client;
-                _config = config;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Something went wrong creating the fun class: {ex.Message}");
-            }
+            _client = client;
+            _config = config;
         }
 
         [SlashCommand("setstatus", "set status of the bot")]

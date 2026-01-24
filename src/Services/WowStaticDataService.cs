@@ -206,8 +206,8 @@ namespace NinjaBotCore.Services
             await _tokenService.UpdateAllRegionsAsync(cancellationToken);
 
             // Start periodic updates in parallel
-            var tokenPriceTimer = new PeriodicTimer(tokenPriceInterval);
-            var mountUpdateTimer = new PeriodicTimer(mountUpdateInterval);
+            using var tokenPriceTimer = new PeriodicTimer(tokenPriceInterval);
+            using var mountUpdateTimer = new PeriodicTimer(mountUpdateInterval);
 
             try
             {
@@ -2668,9 +2668,8 @@ namespace NinjaBotCore.Services
 
         public void Dispose()
         {
-            if (_disposed) return;
-            // Sync fallback - calls async version
-            DisposeAsync().AsTask().GetAwaiter().GetResult();
+            // No-op: Host calls DisposeAsync() directly
+            // Avoiding sync-over-async which can deadlock
         }
     }
 }

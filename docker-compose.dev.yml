@@ -1,4 +1,4 @@
-# Development environment - runs both database and bot in Docker
+# Development environment - runs database, bot, and helpers in Docker
 # Usage: docker compose -f docker-compose.dev.yml up --build
 # API available at: http://localhost:5100
 
@@ -43,6 +43,23 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./config:/app/config:ro
+    networks:
+      - ninjabot-dev-network
+
+  ninjabot-helpers-dev:
+    build:
+      context: ./services/NinjaBotHelpers
+      dockerfile: Dockerfile
+    container_name: ninjabot-helpers-dev
+    restart: unless-stopped
+    depends_on:
+      postgres-dev:
+        condition: service_healthy
+    env_file:
+      - .env.development         # Base config (Discord token, API keys, etc.)
+      - .env.development.docker  # Docker-specific overrides (DB connection)
+    volumes:
+      - ./logs/helpers:/app/logs
     networks:
       - ninjabot-dev-network
 

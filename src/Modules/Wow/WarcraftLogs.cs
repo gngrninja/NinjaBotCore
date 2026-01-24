@@ -94,7 +94,12 @@ namespace NinjaBotCore.Modules.Wow
                 // This moves the blocking API calls out of the constructor to prevent DI deadlocks
                 InitializeLazyLoaders();
 
+                // Load current raid tier from database first (fast)
                 _currentRaidTier = this.SetCurrentTier();
+
+                // Then refresh from V2 API in background (updates cache + database)
+                _ = RefreshCurrentRaidTierAsync();
+
                 //this.MigrateOldReports();
                 _ = StartTimer(); // Fire-and-forget background timer
             }
@@ -653,7 +658,7 @@ namespace NinjaBotCore.Modules.Wow
         {
             try
             {
-                System.Console.WriteLine("Checking for logs...");
+                _logger.LogInformation("Checking for logs...");
                 List<WowGuildAssociations> guildList = null;
                 List<LogMonitoring> logWatchList = null;
                 List<WowClassicGuild> cGuildList = null;
@@ -710,21 +715,21 @@ namespace NinjaBotCore.Modules.Wow
                             if (tier1Due)
                             {
                                 _logger.LogInformation("[Tier 1] Checking active guilds...");
-                                await PerformBatchedLogCheck(logWatchList, guildList, GuildActivityTier.Tier1_Active).ConfigureAwait(false);
+                                await PerformBatchedLogCheck(logWatchList, guildList, GuildActivityTier.Tier1_Active);
                                 UpdateTierCheckTime(GuildActivityTier.Tier1_Active);
                             }
 
                             if (tier2Due)
                             {
                                 _logger.LogInformation("[Tier 2] Checking semi-active guilds...");
-                                await PerformBatchedLogCheck(logWatchList, guildList, GuildActivityTier.Tier2_SemiActive).ConfigureAwait(false);
+                                await PerformBatchedLogCheck(logWatchList, guildList, GuildActivityTier.Tier2_SemiActive);
                                 UpdateTierCheckTime(GuildActivityTier.Tier2_SemiActive);
                             }
 
                             if (tier3Due)
                             {
                                 _logger.LogInformation("[Tier 3] Checking inactive guilds...");
-                                await PerformBatchedLogCheck(logWatchList, guildList, GuildActivityTier.Tier3_Inactive).ConfigureAwait(false);
+                                await PerformBatchedLogCheck(logWatchList, guildList, GuildActivityTier.Tier3_Inactive);
                                 UpdateTierCheckTime(GuildActivityTier.Tier3_Inactive);
                             }
                         }
@@ -733,14 +738,14 @@ namespace NinjaBotCore.Modules.Wow
                         if (cGuildList != null && cGuildList.Count > 0)
                         {
                             _logger.LogInformation($"[v2 Batch Classic] Processing {cGuildList.Count} Classic guilds");
-                            await PerformBatchedLogCheckClassic(logWatchList, cGuildList).ConfigureAwait(false);
+                            await PerformBatchedLogCheckClassic(logWatchList, cGuildList);
                         }
 
                         // Vanilla guilds - using v2 API with batched requests
                         if (vGuildList != null && vGuildList.Count > 0)
                         {
                             _logger.LogInformation($"[v2 Batch Vanilla] Processing {vGuildList.Count} Vanilla guilds");
-                            await PerformBatchedLogCheckVanilla(logWatchList, vGuildList).ConfigureAwait(false);
+                            await PerformBatchedLogCheckVanilla(logWatchList, vGuildList);
                         }
 
                         _logger.LogInformation("Finished WCL Auto Posting...");
@@ -918,7 +923,7 @@ namespace NinjaBotCore.Modules.Wow
                     // Fallback to individual requests using the existing method
                     foreach (var guild in guildsToMonitor)
                     {
-                        await PerformLogCheck(logWatchList, guild).ConfigureAwait(false);
+                        await PerformLogCheck(logWatchList, guild);
                     }
                     return;
                 }
@@ -1127,7 +1132,7 @@ namespace NinjaBotCore.Modules.Wow
                     bool flip = true;
                     foreach (var guild in guildsToMonitor)
                     {
-                        await this.PerformLogCheck(logWatchList, flip, guild).ConfigureAwait(false);
+                        await this.PerformLogCheck(logWatchList, flip, guild);
                         flip = !flip;
                     }
                     return;
@@ -1277,7 +1282,7 @@ namespace NinjaBotCore.Modules.Wow
                     bool flip = true;
                     foreach (var guild in guildsToMonitor)
                     {
-                        await this.PerformLogCheck(logWatchList, flip, guild).ConfigureAwait(false);
+                        await this.PerformLogCheck(logWatchList, flip, guild);
                         flip = !flip;
                     }
                     return;
@@ -1588,6 +1593,71 @@ namespace NinjaBotCore.Modules.Wow
             return currentTier;
         }
 
+        /// <summary>
+        /// Refreshes the current raid tier from the WCL V2 API.
+        /// Call this at startup or when you need to update the cached tier.
+        /// </summary>
+        /// <param name="expansionId">Expansion ID. 0 = auto-detect, 10 = The War Within, 9 = Dragonflight</param>
+        /// <returns>The detected current raid tier, or null if detection failed</returns>
+        public async Task<CurrentRaidTier> RefreshCurrentRaidTierAsync(int expansionId = 0)
+        {
+            try
+            {
+                _logger.LogInformation("Refreshing current raid tier from WCL V2 API (Expansion: {ExpansionId})...", expansionId);
+
+                var zoneTier = await _v2Client.GetCurrentRaidTierAsync(expansionId);
+
+                if (zoneTier == null)
+                {
+                    _logger.LogWarning("Could not detect current raid tier from API, keeping existing: {ExistingTier}",
+                        _currentRaidTier?.RaidName ?? "none");
+                    return _currentRaidTier;
+                }
+
+                // Get the default partition if available
+                var defaultPartition = zoneTier.Partitions?.FirstOrDefault(p => p.IsDefault == true)
+                    ?? zoneTier.Partitions?.LastOrDefault(); // Fall back to latest partition
+
+                var newTier = new CurrentRaidTier
+                {
+                    WclZoneId = zoneTier.Id,
+                    RaidName = zoneTier.Name,
+                    Partition = defaultPartition?.Id
+                };
+
+                // Update the static property
+                _currentRaidTier = newTier;
+
+                // Persist to database
+                using var scope = _scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                var existingTier = db.CurrentRaidTier.FirstOrDefault();
+                if (existingTier != null)
+                {
+                    existingTier.WclZoneId = newTier.WclZoneId;
+                    existingTier.RaidName = newTier.RaidName;
+                    existingTier.Partition = newTier.Partition;
+                }
+                else
+                {
+                    db.CurrentRaidTier.Add(newTier);
+                }
+
+                await db.SaveChangesAsync();
+
+                _logger.LogInformation("Current raid tier updated: {RaidName} (Zone ID: {ZoneId}, Partition: {Partition})",
+                    newTier.RaidName, newTier.WclZoneId, newTier.Partition);
+
+                return newTier;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to refresh current raid tier from API");
+                return _currentRaidTier;
+            }
+        }
+
         private void MigrateOldReports()
         {
             List<LogMonitoring> logWatchList = null;
@@ -1604,7 +1674,7 @@ namespace NinjaBotCore.Modules.Wow
                     entry.LatestLogRetail = oldLatestDate;
                     entry.RetailReportId = oldReportId;
                     entry.ReportId = string.Empty;
-                    System.Console.WriteLine($"Updating [{entry.ServerName}]...");
+                    _logger.LogDebug("Updating [{ServerName}]...", entry.ServerName);
                     db.SaveChanges();
                 }
             }

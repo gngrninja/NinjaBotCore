@@ -314,6 +314,21 @@ namespace NinjaBotCore.Models.Wow
         public WclV2WorldData WorldData { get; set; }
     }
 
+    /// <summary>
+    /// Response wrapper for worldData expansions query
+    /// </summary>
+    public class WclV2ExpansionsResponse
+    {
+        [JsonProperty("worldData")]
+        public WclV2WorldDataExpansions WorldData { get; set; }
+    }
+
+    public class WclV2WorldDataExpansions
+    {
+        [JsonProperty("expansions")]
+        public List<WclV2Expansion> Expansions { get; set; }
+    }
+
     public class WclV2Expansion
     {
         [JsonProperty("id")]
@@ -447,5 +462,237 @@ namespace NinjaBotCore.Models.Wow
 
         [JsonIgnore]
         public double PointsRemaining => LimitPerHour - PointsSpentThisHour;
+    }
+
+    // ===== Character Zone Rankings (for /char logs view) =====
+
+    /// <summary>
+    /// Response wrapper for characterData query
+    /// </summary>
+    public class WclV2CharacterDataResponse
+    {
+        [JsonProperty("characterData")]
+        public WclV2CharacterDataWrapper CharacterData { get; set; }
+    }
+
+    public class WclV2CharacterDataWrapper
+    {
+        [JsonProperty("character")]
+        public WclV2CharacterInfo Character { get; set; }
+    }
+
+    /// <summary>
+    /// Character info with zone rankings from characterData query
+    /// </summary>
+    public class WclV2CharacterInfo
+    {
+        [JsonProperty("id")]
+        public int Id { get; set; }
+
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("classID")]
+        public int ClassId { get; set; }
+
+        /// <summary>
+        /// zoneRankings returns parsed JSON with ranking data
+        /// </summary>
+        [JsonProperty("zoneRankings")]
+        public WclV2ZoneRankingsData ZoneRankings { get; set; }
+    }
+
+    /// <summary>
+    /// Zone rankings data for a character (current raid tier)
+    /// </summary>
+    public class WclV2ZoneRankingsData
+    {
+        [JsonProperty("bestPerformanceAverage")]
+        public double? BestPerformanceAverage { get; set; }
+
+        [JsonProperty("medianPerformanceAverage")]
+        public double? MedianPerformanceAverage { get; set; }
+
+        [JsonProperty("difficulty")]
+        public int? Difficulty { get; set; }
+
+        [JsonProperty("metric")]
+        public string Metric { get; set; }
+
+        [JsonProperty("partition")]
+        public int? Partition { get; set; }
+
+        [JsonProperty("zone")]
+        public int? ZoneId { get; set; }
+
+        [JsonProperty("allStars")]
+        public List<WclV2AllStarRanking> AllStars { get; set; }
+
+        [JsonProperty("rankings")]
+        public List<WclV2BossRanking> Rankings { get; set; }
+    }
+
+    /// <summary>
+    /// All-star ranking data for a character
+    /// </summary>
+    public class WclV2AllStarRanking
+    {
+        [JsonProperty("partition")]
+        public int Partition { get; set; }
+
+        [JsonProperty("spec")]
+        public string Spec { get; set; }
+
+        [JsonProperty("points")]
+        [JsonConverter(typeof(NullableDoubleOrDashConverter))]
+        public double? Points { get; set; }
+
+        [JsonProperty("possiblePoints")]
+        [JsonConverter(typeof(NullableDoubleOrDashConverter))]
+        public double? PossiblePoints { get; set; }
+
+        [JsonProperty("rank")]
+        [JsonConverter(typeof(NullableIntOrDashConverter))]
+        public int? Rank { get; set; }
+
+        [JsonProperty("regionRank")]
+        [JsonConverter(typeof(NullableIntOrDashConverter))]
+        public int? RegionRank { get; set; }
+
+        [JsonProperty("serverRank")]
+        [JsonConverter(typeof(NullableIntOrDashConverter))]
+        public int? ServerRank { get; set; }
+
+        [JsonProperty("rankPercent")]
+        [JsonConverter(typeof(NullableDoubleOrDashConverter))]
+        public double? RankPercent { get; set; }
+    }
+
+    /// <summary>
+    /// Per-boss ranking data for a character
+    /// </summary>
+    public class WclV2BossRanking
+    {
+        [JsonProperty("encounter")]
+        public WclV2EncounterBasic Encounter { get; set; }
+
+        [JsonProperty("rankPercent")]
+        public double? RankPercent { get; set; }
+
+        [JsonProperty("medianPercent")]
+        public double? MedianPercent { get; set; }
+
+        [JsonProperty("totalKills")]
+        public int TotalKills { get; set; }
+
+        [JsonProperty("fastestKill")]
+        public long? FastestKill { get; set; }
+
+        [JsonProperty("allStars")]
+        public WclV2AllStarPoints AllStars { get; set; }
+
+        [JsonProperty("spec")]
+        public string Spec { get; set; }
+
+        [JsonProperty("bestSpec")]
+        public string BestSpec { get; set; }
+
+        [JsonProperty("bestAmount")]
+        public double? BestAmount { get; set; }
+    }
+
+    /// <summary>
+    /// All-star points for a specific boss
+    /// </summary>
+    public class WclV2AllStarPoints
+    {
+        [JsonProperty("points")]
+        [JsonConverter(typeof(NullableDoubleOrDashConverter))]
+        public double? Points { get; set; }
+
+        [JsonProperty("possiblePoints")]
+        [JsonConverter(typeof(NullableDoubleOrDashConverter))]
+        public double? PossiblePoints { get; set; }
+
+        /// <summary>
+        /// Rank can be "-" when not applicable, so we use a custom converter
+        /// </summary>
+        [JsonProperty("rank")]
+        [JsonConverter(typeof(NullableIntOrDashConverter))]
+        public int? Rank { get; set; }
+
+        [JsonProperty("rankPercent")]
+        [JsonConverter(typeof(NullableDoubleOrDashConverter))]
+        public double? RankPercent { get; set; }
+    }
+
+    /// <summary>
+    /// Converts "-" string to null for integer fields in WarcraftLogs API responses
+    /// </summary>
+    public class NullableIntOrDashConverter : JsonConverter<int?>
+    {
+        public override int? ReadJson(JsonReader reader, Type objectType, int? existingValue, bool hasExistingValue, JsonSerializer serializer)
+        {
+            if (reader.TokenType == JsonToken.Null)
+                return null;
+
+            if (reader.TokenType == JsonToken.String)
+            {
+                var str = reader.Value?.ToString();
+                if (string.IsNullOrEmpty(str) || str == "-")
+                    return null;
+                if (int.TryParse(str, out var result))
+                    return result;
+                return null;
+            }
+
+            if (reader.TokenType == JsonToken.Integer)
+                return Convert.ToInt32(reader.Value);
+
+            return null;
+        }
+
+        public override void WriteJson(JsonWriter writer, int? value, JsonSerializer serializer)
+        {
+            if (value.HasValue)
+                writer.WriteValue(value.Value);
+            else
+                writer.WriteNull();
+        }
+    }
+
+    /// <summary>
+    /// Converts "-" string to null for double fields in WarcraftLogs API responses
+    /// </summary>
+    public class NullableDoubleOrDashConverter : JsonConverter<double?>
+    {
+        public override double? ReadJson(JsonReader reader, Type objectType, double? existingValue, bool hasExistingValue, JsonSerializer serializer)
+        {
+            if (reader.TokenType == JsonToken.Null)
+                return null;
+
+            if (reader.TokenType == JsonToken.String)
+            {
+                var str = reader.Value?.ToString();
+                if (string.IsNullOrEmpty(str) || str == "-")
+                    return null;
+                if (double.TryParse(str, out var result))
+                    return result;
+                return null;
+            }
+
+            if (reader.TokenType == JsonToken.Float || reader.TokenType == JsonToken.Integer)
+                return Convert.ToDouble(reader.Value);
+
+            return null;
+        }
+
+        public override void WriteJson(JsonWriter writer, double? value, JsonSerializer serializer)
+        {
+            if (value.HasValue)
+                writer.WriteValue(value.Value);
+            else
+                writer.WriteNull();
+        }
     }
 }

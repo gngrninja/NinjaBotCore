@@ -237,7 +237,6 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
-        public WowClasses wowclasses;
 
         private static string GetCurrentToken()
         {
@@ -290,8 +289,8 @@ namespace NinjaBotCore.Modules.Wow
                     new KeyValuePair<string, string>("client_id", username),
                     new KeyValuePair<string, string>("client_secret", password)
                 });
-                var result =  await _client.PostAsync("https://us.battle.net/oauth/token", content).ConfigureAwait(false);
-                var contentString = await result.Content.ReadAsStringAsync().ConfigureAwait(false);
+                var result =  await _client.PostAsync("https://us.battle.net/oauth/token", content);
+                var contentString = await result.Content.ReadAsStringAsync();
                 ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString);
                 token = response.AccessToken;
             }
@@ -397,7 +396,7 @@ namespace NinjaBotCore.Modules.Wow
         private async Task RunTokenRefreshLoopAsync(CancellationToken token)
         {
             // Perform initial token fetch immediately
-            await RenewTokenAsync(token).ConfigureAwait(false);
+            await RenewTokenAsync(token);
 
             // After first successful token fetch, preload WoW data
             if (!string.IsNullOrEmpty(GetCurrentToken()))
@@ -425,9 +424,9 @@ namespace NinjaBotCore.Modules.Wow
             using var timer = new PeriodicTimer(_tokenRefreshInterval);
             try
             {
-                while (await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
+                while (await timer.WaitForNextTickAsync(token))
                 {
-                    await RenewTokenAsync(token).ConfigureAwait(false);
+                    await RenewTokenAsync(token);
                 }
             }
             catch (OperationCanceledException)
@@ -450,7 +449,7 @@ namespace NinjaBotCore.Modules.Wow
             try
             {
                 _logger.LogInformation("Refreshing WoW API auth token.");
-                var newToken = await GetWowToken(_config["WoWClient"], _config["WoWSecret"]).ConfigureAwait(false);
+                var newToken = await GetWowToken(_config["WoWClient"], _config["WoWSecret"]);
                 if (!string.IsNullOrEmpty(newToken))
                 {
                     SetCurrentToken(newToken);
@@ -828,6 +827,84 @@ namespace NinjaBotCore.Modules.Wow
             var url = $"/data/wow/journal-instance/index?namespace=static-{region}";
             var response = await GetAPIRequestAsync(url, "en_US", region, cancellationToken);
             return JsonConvert.DeserializeObject<JournalInstanceIndexResponse>(response);
+        }
+
+        /// <summary>
+        /// Get guild roster with character details
+        /// </summary>
+        public async Task<ArmoryGuildRoster> GetGuildRosterAsync(string guildName, string realm, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            var locale = GetRegionFromString(regionName);
+            realm = realm.Replace("'", string.Empty).Replace(" ", "-").ToLowerInvariant();
+            guildName = guildName.Replace(" ", "-").ToLowerInvariant();
+            var regionSegment = regionName.ToLowerInvariant();
+            var url = $"/data/wow/guild/{realm}/{guildName}/roster?namespace=profile-{regionSegment}";
+            var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
+            return JsonConvert.DeserializeObject<ArmoryGuildRoster>(response);
+        }
+
+        /// <summary>
+        /// Get character's Mythic Keystone profile with M+ rating
+        /// </summary>
+        public async Task<ArmoryMythicKeystoneProfile> GetMythicKeystoneProfileAsync(string name, string realm, string regionName = "us", int? seasonId = null, CancellationToken cancellationToken = default)
+        {
+            var locale = GetRegionFromString(regionName);
+            realm = realm.Replace("'", string.Empty).Replace(" ", "-").ToLowerInvariant();
+            var regionSegment = regionName.ToLowerInvariant();
+            var seasonPath = seasonId.HasValue ? $"/season/{seasonId}" : "";
+            var url = $"/profile/wow/character/{realm}/{name.ToLowerInvariant()}/mythic-keystone-profile{seasonPath}?namespace=profile-{regionSegment}";
+            var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
+            return JsonConvert.DeserializeObject<ArmoryMythicKeystoneProfile>(response);
+        }
+
+        /// <summary>
+        /// Get character's PvP summary with arena and RBG ratings
+        /// </summary>
+        public async Task<ArmoryPvPSummary> GetPvPSummaryAsync(string name, string realm, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            var locale = GetRegionFromString(regionName);
+            realm = realm.Replace("'", string.Empty).Replace(" ", "-").ToLowerInvariant();
+            var regionSegment = regionName.ToLowerInvariant();
+            var url = $"/profile/wow/character/{realm}/{name.ToLowerInvariant()}/pvp-summary?namespace=profile-{regionSegment}";
+            var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
+            return JsonConvert.DeserializeObject<ArmoryPvPSummary>(response);
+        }
+
+        /// <summary>
+        /// Get character's achievements summary with recent achievements
+        /// </summary>
+        public async Task<ArmoryAchievementsSummary> GetAchievementsSummaryAsync(string name, string realm, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            var locale = GetRegionFromString(regionName);
+            realm = realm.Replace("'", string.Empty).Replace(" ", "-").ToLowerInvariant();
+            var regionSegment = regionName.ToLowerInvariant();
+            var url = $"/profile/wow/character/{realm}/{name.ToLowerInvariant()}/achievements?namespace=profile-{regionSegment}";
+            var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
+            return JsonConvert.DeserializeObject<ArmoryAchievementsSummary>(response);
+        }
+
+        /// <summary>
+        /// Get connected realms index for a region (for batch status checking)
+        /// </summary>
+        public async Task<ArmoryConnectedRealmsIndex> GetConnectedRealmsIndexAsync(string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            var locale = GetRegionFromString(regionName);
+            var regionSegment = regionName.ToLowerInvariant();
+            var url = $"/data/wow/connected-realm/index?namespace=dynamic-{regionSegment}";
+            var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
+            return JsonConvert.DeserializeObject<ArmoryConnectedRealmsIndex>(response);
+        }
+
+        /// <summary>
+        /// Get connected realm status with queue info
+        /// </summary>
+        public async Task<ArmoryConnectedRealmStatus> GetConnectedRealmStatusAsync(long connectedRealmId, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            var locale = GetRegionFromString(regionName);
+            var regionSegment = regionName.ToLowerInvariant();
+            var url = $"/data/wow/connected-realm/{connectedRealmId}?namespace=dynamic-{regionSegment}";
+            var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
+            return JsonConvert.DeserializeObject<ArmoryConnectedRealmStatus>(response);
         }
 
         #endregion

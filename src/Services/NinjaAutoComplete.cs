@@ -4,14 +4,15 @@ using System.Linq;
 using System.Threading.Tasks;
 using Discord;
 using Discord.Interactions;
-using NinjaBotCore.Database;
-using NinjaBotCore.Repositories;
-using NinjaBotCore.Modules.Wow;
-using NinjaBotCore.Models.Wow;
-using NinjaBotCore.Common;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Caching.Memory;
+using NinjaBotCore.Common;
+using NinjaBotCore.Database;
+using NinjaBotCore.Models.Wow;
+using NinjaBotCore.Modules.Wow;
+using NinjaBotCore.Repositories;
 
 namespace NinjaBotCore.Services
 {
@@ -377,6 +378,72 @@ namespace NinjaBotCore.Services
             {
                 var logger = services.GetService<ILogger<RealmAutocomplete>>();
                 logger?.LogError(ex, "Error in RealmAutocomplete");
+                return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
+            }
+        }
+    }
+
+    /// <summary>
+    /// Autocomplete handler for user's watched realms
+    /// Shows only realms the user has active watch subscriptions for
+    /// </summary>
+    public class WatchedRealmAutocomplete : AutocompleteHandler
+    {
+        public override async Task<AutocompletionResult> GenerateSuggestionsAsync(
+            IInteractionContext context,
+            IAutocompleteInteraction autocompleteInteraction,
+            IParameterInfo parameter,
+            IServiceProvider services)
+        {
+            try
+            {
+                var scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
+                var userInput = (autocompleteInteraction.Data.Current.Value as string ?? "").ToLower().Trim();
+
+                // Get region parameter if provided
+                var regionParam = autocompleteInteraction.Data.Options.FirstOrDefault(o => o.Name == "region");
+                var region = (regionParam?.Value as string ?? "").ToLower();
+
+                using var scope = scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotCore.Database.NinjaBotEntities>();
+
+                // Query user's watched realms
+                var query = db.RealmWatchSubscriptions
+                    .Where(s => s.UserId == (long)context.User.Id);
+
+                // Filter by region if specified
+                if (!string.IsNullOrEmpty(region))
+                {
+                    query = query.Where(s => s.Region.ToLower() == region);
+                }
+
+                var subscriptions = await query
+                    .OrderBy(s => s.RealmName)
+                    .ToListAsync();
+
+                if (!subscriptions.Any())
+                {
+                    return AutocompletionResult.FromSuccess(new[]
+                    {
+                        new AutocompleteResult("No watched realms - use /realm-watch add first", "none")
+                    });
+                }
+
+                // Filter by user input
+                var filtered = subscriptions
+                    .Where(s => string.IsNullOrWhiteSpace(userInput) ||
+                                s.RealmName.ToLower().Contains(userInput) ||
+                                s.RealmSlug.ToLower().Contains(userInput))
+                    .Take(25)
+                    .Select(s => new AutocompleteResult($"{s.RealmName} ({s.Region.ToUpper()})", s.RealmSlug))
+                    .ToList();
+
+                return AutocompletionResult.FromSuccess(filtered);
+            }
+            catch (Exception ex)
+            {
+                var logger = services.GetService<ILogger<WatchedRealmAutocomplete>>();
+                logger?.LogError(ex, "Error in WatchedRealmAutocomplete");
                 return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
             }
         }

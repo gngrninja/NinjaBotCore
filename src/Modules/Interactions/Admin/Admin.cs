@@ -14,6 +14,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using NinjaBotCore.Migrations;
+using NinjaBotCore.Modules.Wow;
 
 namespace NinjaBotCore.Modules.Interactions.Admin
 {
@@ -23,6 +24,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         private readonly IConfigurationRoot _config;
         private readonly ILogger<Admin> _logger;
         private readonly WordFilterService _wordFilterService;
+        private readonly WarcraftLogs _warcraftLogs;
 
         // Event handling is now done by WordFilterService
         // This module only handles slash commands
@@ -33,6 +35,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             _logger = services.GetRequiredService<ILogger<Admin>>();
             _config = services.GetRequiredService<IConfigurationRoot>();
             _wordFilterService = services.GetRequiredService<WordFilterService>();
+            _warcraftLogs = services.GetRequiredService<WarcraftLogs>();
             _logger.LogInformation("Admin module loaded!");
         }
 
@@ -51,17 +54,17 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             {
                 try
                 {
-                    int argCount = args.Split(',').Count();
-                    if (argCount == 4)
+                    var parts = args.Split(',');
+                    if (parts.Length == 4)
                     {
                         await WithDbAsync(async db =>
                         {
                             db.WowResources.Add(new WowResources
                             {
-                                ClassName = args.Split(',')[0].Trim(),
-                                Specialization = args.Split(',')[1].Trim(),
-                                Resource = args.Split(',')[2].Trim(),
-                                ResourceDescription = args.Split(',')[3].Trim(),
+                                ClassName = parts[0].Trim(),
+                                Specialization = parts[1].Trim(),
+                                Resource = parts[2].Trim(),
+                                ResourceDescription = parts[3].Trim(),
                             });
                             await db.SaveChangesAsync();
                         });
@@ -110,7 +113,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
             var resources = await WithDbAsync(async db =>
             {
-                return await db.WowResources.Where(r => r.ClassName.ToLower().Contains(args.ToLower())).ToListAsync();
+                return await db.WowResources.Where(r => EF.Functions.ILike(r.ClassName, $"%{args}%")).ToListAsync();
             });
 
             if (resources != null && resources.Any())
@@ -312,6 +315,46 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             }
 
             await FollowupAsync(message, ephemeral: true);
+        }
+
+        [SlashCommand("refresh-raid-tier", "Refresh current raid tier from WarcraftLogs API")]
+        [RequireOwner]
+        public async Task RefreshRaidTier(
+            [Summary("expansion", "Expansion ID (0=auto, 10=The War Within, 9=Dragonflight)")]
+            int expansionId = 0)
+        {
+            await DeferAsync(ephemeral: true);
+
+            try
+            {
+                var currentTier = WarcraftLogs.CurrentRaidTier;
+                var oldTierName = currentTier?.RaidName ?? "none";
+                var oldZoneId = currentTier?.WclZoneId ?? 0;
+
+                var newTier = await _warcraftLogs.RefreshCurrentRaidTierAsync(expansionId);
+
+                if (newTier == null)
+                {
+                    await FollowupAsync("Failed to detect current raid tier from API.", ephemeral: true);
+                    return;
+                }
+
+                var embed = new EmbedBuilder()
+                    .WithTitle("Raid Tier Refreshed")
+                    .WithColor(new Color(0, 200, 100))
+                    .AddField("Previous", $"{oldTierName} (Zone ID: {oldZoneId})", true)
+                    .AddField("Current", $"{newTier.RaidName} (Zone ID: {newTier.WclZoneId})", true)
+                    .AddField("Partition", newTier.Partition?.ToString() ?? "default", true)
+                    .WithFooter($"Expansion ID: {expansionId}")
+                    .Build();
+
+                await FollowupAsync(embed: embed, ephemeral: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error refreshing raid tier");
+                await FollowupAsync($"Error: {ex.Message}", ephemeral: true);
+            }
         }
     }
 }

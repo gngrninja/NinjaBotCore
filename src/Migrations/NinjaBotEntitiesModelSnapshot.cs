@@ -38,6 +38,52 @@ namespace NinjaBotCore.Migrations
                     b.ToTable("AchCategories");
                 });
 
+            modelBuilder.Entity("NinjaBotCore.Database.ApiUsageLog", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("ApiCallCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("CharacterName")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<long>("GuildId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Operation")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("Timestamp")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("WowGuild")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("WowRealm")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("WowRegion")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ApiUsageLogs");
+                });
+
             modelBuilder.Entity("NinjaBotCore.Database.AuctionItemMapping", b =>
                 {
                     b.Property<long>("MapId")
@@ -285,6 +331,25 @@ namespace NinjaBotCore.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Giphy");
+                });
+
+            modelBuilder.Entity("NinjaBotCore.Database.ItemMediaCache", b =>
+                {
+                    b.Property<long>("ItemId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("ItemId"));
+
+                    b.Property<DateTime>("CachedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IconUrl")
+                        .HasColumnType("text");
+
+                    b.HasKey("ItemId");
+
+                    b.ToTable("ItemMediaCache");
                 });
 
             modelBuilder.Entity("NinjaBotCore.Database.LogMonitoring", b =>
@@ -578,6 +643,86 @@ namespace NinjaBotCore.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("QuestionAnswers");
+                });
+
+            modelBuilder.Entity("NinjaBotCore.Database.RealmStatusCache", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("ConnectedRealmId")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("HasQueue")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsOnline")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("LastCheckedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RealmName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Region")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("RealmStatusCache");
+                });
+
+            modelBuilder.Entity("NinjaBotCore.Database.RealmWatchSubscription", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<bool>("AlertOnOffline")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("AlertOnOnline")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("AlertOnQueue")
+                        .HasColumnType("boolean");
+
+                    b.Property<long?>("ChannelId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("ConnectedRealmId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("GuildId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("LastAlertAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RealmName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RealmSlug")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Region")
+                        .HasColumnType("text");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("RealmWatchSubscriptions");
                 });
 
             modelBuilder.Entity("NinjaBotCore.Database.Request", b =>
@@ -1280,11 +1425,20 @@ namespace NinjaBotCore.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<DateTime?>("LastMPlusRefresh")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("LocalRealmSlug")
                         .HasColumnType("text");
 
                     b.Property<string>("Locale")
                         .HasColumnType("text");
+
+                    b.Property<int>("MPlusRefreshCountToday")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("MPlusRefreshDate")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<long?>("ServerId")
                         .HasColumnType("bigint");
@@ -1326,6 +1480,9 @@ namespace NinjaBotCore.Migrations
                     b.Property<string>("CharacterName")
                         .HasColumnType("text");
 
+                    b.Property<long?>("ClassId")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("Faction")
                         .HasColumnType("text");
 
@@ -1335,11 +1492,17 @@ namespace NinjaBotCore.Migrations
                     b.Property<string>("GuildRealmSlug")
                         .HasColumnType("text");
 
+                    b.Property<int?>("ItemLevel")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("LastUpdated")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("Level")
                         .HasColumnType("integer");
+
+                    b.Property<double?>("MythicPlusScore")
+                        .HasColumnType("double precision");
 
                     b.Property<int>("Rank")
                         .HasColumnType("integer");

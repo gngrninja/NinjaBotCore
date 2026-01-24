@@ -50,6 +50,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         [SlashCommand("ginfo", "Get guild information")]
         public async Task GetRioGuildStats()
         {
+            await DeferAsync(ephemeral: true);
+
             var embed = new EmbedBuilder();
             var sb = new StringBuilder();
             var guildInfo = Context.Guild;
@@ -71,6 +73,13 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             }
 
             var guildObject = await _wowUtils.GetGuildName(Context);
+
+            if (string.IsNullOrEmpty(guildObject.guildName))
+            {
+                await FollowupAsync($"No guild association found for **{discordGuildName}**. Use `/setguild` to associate a WoW guild first.", ephemeral: true);
+                return;
+            }
+
             var guildStats = await _rioApi.GetRioGuildInfoAsync(guildName: guildObject.guildName, realmName: guildObject.realmSlug, region: guildObject.regionName);
 
             string normalKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.ManaforgeOmega.NormalBossesKilled);
@@ -97,7 +106,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             embed.WithColor(new Color(0, 0, 255));
             embed.Description = sb.ToString();
 
-            await RespondAsync(embed: embed.Build(), ephemeral: true);
+            await FollowupAsync(embed: embed.Build(), ephemeral: true);
         }
 
         [SlashCommand("setguild", "Associate a WoW guild with this Discord server")]
@@ -240,6 +249,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         [SlashCommand("getguild", "Report Discord Server -> Guild Association")]
         public async Task GetGuild()
         {
+            await DeferAsync(ephemeral: true);
+
             var embed = new EmbedBuilder();
             var members = new List<WowGuildRosterMember>();
             StringBuilder sb = new StringBuilder();
@@ -269,7 +280,6 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             {
                 try
                 {
-                    await DeferAsync(ephemeral: true);
 
                     await _wowUtils.RefreshGuildRosterAsync(guildObject);
                     members = await WithDbAsync(async db => await db.WowGuildRosterMembers

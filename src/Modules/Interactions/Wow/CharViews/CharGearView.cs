@@ -21,7 +21,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
         };
 
         /// <summary>
-        /// Build the gear view embed from Armory data
+        /// Build the gear view embed from Armory data (concise version with gear audit)
         /// </summary>
         public static EmbedBuilder Build(
             CharacterInfo charInfo,
@@ -43,40 +43,55 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
 
             embed.WithColor(new Color(0, 200, 150));
 
-            // Item Level
-            var equippedIlvl = armoryEquipment?.EquippedItemLevel ?? armorySummary?.EquippedItemLevel ?? 0;
-            var averageIlvl = armoryEquipment?.AverageItemLevel ?? armorySummary?.AverageItemLevel ?? equippedIlvl;
+            // Item Level - prefer summary endpoint as equipment endpoint doesn't always include these fields
+            var equippedIlvl = armorySummary?.EquippedItemLevel ?? armoryEquipment?.EquippedItemLevel ?? 0;
+            var averageIlvl = armorySummary?.AverageItemLevel ?? armoryEquipment?.AverageItemLevel ?? equippedIlvl;
 
-            descriptionBuilder.AppendLine($"**Item Level:** {equippedIlvl} (equipped) / {averageIlvl} (max)");
+            descriptionBuilder.AppendLine($"**Item Level:** {equippedIlvl} / {averageIlvl}");
 
-            // Stats summary
+            // Process gear for stats, sets, and audit
             var statTotals = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             var setProgress = new Dictionary<int, (string Name, HashSet<int> ItemIds, List<ArmorySetEffect> Effects, int TotalPieces)>();
+            var missingEnchants = new List<string>();
+            var emptySockets = new List<string>();
+            var lowestItems = new List<(string Slot, int Ilvl)>();
 
-            // Class / Spec field
-            embed.AddField("Class / Spec", $"{className} — {specLabel}", true);
-
-            // Wowhead Guide
-            var guideUrl = BuildWowheadGuideUrl(className, specLabel);
-            embed.AddField("Wowhead Guide", $"[Open guide]({guideUrl})", true);
-
-            // Process gear slots
             if (armoryEquipment?.EquippedItems != null)
             {
                 foreach (var slot in SlotOrder)
                 {
-                    var slotLabel = NormalizeSlot(slot);
                     var item = armoryEquipment.EquippedItems.FirstOrDefault(i =>
                         string.Equals(i.Slot?.Type, slot, StringComparison.OrdinalIgnoreCase));
 
-                    if (item == null)
+                    if (item == null) continue;
+
+                    var slotLabel = CharViewHelpers.NormalizeSlot(slot);
+                    var itemLevel = item.Level?.Value ?? 0;
+
+                    // Track item levels for "lowest" display
+                    if (itemLevel > 0)
                     {
-                        embed.AddField(slotLabel, "_empty_", true);
-                        continue;
+                        lowestItems.Add((slotLabel, itemLevel));
                     }
 
-                    var fieldValue = BuildItemFieldValue(item);
-                    embed.AddField(slotLabel, fieldValue, true);
+                    // Check enchants on enchantable slots
+                    if (item.Enchantments == null || item.Enchantments.Count == 0)
+                    {
+                        if (slot is "BACK" or "CHEST" or "WRIST" or "LEGS" or "FEET" or "FINGER_1" or "FINGER_2" or "MAIN_HAND")
+                        {
+                            missingEnchants.Add(slotLabel);
+                        }
+                    }
+
+                    // Check for empty sockets
+                    if (item.Sockets != null && item.Sockets.Count > 0)
+                    {
+                        var empty = item.Sockets.Count(s => s.Item == null);
+                        if (empty > 0)
+                        {
+                            emptySockets.Add($"{slotLabel} ({empty})");
+                        }
+                    }
 
                     // Collect stats
                     if (item.Stats != null)
@@ -109,6 +124,32 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 }
             }
 
+            // Gear Audit section
+            descriptionBuilder.AppendLine();
+            descriptionBuilder.AppendLine("**Gear Audit**");
+
+            if (missingEnchants.Count == 0)
+            {
+                descriptionBuilder.AppendLine("✅ All enchants applied");
+            }
+            else
+            {
+                descriptionBuilder.AppendLine($"⚠️ Missing enchants: {string.Join(", ", missingEnchants)}");
+            }
+
+            if (emptySockets.Count > 0)
+            {
+                descriptionBuilder.AppendLine($"⚠️ Empty sockets: {string.Join(", ", emptySockets)}");
+            }
+
+            // Show lowest ilvl pieces (bottom 3)
+            if (lowestItems.Count > 0)
+            {
+                var lowest = lowestItems.OrderBy(x => x.Ilvl).Take(3).ToList();
+                var lowestStr = string.Join(", ", lowest.Select(x => $"{x.Slot} ({x.Ilvl})"));
+                descriptionBuilder.AppendLine($"📉 Lowest: {lowestStr}");
+            }
+
             // Stats section
             var statsSummary = BuildStatsSummary(statTotals);
             if (!string.IsNullOrEmpty(statsSummary))
@@ -129,8 +170,13 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
 
             embed.Description = descriptionBuilder.ToString();
 
-            // Armory link
-            embed.AddField("Armory", $"[View on Battle.net]({charInfo.ArmoryUrl})", true);
+            // Compact fields row
+            embed.AddField("Class / Spec", $"{className} — {specLabel}", true);
+
+            var guideUrl = BuildWowheadGuideUrl(className, specLabel);
+            embed.AddField("Wowhead Guide", $"[Open]({guideUrl})", true);
+
+            embed.AddField("Armory", $"[View]({charInfo.ArmoryUrl})", true);
 
             // Images
             embed.ThumbnailUrl = armoryMedia?.Assets?.FirstOrDefault(a => a.Key == "avatar")?.Value;
@@ -138,7 +184,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
 
             embed.Footer = new EmbedFooterBuilder
             {
-                Text = $"{charInfo.Realm} ({charInfo.Region.ToUpper()})"
+                Text = $"{charInfo.Realm} ({charInfo.Region.ToUpper()}) | Select gear below for details"
             };
 
             return embed;
@@ -161,7 +207,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
 
                 if (item?.Item?.Id > 0)
                 {
-                    var slotLabel = NormalizeSlot(slot);
+                    var slotLabel = CharViewHelpers.NormalizeSlot(slot);
                     var itemLevel = item.Level?.Value ?? 0;
 
                     var optionLabel = $"{slotLabel} - ilvl {itemLevel}";
@@ -183,71 +229,13 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
 
             if (options.Count == 0) return null;
 
-            var charParam = $"{charInfo.Name}~{charInfo.RealmSlug}~{charInfo.Region}";
+            var charParam = $"{charInfo.Name}~{charInfo.Realm}~{charInfo.Region}";
             return new SelectMenuBuilder()
                 .WithCustomId($"char_gear_select~{userId}~{charParam}")
                 .WithPlaceholder("Select an item for details")
                 .WithMinValues(1)
                 .WithMaxValues(1)
                 .WithOptions(options);
-        }
-
-        private static string BuildItemFieldValue(ArmoryEquippedItem item)
-        {
-            var sb = new StringBuilder();
-            var qualityEmoji = CharViewHelpers.GetQualityEmoji(item.Quality?.Name);
-            var wowheadUrl = item.Item?.Id > 0 ? $"https://www.wowhead.com/item={item.Item.Id}" : null;
-            var itemLevel = item.Level?.Value ?? 0;
-
-            if (!string.IsNullOrEmpty(qualityEmoji))
-                sb.Append($"{qualityEmoji} ");
-
-            sb.Append(!string.IsNullOrEmpty(wowheadUrl)
-                ? $"[{item.Name}]({wowheadUrl})"
-                : item.Name);
-
-            sb.Append($"\n`ilvl {itemLevel}`");
-
-            // Warnings
-            var notes = new List<string>();
-            if (item.Enchantments == null || item.Enchantments.Count == 0)
-            {
-                // Only warn on enchantable slots
-                var slot = item.Slot?.Type?.ToUpper();
-                if (slot is "BACK" or "CHEST" or "WRIST" or "LEGS" or "FEET" or "FINGER_1" or "FINGER_2" or "MAIN_HAND")
-                {
-                    notes.Add("no enchant");
-                }
-            }
-
-            if (item.Sockets != null && item.Sockets.Count > 0)
-            {
-                var emptySockets = item.Sockets.Count(s => s.Item == null);
-                if (emptySockets > 0)
-                    notes.Add($"{emptySockets} empty socket(s)");
-            }
-
-            if (notes.Count > 0)
-                sb.Append($"\n⚠️ {string.Join(", ", notes)}");
-
-            return sb.ToString();
-        }
-
-        private static string NormalizeSlot(string slot)
-        {
-            return slot switch
-            {
-                "FINGER_1" => "Ring 1",
-                "FINGER_2" => "Ring 2",
-                "TRINKET_1" => "Trinket 1",
-                "TRINKET_2" => "Trinket 2",
-                "MAIN_HAND" => "Main Hand",
-                "OFF_HAND" => "Off Hand",
-                _ => slot.Replace('_', ' ').ToLowerInvariant()
-                    .Split(' ')
-                    .Select(w => char.ToUpper(w[0]) + w.Substring(1))
-                    .Aggregate((a, b) => $"{a} {b}")
-            };
         }
 
         private static string BuildWowheadGuideUrl(string className, string specName)
@@ -329,6 +317,121 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             }
 
             return setStrings.Count == 0 ? null : string.Join("\n\n", setStrings);
+        }
+
+        /// <summary>
+        /// Build components for item detail view (back button + item select)
+        /// </summary>
+        public static ComponentBuilder BuildItemDetailComponents(
+            ulong userId,
+            CharacterInfo charInfo,
+            ArmoryEquipment armoryEquipment)
+        {
+            var builder = new ComponentBuilder();
+            var charParam = $"{charInfo.Name}~{charInfo.Realm}~{charInfo.Region}";
+
+            // Row 0: Back button
+            builder.WithButton(
+                label: "Back to Gear",
+                customId: $"char_view_gear~{userId}~{charParam}",
+                style: ButtonStyle.Secondary,
+                emote: new Emoji("↩️"),
+                row: 0);
+
+            // Row 1: Item select dropdown (so user can select another item)
+            var selectMenu = BuildItemSelectMenu(userId, charInfo, armoryEquipment);
+            if (selectMenu != null)
+            {
+                builder.WithSelectMenu(selectMenu, 1);
+            }
+
+            return builder;
+        }
+
+        /// <summary>
+        /// Build a detailed embed for a single equipped item
+        /// </summary>
+        public static EmbedBuilder BuildItemDetail(ArmoryEquippedItem item, CharacterInfo charInfo, ArmoryItemMedia itemMedia = null)
+        {
+            var embed = new EmbedBuilder();
+            var slotLabel = CharViewHelpers.NormalizeSlot(item.Slot?.Type ?? "Unknown");
+            var qualityEmoji = CharViewHelpers.GetQualityEmoji(item.Quality?.Name);
+            var wowheadUrl = item.Item?.Id > 0 ? $"https://www.wowhead.com/item={item.Item.Id}" : null;
+            var itemLevel = item.Level?.Value ?? 0;
+
+            embed.Title = $"{slotLabel} - {item.Name}";
+            embed.WithColor(new Color(0, 200, 150));
+            embed.Description = $"{qualityEmoji} {(wowheadUrl != null ? $"[{item.Name}]({wowheadUrl})" : item.Name)}\n`ilvl {itemLevel}`";
+
+            // Set item icon as thumbnail if available
+            var iconUrl = itemMedia?.Assets?.FirstOrDefault(a => a.Key == "icon")?.Value;
+            if (!string.IsNullOrEmpty(iconUrl))
+            {
+                embed.ThumbnailUrl = iconUrl;
+            }
+
+            embed.AddField("Slot", slotLabel, true);
+            embed.AddField("Quality", item.Quality?.Name ?? "Unknown", true);
+
+            var notes = new List<string>();
+
+            // Enchantments
+            if (item.Enchantments != null && item.Enchantments.Count > 0)
+            {
+                foreach (var ench in item.Enchantments)
+                {
+                    notes.Add($"✨ {ench.DisplayString}");
+                }
+            }
+            else
+            {
+                notes.Add("⚠️ No enchant detected");
+            }
+
+            // Sockets
+            if (item.Sockets != null && item.Sockets.Count > 0)
+            {
+                var emptySockets = item.Sockets.Count(s => s.Item == null);
+                var filled = item.Sockets.Count - emptySockets;
+                notes.Add($"💎 Sockets: {filled}/{item.Sockets.Count}" + (emptySockets > 0 ? " (empty)" : ""));
+            }
+
+            // Weapon info
+            if (item.Weapon != null)
+            {
+                var damage = item.Weapon.Damage != null
+                    ? $"{item.Weapon.Damage.MinValue}-{item.Weapon.Damage.MaxValue} dmg"
+                    : "Weapon";
+                var speedSec = item.Weapon.AttackSpeed?.Value > 0 ? (item.Weapon.AttackSpeed.Value / 1000.0).ToString("0.00") : "?";
+                var dps = item.Weapon.DPS?.Value > 0 ? item.Weapon.DPS.Value.ToString() : "?";
+                notes.Add($"🗡️ {damage}, {speedSec}s, {dps} dps");
+            }
+
+            // Spell effects
+            if (item.Spells != null && item.Spells.Count > 0)
+            {
+                var spell = item.Spells.FirstOrDefault(s => !string.IsNullOrEmpty(s.Description));
+                if (spell != null)
+                {
+                    var desc = spell.Description.Length > 180 ? spell.Description.Substring(0, 177) + "..." : spell.Description;
+                    notes.Add($"📜 {desc}");
+                }
+            }
+
+            if (notes.Count > 0)
+            {
+                embed.AddField("Details", string.Join("\n", notes));
+            }
+
+            // Set bonus info
+            if (item.Set?.ItemSet?.Name != null)
+            {
+                embed.AddField("Set", $"🧩 {item.Set.ItemSet.Name}", true);
+            }
+
+            embed.AddField("Wowhead", wowheadUrl != null ? $"[View Item]({wowheadUrl})" : "N/A", true);
+
+            return embed;
         }
     }
 }

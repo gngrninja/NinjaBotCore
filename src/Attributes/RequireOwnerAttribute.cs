@@ -15,7 +15,7 @@ namespace NinjaBotCore.Attributes
             switch (context.Client.TokenType)
             {
                 case TokenType.Bot:
-                    var application = await context.Client.GetApplicationInfoAsync().ConfigureAwait(false);
+                    var application = await context.Client.GetApplicationInfoAsync();
                     if (context.User.Id != application.Owner.Id)
                         return PreconditionResult.FromError(ErrorMessage ?? "Command can only be run by the owner of the bot.");
                     return PreconditionResult.FromSuccess();

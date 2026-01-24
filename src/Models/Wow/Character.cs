@@ -22,6 +22,15 @@ namespace NinjaBotCore.Models.Wow
         public string battlegroup { get; set; }
         [JsonProperty(PropertyName = "class")]
         public int _class { get; set; }
+
+        [JsonProperty(PropertyName = "playable_class")]
+        public PlayableClassRef playable_class { get; set; }
+
+        /// <summary>
+        /// Returns the class ID from either the legacy "class" field or the newer "playable_class" object
+        /// </summary>
+        public int ClassId => _class > 0 ? _class : (playable_class?.id ?? 0);
+
         public int race { get; set; }
         public int gender { get; set; }
         public string genderName
@@ -391,6 +400,14 @@ namespace NinjaBotCore.Models.Wow
         public string realmName { get; set; }
         public string regionName { get; set; }
         public string locale { get; set; }
+    }
+
+    /// <summary>
+    /// Represents the playable_class object returned by newer Blizzard API endpoints
+    /// </summary>
+    public class PlayableClassRef
+    {
+        public int id { get; set; }
     }
 
     public class WowClasses

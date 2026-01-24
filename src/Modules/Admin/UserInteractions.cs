@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Discord;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,6 +19,8 @@ namespace NinjaBotCore.Modules.Admin
 {
     public class UserInteraction : IDisposable
     {
+        private static readonly Regex DurationRegex = new(@"^(\d+)(h|d|w)$", RegexOptions.Compiled);
+
         private readonly ILogger _logger;
         private readonly DiscordShardedClient _client;
         private readonly IServiceScopeFactory _scopeFactory;
@@ -133,18 +136,7 @@ namespace NinjaBotCore.Modules.Admin
             finally
             {
                 // Clean up handled interaction after processing (delay prevents race with duplicate events)
-                var modalId = modal.Id;
-                _ = Task.Delay(1000).ContinueWith(_ =>
-                {
-                    try
-                    {
-                        _handledInteractions.TryRemove(modalId, out byte _);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error cleaning up handled modal interaction {Id}", modalId);
-                    }
-                }, TaskScheduler.Default);
+                _ = CleanupInteractionAsync(modal.Id);
             }
         }
 
@@ -186,18 +178,7 @@ namespace NinjaBotCore.Modules.Admin
             finally
             {
                 // Clean up handled interaction after processing (delay prevents race with duplicate events)
-                var componentId = component.Id;
-                _ = Task.Delay(1000).ContinueWith(_ =>
-                {
-                    try
-                    {
-                        _handledInteractions.TryRemove(componentId, out byte _);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error cleaning up handled component interaction {Id}", componentId);
-                    }
-                }, TaskScheduler.Default);
+                _ = CleanupInteractionAsync(component.Id);
             }
         }
 
@@ -381,16 +362,19 @@ namespace NinjaBotCore.Modules.Admin
             {
                 try
                 {
+                    // Resolve channel/role/emoji placeholders to Discord format
+                    var resolvedMessage = ResolveEntityPlaceholders(partingMessage.Trim(), guildInfo);
+
                     embed.Title = $"Parting message change for {guildInfo.Name}";
                     sb.AppendLine("New message:");
-                    sb.AppendLine(partingMessage);
+                    sb.AppendLine(resolvedMessage);
 
                     await using var greetingRepo = GetRepository<ServerGreeting>();
                     await greetingRepo.UpsertAsync(
                         findPredicate: g => g.DiscordGuildId == (long)modal.GuildId,
                         updateAction: greeting =>
                         {
-                            greeting.PartingMessage = partingMessage.Trim();
+                            greeting.PartingMessage = resolvedMessage;
                             greeting.SetById = (long)modal.User.Id;
                             greeting.SetByName = modal.User.Username;
                             greeting.TimeSet = DateTime.UtcNow;
@@ -398,7 +382,7 @@ namespace NinjaBotCore.Modules.Admin
                         createFactory: () => new ServerGreeting
                         {
                             DiscordGuildId = (long)modal.GuildId,
-                            PartingMessage = partingMessage.Trim(),
+                            PartingMessage = resolvedMessage,
                             SetById = (long)modal.User.Id,
                             SetByName = modal.User.Username,
                             TimeSet = DateTime.UtcNow
@@ -427,16 +411,19 @@ namespace NinjaBotCore.Modules.Admin
             {
                 try
                 {
+                    // Resolve channel/role/emoji placeholders to Discord format
+                    var resolvedMessage = ResolveEntityPlaceholders(joiningMessage.Trim(), guildInfo);
+
                     embed.Title = $"Joining message change for {guildInfo.Name}";
                     sb.AppendLine("New message:");
-                    sb.AppendLine(joiningMessage);
+                    sb.AppendLine(resolvedMessage);
 
                     await using var greetingRepo = GetRepository<ServerGreeting>();
                     await greetingRepo.UpsertAsync(
                         findPredicate: g => g.DiscordGuildId == (long)modal.GuildId,
                         updateAction: greeting =>
                         {
-                            greeting.Greeting = joiningMessage.Trim();
+                            greeting.Greeting = resolvedMessage;
                             greeting.SetById = (long)modal.User.Id;
                             greeting.SetByName = modal.User.Username;
                             greeting.TimeSet = DateTime.UtcNow;
@@ -444,7 +431,7 @@ namespace NinjaBotCore.Modules.Admin
                         createFactory: () => new ServerGreeting
                         {
                             DiscordGuildId = (long)modal.GuildId,
-                            Greeting = joiningMessage.Trim(),
+                            Greeting = resolvedMessage,
                             SetById = (long)modal.User.Id,
                             SetByName = modal.User.Username,
                             TimeSet = DateTime.UtcNow
@@ -495,7 +482,7 @@ namespace NinjaBotCore.Modules.Admin
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error setting note {ex.Message}");
+                _logger.LogError(ex, "Error setting note for guild {GuildId}", guildInfo.Id);
                 sb.AppendLine($"Something went wrong adding a note for server [**{guildInfo.Name}**] :(");
             }
             embed.Title = $":notepad_spiral:Notes for {guildInfo.Name}:notepad_spiral:";
@@ -541,7 +528,8 @@ namespace NinjaBotCore.Modules.Admin
                             }
                             else
                             {
-                                sb.AppendLine($"{shouldGreet.PartingMessage}");
+                                var expandedParting = ExpandPlaceholders(shouldGreet.PartingMessage, user, guild);
+                                sb.AppendLine(expandedParting);
                             }
                             embed.Description = sb.ToString();
                             embed.ThumbnailUrl = user.GetAvatarUrl() ?? user.GetDefaultAvatarUrl();
@@ -590,7 +578,8 @@ namespace NinjaBotCore.Modules.Admin
                         }
                         else
                         {
-                            sb.AppendLine($"{shouldGreet.Greeting}");
+                            var expandedGreeting = ExpandPlaceholders(shouldGreet.Greeting, user);
+                            sb.AppendLine(expandedGreeting);
                         }
                         embed.Description = sb.ToString();
                         embed.ThumbnailUrl = user.GetAvatarUrl() ?? user.GetDefaultAvatarUrl();
@@ -615,6 +604,91 @@ namespace NinjaBotCore.Modules.Admin
         {
             var guildId = user.Guild.Id;
             return await _greetingCache.GetServerGreetingAsync((long)guildId);
+        }
+
+        /// <summary>
+        /// Expands placeholders in a greeting or parting message with actual user/server values.
+        /// Supports: {user}, {username}, {user.tag}, {server}, {membercount}
+        /// Channel and role placeholders should be pre-resolved to Discord format (<#ID>, <@&ID>) at save time.
+        /// </summary>
+        private string ExpandPlaceholders(string message, SocketGuildUser user)
+        {
+            if (string.IsNullOrEmpty(message)) return message;
+
+            return message
+                .Replace("{user}", user.Mention)
+                .Replace("{username}", user.DisplayName)
+                .Replace("{user.tag}", $"{user.Username}#{user.Discriminator}")
+                .Replace("{server}", user.Guild.Name)
+                .Replace("{membercount}", user.Guild.MemberCount.ToString("N0"));
+        }
+
+        /// <summary>
+        /// Expands placeholders for parting messages (user has left, so we only have SocketUser).
+        /// </summary>
+        private string ExpandPlaceholders(string message, SocketUser user, SocketGuild guild)
+        {
+            if (string.IsNullOrEmpty(message)) return message;
+
+            return message
+                .Replace("{user}", $"@{user.Username}")  // Can't mention a user who left
+                .Replace("{username}", user.Username)
+                .Replace("{user.tag}", $"{user.Username}#{user.Discriminator}")
+                .Replace("{server}", guild.Name)
+                .Replace("{membercount}", guild.MemberCount.ToString("N0"));
+        }
+
+        /// <summary>
+        /// Resolves entity placeholders ({#channel-name}, {@role-name}, {:emoji-name:}) to Discord format.
+        /// Called when saving messages from Discord modals or web API.
+        /// </summary>
+        private string ResolveEntityPlaceholders(string message, SocketGuild guild)
+        {
+            if (string.IsNullOrEmpty(message) || guild == null) return message;
+
+            var result = message;
+
+            // Resolve {#channel-name} to <#CHANNEL_ID>
+            var channelRegex = new Regex(@"\{#([^}]+)\}");
+            foreach (Match match in channelRegex.Matches(message))
+            {
+                var channelName = match.Groups[1].Value;
+                var channel = guild.TextChannels.FirstOrDefault(c =>
+                    c.Name.Equals(channelName, StringComparison.OrdinalIgnoreCase));
+                if (channel != null)
+                {
+                    result = result.Replace(match.Value, $"<#{channel.Id}>");
+                }
+            }
+
+            // Resolve {@role-name} or {&role-name} to <@&ROLE_ID>
+            var roleRegex = new Regex(@"\{[@&]([^}]+)\}");
+            foreach (Match match in roleRegex.Matches(result))
+            {
+                var roleName = match.Groups[1].Value;
+                var role = guild.Roles.FirstOrDefault(r =>
+                    r.Name.Equals(roleName, StringComparison.OrdinalIgnoreCase));
+                if (role != null)
+                {
+                    result = result.Replace(match.Value, $"<@&{role.Id}>");
+                }
+            }
+
+            // Resolve {:emoji-name:} to <:name:ID> or <a:name:ID>
+            var emojiRegex = new Regex(@"\{:([^:}]+):\}");
+            foreach (Match match in emojiRegex.Matches(result))
+            {
+                var emojiName = match.Groups[1].Value;
+                var emoji = guild.Emotes.FirstOrDefault(e =>
+                    e.Name.Equals(emojiName, StringComparison.OrdinalIgnoreCase));
+                if (emoji != null)
+                {
+                    var prefix = emoji.Animated ? "a" : "";
+                    result = result.Replace(match.Value, $"<{prefix}:{emoji.Name}:{emoji.Id}>");
+                }
+            }
+
+            return result;
         }
 
         private async Task HandlePollModal(SocketModal modal, List<SocketMessageComponentData> components)
@@ -842,7 +916,7 @@ namespace NinjaBotCore.Modules.Admin
             if (string.IsNullOrWhiteSpace(duration))
                 return null;
 
-            var match = System.Text.RegularExpressions.Regex.Match(duration.Trim().ToLower(), @"^(\d+)(h|d|w)$");
+            var match = DurationRegex.Match(duration.Trim().ToLower());
             if (!match.Success)
                 return null;
 
@@ -1271,6 +1345,22 @@ namespace NinjaBotCore.Modules.Admin
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error posting poll results for poll {PollId}", poll.Id);
+            }
+        }
+
+        /// <summary>
+        /// Cleans up a handled interaction after a delay to prevent duplicate handling
+        /// </summary>
+        private async Task CleanupInteractionAsync(ulong interactionId)
+        {
+            try
+            {
+                await Task.Delay(1000);
+                _handledInteractions.TryRemove(interactionId, out _);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error cleaning up interaction {Id}", interactionId);
             }
         }
 

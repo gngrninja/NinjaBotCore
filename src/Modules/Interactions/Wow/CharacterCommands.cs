@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NinjaBotCore.Database;
+using NinjaBotCore.Modules.Interactions.Wow.CharViews;
 using NinjaBotCore.Modules.Wow;
 using NinjaBotCore.Services;
 using System;
@@ -246,134 +247,16 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         [SlashCommand("getchars", "List your saved WoW characters")]
         public async Task GetChars()
         {
-            var embed = new EmbedBuilder();
-            var sb = new StringBuilder();
-
             var savedChars = await _wowCache.GetUserCharactersAsync((long)Context.User.Id);
             savedChars = savedChars?
                 .OrderByDescending(c => c.IsMain)
                 .ThenBy(c => c.CharName)
                 .ToList();
 
-            if (savedChars != null && savedChars.Any())
-            {
-                embed.Title = $"Your Saved Characters ({savedChars.Count})";
-                embed.WithColor(new Color(0, 200, 150));
+            var embed = CharacterManagementView.Build(Context.User, savedChars);
+            var components = CharacterManagementView.BuildComponents(savedChars);
 
-                foreach (var character in savedChars)
-                {
-                    var mainIndicator = character.IsMain ? "★ [MAIN]" : "";
-                    var realm = !string.IsNullOrEmpty(character.WowRealm) ? character.WowRealm : "Unknown Realm";
-                    var region = !string.IsNullOrEmpty(character.WowRegion) ? character.WowRegion.ToUpper() : "US";
-
-                    sb.AppendLine($"{mainIndicator} **{character.CharName}** - {realm} ({region})");
-                }
-
-                sb.AppendLine();
-                sb.AppendLine("*Select a character below to manage it*");
-
-                embed.Description = sb.ToString();
-                embed.ThumbnailUrl = Context.User.GetAvatarUrl();
-
-                // Build components for character management
-                var components = BuildCharacterManagementComponents(savedChars);
-                await RespondAsync(embed: embed.Build(), components: components.Build(), ephemeral: true);
-            }
-            else
-            {
-                embed.Title = "No Saved Characters";
-                embed.WithColor(new Color(255, 165, 0));
-                sb.AppendLine("You haven't saved any characters yet!");
-                sb.AppendLine();
-                sb.AppendLine("Use `/setchar` to associate a character with your Discord account.");
-                sb.AppendLine("You can also save a character you lookup via `/rio`");
-
-                embed.Description = sb.ToString();
-                embed.ThumbnailUrl = Context.User.GetAvatarUrl();
-
-                await RespondAsync(embed: embed.Build(), ephemeral: true);
-            }
-        }
-
-        /// <summary>
-        /// Build component with character select menu and management buttons
-        /// </summary>
-        private ComponentBuilder BuildCharacterManagementComponents(List<WowCharAssociation> characters)
-        {
-            var builder = new ComponentBuilder();
-            try
-            {
-                if (characters.Any())
-                {
-                    // Add select menu with all characters
-                    var selectMenuBuilder = new SelectMenuBuilder()
-                        .WithPlaceholder("Select a character to manage...")
-                        .WithCustomId("char_select")
-                        .WithMinValues(1)
-                        .WithMaxValues(1);
-
-                    foreach (var character in characters)
-                    {
-                        var mainIndicator = character.IsMain ? "★ " : "";
-                        var realm = !string.IsNullOrEmpty(character.WowRealm) ? character.WowRealm : "Unknown Realm";
-                        var region = !string.IsNullOrEmpty(character.WowRegion) ? character.WowRegion.ToUpper() : "US";
-
-                        // Format: "★ CharName - RealmName (REGION)" or "CharName - RealmName (REGION)"
-                        var label = $"{mainIndicator}{character.CharName} - {realm} ({region})";
-
-                        // Truncate if too long
-                        if (label.Length > 100)
-                        {
-                            label = label.Substring(0, 97) + "...";
-                        }
-
-                        // Value encodes character ID
-                        var value = character.Id.ToString();
-
-                        // Description shows main status
-                        var description = character.IsMain ? "Your main character" : "Alt character";
-
-                        selectMenuBuilder.AddOption(label, value, description);
-                    }
-
-                    builder.WithSelectMenu(selectMenuBuilder);
-
-                    // Add management buttons on row 1 (disabled until character is selected)
-                    builder.WithButton(
-                        label: "Set as Main",
-                        customId: "char_set_main",
-                        style: ButtonStyle.Success,
-                        emote: new Emoji("⭐"),
-                        row: 1,
-                        disabled: true
-                    );
-
-                    builder.WithButton(
-                        label: "Remove Character",
-                        customId: "char_remove",
-                        style: ButtonStyle.Danger,
-                        emote: new Emoji("🗑️"),
-                        row: 1,
-                        disabled: true
-                    );
-
-                    builder.WithButton(
-                        label: "View RIO Profile",
-                        customId: "char_view_rio",
-                        style: ButtonStyle.Primary,
-                        emote: new Emoji("📊"),
-                        row: 1,
-                        disabled: true
-                    );
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error building character management components");
-                // Return empty builder if there's an error
-            }
-
-            return builder;
+            await RespondAsync(embed: embed.Build(), components: components.Build(), ephemeral: true);
         }
 
         /// <summary>
@@ -588,57 +471,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         .ThenBy(c => c.CharName)
                         .ToListAsync());
 
-                if (savedChars.Any())
+                var embed = CharacterManagementView.Build(Context.User, savedChars);
+                var components = CharacterManagementView.BuildComponents(savedChars);
+
+                await ModifyOriginalResponseAsync(msg =>
                 {
-                    var embed = new EmbedBuilder();
-                    var sb = new StringBuilder();
-
-                    embed.Title = $"Your Saved Characters ({savedChars.Count})";
-                    embed.WithColor(new Color(0, 200, 150));
-
-                    foreach (var character in savedChars)
-                    {
-                        var mainIndicator = character.IsMain ? "★ [MAIN]" : "";
-                        var realm = !string.IsNullOrEmpty(character.WowRealm) ? character.WowRealm : "Unknown Realm";
-                        var region = !string.IsNullOrEmpty(character.WowRegion) ? character.WowRegion.ToUpper() : "US";
-
-                        sb.AppendLine($"{mainIndicator} **{character.CharName}** - {realm} ({region})");
-                    }
-
-                    sb.AppendLine();
-                    sb.AppendLine("*Select a character below to manage it*");
-
-                    embed.Description = sb.ToString();
-                    embed.ThumbnailUrl = Context.User.GetAvatarUrl();
-
-                    var components = BuildCharacterManagementComponents(savedChars);
-
-                    await ModifyOriginalResponseAsync(msg =>
-                    {
-                        msg.Embed = embed.Build();
-                        msg.Components = components.Build();
-                    });
-                }
-                else
-                {
-                    var embed = new EmbedBuilder();
-                    var sb = new StringBuilder();
-
-                    embed.Title = "No Saved Characters";
-                    embed.WithColor(new Color(255, 165, 0));
-                    sb.AppendLine("You haven't saved any characters yet!");
-                    sb.AppendLine();
-                    sb.AppendLine("Use `/setchar` to associate a character with your Discord account.");
-
-                    embed.Description = sb.ToString();
-                    embed.ThumbnailUrl = Context.User.GetAvatarUrl();
-
-                    await ModifyOriginalResponseAsync(msg =>
-                    {
-                        msg.Embed = embed.Build();
-                        msg.Components = new ComponentBuilder().Build();
-                    });
-                }
+                    msg.Embed = embed.Build();
+                    msg.Components = components.Build();
+                });
             }
             catch (Exception ex)
             {

@@ -20,15 +20,15 @@ namespace NinjaBotCore
             return Host.CreateDefaultBuilder(); 
         }
         
-        public static void Main(string[] args)
+        public static async Task Main(string[] args)
         {
             try
-            {                
-                new NinjaBot().StartAsync().GetAwaiter().GetResult();       
+            {
+                await new NinjaBot().StartAsync();
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex.Message);
+                Console.WriteLine(ex);
             }
         }
     }

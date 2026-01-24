@@ -91,7 +91,7 @@ namespace NinjaBotCore.Modules.Wow
             }
 
             // Request new token using client credentials flow
-            var request = new HttpRequestMessage(HttpMethod.Post, TokenUrl);
+            using var request = new HttpRequestMessage(HttpMethod.Post, TokenUrl);
 
             // OAuth requires Basic authentication with client_id:client_secret
             var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_clientId}:{_clientSecret}"));
@@ -105,7 +105,7 @@ namespace NinjaBotCore.Modules.Wow
 
             try
             {
-                var response = await _httpClient.SendAsync(request);
+                using var response = await _httpClient.SendAsync(request);
                 response.EnsureSuccessStatusCode();
 
                 var content = await response.Content.ReadAsStringAsync();
@@ -193,7 +193,7 @@ namespace NinjaBotCore.Modules.Wow
             var token = await GetAccessTokenAsync();
             var apiUrl = GetApiUrl(gameVersion);
 
-            var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
+            using var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
             var graphqlRequest = new GraphQLRequest
@@ -205,7 +205,7 @@ namespace NinjaBotCore.Modules.Wow
             var json = JsonConvert.SerializeObject(graphqlRequest);
             request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
-            var response = await _httpClient.SendAsync(request);
+            using var response = await _httpClient.SendAsync(request);
             var content = await response.Content.ReadAsStringAsync();
 
             if (!response.IsSuccessStatusCode)
@@ -1041,6 +1041,256 @@ namespace NinjaBotCore.Modules.Wow
             catch (Exception ex)
             {
                 _logger.LogError($"[v2] Failed to get encounter {encounterId}: {ex.Message}");
+                throw;
+            }
+        }
+
+        // ===== Current Raid Tier Detection =====
+
+        /// <summary>
+        /// Gets all available expansions from the WarcraftLogs API.
+        /// Useful for discovering correct expansion IDs.
+        /// </summary>
+        public async Task<List<WclV2Expansion>> GetExpansionsAsync(WowGameVersion gameVersion = WowGameVersion.Retail)
+        {
+            var query = @"
+                query {
+                    worldData {
+                        expansions {
+                            id
+                            name
+                        }
+                    }
+                }
+            ";
+
+            try
+            {
+                var result = await ExecuteGraphQLAsync<WclV2ExpansionsResponse>(query, null, gameVersion);
+
+                if (result.Data?.WorldData?.Expansions != null)
+                {
+                    var expansions = result.Data.WorldData.Expansions;
+                    _logger.LogInformation("[v2] Retrieved {Count} expansions", expansions.Count);
+                    foreach (var exp in expansions.OrderByDescending(e => e.Id))
+                    {
+                        _logger.LogInformation("[v2] Expansion: {Name} (ID: {Id})", exp.Name, exp.Id);
+                    }
+                    return expansions;
+                }
+
+                _logger.LogWarning("[v2] No expansions found");
+                return new List<WclV2Expansion>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[v2] Failed to get expansions");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Gets the current raid tier by finding the latest non-frozen raid zone.
+        /// Frozen zones are old content that WCL no longer considers "current".
+        /// </summary>
+        /// <param name="expansionId">Expansion ID. Use 0 to auto-detect by querying all expansions.</param>
+        /// <param name="gameVersion">Game version</param>
+        public async Task<WclV2ZoneDetail> GetCurrentRaidTierAsync(int expansionId = 0, WowGameVersion gameVersion = WowGameVersion.Retail)
+        {
+            try
+            {
+                List<int> expansionIds;
+
+                if (expansionId > 0)
+                {
+                    // Use specific expansion
+                    expansionIds = new List<int> { expansionId };
+                }
+                else
+                {
+                    // Query all expansions and check from newest to oldest
+                    var allExpansions = await GetExpansionsAsync(gameVersion);
+                    if (allExpansions == null || allExpansions.Count == 0)
+                    {
+                        _logger.LogWarning("[v2] No expansions found from API");
+                        return null;
+                    }
+
+                    // Sort by ID descending (newest first)
+                    expansionIds = allExpansions.OrderByDescending(e => e.Id).Select(e => e.Id).ToList();
+                    _logger.LogInformation("[v2] Auto-detecting current tier from {Count} expansions: {ExpIds}",
+                        expansionIds.Count, string.Join(", ", expansionIds.Take(5)));
+                }
+
+                foreach (var expId in expansionIds)
+                {
+                    _logger.LogInformation("[v2] Checking expansion {ExpansionId} for current raid tier...", expId);
+
+                    var zones = await GetZonesAsync(expId, gameVersion);
+
+                    if (zones == null || zones.Count == 0)
+                    {
+                        _logger.LogDebug("[v2] No zones found for expansion {ExpansionId}", expId);
+                        continue;
+                    }
+
+                    // Log all zones for debugging
+                    _logger.LogInformation("[v2] Found {Count} zones for expansion {ExpansionId}", zones.Count, expId);
+                    foreach (var z in zones)
+                    {
+                        var difficultyNames = z.Difficulties != null
+                            ? string.Join(",", z.Difficulties.Select(d => $"{d.Name}({d.Id})"))
+                            : "none";
+                        _logger.LogInformation("[v2] Zone: {Name} (ID: {Id}, Frozen: {Frozen}, Encounters: {EncCount}, Difficulties: {Diffs})",
+                            z.Name, z.Id, z.Frozen, z.Encounters?.Count ?? 0, difficultyNames);
+                    }
+
+                    // Filter to actual raid zones only:
+                    // 1. Must have Normal/Heroic/Mythic difficulties (IDs 3, 4, 5)
+                    // 2. Must NOT be "Complete Raids" aggregate zones (these have only 1 encounter)
+                    // 3. Should have multiple encounters (real raids have 8+ bosses)
+                    var raidZones = zones
+                        .Where(z => z.Difficulties != null &&
+                                    z.Difficulties.Any(d => d.Id == 3 || d.Id == 4 || d.Id == 5) &&
+                                    !z.Name.StartsWith("Complete Raids") &&
+                                    z.Encounters != null && z.Encounters.Count > 1)
+                        .ToList();
+
+                    _logger.LogInformation("[v2] Filtered to {Count} raid zones (excluding Complete Raids aggregates)", raidZones.Count);
+
+                    // Find the latest non-frozen raid zone (has encounters)
+                    // Higher zone ID = newer raid tier
+                    // Note: Frozen=null or false means current content, Frozen=true means old content
+                    var currentTier = raidZones
+                        .Where(z => z.Frozen != true &&
+                                    z.Encounters != null && z.Encounters.Any())
+                        .OrderByDescending(z => z.Id)
+                        .FirstOrDefault();
+
+                    if (currentTier != null)
+                    {
+                        _logger.LogInformation("[v2] Detected current raid tier: {ZoneName} (ID: {ZoneId}, Expansion: {ExpId})",
+                            currentTier.Name, currentTier.Id, expId);
+                        return currentTier;
+                    }
+
+                    // Fallback: just get the latest raid zone with encounters
+                    currentTier = raidZones
+                        .Where(z => z.Encounters != null && z.Encounters.Any())
+                        .OrderByDescending(z => z.Id)
+                        .FirstOrDefault();
+
+                    if (currentTier != null)
+                    {
+                        _logger.LogInformation("[v2] Using latest zone from expansion {ExpId}: {ZoneName} (ID: {ZoneId})",
+                            expId, currentTier.Name, currentTier.Id);
+                        return currentTier;
+                    }
+                }
+
+                _logger.LogWarning("[v2] No raid zones found in any checked expansion");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[v2] Failed to get current raid tier");
+                throw;
+            }
+        }
+
+        // ===== Character Zone Rankings (for /char logs view) =====
+
+        /// <summary>
+        /// Gets character zone rankings for a specific zone (current raid tier).
+        /// Returns per-boss ranking data including best percentile, kills, and all-stars.
+        /// </summary>
+        /// <param name="name">Character name</param>
+        /// <param name="serverSlug">Realm slug (e.g., "illidan")</param>
+        /// <param name="serverRegion">Region (us, eu, etc.)</param>
+        /// <param name="zoneId">WCL zone ID for the raid tier</param>
+        /// <param name="difficulty">Optional difficulty filter: 3=Normal, 4=Heroic, 5=Mythic, null=All</param>
+        /// <param name="partition">Optional partition filter: 1=All, or specific partition ID. null=current partition</param>
+        /// <param name="gameVersion">Game version (Retail, Classic, etc.)</param>
+        public async Task<WclV2ZoneRankingsData> GetCharacterZoneRankingsAsync(
+            string name,
+            string serverSlug,
+            string serverRegion,
+            int zoneId,
+            int? difficulty = null,
+            int? partition = null,
+            WowGameVersion gameVersion = WowGameVersion.Retail)
+        {
+            // Build the zoneRankings field with parameters
+            // Note: difficulty of 0 means "All" in WCL API, null also works
+            // Partition 1 = "All" (combines all partitions), null = current/default partition
+            var difficultyParam = difficulty.HasValue ? $", difficulty: {difficulty.Value}" : "";
+            var partitionParam = partition.HasValue ? $", partition: {partition.Value}" : "";
+
+            var query = $@"
+                query($name: String!, $serverSlug: String!, $serverRegion: String!) {{
+                    characterData {{
+                        character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {{
+                            id
+                            name
+                            classID
+                            zoneRankings(zoneID: {zoneId}{difficultyParam}{partitionParam})
+                        }}
+                    }}
+                }}
+            ";
+
+            var variables = new
+            {
+                name,
+                serverSlug,
+                serverRegion
+            };
+
+            try
+            {
+                // First get raw response to debug
+                var rawResult = await ExecuteGraphQLAsync<Newtonsoft.Json.Linq.JObject>(query, variables, gameVersion);
+
+                _logger.LogDebug("[v2] Raw zone rankings response: {Response}",
+                    rawResult.Data?.ToString(Newtonsoft.Json.Formatting.None) ?? "null");
+
+                if (rawResult.Data?["characterData"]?["character"] != null)
+                {
+                    var characterJson = rawResult.Data["characterData"]["character"];
+                    var charName = characterJson["name"]?.ToString();
+                    var zoneRankingsJson = characterJson["zoneRankings"];
+
+                    _logger.LogInformation("[v2] Retrieved zone rankings for {Name}-{Server} ({Region}), Zone: {ZoneId}",
+                        name, serverSlug, serverRegion, zoneId);
+
+                    if (zoneRankingsJson == null || zoneRankingsJson.Type == Newtonsoft.Json.Linq.JTokenType.Null)
+                    {
+                        _logger.LogWarning("[v2] zoneRankings is null for {Name} - character may have no logs for zone {ZoneId}", name, zoneId);
+                        return null;
+                    }
+
+                    // Log the raw zoneRankings data
+                    _logger.LogDebug("[v2] zoneRankings raw: {ZoneRankings}",
+                        zoneRankingsJson.ToString(Newtonsoft.Json.Formatting.None));
+
+                    // Parse the zoneRankings JSON
+                    var zoneRankings = zoneRankingsJson.ToObject<WclV2ZoneRankingsData>();
+
+                    if (zoneRankings != null)
+                    {
+                        _logger.LogInformation("[v2] Parsed zone rankings: BestAvg={BestAvg}, Rankings={RankCount}",
+                            zoneRankings.BestPerformanceAverage, zoneRankings.Rankings?.Count ?? 0);
+                    }
+
+                    return zoneRankings;
+                }
+
+                _logger.LogWarning("[v2] No character found for {Name}-{Server} ({Region})", name, serverSlug, serverRegion);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[v2] Failed to get character zone rankings for {Name}-{Server}", name, serverSlug);
                 throw;
             }
         }

@@ -836,42 +836,65 @@ namespace NinjaBotCore.Modules.Wow
                 regionName: guildObject.regionName,
                 cancellationToken: cancellationToken);
 
-            using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
+            // 🔹 Load existing roster to preserve M+ scores
+            var existingMembers = await db.WowGuildRosterMembers
+                .Where(x =>
+                    x.GuildName == guildObject.guildName &&
+                    x.GuildRealmSlug == guildObject.realmSlug &&
+                    x.Region == guildObject.regionName)
+                .ToDictionaryAsync(
+                    x => $"{x.CharacterName.ToLower()}|{x.RealmSlug.ToLower()}",
+                    cancellationToken);
 
-            try
+            // 🔹 Build set of current member keys from API
+            var currentMemberKeys = new HashSet<string>();
+
+            foreach (var m in apiResult.members)
             {
-                // 🔹 Clear old snapshot
-                await db.WowGuildRosterMembers
-                    .Where(x =>
-                        x.GuildName == guildObject.guildName &&
-                        x.GuildRealmSlug == guildObject.realmSlug &&
-                        x.Region == guildObject.regionName)
-                    .ExecuteDeleteAsync(cancellationToken);
+                var key = $"{m.character.name.ToLower()}|{m.character.realm.slug.ToLower()}";
+                currentMemberKeys.Add(key);
 
-                // 🔹 Insert new snapshot
-                var rows = apiResult.members.Select(m => new WowGuildRosterMember
+                if (existingMembers.TryGetValue(key, out var existing))
                 {
-                    GuildName = guildObject.guildName,
-                    RealmSlug = m.character.realm.slug,
-                    GuildRealmSlug = guildObject.realmSlug,
-                    Region = guildObject.regionName,
-                    CharacterName = m.character.name,
-                    Level = m.character.level,
-                    Rank = m.rank,
-                    Faction = m.character.faction.type,
-                    LastUpdated = now
-                });
-
-                await db.WowGuildRosterMembers.AddRangeAsync(rows, cancellationToken);
-                await db.SaveChangesAsync(cancellationToken);
-
-                await tx.CommitAsync(cancellationToken);
+                    // Update existing member (preserve MythicPlusScore and ItemLevel)
+                    existing.Level = m.character.level;
+                    existing.Rank = m.rank;
+                    existing.Faction = m.character.faction.type;
+                    existing.ClassId = m.character.ClassId;
+                    existing.LastUpdated = now;
+                    // MythicPlusScore and ItemLevel are preserved
+                }
+                else
+                {
+                    // Add new member
+                    db.WowGuildRosterMembers.Add(new WowGuildRosterMember
+                    {
+                        GuildName = guildObject.guildName,
+                        RealmSlug = m.character.realm.slug,
+                        GuildRealmSlug = guildObject.realmSlug,
+                        Region = guildObject.regionName,
+                        CharacterName = m.character.name,
+                        Level = m.character.level,
+                        Rank = m.rank,
+                        Faction = m.character.faction.type,
+                        ClassId = m.character.ClassId,
+                        LastUpdated = now
+                    });
+                }
             }
-            catch
+
+            // 🔹 Remove members no longer in guild
+            var membersToRemove = existingMembers
+                .Where(kvp => !currentMemberKeys.Contains(kvp.Key))
+                .Select(kvp => kvp.Value)
+                .ToList();
+
+            if (membersToRemove.Any())
             {
-                await tx.RollbackAsync(cancellationToken);
-                throw;
+                db.WowGuildRosterMembers.RemoveRange(membersToRemove);
             }
+
+            await db.SaveChangesAsync(cancellationToken);
         }    
     }
 }

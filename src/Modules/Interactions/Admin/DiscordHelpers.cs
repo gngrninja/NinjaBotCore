@@ -470,12 +470,15 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         public async Task ChangeGreeting()
         {
             var guildGreetingInfo = await _greetingCache.GetServerGreetingAsync((long)Context.Guild.Id);
-            string curGreeting = guildGreetingInfo?.Greeting ?? "Hello!";
+            string curGreeting = guildGreetingInfo?.Greeting ?? "";
 
             var mb = new ModalBuilder()
                 .WithTitle("Greeting message")
                 .WithCustomId("joining_message")
-                .AddTextInput("Message:", "joining_message", TextInputStyle.Paragraph, $"{curGreeting}");
+                .AddTextInput("Message:", "joining_message", TextInputStyle.Paragraph,
+                    placeholder: "{user} {username} {server} {membercount} {#channel} {&role} {:emoji:}",
+                    required: false,
+                    value: curGreeting);
             await Context.Interaction.RespondWithModalAsync(mb.Build());
         }
 
@@ -484,12 +487,15 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         public async Task ChangeParting()
         {
             var guildGreetingInfo = await _greetingCache.GetServerGreetingAsync((long)Context.Guild.Id);
-            string curParting = guildGreetingInfo?.PartingMessage ?? "Goodbye!";
+            string curParting = guildGreetingInfo?.PartingMessage ?? "";
 
             var mb = new ModalBuilder()
                 .WithTitle("Parting message")
                 .WithCustomId("parting_message")
-                .AddTextInput("Message:", "parting_message", TextInputStyle.Paragraph, $"{curParting}");
+                .AddTextInput("Message:", "parting_message", TextInputStyle.Paragraph,
+                    placeholder: "{user} {username} {server} {membercount} {#channel} {&role} {:emoji:}",
+                    required: false,
+                    value: curParting);
             await Context.Interaction.RespondWithModalAsync(mb.Build());
         }
 

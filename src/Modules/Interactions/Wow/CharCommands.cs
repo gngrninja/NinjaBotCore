@@ -25,7 +25,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private readonly CharacterResolver _charResolver;
         private readonly IRaiderIOApi _rioApi;
         private readonly WowApi _wowApi;
-        private readonly WarcraftLogs _wclApi;
+        private readonly WarcraftLogsV2Client _wclV2Api;
         private readonly WowUtilities _wowUtils;
         private readonly WowCacheService _wowCache;
 
@@ -35,7 +35,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             CharacterResolver charResolver,
             IRaiderIOApi rioApi,
             WowApi wowApi,
-            WarcraftLogs wclApi,
+            WarcraftLogsV2Client wclV2Api,
             WowUtilities wowUtils,
             WowCacheService wowCache)
             : base(scopeFactory)
@@ -44,7 +44,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             _charResolver = charResolver;
             _rioApi = rioApi;
             _wowApi = wowApi;
-            _wclApi = wclApi;
+            _wclV2Api = wclV2Api;
             _wowUtils = wowUtils;
             _wowCache = wowCache;
         }
@@ -62,18 +62,15 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             [Summary("region", "Region (defaults to US if not specified)")]
             [Choice("US", "us")]
             [Choice("EU", "eu")]
-            string region = null,
-
-            [Summary("public", "Show results publicly (default: private)")]
-            bool publicDisplay = false)
+            string region = null)
         {
-            await DeferAsync(ephemeral: !publicDisplay);
+            await DeferAsync(ephemeral: true);
 
             try
             {
-                // Resolve character (cast context to ShardedInteractionContext for guild lookup)
+                // Resolve character
                 var resolution = await _charResolver.ResolveCharacterAsync(
-                    character, realm, region, Context.User.Id, (ShardedInteractionContext)Context);
+                    character, realm, region, Context.User.Id, Context);
 
                 if (!resolution.IsSuccess)
                 {
@@ -88,34 +85,41 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
                 var charInfo = resolution.Character;
 
-                // Fetch data from all sources in parallel
+                // Fetch data from RIO, Armory, and Achievements in parallel (WCL is lazy-loaded on button click)
                 var rioTask = FetchRioDataAsync(charInfo);
                 var armoryTask = FetchArmoryDataAsync(charInfo);
-                var wclTask = FetchWclDataAsync(charInfo);
+                var achievementsTask = FetchAchievementsAsync(charInfo);
 
-                await Task.WhenAll(rioTask, armoryTask, wclTask);
+                await Task.WhenAll(rioTask, armoryTask, achievementsTask);
 
                 var rioData = await rioTask;
                 var (armorySummary, armoryEquipment, armoryMedia) = await armoryTask;
-                var wclRankings = await wclTask;
+                var achievements = await achievementsTask;
+
+                // Log API usage (~4-5 calls: RIO, summary, equipment, media, achievements)
+                _ = LogCharLookupAsync(charInfo);
+
+                // Update roster member's M+ score if they exist in any guild roster
+                // Fire-and-forget to not delay the response
+                _ = UpdateRosterMemberMPlusScoreAsync(charInfo, rioData);
 
                 // Check if character is already saved
                 var isAlreadySaved = await IsCharacterSavedAsync(charInfo, Context.User.Id);
 
-                // Build overview embed
+                // Build overview embed (WCL rankings null - lazy loaded)
                 var embed = CharOverviewView.Build(
-                    charInfo, rioData, armoryEquipment, armorySummary, armoryMedia, wclRankings);
+                    charInfo, rioData, armoryEquipment, armorySummary, armoryMedia, null, achievements);
 
-                // Build components
+                // Build components (WCL button always enabled for lazy loading)
                 var components = CharOverviewView.BuildComponents(
                     Context.User.Id,
                     charInfo,
                     hasRioData: rioData != null,
                     hasArmoryData: armoryEquipment != null,
-                    hasWclData: wclRankings != null && wclRankings.Any(),
-                    isAlreadySaved: isAlreadySaved);
+                    isAlreadySaved: isAlreadySaved,
+                    hasAchievements: achievements?.RecentEvents?.Any() == true);
 
-                await FollowupAsync(embed: embed.Build(), components: components.Build(), ephemeral: !publicDisplay);
+                await FollowupAsync(embed: embed.Build(), components: components.Build());
             }
             catch (Exception ex)
             {
@@ -144,21 +148,26 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 return;
             }
 
-            // Fetch all data
-            var rioData = await FetchRioDataAsync(charInfo);
-            var (armorySummary, armoryEquipment, armoryMedia) = await FetchArmoryDataAsync(charInfo);
-            var wclRankings = await FetchWclDataAsync(charInfo);
+            // Fetch RIO, Armory, and Achievements data (WCL is lazy-loaded)
+            var rioTask = FetchRioDataAsync(charInfo);
+            var armoryTask = FetchArmoryDataAsync(charInfo);
+            var achievementsTask = FetchAchievementsAsync(charInfo);
+            await Task.WhenAll(rioTask, armoryTask, achievementsTask);
+
+            var rioData = await rioTask;
+            var (armorySummary, armoryEquipment, armoryMedia) = await armoryTask;
+            var achievements = await achievementsTask;
 
             // Check if character is already saved
             var isAlreadySaved = await IsCharacterSavedAsync(charInfo, Context.User.Id);
 
-            var embed = CharOverviewView.Build(charInfo, rioData, armoryEquipment, armorySummary, armoryMedia, wclRankings);
+            var embed = CharOverviewView.Build(charInfo, rioData, armoryEquipment, armorySummary, armoryMedia, null, achievements);
             var components = CharOverviewView.BuildComponents(
                 Context.User.Id, charInfo,
                 hasRioData: rioData != null,
                 hasArmoryData: armoryEquipment != null,
-                hasWclData: wclRankings != null && wclRankings.Any(),
-                isAlreadySaved: isAlreadySaved);
+                isAlreadySaved: isAlreadySaved,
+                hasAchievements: achievements?.RecentEvents?.Any() == true);
 
             await ModifyOriginalResponseAsync(msg =>
             {
@@ -252,8 +261,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             });
         }
 
-        [ComponentInteraction("char_view_logs~*~*")]
-        public async Task HandleViewLogs(string userIdStr, string charParam)
+        [ComponentInteraction("char_view_logs~*~*~*~*")]
+        public async Task HandleViewLogs(string userIdStr, string name, string realm, string region)
         {
             if (!ValidateUser(userIdStr, out var errorMsg))
             {
@@ -263,32 +272,45 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             await DeferAsync();
 
-            var charInfo = ParseCharParam(charParam);
-            if (charInfo == null)
+            var charInfo = new CharacterInfo
             {
-                await FollowupAsync("Invalid character data.", ephemeral: true);
-                return;
-            }
+                Name = name,
+                Realm = realm,
+                RealmSlug = realm.ToLower().Replace(" ", "-").Replace("'", ""),
+                Region = region,
+                Locale = CharacterResolver.GetLocaleFromRegion(region)
+            };
 
-            var wclRankings = await FetchWclDataAsync(charInfo);
+            // Lazy load WCL data using V2 API
+            var (zoneRankings, currentZoneId) = await FetchWclV2DataAsync(charInfo);
             var rioData = await FetchRioDataAsync(charInfo); // For class/spec info
 
             // Check if character is already saved
             var isAlreadySaved = await IsCharacterSavedAsync(charInfo, Context.User.Id);
 
-            var embed = CharLogsView.Build(
+            // Build logs embed using V2 data (default: all difficulties)
+            var embed = CharLogsView.BuildV2(
                 charInfo,
-                wclRankings,
+                zoneRankings,
+                difficulty: null,
+                zoneId: currentZoneId,
                 specName: rioData?.ActiveSpecName,
                 className: rioData?.Class);
 
             var components = CharOverviewView.BuildDetailViewComponents(Context.User.Id, charInfo, "logs", isAlreadySaved);
 
-            // Add encounter select menu if we have logs
-            var encounterMenu = CharLogsView.BuildEncounterSelectMenu(Context.User.Id, charInfo, wclRankings);
+            // Add difficulty dropdown (row 2)
+            if (currentZoneId > 0)
+            {
+                var difficultyMenu = CharLogsView.BuildDifficultySelectMenu(Context.User.Id, charInfo, currentZoneId);
+                components.WithSelectMenu(difficultyMenu, 2);
+            }
+
+            // Add encounter select menu if we have rankings (row 3)
+            var encounterMenu = CharLogsView.BuildEncounterSelectMenuV2(Context.User.Id, charInfo, zoneRankings, currentZoneId);
             if (encounterMenu != null)
             {
-                components.WithSelectMenu(encounterMenu, 2);
+                components.WithSelectMenu(encounterMenu, 3);
             }
 
             await ModifyOriginalResponseAsync(msg =>
@@ -298,8 +320,77 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             });
         }
 
-        [ComponentInteraction("char_logs_encounter~*~*")]
-        public async Task HandleLogsEncounterSelect(string userIdStr, string charParam, string[] selections)
+        [ComponentInteraction("char_logs_difficulty~*~*~*~*~*")]
+        public async Task HandleLogsDifficultySelect(string userIdStr, string name, string realm, string region, string zoneIdStr, string[] selections)
+        {
+            if (!ValidateUser(userIdStr, out var errorMsg))
+            {
+                await RespondAsync(errorMsg, ephemeral: true);
+                return;
+            }
+
+            if (selections == null || selections.Length == 0 || !int.TryParse(selections[0], out var difficulty))
+            {
+                await RespondAsync("Invalid difficulty selection.", ephemeral: true);
+                return;
+            }
+
+            await DeferAsync();
+
+            var charInfo = new CharacterInfo
+            {
+                Name = name,
+                Realm = realm,
+                RealmSlug = realm.ToLower().Replace(" ", "-").Replace("'", ""),
+                Region = region,
+                Locale = CharacterResolver.GetLocaleFromRegion(region)
+            };
+
+            if (!int.TryParse(zoneIdStr, out var zoneId))
+            {
+                await FollowupAsync("Invalid zone data.", ephemeral: true);
+                return;
+            }
+
+            // Difficulty: 0 = All, 3 = Normal, 4 = Heroic, 5 = Mythic
+            int? difficultyFilter = difficulty == 0 ? null : difficulty;
+
+            // Fetch WCL data with difficulty filter (partition 1 = All)
+            var zoneRankings = await FetchWclV2DataWithFiltersAsync(charInfo, zoneId, difficultyFilter, partitionFilter: 1);
+            var rioData = await FetchRioDataAsync(charInfo);
+
+            var isAlreadySaved = await IsCharacterSavedAsync(charInfo, Context.User.Id);
+
+            var embed = CharLogsView.BuildV2(
+                charInfo,
+                zoneRankings,
+                difficulty: difficultyFilter,
+                zoneId: zoneId,
+                specName: rioData?.ActiveSpecName,
+                className: rioData?.Class);
+
+            var components = CharOverviewView.BuildDetailViewComponents(Context.User.Id, charInfo, "logs", isAlreadySaved);
+
+            // Add difficulty dropdown (row 2) with current selection
+            var difficultyMenu = CharLogsView.BuildDifficultySelectMenu(Context.User.Id, charInfo, zoneId, difficulty);
+            components.WithSelectMenu(difficultyMenu, 2);
+
+            // Add encounter select menu (row 3)
+            var encounterMenu = CharLogsView.BuildEncounterSelectMenuV2(Context.User.Id, charInfo, zoneRankings, zoneId);
+            if (encounterMenu != null)
+            {
+                components.WithSelectMenu(encounterMenu, 3);
+            }
+
+            await ModifyOriginalResponseAsync(msg =>
+            {
+                msg.Embed = embed.Build();
+                msg.Components = components.Build();
+            });
+        }
+
+        [ComponentInteraction("char_logs_encounter_v2~*~*~*~*~*")]
+        public async Task HandleLogsEncounterSelectV2(string userIdStr, string name, string realm, string region, string zoneIdStr, string[] selections)
         {
             if (!ValidateUser(userIdStr, out var errorMsg))
             {
@@ -315,16 +406,24 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             await DeferAsync();
 
-            var charInfo = ParseCharParam(charParam);
-            if (charInfo == null)
+            var charInfo = new CharacterInfo
             {
-                await FollowupAsync("Invalid character data.", ephemeral: true);
+                Name = name,
+                Realm = realm,
+                RealmSlug = realm.ToLower().Replace(" ", "-").Replace("'", ""),
+                Region = region,
+                Locale = CharacterResolver.GetLocaleFromRegion(region)
+            };
+
+            if (!int.TryParse(zoneIdStr, out var zoneId))
+            {
+                await FollowupAsync("Invalid zone data.", ephemeral: true);
                 return;
             }
 
-            // Fetch WCL data
-            var wclRankings = await FetchWclDataAsync(charInfo);
-            if (wclRankings == null || !wclRankings.Any())
+            // Fetch WCL V2 data
+            var (zoneRankings, _) = await FetchWclV2DataAsync(charInfo);
+            if (zoneRankings?.Rankings == null || !zoneRankings.Rankings.Any())
             {
                 await FollowupAsync("Could not load logs data.", ephemeral: true);
                 return;
@@ -333,16 +432,20 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             // Check if character is already saved
             var isAlreadySaved = await IsCharacterSavedAsync(charInfo, Context.User.Id);
 
-            // Build encounter detail embed
-            var embed = CharLogsView.BuildEncounterDetail(charInfo, wclRankings, encounterId);
+            // Build encounter detail embed (zoneId for link construction, no difficulty filter)
+            var embed = CharLogsView.BuildEncounterDetailV2(charInfo, zoneRankings, encounterId, zoneId: zoneId);
 
             var components = CharOverviewView.BuildDetailViewComponents(Context.User.Id, charInfo, "logs", isAlreadySaved);
 
-            // Add encounter select menu
-            var encounterMenu = CharLogsView.BuildEncounterSelectMenu(Context.User.Id, charInfo, wclRankings);
+            // Add difficulty dropdown (row 2)
+            var difficultyMenu = CharLogsView.BuildDifficultySelectMenu(Context.User.Id, charInfo, zoneId);
+            components.WithSelectMenu(difficultyMenu, 2);
+
+            // Add encounter select menu (row 3)
+            var encounterMenu = CharLogsView.BuildEncounterSelectMenuV2(Context.User.Id, charInfo, zoneRankings, zoneId);
             if (encounterMenu != null)
             {
-                components.WithSelectMenu(encounterMenu, 2);
+                components.WithSelectMenu(encounterMenu, 3);
             }
 
             await ModifyOriginalResponseAsync(msg =>
@@ -367,7 +470,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 return;
             }
 
-            await DeferAsync(ephemeral: true);
+            await DeferAsync();
 
             var charInfo = ParseCharParam(charParam);
             if (charInfo == null)
@@ -405,102 +508,117 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 return;
             }
 
-            // Build item detail embed
-            var embed = BuildItemDetailEmbed(selectedItem, charInfo);
-            await FollowupAsync(embed: embed.Build(), ephemeral: true);
+            // Fetch item media for the icon (with caching)
+            var itemMedia = await GetItemMediaCachedAsync(itemId, charInfo.Region);
+
+            // Build item detail embed with back button
+            var embed = CharGearView.BuildItemDetail(selectedItem, charInfo, itemMedia);
+            var components = CharGearView.BuildItemDetailComponents(Context.User.Id, charInfo, armoryEquipment);
+
+            await ModifyOriginalResponseAsync(msg =>
+            {
+                msg.Embed = embed.Build();
+                msg.Components = components.Build();
+            });
         }
 
-        private EmbedBuilder BuildItemDetailEmbed(ArmoryEquippedItem item, CharacterInfo charInfo)
+        [ComponentInteraction("char_view_achievements~*~*")]
+        public async Task HandleViewAchievements(string userIdStr, string charParam)
         {
-            var embed = new EmbedBuilder();
-            var slotLabel = NormalizeSlot(item.Slot?.Type ?? "Unknown");
-            var qualityEmoji = CharViews.CharViewHelpers.GetQualityEmoji(item.Quality?.Name);
-            var wowheadUrl = item.Item?.Id > 0 ? $"https://www.wowhead.com/item={item.Item.Id}" : null;
-            var itemLevel = item.Level?.Value ?? 0;
-
-            embed.Title = $"{slotLabel} - {item.Name}";
-            embed.WithColor(new Color(0, 200, 150));
-            embed.Description = $"{qualityEmoji} {(wowheadUrl != null ? $"[{item.Name}]({wowheadUrl})" : item.Name)}\n`ilvl {itemLevel}`";
-
-            embed.AddField("Slot", slotLabel, true);
-            embed.AddField("Quality", item.Quality?.Name ?? "Unknown", true);
-
-            var notes = new List<string>();
-
-            // Enchantments
-            if (item.Enchantments != null && item.Enchantments.Count > 0)
+            if (!ValidateUser(userIdStr, out var errorMsg))
             {
-                foreach (var ench in item.Enchantments)
-                {
-                    notes.Add($"✨ {ench.DisplayString}");
-                }
-            }
-            else
-            {
-                notes.Add("⚠️ No enchant detected");
+                await RespondAsync(errorMsg, ephemeral: true);
+                return;
             }
 
-            // Sockets
-            if (item.Sockets != null && item.Sockets.Count > 0)
+            await DeferAsync();
+
+            var charInfo = ParseCharParam(charParam);
+            if (charInfo == null)
             {
-                var emptySockets = item.Sockets.Count(s => s.Item == null);
-                var filled = item.Sockets.Count - emptySockets;
-                notes.Add($"💎 Sockets: {filled}/{item.Sockets.Count}" + (emptySockets > 0 ? " (empty)" : ""));
+                await FollowupAsync("Invalid character data.", ephemeral: true);
+                return;
             }
 
-            // Weapon info
-            if (item.Weapon != null)
+            // Fetch achievements and media in parallel (only 2 API calls instead of 4)
+            var achievementsTask = FetchAchievementsAsync(charInfo);
+            var mediaTask = FetchArmoryMediaAsync(charInfo);
+            await Task.WhenAll(achievementsTask, mediaTask);
+
+            var achievements = await achievementsTask;
+            var armoryMedia = await mediaTask;
+
+            if (achievements == null)
             {
-                var damage = item.Weapon.Damage != null
-                    ? $"{item.Weapon.Damage.MinValue}-{item.Weapon.Damage.MaxValue} dmg"
-                    : "Weapon";
-                var speedSec = item.Weapon.AttackSpeed?.Value > 0 ? (item.Weapon.AttackSpeed.Value / 1000.0).ToString("0.00") : "?";
-                var dps = item.Weapon.DPS?.Value > 0 ? item.Weapon.DPS.Value.ToString() : "?";
-                notes.Add($"🗡️ {damage}, {speedSec}s, {dps} dps");
+                await FollowupAsync("Could not load achievements data for this character.", ephemeral: true);
+                return;
             }
 
-            // Spell effects
-            if (item.Spells != null && item.Spells.Count > 0)
+            // Check if character is already saved
+            var isAlreadySaved = await IsCharacterSavedAsync(charInfo, Context.User.Id);
+
+            var totalPages = CharViews.CharAchievementsView.GetTotalPages(achievements);
+            var embed = CharViews.CharAchievementsView.Build(charInfo, achievements, armoryMedia, 0);
+            var components = CharViews.CharAchievementsView.BuildComponents(Context.User.Id, charInfo, 0, totalPages, isAlreadySaved);
+
+            await ModifyOriginalResponseAsync(msg =>
             {
-                var spell = item.Spells.FirstOrDefault(s => !string.IsNullOrEmpty(s.Description));
-                if (spell != null)
-                {
-                    var desc = spell.Description.Length > 180 ? spell.Description.Substring(0, 177) + "..." : spell.Description;
-                    notes.Add($"📜 {desc}");
-                }
-            }
-
-            if (notes.Count > 0)
-            {
-                embed.AddField("Details", string.Join("\n", notes));
-            }
-
-            // Set bonus info
-            if (item.Set?.ItemSet?.Name != null)
-            {
-                embed.AddField("Set", $"🧩 {item.Set.ItemSet.Name}", true);
-            }
-
-            embed.AddField("Wowhead", wowheadUrl != null ? $"[View Item]({wowheadUrl})" : "N/A", true);
-
-            return embed;
+                msg.Embed = embed.Build();
+                msg.Components = components.Build();
+            });
         }
 
-        private static string NormalizeSlot(string slot)
+        [ComponentInteraction("char_achievements_page~*~*~*")]
+        public async Task HandleAchievementsPage(string userIdStr, string charParam, string pageStr)
         {
-            return slot switch
+            if (!ValidateUser(userIdStr, out var errorMsg))
             {
-                "FINGER_1" => "Ring 1",
-                "FINGER_2" => "Ring 2",
-                "TRINKET_1" => "Trinket 1",
-                "TRINKET_2" => "Trinket 2",
-                "MAIN_HAND" => "Main Hand",
-                "OFF_HAND" => "Off Hand",
-                _ => slot.Replace('_', ' ').ToLowerInvariant()
-                    .Split(' ')
-                    .Select(w => char.ToUpper(w[0]) + w.Substring(1))
-                    .Aggregate((a, b) => $"{a} {b}")
-            };
+                await RespondAsync(errorMsg, ephemeral: true);
+                return;
+            }
+
+            await DeferAsync();
+
+            var charInfo = ParseCharParam(charParam);
+            if (charInfo == null)
+            {
+                await FollowupAsync("Invalid character data.", ephemeral: true);
+                return;
+            }
+
+            if (!int.TryParse(pageStr, out var page))
+            {
+                page = 0;
+            }
+
+            // Fetch achievements and media in parallel (only 2 API calls instead of 4)
+            var achievementsTask = FetchAchievementsAsync(charInfo);
+            var mediaTask = FetchArmoryMediaAsync(charInfo);
+            await Task.WhenAll(achievementsTask, mediaTask);
+
+            var achievements = await achievementsTask;
+            var armoryMedia = await mediaTask;
+
+            if (achievements == null)
+            {
+                await FollowupAsync("Could not load achievements data.", ephemeral: true);
+                return;
+            }
+
+            // Check if character is already saved
+            var isAlreadySaved = await IsCharacterSavedAsync(charInfo, Context.User.Id);
+
+            var totalPages = CharViews.CharAchievementsView.GetTotalPages(achievements);
+            page = Math.Clamp(page, 0, Math.Max(0, totalPages - 1));
+
+            var embed = CharViews.CharAchievementsView.Build(charInfo, achievements, armoryMedia, page);
+            var components = CharViews.CharAchievementsView.BuildComponents(Context.User.Id, charInfo, page, totalPages, isAlreadySaved);
+
+            await ModifyOriginalResponseAsync(msg =>
+            {
+                msg.Embed = embed.Build();
+                msg.Components = components.Build();
+            });
         }
 
         #endregion
@@ -530,11 +648,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     var repo = uow.Repository<WowCharAssociation>();
                     var userId = (long)Context.User.Id;
 
-                    // Check if already saved
-                    var existing = await repo.FirstOrDefaultAsync(c =>
-                        c.UserId == userId &&
-                        c.CharName.ToLower() == charInfo.Name.ToLower() &&
-                        c.WowRealm.ToLower() == charInfo.Realm.ToLower());
+                    // Get all user chars and check for duplicates using normalized realm comparison
+                    var allUserChars = await repo.WhereAsync(c => c.UserId == userId);
+                    var normalizedName = charInfo.Name.ToLower();
+                    var normalizedRealm = CharViewHelpers.NormalizeRealmForComparison(charInfo.Realm);
+
+                    var existing = allUserChars?.FirstOrDefault(c =>
+                        c.CharName.ToLower() == normalizedName &&
+                        CharViewHelpers.NormalizeRealmForComparison(c.WowRealm) == normalizedRealm);
 
                     if (existing != null)
                     {
@@ -542,8 +663,6 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         return;
                     }
 
-                    // Count existing characters for this user
-                    var allUserChars = await repo.WhereAsync(c => c.UserId == userId);
                     var count = allUserChars?.Count ?? 0;
 
                     var newChar = new WowCharAssociation
@@ -552,6 +671,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         CharName = charInfo.Name,
                         WowRealm = charInfo.Realm,
                         WowRegion = charInfo.Region,
+                        LocalRealmSlug = charInfo.RealmSlug,
+                        Locale = charInfo.Locale,
                         IsMain = count == 0, // First character becomes main
                         TimeSet = DateTime.UtcNow
                     };
@@ -588,26 +709,23 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 return;
             }
 
-            // Re-fetch all data
+            // Re-fetch RIO and Armory data (WCL is lazy-loaded)
             var rioTask = FetchRioDataAsync(charInfo);
             var armoryTask = FetchArmoryDataAsync(charInfo);
-            var wclTask = FetchWclDataAsync(charInfo);
 
-            await Task.WhenAll(rioTask, armoryTask, wclTask);
+            await Task.WhenAll(rioTask, armoryTask);
 
             var rioData = await rioTask;
             var (armorySummary, armoryEquipment, armoryMedia) = await armoryTask;
-            var wclRankings = await wclTask;
 
             // Check if character is already saved
             var isAlreadySaved = await IsCharacterSavedAsync(charInfo, Context.User.Id);
 
-            var embed = CharOverviewView.Build(charInfo, rioData, armoryEquipment, armorySummary, armoryMedia, wclRankings);
+            var embed = CharOverviewView.Build(charInfo, rioData, armoryEquipment, armorySummary, armoryMedia);
             var components = CharOverviewView.BuildComponents(
                 Context.User.Id, charInfo,
                 hasRioData: rioData != null,
                 hasArmoryData: armoryEquipment != null,
-                hasWclData: wclRankings != null && wclRankings.Any(),
                 isAlreadySaved: isAlreadySaved);
 
             await ModifyOriginalResponseAsync(msg =>
@@ -635,12 +753,15 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 return;
             }
 
-            // Fetch all data
-            var rioData = await FetchRioDataAsync(charInfo);
-            var (armorySummary, armoryEquipment, armoryMedia) = await FetchArmoryDataAsync(charInfo);
-            var wclRankings = await FetchWclDataAsync(charInfo);
+            // Fetch RIO and Armory data (WCL not included in shared overview)
+            var rioTask = FetchRioDataAsync(charInfo);
+            var armoryTask = FetchArmoryDataAsync(charInfo);
+            await Task.WhenAll(rioTask, armoryTask);
 
-            var embed = CharOverviewView.Build(charInfo, rioData, armoryEquipment, armorySummary, armoryMedia, wclRankings);
+            var rioData = await rioTask;
+            var (armorySummary, armoryEquipment, armoryMedia) = await armoryTask;
+
+            var embed = CharOverviewView.Build(charInfo, rioData, armoryEquipment, armorySummary, armoryMedia);
 
             // Send as new public message (no components for shared version)
             await Context.Channel.SendMessageAsync(
@@ -650,9 +771,112 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             await FollowupAsync("Character profile shared!", ephemeral: true);
         }
 
+        [ComponentInteraction("char_manage_ret~*~*~*~*")]
+        public async Task HandleManageCharactersWithReturn(string userIdStr, string charName, string charRealm, string charRegion)
+        {
+            if (!ValidateUser(userIdStr, out var errorMsg))
+            {
+                await RespondAsync(errorMsg, ephemeral: true);
+                return;
+            }
+
+            await DeferAsync();
+
+            var savedChars = await _wowCache.GetUserCharactersAsync((long)Context.User.Id);
+            savedChars = savedChars?
+                .OrderByDescending(c => c.IsMain)
+                .ThenBy(c => c.CharName)
+                .ToList();
+
+            // Build the return charParam for the back button
+            var returnCharParam = $"{charName}~{charRealm}~{charRegion}";
+
+            var embed = CharacterManagementView.Build(Context.User, savedChars);
+            var components = CharacterManagementView.BuildComponents(savedChars, Context.User.Id, returnCharParam);
+
+            await ModifyOriginalResponseAsync(msg =>
+            {
+                msg.Embed = embed.Build();
+                msg.Components = components.Build();
+            });
+        }
+
+        [ComponentInteraction("char_manage~*")]
+        public async Task HandleManageCharacters(string userIdStr)
+        {
+            if (!ValidateUser(userIdStr, out var errorMsg))
+            {
+                await RespondAsync(errorMsg, ephemeral: true);
+                return;
+            }
+
+            await DeferAsync();
+
+            var savedChars = await _wowCache.GetUserCharactersAsync((long)Context.User.Id);
+            savedChars = savedChars?
+                .OrderByDescending(c => c.IsMain)
+                .ThenBy(c => c.CharName)
+                .ToList();
+
+            var embed = CharacterManagementView.Build(Context.User, savedChars);
+            var components = CharacterManagementView.BuildComponents(savedChars);
+
+            await ModifyOriginalResponseAsync(msg =>
+            {
+                msg.Embed = embed.Build();
+                msg.Components = components.Build();
+            });
+        }
+
         #endregion
 
         #region Helper Methods
+
+        /// <summary>
+        /// Updates the M+ score in WowGuildRosterMember if this character exists in any guild roster.
+        /// Called when /char is used to keep roster data fresh from RIO lookups.
+        /// </summary>
+        private async Task UpdateRosterMemberMPlusScoreAsync(CharacterInfo charInfo, RaiderIOModels.RioMythicPlusChar rioData)
+        {
+            if (rioData == null) return;
+
+            var mplusScore = rioData.MythicPlusScores?.FirstOrDefault()?.Scores?.All;
+            if (mplusScore == null || mplusScore <= 0) return;
+
+            try
+            {
+                await WithScopedUnitOfWorkAsync(async uow =>
+                {
+                    var repo = uow.Repository<WowGuildRosterMember>();
+
+                    // Find all roster entries for this character (could be in multiple guilds)
+                    var normalizedName = charInfo.Name.ToLower();
+                    var normalizedRealm = charInfo.RealmSlug.ToLower();
+                    var normalizedRegion = charInfo.Region.ToLower();
+
+                    var rosterMembers = await repo.WhereAsync(m =>
+                        m.CharacterName.ToLower() == normalizedName &&
+                        m.RealmSlug.ToLower() == normalizedRealm &&
+                        m.Region.ToLower() == normalizedRegion);
+
+                    if (rosterMembers?.Any() == true)
+                    {
+                        foreach (var member in rosterMembers)
+                        {
+                            member.MythicPlusScore = mplusScore;
+                        }
+                        await uow.SaveChangesAsync();
+                        _logger.LogDebug("Updated M+ score ({Score}) for {Character}-{Realm} in {Count} roster(s)",
+                            mplusScore, charInfo.Name, charInfo.Realm, rosterMembers.Count);
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                // Non-critical - don't fail the command if roster update fails
+                _logger.LogDebug(ex, "Failed to update roster M+ score for {Character}", charInfo.Name);
+            }
+        }
 
         private async Task<RaiderIOModels.RioMythicPlusChar> FetchRioDataAsync(CharacterInfo charInfo)
         {
@@ -689,26 +913,91 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             }
         }
 
-        private async Task<List<LogCharRankings>> FetchWclDataAsync(CharacterInfo charInfo)
+        private async Task<ArmoryAchievementsSummary> FetchAchievementsAsync(CharacterInfo charInfo)
         {
             try
             {
-                _logger.LogInformation("Fetching WCL data for {Character} on {Realm}-{Region}",
-                    charInfo.Name, charInfo.RealmSlug, charInfo.Region);
+                return await _wowApi.GetAchievementsSummaryAsync(charInfo.Name, charInfo.RealmSlug, charInfo.Region);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to fetch achievements for {Character}", charInfo.Name);
+                return null;
+            }
+        }
 
-                var result = await _wclApi.GetRankingFromCharName(
+        private async Task<ArmoryMedia> FetchArmoryMediaAsync(CharacterInfo charInfo)
+        {
+            try
+            {
+                return await _wowApi.GetArmoryMediaAsync(charInfo.Name, charInfo.RealmSlug, charInfo.Region);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to fetch armory media for {Character}", charInfo.Name);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Fetches WCL zone rankings using V2 API for current raid tier
+        /// </summary>
+        private async Task<(WclV2ZoneRankingsData Rankings, int ZoneId)> FetchWclV2DataAsync(CharacterInfo charInfo, int? difficultyFilter = null, int? partitionFilter = 1)
+        {
+            try
+            {
+                // Get current raid tier zone ID from static property
+                var currentZoneId = (int)(WarcraftLogs.CurrentRaidTier?.WclZoneId ?? 0);
+                if (currentZoneId == 0)
+                {
+                    _logger.LogWarning("No current raid tier configured - WCL rankings unavailable. " +
+                        "Use /refresh-raid-tier to detect the current tier.");
+                    return (null, 0);
+                }
+
+                _logger.LogInformation("Fetching WCL V2 data for {Character} on {Realm}-{Region}, Zone: {ZoneId}, Partition: {Partition}",
+                    charInfo.Name, charInfo.RealmSlug, charInfo.Region, currentZoneId, partitionFilter ?? 0);
+
+                var result = await _wclV2Api.GetCharacterZoneRankingsAsync(
                     charInfo.Name,
                     charInfo.RealmSlug,
-                    charInfo.Region);
+                    charInfo.Region,
+                    currentZoneId,
+                    difficultyFilter,
+                    partitionFilter);
 
-                _logger.LogInformation("WCL returned {Count} rankings for {Character}",
-                    result?.Count ?? 0, charInfo.Name);
+                _logger.LogInformation("WCL V2 returned {Count} boss rankings for {Character}",
+                    result?.Rankings?.Count ?? 0, charInfo.Name);
+
+                return (result, currentZoneId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch WCL V2 data for {Character} on {Realm}", charInfo.Name, charInfo.RealmSlug);
+                return (null, 0);
+            }
+        }
+
+        /// <summary>
+        /// Fetches WCL zone rankings with specific difficulty and partition filter
+        /// </summary>
+        private async Task<WclV2ZoneRankingsData> FetchWclV2DataWithFiltersAsync(CharacterInfo charInfo, int zoneId, int? difficultyFilter, int? partitionFilter = 1)
+        {
+            try
+            {
+                var result = await _wclV2Api.GetCharacterZoneRankingsAsync(
+                    charInfo.Name,
+                    charInfo.RealmSlug,
+                    charInfo.Region,
+                    zoneId,
+                    difficultyFilter,
+                    partitionFilter);
 
                 return result;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to fetch WCL data for {Character} on {Realm}", charInfo.Name, charInfo.RealmSlug);
+                _logger.LogWarning(ex, "Failed to fetch WCL V2 data with filters for {Character}", charInfo.Name);
                 return null;
             }
         }
@@ -759,10 +1048,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     var repo = uow.Repository<WowCharAssociation>();
                     var userIdLong = (long)userId;
 
-                    var existing = await repo.FirstOrDefaultAsync(c =>
-                        c.UserId == userIdLong &&
-                        c.CharName.ToLower() == charInfo.Name.ToLower() &&
-                        c.WowRealm.ToLower() == charInfo.Realm.ToLower());
+                    // Get all user chars and check using normalized realm comparison
+                    var allUserChars = await repo.WhereAsync(c => c.UserId == userIdLong);
+                    var normalizedName = charInfo.Name.ToLower();
+                    var normalizedRealm = CharViewHelpers.NormalizeRealmForComparison(charInfo.Realm);
+
+                    var existing = allUserChars?.FirstOrDefault(c =>
+                        c.CharName.ToLower() == normalizedName &&
+                        CharViewHelpers.NormalizeRealmForComparison(c.WowRealm) == normalizedRealm);
 
                     return existing != null;
                 });
@@ -771,6 +1064,91 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             {
                 _logger.LogDebug(ex, "Error checking if character is saved");
                 return false;
+            }
+        }
+
+        private async Task LogCharLookupAsync(CharacterInfo charInfo)
+        {
+            try
+            {
+                // ~5 API calls: RIO, armory summary, equipment, media, achievements
+                await WithDbAsync(async db =>
+                {
+                    db.ApiUsageLogs.Add(new ApiUsageLog
+                    {
+                        GuildId = Context.Guild != null ? (long)Context.Guild.Id : 0,
+                        UserId = (long)Context.User.Id,
+                        Operation = "CharLookup",
+                        ApiCallCount = 5,
+                        WowRealm = charInfo.Realm,
+                        WowRegion = charInfo.Region,
+                        CharacterName = charInfo.Name,
+                        Timestamp = DateTime.UtcNow
+                    });
+                    await db.SaveChangesAsync();
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to log char lookup API usage");
+            }
+        }
+
+        /// <summary>
+        /// Gets item media with caching. Checks DB cache first, then fetches from API and caches result.
+        /// Item icons are static and never change, so we cache indefinitely.
+        /// </summary>
+        private async Task<ArmoryItemMedia> GetItemMediaCachedAsync(int itemId, string region)
+        {
+            try
+            {
+                // Check cache first
+                var cached = await WithDbAsync(async db =>
+                    await db.ItemMediaCache.FindAsync((long)itemId));
+
+                if (cached != null)
+                {
+                    _logger.LogDebug("Item media cache hit for item {ItemId}", itemId);
+                    return new ArmoryItemMedia
+                    {
+                        Assets = new List<ArmoryAsset>
+                        {
+                            new ArmoryAsset { Key = "icon", Value = cached.IconUrl }
+                        }
+                    };
+                }
+
+                // Cache miss - fetch from API
+                _logger.LogDebug("Item media cache miss for item {ItemId}, fetching from API", itemId);
+                var itemMedia = await _wowApi.GetItemMediaAsync(itemId, region);
+
+                // Extract icon URL and cache it
+                var iconUrl = itemMedia?.Assets?.FirstOrDefault(a => a.Key == "icon")?.Value;
+                if (!string.IsNullOrEmpty(iconUrl))
+                {
+                    await WithDbAsync(async db =>
+                    {
+                        // Use upsert pattern in case of race condition
+                        var existing = await db.ItemMediaCache.FindAsync((long)itemId);
+                        if (existing == null)
+                        {
+                            db.ItemMediaCache.Add(new ItemMediaCache
+                            {
+                                ItemId = itemId,
+                                IconUrl = iconUrl,
+                                CachedAt = DateTime.UtcNow
+                            });
+                            await db.SaveChangesAsync();
+                        }
+                    });
+                }
+
+                return itemMedia;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to get item media for item {ItemId}", itemId);
+                return null;
             }
         }
 

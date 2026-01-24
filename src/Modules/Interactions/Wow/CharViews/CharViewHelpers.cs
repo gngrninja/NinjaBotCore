@@ -1,5 +1,6 @@
 using Discord;
 using System;
+using System.Linq;
 
 namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
 {
@@ -133,6 +134,34 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             if (string.IsNullOrEmpty(text) || text.Length <= maxLength)
                 return text;
             return text.Substring(0, maxLength - 3) + "...";
+        }
+
+        /// <summary>
+        /// Normalize realm name for comparison (removes spaces, dashes, apostrophes)
+        /// </summary>
+        public static string NormalizeRealmForComparison(string realm)
+        {
+            return realm?.Replace(" ", "").Replace("-", "").Replace("'", "").ToLower() ?? "";
+        }
+
+        /// <summary>
+        /// Normalize equipment slot name for display (MAIN_HAND -> Main Hand)
+        /// </summary>
+        public static string NormalizeSlot(string slot)
+        {
+            return slot switch
+            {
+                "FINGER_1" => "Ring 1",
+                "FINGER_2" => "Ring 2",
+                "TRINKET_1" => "Trinket 1",
+                "TRINKET_2" => "Trinket 2",
+                "MAIN_HAND" => "Main Hand",
+                "OFF_HAND" => "Off Hand",
+                _ => slot.Replace('_', ' ').ToLowerInvariant()
+                    .Split(' ')
+                    .Select(w => char.ToUpper(w[0]) + w.Substring(1))
+                    .Aggregate((a, b) => $"{a} {b}")
+            };
         }
     }
 }

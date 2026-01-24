@@ -1,4 +1,4 @@
-# Production environment - runs the bot in Docker
+# Production environment - runs the bot and helpers in Docker
 # Database: External PostgreSQL (configured via .env.production)
 #
 # Usage:
@@ -24,6 +24,21 @@ services:
       - ./config:/app/config:ro  # Optional: config.json fallback (env vars take precedence)
       - ./logs:/app/logs
       - ./help.txt:/app/help.txt:ro
+
+  ninjabot-helpers:
+    build:
+      context: ./services/NinjaBotHelpers
+      dockerfile: Dockerfile
+    container_name: ninjabot-helpers
+    restart: unless-stopped
+    environment:
+      - DOTNET_ENVIRONMENT=Production
+    env_file:
+      - .env.production  # Shares credentials with main bot
+    volumes:
+      - ./logs/helpers:/app/logs
+    depends_on:
+      - ninjabot  # Ensures bot starts first (not strictly required, but logical)
 
 volumes:
   # Legacy volume (kept for backwards compatibility)

@@ -9,6 +9,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "test", "test", "{31932E90-7
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NinjaBotCore.Tests", "test\NinjaBotCore.Tests\NinjaBotCore.Tests.csproj", "{B6C6DFF6-EC1A-4160-8244-1D0010E1194A}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "services", "services", "{A1B2C3D4-E5F6-4789-ABCD-EF0123456789}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NinjaBotHelpers", "services\NinjaBotHelpers\NinjaBotHelpers.csproj", "{D4E5F6A7-B8C9-4D01-2345-6789ABCDEF01}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -46,8 +50,21 @@ Global
 		{B6C6DFF6-EC1A-4160-8244-1D0010E1194A}.Release|x64.Build.0 = Release|Any CPU
 		{B6C6DFF6-EC1A-4160-8244-1D0010E1194A}.Release|x86.ActiveCfg = Release|Any CPU
 		{B6C6DFF6-EC1A-4160-8244-1D0010E1194A}.Release|x86.Build.0 = Release|Any CPU
+		{D4E5F6A7-B8C9-4D01-2345-6789ABCDEF01}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D4E5F6A7-B8C9-4D01-2345-6789ABCDEF01}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D4E5F6A7-B8C9-4D01-2345-6789ABCDEF01}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D4E5F6A7-B8C9-4D01-2345-6789ABCDEF01}.Debug|x64.Build.0 = Debug|Any CPU
+		{D4E5F6A7-B8C9-4D01-2345-6789ABCDEF01}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D4E5F6A7-B8C9-4D01-2345-6789ABCDEF01}.Debug|x86.Build.0 = Debug|Any CPU
+		{D4E5F6A7-B8C9-4D01-2345-6789ABCDEF01}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D4E5F6A7-B8C9-4D01-2345-6789ABCDEF01}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D4E5F6A7-B8C9-4D01-2345-6789ABCDEF01}.Release|x64.ActiveCfg = Release|Any CPU
+		{D4E5F6A7-B8C9-4D01-2345-6789ABCDEF01}.Release|x64.Build.0 = Release|Any CPU
+		{D4E5F6A7-B8C9-4D01-2345-6789ABCDEF01}.Release|x86.ActiveCfg = Release|Any CPU
+		{D4E5F6A7-B8C9-4D01-2345-6789ABCDEF01}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{B6C6DFF6-EC1A-4160-8244-1D0010E1194A} = {31932E90-75BA-497C-8275-88D7DED0D86F}
+		{D4E5F6A7-B8C9-4D01-2345-6789ABCDEF01} = {A1B2C3D4-E5F6-4789-ABCD-EF0123456789}
 	EndGlobalSection
 EndGlobal

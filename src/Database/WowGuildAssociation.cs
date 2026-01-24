@@ -17,5 +17,20 @@ namespace NinjaBotCore.Database
         public string SetBy { get; set; }
         public Nullable<long> SetById { get; set; }
         public Nullable<System.DateTime> TimeSet { get; set; }
+
+        /// <summary>
+        /// Last time M+ scores were bulk refreshed for this guild
+        /// </summary>
+        public DateTime? LastMPlusRefresh { get; set; }
+
+        /// <summary>
+        /// Number of M+ refreshes today (resets daily)
+        /// </summary>
+        public int MPlusRefreshCountToday { get; set; }
+
+        /// <summary>
+        /// Date for the refresh count (to detect daily reset)
+        /// </summary>
+        public DateTime? MPlusRefreshDate { get; set; }
     }
 }

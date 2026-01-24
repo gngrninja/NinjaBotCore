@@ -56,5 +56,20 @@ namespace NinjaBotCore.Database
         /// When this roster data was last fetched from WoW API
         /// </summary>
         public DateTime LastUpdated { get; set; }
+
+        /// <summary>
+        /// Character's equipped item level (from Armory API)
+        /// </summary>
+        public int? ItemLevel { get; set; }
+
+        /// <summary>
+        /// Character's Mythic+ score (from M+ Profile API)
+        /// </summary>
+        public double? MythicPlusScore { get; set; }
+
+        /// <summary>
+        /// Character's class ID (from guild roster API)
+        /// </summary>
+        public long? ClassId { get; set; }
     }
 }

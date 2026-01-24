@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run bot in Docker development environment (matches production setup)
-# This runs both PostgreSQL and the bot in Docker containers
+# This runs PostgreSQL, bot, and helpers in Docker containers
 #
 # Usage:
 #   ./run-bot-dev.sh          # Start/restart the dev environment
@@ -72,11 +72,11 @@ if [ "$STOP_ONLY" = true ]; then
     exit 0
 fi
 
-# Handle local mode (bot runs outside Docker, DB in Docker)
+# Handle local mode (bot runs outside Docker, DB + helpers in Docker)
 if [ "$RUN_LOCAL" = true ]; then
     echo "Starting in LOCAL mode (bot outside Docker)..."
 
-    # Start only the database
+    # Start database and helpers
     if ! docker ps | grep -q ninjabot-test-db; then
         echo "Starting dev database..."
         docker compose -f docker-compose.dev.yml up -d postgres-dev
@@ -90,14 +90,20 @@ if [ "$RUN_LOCAL" = true ]; then
     dotnet ef database update --connection "$DB_CONNECTION"
     cd ..
 
+    # Start helpers in Docker
+    echo "Starting helpers container..."
+    docker compose -f docker-compose.dev.yml up -d $BUILD_FLAG ninjabot-helpers-dev
+
     echo ""
     echo "=========================================="
     echo "Starting NinjaBot (Local Mode)"
     echo "=========================================="
     echo "Bot: Running locally via dotnet run"
+    echo "Helpers: Docker container"
     echo "Database: Docker (localhost:5433)"
     echo "API: http://localhost:5100"
     echo "=========================================="
+    echo "Helper logs: docker compose -f docker-compose.dev.yml logs -f ninjabot-helpers-dev"
     echo ""
 
     cd src
@@ -139,9 +145,9 @@ dotnet ef database update --connection "$DB_CONNECTION"
 cd ..
 echo "Migrations applied!"
 
-# Step 4: Now start the bot container
-echo "Starting bot container..."
-docker compose -f docker-compose.dev.yml up -d $BUILD_FLAG ninjabot-dev
+# Step 4: Now start the bot and helpers containers
+echo "Starting bot and helpers containers..."
+docker compose -f docker-compose.dev.yml up -d $BUILD_FLAG ninjabot-dev ninjabot-helpers-dev
 
 echo ""
 echo "=========================================="
@@ -150,11 +156,14 @@ echo "=========================================="
 echo ""
 echo "Services:"
 echo "  - Bot:      Running in Docker"
+echo "  - Helpers:  Running in Docker (realm watcher)"
 echo "  - Database: PostgreSQL (localhost:5433)"
 echo "  - API:      http://localhost:5100"
 echo ""
 echo "Commands:"
-echo "  View logs:  docker compose -f docker-compose.dev.yml logs -f ninjabot-dev"
+echo "  View logs:  docker compose -f docker-compose.dev.yml logs -f"
+echo "  Bot logs:   docker compose -f docker-compose.dev.yml logs -f ninjabot-dev"
+echo "  Helper logs: docker compose -f docker-compose.dev.yml logs -f ninjabot-helpers-dev"
 echo "  Stop:       ./run-bot-dev.sh --stop"
 echo "  Rebuild:    ./run-bot-dev.sh --build"
 echo ""
@@ -162,5 +171,5 @@ echo ""
 # Show logs if requested
 if [ "$SHOW_LOGS" = true ]; then
     echo "Showing logs (Ctrl+C to exit)..."
-    docker compose -f docker-compose.dev.yml logs -f ninjabot-dev
+    docker compose -f docker-compose.dev.yml logs -f ninjabot-dev ninjabot-helpers-dev
 fi

@@ -61,6 +61,10 @@ namespace NinjaBotCore.Database
         public virtual DbSet<PollOption> PollOptions { get; set; }
         public virtual DbSet<PollVote> PollVotes { get; set; }
         public virtual DbSet<ServerPollSettings> ServerPollSettings { get; set; }
+        public virtual DbSet<RealmWatchSubscription> RealmWatchSubscriptions { get; set; }
+        public virtual DbSet<RealmStatusCache> RealmStatusCache { get; set; }
+        public virtual DbSet<ApiUsageLog> ApiUsageLogs { get; set; }
+        public virtual DbSet<ItemMediaCache> ItemMediaCache { get; set; }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {

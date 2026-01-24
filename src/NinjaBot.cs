@@ -8,10 +8,8 @@ using System;
 using NinjaBotCore.Modules.Wow;
 using NinjaBotCore.Modules.Interactions.Wow;
 using NinjaBotCore.Modules.Admin;
-using NinjaBotCore.Modules.Steam;
 using Microsoft.Extensions.Configuration;
 using NinjaBotCore.Services;
-using NinjaBotCore.Modules.YouTube;
 using NinjaBotCore.Common;
 using Serilog;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -110,6 +108,7 @@ namespace NinjaBotCore
                 .AddSingleton<HelpContentProvider>()
                 .AddSingleton<CommandsApiService>()
                 .AddSingleton<PollExpirationService>()
+                // RealmWatcherService moved to NinjaBotHelpers container
                 .AddSingleton<WowCacheService>()
                 .AddSingleton<CharacterResolver>()
                 .AddSingleton<WowTokenService>()
@@ -129,12 +128,8 @@ namespace NinjaBotCore
                 .AddScoped<Repositories.IUnitOfWork, Repositories.UnitOfWork>()
                 // Repository uses [ActivatorUtilitiesConstructor] to prefer NinjaBotEntities constructor
                 .AddScoped(typeof(Repositories.IRepository<>), typeof(Repositories.Repository<>))
-                .AddSingleton<SteamApi>()
-                .AddSingleton<ISteamApi>(sp => sp.GetRequiredService<SteamApi>())
                 .AddSingleton<RaiderIOApi>()
                 .AddSingleton<IRaiderIOApi>(sp => sp.GetRequiredService<RaiderIOApi>())
-                .AddSingleton<YouTubeApi>()
-                .AddSingleton<IYouTubeApi>(sp => sp.GetRequiredService<YouTubeApi>())
                 .AddSingleton<AudioService>()       
                 .AddWarcraftClients(_config["WoWClient"], _config["WoWSecret"])         
                 .AddSingleton<LoggingService>();                   
@@ -182,6 +177,8 @@ namespace NinjaBotCore
             // Start Poll Expiration Service
             var pollExpirationService = serviceProvider.GetRequiredService<PollExpirationService>();
             await pollExpirationService.StartAsync(CancellationToken.None);
+
+            // RealmWatcherService runs in separate NinjaBotHelpers container
 
             //Setup graceful shutdown
             var shutdownCts = new CancellationTokenSource();
