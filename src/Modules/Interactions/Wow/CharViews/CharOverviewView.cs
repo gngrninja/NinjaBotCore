@@ -145,7 +145,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             // Encode character info for button custom IDs
             var charParam = $"{charInfo.Name}~{charInfo.Realm}~{charInfo.Region}";
 
-            // Row 1: View buttons
+            // Row 0: Primary view buttons
             builder.WithButton(
                 label: "Armory",
                 customId: $"char_view_gear~{userId}~{charParam}",
@@ -170,13 +170,28 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 emote: new Emoji("\U0001F4CA"),
                 row: 0);
 
+            // Row 1: Secondary view buttons
+            builder.WithButton(
+                label: "PvP",
+                customId: $"char_view_pvp~{userId}~{charParam}",
+                style: ButtonStyle.Primary,
+                emote: new Emoji("⚔️"),
+                row: 1);
+
+            builder.WithButton(
+                label: "Mounts",
+                customId: $"char_view_mounts~{userId}~{charParam}",
+                style: ButtonStyle.Primary,
+                emote: new Emoji("🐴"),
+                row: 1);
+
             builder.WithButton(
                 label: "Achievements",
                 customId: $"char_view_achievements~{userId}~{charParam}",
                 style: hasAchievements ? ButtonStyle.Primary : ButtonStyle.Secondary,
                 emote: new Emoji("🏆"),
                 disabled: !hasAchievements,
-                row: 0);
+                row: 1);
 
             // Row 2: Action buttons
             if (isAlreadySaved)
@@ -187,7 +202,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                     style: ButtonStyle.Secondary,
                     emote: new Emoji("✅"),
                     disabled: true,
-                    row: 1);
+                    row: 2);
             }
             else
             {
@@ -196,7 +211,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                     customId: $"char_save~{userId}~{charParam}",
                     style: ButtonStyle.Success,
                     emote: new Emoji("💾"),
-                    row: 1);
+                    row: 2);
             }
 
             builder.WithButton(
@@ -204,21 +219,21 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 customId: $"char_refresh~{userId}~{charParam}",
                 style: ButtonStyle.Secondary,
                 emote: new Emoji("🔄"),
-                row: 1);
+                row: 2);
 
             builder.WithButton(
                 label: "Share",
                 customId: $"char_share~{userId}~{charParam}",
                 style: ButtonStyle.Secondary,
                 emote: new Emoji("📢"),
-                row: 1);
+                row: 2);
 
             builder.WithButton(
-                label: "My Characters",
+                label: "My Chars",
                 customId: $"char_manage_ret~{userId}~{charParam}",
                 style: ButtonStyle.Secondary,
                 emote: new Emoji("📋"),
-                row: 1);
+                row: 2);
 
             return builder;
         }
@@ -235,14 +250,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             var builder = new ComponentBuilder();
             var charParam = $"{charInfo.Name}~{charInfo.Realm}~{charInfo.Region}";
 
-            // Row 1: Navigation
-            builder.WithButton(
-                label: "Overview",
-                customId: $"char_view_overview~{userId}~{charParam}",
-                style: currentView == "overview" ? ButtonStyle.Success : ButtonStyle.Secondary,
-                emote: new Emoji("📋"),
-                row: 0);
-
+            // Row 0: Primary view buttons
             builder.WithButton(
                 label: "Armory",
                 customId: $"char_view_gear~{userId}~{charParam}",
@@ -264,14 +272,29 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 emote: new Emoji("📊"),
                 row: 0);
 
+            // Row 1: Secondary view buttons
+            builder.WithButton(
+                label: "PvP",
+                customId: $"char_view_pvp~{userId}~{charParam}",
+                style: currentView == "pvp" ? ButtonStyle.Success : ButtonStyle.Primary,
+                emote: new Emoji("⚔️"),
+                row: 1);
+
+            builder.WithButton(
+                label: "Mounts",
+                customId: $"char_view_mounts~{userId}~{charParam}",
+                style: currentView == "mounts" ? ButtonStyle.Success : ButtonStyle.Primary,
+                emote: new Emoji("🐴"),
+                row: 1);
+
             builder.WithButton(
                 label: "Achievements",
                 customId: $"char_view_achievements~{userId}~{charParam}",
                 style: currentView == "achievements" ? ButtonStyle.Success : ButtonStyle.Primary,
                 emote: new Emoji("🏆"),
-                row: 0);
+                row: 1);
 
-            // Row 2: Actions
+            // Row 2: Action buttons (no Refresh on detail views)
             if (isAlreadySaved)
             {
                 builder.WithButton(
@@ -280,7 +303,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                     style: ButtonStyle.Secondary,
                     emote: new Emoji("✅"),
                     disabled: true,
-                    row: 1);
+                    row: 2);
             }
             else
             {
@@ -289,7 +312,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                     customId: $"char_save~{userId}~{charParam}",
                     style: ButtonStyle.Success,
                     emote: new Emoji("💾"),
-                    row: 1);
+                    row: 2);
             }
 
             builder.WithButton(
@@ -297,14 +320,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 customId: $"char_share~{userId}~{charParam}",
                 style: ButtonStyle.Secondary,
                 emote: new Emoji("📢"),
-                row: 1);
+                row: 2);
 
             builder.WithButton(
-                label: "My Characters",
+                label: "My Chars",
                 customId: $"char_manage_ret~{userId}~{charParam}",
                 style: ButtonStyle.Secondary,
                 emote: new Emoji("📋"),
-                row: 1);
+                row: 2);
 
             return builder;
         }

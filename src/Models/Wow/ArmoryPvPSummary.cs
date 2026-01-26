@@ -59,11 +59,8 @@ namespace NinjaBotCore.Models.Wow
 
     public class ArmoryPvPBracket
     {
-        [JsonProperty("character")]
-        public ArmoryCharacterRef Character { get; set; }
-
-        [JsonProperty("faction")]
-        public ArmoryType Faction { get; set; }
+        // Character and Faction fields ignored - API returns localized names as objects, not strings
+        // We don't need them anyway, we already have character info from the command context
 
         [JsonProperty("bracket")]
         public ArmoryBracketType Bracket { get; set; }

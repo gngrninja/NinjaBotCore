@@ -67,7 +67,7 @@ namespace NinjaBotCore.Tests
             }
 
             // Act
-            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>());
+            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>(), _provider.GetRequiredService<ILogger<WowCacheService>>());
             var result = await cacheService.GetServerGreetingAsync(guildId);
 
             // Assert
@@ -97,7 +97,7 @@ namespace NinjaBotCore.Tests
             }
 
             // Act
-            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>());
+            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>(), _provider.GetRequiredService<ILogger<WowCacheService>>());
             var result = await cacheService.GetServerGreetingAsync(guildId);
 
             // Assert
@@ -113,7 +113,7 @@ namespace NinjaBotCore.Tests
             // No greeting settings in database
 
             // Act
-            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>());
+            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>(), _provider.GetRequiredService<ILogger<WowCacheService>>());
             var result = await cacheService.GetServerGreetingAsync(guildId);
 
             // Assert
@@ -140,7 +140,7 @@ namespace NinjaBotCore.Tests
             }
 
             // Act
-            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>());
+            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>(), _provider.GetRequiredService<ILogger<WowCacheService>>());
             var result = await cacheService.GetServerGreetingAsync(guildId);
 
             // Assert
@@ -170,7 +170,7 @@ namespace NinjaBotCore.Tests
             }
 
             // Act
-            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>());
+            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>(), _provider.GetRequiredService<ILogger<WowCacheService>>());
             var result = await cacheService.GetServerGreetingAsync(guildId);
 
             // Assert
@@ -196,7 +196,7 @@ namespace NinjaBotCore.Tests
                 await db.SaveChangesAsync();
             }
 
-            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>());
+            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>(), _provider.GetRequiredService<ILogger<WowCacheService>>());
 
             // Act - First call hits database and caches
             var result1 = await cacheService.GetServerGreetingAsync(guildId);
@@ -236,7 +236,7 @@ namespace NinjaBotCore.Tests
                 await db.SaveChangesAsync();
             }
 
-            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>());
+            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>(), _provider.GetRequiredService<ILogger<WowCacheService>>());
 
             // Act - First call caches the greeting
             var result1 = await cacheService.GetServerGreetingAsync(guildId);
@@ -286,7 +286,7 @@ namespace NinjaBotCore.Tests
                 await db.SaveChangesAsync();
             }
 
-            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>());
+            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>(), _provider.GetRequiredService<ILogger<WowCacheService>>());
 
             // Act
             var result1 = await cacheService.GetServerGreetingAsync(111111);

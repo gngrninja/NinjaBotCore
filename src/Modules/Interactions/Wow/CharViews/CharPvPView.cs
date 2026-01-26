@@ -36,10 +36,23 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             // Rated brackets
             sb.AppendLine("**Rated PvP**");
 
-            var twos = bracketDetails.FirstOrDefault(b => b.Bracket?.Type == "ARENA_2v2");
-            var threes = bracketDetails.FirstOrDefault(b => b.Bracket?.Type == "ARENA_3v3");
-            var rbg = bracketDetails.FirstOrDefault(b => b.Bracket?.Type == "BATTLEGROUNDS" || b.Bracket?.Type == "RBG");
-            var shuffle = bracketDetails.FirstOrDefault(b => b.Bracket?.Type?.Contains("SHUFFLE") == true);
+            // Bracket types from API: "2v2", "3v3", "shuffle-class-spec", "blitz-class-spec", etc.
+            var twos = bracketDetails.FirstOrDefault(b =>
+                b.Bracket?.Type?.Equals("2v2", StringComparison.OrdinalIgnoreCase) == true ||
+                b.Bracket?.Type?.Equals("ARENA_2v2", StringComparison.OrdinalIgnoreCase) == true);
+            var threes = bracketDetails.FirstOrDefault(b =>
+                b.Bracket?.Type?.Equals("3v3", StringComparison.OrdinalIgnoreCase) == true ||
+                b.Bracket?.Type?.Equals("ARENA_3v3", StringComparison.OrdinalIgnoreCase) == true);
+            var shuffle = bracketDetails.FirstOrDefault(b =>
+                b.Bracket?.Type?.StartsWith("shuffle", StringComparison.OrdinalIgnoreCase) == true ||
+                b.Bracket?.Type?.Contains("SHUFFLE", StringComparison.OrdinalIgnoreCase) == true);
+            var blitz = bracketDetails.FirstOrDefault(b =>
+                b.Bracket?.Type?.StartsWith("blitz", StringComparison.OrdinalIgnoreCase) == true ||
+                b.Bracket?.Type?.Contains("BLITZ", StringComparison.OrdinalIgnoreCase) == true);
+            // Legacy RBG format
+            var rbg = bracketDetails.FirstOrDefault(b =>
+                b.Bracket?.Type?.Equals("BATTLEGROUNDS", StringComparison.OrdinalIgnoreCase) == true ||
+                b.Bracket?.Type?.Equals("RBG", StringComparison.OrdinalIgnoreCase) == true);
 
             if (twos != null)
             {
@@ -75,8 +88,20 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 sb.AppendLine($"🔀 **Solo Shuffle:** {shuffle.Rating} {rankTitle}");
                 sb.AppendLine($"   Season: {record}");
             }
+            else
+            {
+                sb.AppendLine($"🔀 **Solo Shuffle:** No data");
+            }
 
-            if (rbg != null)
+            if (blitz != null)
+            {
+                var rankTitle = GetRankTitle(blitz.Rating);
+                var stats = blitz.SeasonMatchStatistics;
+                var record = stats != null ? $"{stats.Won}W / {stats.Lost}L" : "-";
+                sb.AppendLine($"🏰 **Battleground Blitz:** {blitz.Rating} {rankTitle}");
+                sb.AppendLine($"   Season: {record}");
+            }
+            else if (rbg != null)
             {
                 var rankTitle = GetRankTitle(rbg.Rating);
                 var stats = rbg.SeasonMatchStatistics;
@@ -86,7 +111,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             }
             else
             {
-                sb.AppendLine($"🏰 **Rated BG:** No data");
+                sb.AppendLine($"🏰 **Battleground Blitz:** No data");
             }
 
             // Battleground stats
@@ -124,7 +149,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
 
             // Links
             embed.AddField("Armory", $"[View]({charInfo.ArmoryUrl})", true);
-            embed.AddField("Check-PvP", $"[View](https://check-pvp.fr/us/{charInfo.Realm}/{charInfo.Name})", true);
+            embed.AddField("Check-PvP", $"[View](https://check-pvp.fr/{charInfo.Region}/{Uri.EscapeDataString(charInfo.Realm)}/{charInfo.Name})", true);
 
             // Image
             embed.ThumbnailUrl = media?.Assets?.FirstOrDefault(a => a.Key == "avatar")?.Value;
@@ -144,7 +169,6 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             if (rating >= 1800) return "🥇 Rival";
             if (rating >= 1600) return "🥈 Challenger";
             if (rating >= 1400) return "🥉 Combatant";
-            if (rating > 0) return "";
             return "";
         }
     }

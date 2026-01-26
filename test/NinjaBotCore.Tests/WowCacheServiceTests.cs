@@ -35,7 +35,8 @@ namespace NinjaBotCore.Tests
             _provider = services.BuildServiceProvider();
             _cacheService = new WowCacheService(
                 _provider.GetRequiredService<IMemoryCache>(),
-                _provider.GetRequiredService<IServiceScopeFactory>());
+                _provider.GetRequiredService<IServiceScopeFactory>(),
+                _provider.GetRequiredService<ILogger<WowCacheService>>());
         }
 
         [Fact]

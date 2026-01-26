@@ -28,6 +28,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private readonly WarcraftLogsV2Client _wclV2Api;
         private readonly WowUtilities _wowUtils;
         private readonly WowCacheService _wowCache;
+        private readonly WowStaticDataService _wowStaticData;
 
         public CharCommands(
             IServiceScopeFactory scopeFactory,
@@ -37,7 +38,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             WowApi wowApi,
             WarcraftLogsV2Client wclV2Api,
             WowUtilities wowUtils,
-            WowCacheService wowCache)
+            WowCacheService wowCache,
+            WowStaticDataService wowStaticData)
             : base(scopeFactory)
         {
             _logger = logger;
@@ -47,6 +49,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             _wclV2Api = wclV2Api;
             _wowUtils = wowUtils;
             _wowCache = wowCache;
+            _wowStaticData = wowStaticData;
         }
 
         [SlashCommand("char", "View character profile with gear, M+, and logs")]
@@ -98,6 +101,13 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
                 // Log API usage (~4-5 calls: RIO, summary, equipment, media, achievements)
                 _ = LogCharLookupAsync(charInfo);
+
+                // Record search history for autocomplete (fire-and-forget)
+                _ = _wowCache.RecordSearchHistoryAsync(
+                    (long)Context.User.Id,
+                    charInfo.Name,
+                    charInfo.Realm,
+                    charInfo.Region);
 
                 // Update roster member's M+ score if they exist in any guild roster
                 // Fire-and-forget to not delay the response
@@ -621,6 +631,157 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             });
         }
 
+        [ComponentInteraction("char_view_pvp~*~*")]
+        public async Task HandleViewPvP(string userIdStr, string charParam)
+        {
+            if (!ValidateUser(userIdStr, out var errorMsg))
+            {
+                await RespondAsync(errorMsg, ephemeral: true);
+                return;
+            }
+
+            await DeferAsync();
+
+            var charInfo = ParseCharParam(charParam);
+            if (charInfo == null)
+            {
+                await FollowupAsync("Invalid character data.", ephemeral: true);
+                return;
+            }
+
+            // Fetch PvP data, media, and summary in parallel
+            var pvpTask = FetchPvPSummaryAsync(charInfo);
+            var mediaTask = FetchArmoryMediaAsync(charInfo);
+            var summaryTask = _wowApi.GetArmorySummaryAsync(charInfo.Name, charInfo.Realm, charInfo.Region);
+
+            await Task.WhenAll(pvpTask, mediaTask, summaryTask);
+
+            var pvpSummary = await pvpTask;
+            var media = await mediaTask;
+            ArmorySummary summary = null;
+            try { summary = await summaryTask; } catch { }
+
+            if (pvpSummary == null)
+            {
+                // Check if character is already saved for component building
+                var isAlreadySavedNoData = await IsCharacterSavedAsync(charInfo, Context.User.Id);
+
+                var noDataEmbed = new EmbedBuilder()
+                    .WithTitle($"PvP - {charInfo.Name}")
+                    .WithDescription("No PvP activity found for this character.\n\nThis character may not have participated in rated PvP this season.")
+                    .WithColor(new Color(255, 165, 0))
+                    .WithThumbnailUrl(media?.Assets?.FirstOrDefault(a => a.Key == "avatar")?.Value)
+                    .WithFooter($"{charInfo.Realm} ({charInfo.Region.ToUpper()})")
+                    .Build();
+
+                var noDataComponents = CharOverviewView.BuildDetailViewComponents(Context.User.Id, charInfo, "pvp", isAlreadySavedNoData);
+
+                await ModifyOriginalResponseAsync(msg =>
+                {
+                    msg.Embed = noDataEmbed;
+                    msg.Components = noDataComponents.Build();
+                });
+                return;
+            }
+
+            // Fetch bracket details
+            var bracketDetails = await FetchPvPBracketDetailsAsync(pvpSummary, charInfo.Region);
+
+            // Check if character is already saved
+            var isAlreadySaved = await IsCharacterSavedAsync(charInfo, Context.User.Id);
+
+            var embed = CharPvPView.Build(charInfo, pvpSummary, bracketDetails, summary, media);
+            var components = CharOverviewView.BuildDetailViewComponents(Context.User.Id, charInfo, "pvp", isAlreadySaved);
+
+            await ModifyOriginalResponseAsync(msg =>
+            {
+                msg.Embed = embed.Build();
+                msg.Components = components.Build();
+            });
+        }
+
+        [ComponentInteraction("char_view_mounts~*~*")]
+        public async Task HandleViewMounts(string userIdStr, string charParam)
+        {
+            if (!ValidateUser(userIdStr, out var errorMsg))
+            {
+                await RespondAsync(errorMsg, ephemeral: true);
+                return;
+            }
+
+            await DeferAsync();
+
+            var charInfo = ParseCharParam(charParam);
+            if (charInfo == null)
+            {
+                await FollowupAsync("Invalid character data.", ephemeral: true);
+                return;
+            }
+
+            // Fetch mount collection, all mounts, and media in parallel
+            var mountCollectionTask = FetchMountCollectionAsync(charInfo);
+            var allMountsTask = _wowStaticData.GetAllMountsAsync();
+            var mediaTask = FetchArmoryMediaAsync(charInfo);
+
+            await Task.WhenAll(mountCollectionTask, allMountsTask, mediaTask);
+
+            var mountCollection = await mountCollectionTask;
+            var allMounts = await allMountsTask;
+            var media = await mediaTask;
+
+            // Check if character is already saved
+            var isAlreadySaved = await IsCharacterSavedAsync(charInfo, Context.User.Id);
+
+            if (mountCollection == null)
+            {
+                var noDataEmbed = new EmbedBuilder()
+                    .WithTitle($"Mount Collection - {charInfo.Name}")
+                    .WithDescription("Could not load mount collection data for this character.")
+                    .WithColor(new Color(255, 0, 0))
+                    .WithThumbnailUrl(media?.Assets?.FirstOrDefault(a => a.Key == "avatar")?.Value)
+                    .WithFooter($"{charInfo.Realm} ({charInfo.Region.ToUpper()})")
+                    .Build();
+
+                var noDataComponents = CharOverviewView.BuildDetailViewComponents(Context.User.Id, charInfo, "mounts", isAlreadySaved);
+
+                await ModifyOriginalResponseAsync(msg =>
+                {
+                    msg.Embed = noDataEmbed;
+                    msg.Components = noDataComponents.Build();
+                });
+                return;
+            }
+
+            if (allMounts == null || allMounts.Count == 0)
+            {
+                var noDbEmbed = new EmbedBuilder()
+                    .WithTitle($"Mount Collection - {charInfo.Name}")
+                    .WithDescription("The mount database is empty. Mount data needs to be synced.\n\nUse `/mounts-needed` for basic collection info.")
+                    .WithColor(new Color(255, 165, 0))
+                    .WithThumbnailUrl(media?.Assets?.FirstOrDefault(a => a.Key == "avatar")?.Value)
+                    .WithFooter($"{charInfo.Realm} ({charInfo.Region.ToUpper()})")
+                    .Build();
+
+                var noDbComponents = CharOverviewView.BuildDetailViewComponents(Context.User.Id, charInfo, "mounts", isAlreadySaved);
+
+                await ModifyOriginalResponseAsync(msg =>
+                {
+                    msg.Embed = noDbEmbed;
+                    msg.Components = noDbComponents.Build();
+                });
+                return;
+            }
+
+            var embed = CharMountsView.Build(charInfo, mountCollection, allMounts, media);
+            var components = CharOverviewView.BuildDetailViewComponents(Context.User.Id, charInfo, "mounts", isAlreadySaved);
+
+            await ModifyOriginalResponseAsync(msg =>
+            {
+                msg.Embed = embed.Build();
+                msg.Components = components.Build();
+            });
+        }
+
         #endregion
 
         #region Component Handlers - Actions
@@ -935,6 +1096,68 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Failed to fetch armory media for {Character}", charInfo.Name);
+                return null;
+            }
+        }
+
+        private async Task<ArmoryPvPSummary> FetchPvPSummaryAsync(CharacterInfo charInfo)
+        {
+            try
+            {
+                return await _wowApi.GetPvPSummaryAsync(charInfo.Name, charInfo.Realm, charInfo.Region);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to fetch PvP summary for {Character}", charInfo.Name);
+                return null;
+            }
+        }
+
+        private async Task<List<ArmoryPvPBracket>> FetchPvPBracketDetailsAsync(ArmoryPvPSummary summary, string region)
+        {
+            if (summary?.Brackets == null || summary.Brackets.Count == 0)
+                return new List<ArmoryPvPBracket>();
+
+            var validBrackets = summary.Brackets.Where(b => !string.IsNullOrEmpty(b.Href)).ToList();
+            if (validBrackets.Count == 0)
+                return new List<ArmoryPvPBracket>();
+
+            // Fetch all brackets in parallel
+            var tasks = validBrackets.Select(async bracketLink =>
+            {
+                try
+                {
+                    var response = await _wowApi.GetAPIRequestAsync(bracketLink.Href, true);
+                    var settings = new Newtonsoft.Json.JsonSerializerSettings
+                    {
+                        Error = (sender, args) =>
+                        {
+                            _logger.LogDebug("JSON parse error at {Path}: {Message}", args.ErrorContext.Path, args.ErrorContext.Error.Message);
+                            args.ErrorContext.Handled = true;
+                        }
+                    };
+                    return Newtonsoft.Json.JsonConvert.DeserializeObject<ArmoryPvPBracket>(response, settings);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to fetch bracket details from {Href}", bracketLink.Href);
+                    return null;
+                }
+            });
+
+            var results = await Task.WhenAll(tasks);
+            return results.Where(b => b != null).ToList();
+        }
+
+        private async Task<MountCollectionResponse> FetchMountCollectionAsync(CharacterInfo charInfo)
+        {
+            try
+            {
+                return await _wowApi.GetCharacterMountsAsync(charInfo.Name, charInfo.Realm, charInfo.Region);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to fetch mount collection for {Character}", charInfo.Name);
                 return null;
             }
         }

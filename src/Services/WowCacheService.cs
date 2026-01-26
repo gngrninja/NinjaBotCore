@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using NinjaBotCore.Database;
 using NinjaBotCore.Repositories;
 using NinjaBotCore.Models.Wow;
@@ -18,6 +19,7 @@ namespace NinjaBotCore.Services
     {
         private readonly IMemoryCache _cache;
         private readonly IServiceScopeFactory _scopeFactory;
+        private readonly ILogger<WowCacheService> _logger;
 
         // Cache expiration times
         private static readonly TimeSpan MainCharacterExpiration = TimeSpan.FromMinutes(15);
@@ -27,10 +29,11 @@ namespace NinjaBotCore.Services
         private static readonly TimeSpan GreetingExpiration = TimeSpan.FromMinutes(30);
         private static readonly TimeSpan ArmoryEquipmentExpiration = TimeSpan.FromMinutes(5);
 
-        public WowCacheService(IMemoryCache cache, IServiceScopeFactory scopeFactory)
+        public WowCacheService(IMemoryCache cache, IServiceScopeFactory scopeFactory, ILogger<WowCacheService> logger)
         {
             _cache = cache;
             _scopeFactory = scopeFactory;
+            _logger = logger;
         }
 
         /// <summary>
@@ -221,6 +224,73 @@ namespace NinjaBotCore.Services
         public void InvalidateRioSearchHistory(long userId)
         {
             _cache.Remove($"rio_search_history_{userId}");
+        }
+
+        /// <summary>
+        /// Records a character search to the user's search history.
+        /// Updates existing entry or creates new one. Maintains max 30 entries per user.
+        /// </summary>
+        public async Task RecordSearchHistoryAsync(long userId, string characterName, string realmName, string region)
+        {
+            try
+            {
+                await using var scope = _scopeFactory.CreateAsyncScope();
+                await using var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                // Check for existing entry
+                var existing = await db.RioSearchHistory
+                    .FirstOrDefaultAsync(h =>
+                        h.DiscordUserId == userId &&
+                        h.CharacterName.ToLower() == characterName.ToLower() &&
+                        h.RealmName.ToLower() == realmName.ToLower() &&
+                        h.Region.ToLower() == region.ToLower());
+
+                if (existing != null)
+                {
+                    // Update existing entry
+                    existing.SearchCount++;
+                    existing.LastSearched = DateTime.UtcNow;
+                }
+                else
+                {
+                    // Add new entry
+                    db.RioSearchHistory.Add(new RioSearchHistory
+                    {
+                        DiscordUserId = userId,
+                        CharacterName = characterName,
+                        RealmName = realmName,
+                        Region = region,
+                        LastSearched = DateTime.UtcNow,
+                        SearchCount = 1
+                    });
+
+                    // Enforce max 30 entries per user - delete oldest/least used if over limit
+                    var count = await db.RioSearchHistory.CountAsync(h => h.DiscordUserId == userId);
+                    if (count >= 30)
+                    {
+                        var oldest = await db.RioSearchHistory
+                            .Where(h => h.DiscordUserId == userId)
+                            .OrderBy(h => h.SearchCount)
+                            .ThenBy(h => h.LastSearched)
+                            .FirstOrDefaultAsync();
+
+                        if (oldest != null)
+                        {
+                            db.RioSearchHistory.Remove(oldest);
+                        }
+                    }
+                }
+
+                await db.SaveChangesAsync();
+
+                // Invalidate cache so next autocomplete fetch gets fresh data
+                InvalidateRioSearchHistory(userId);
+            }
+            catch (Exception ex)
+            {
+                // Non-critical - log at debug level for diagnostics
+                _logger.LogDebug(ex, "Failed to record search history for user {UserId}", userId);
+            }
         }
 
         /// <summary>

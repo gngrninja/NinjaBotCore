@@ -19,6 +19,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private readonly ILogger<PvPCommands> _logger;
         private readonly CharacterResolver _charResolver;
         private readonly WowApi _wowApi;
+        private readonly WowCacheService _wowCache;
         private readonly HttpClient _httpClient;
 
         public PvPCommands(
@@ -26,12 +27,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             ILogger<PvPCommands> logger,
             CharacterResolver charResolver,
             WowApi wowApi,
+            WowCacheService wowCache,
             IHttpClientFactory httpClientFactory)
             : base(scopeFactory)
         {
             _logger = logger;
             _charResolver = charResolver;
             _wowApi = wowApi;
+            _wowCache = wowCache;
             _httpClient = httpClientFactory.CreateClient();
         }
 
@@ -94,6 +97,13 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 // Build embed
                 var embed = CharPvPView.Build(charInfo, pvpSummary, bracketDetails, summary, media);
 
+                // Record search history for autocomplete (fire-and-forget)
+                _ = _wowCache.RecordSearchHistoryAsync(
+                    (long)Context.User.Id,
+                    charInfo.Name,
+                    charInfo.Realm,
+                    charInfo.Region);
+
                 await FollowupAsync(embed: embed.Build());
             }
             catch (Exception ex)
@@ -154,13 +164,28 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 try
                 {
                     var response = await _wowApi.GetAPIRequestAsync(bracketLink.Href, true);
-                    var bracket = Newtonsoft.Json.JsonConvert.DeserializeObject<ArmoryPvPBracket>(response);
+                    var settings = new Newtonsoft.Json.JsonSerializerSettings
+                    {
+                        Error = (sender, args) =>
+                        {
+                            _logger.LogWarning("JSON parse error at {Path}: {Message}", args.ErrorContext.Path, args.ErrorContext.Error.Message);
+                            args.ErrorContext.Handled = true;
+                        }
+                    };
+                    var bracket = Newtonsoft.Json.JsonConvert.DeserializeObject<ArmoryPvPBracket>(response, settings);
                     if (bracket != null)
+                    {
+                        _logger.LogInformation("PvP Bracket found: Type={Type}, Rating={Rating}", bracket.Bracket?.Type, bracket.Rating);
                         results.Add(bracket);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("PvP Bracket deserialized to null for {Href}", bracketLink.Href);
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug(ex, "Failed to fetch bracket details from {Href}", bracketLink.Href);
+                    _logger.LogWarning(ex, "Failed to fetch bracket details from {Href}", bracketLink.Href);
                 }
             }
 

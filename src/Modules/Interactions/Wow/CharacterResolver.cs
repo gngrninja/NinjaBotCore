@@ -151,13 +151,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             // Default region to US
             regionName ??= "us";
 
-            // Build realm slug
+            // Build realm slug and get proper display name
             var realmSlug = GetRealmSlug(realmName, regionName);
+            var realmDisplayName = GetRealmDisplayName(realmName, regionName);
 
             return CharacterResolutionResult.Success(new CharacterInfo
             {
                 Name = charName,
-                Realm = realmName,
+                Realm = realmDisplayName,
                 RealmSlug = realmSlug,
                 Region = regionName.ToLower(),
                 Locale = GetLocaleFromRegion(regionName)
@@ -188,6 +189,29 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     .Select(s => s.slug)
                     .FirstOrDefault() ?? realmName.ToLower().Replace(" ", "-").Replace("'", "")
             };
+        }
+
+        /// <summary>
+        /// Get realm display name from slug or name input
+        /// </summary>
+        public string GetRealmDisplayName(string realmInput, string regionName)
+        {
+            var realmInfoSource = regionName?.ToLower() switch
+            {
+                "eu" => WowApi.RealmInfoEu,
+                "ru" => WowApi.RealmInfoRu,
+                _ => WowApi.RealmInfo
+            };
+
+            // Try to find by slug first
+            var realm = realmInfoSource?.realms?.FirstOrDefault(r =>
+                r.slug?.Equals(realmInput, StringComparison.OrdinalIgnoreCase) == true);
+
+            // If not found by slug, try by name
+            realm ??= realmInfoSource?.realms?.FirstOrDefault(r =>
+                r.name?.Replace("'", "").Equals(realmInput.Replace("'", ""), StringComparison.OrdinalIgnoreCase) == true);
+
+            return realm?.name ?? realmInput;
         }
 
         /// <summary>
