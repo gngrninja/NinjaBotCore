@@ -1676,6 +1676,10 @@ namespace NinjaBotCore.Services
 
                     await db.SaveChangesAsync();
 
+                    // Invalidate cache so changes take effect immediately
+                    var watcherService = scope.ServiceProvider.GetService<ModerationWatcherService>();
+                    watcherService?.InvalidateSettingsCache(guildIdLong);
+
                     return Results.Json(new
                     {
                         success = true,
