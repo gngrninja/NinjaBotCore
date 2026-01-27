@@ -83,4 +83,17 @@ public class StaticDataSyncSettings
     /// Delay between API calls to avoid rate limiting (milliseconds)
     /// </summary>
     public int ApiCallDelayMs { get; set; } = 100;
+
+    /// <summary>
+    /// Data source for item sync: "auto", "wago", or "blizzard".
+    /// - "auto" (default): Try wago.tools first, fall back to Blizzard API on failure
+    /// - "wago": Use wago.tools only (faster, ~171k items in one request)
+    /// - "blizzard": Use Blizzard API only (paginated, ~175+ API calls)
+    /// </summary>
+    public string ItemDataSource { get; set; } = "auto";
+
+    /// <summary>
+    /// Timeout in seconds for wago.tools requests (default 120s for ~10MB download)
+    /// </summary>
+    public int WagoTimeoutSeconds { get; set; } = 120;
 }

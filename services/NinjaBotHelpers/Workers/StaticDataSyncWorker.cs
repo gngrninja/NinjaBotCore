@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using NinjaBotHelpers.Blizzard;
 using NinjaBotHelpers.Configuration;
 using NinjaBotHelpers.Database;
+using NinjaBotHelpers.Wago;
 
 namespace NinjaBotHelpers.Workers;
 
@@ -17,7 +18,11 @@ public class StaticDataSyncWorker : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly HelpersConfiguration _config;
     private readonly BlizzardApiClient _blizzardClient;
+    private readonly WagoToolsClient _wagoClient;
     private DateTime? _lastScheduledSync;
+
+    // Track which source was used for the last item sync (for status updates)
+    private string? _lastItemSyncSource;
 
     // Check for pending requests every 60 seconds
     private static readonly TimeSpan PendingRequestCheckInterval = TimeSpan.FromSeconds(60);
@@ -26,12 +31,14 @@ public class StaticDataSyncWorker : BackgroundService
         ILogger<StaticDataSyncWorker> logger,
         IServiceScopeFactory scopeFactory,
         HelpersConfiguration config,
-        BlizzardApiClient blizzardClient)
+        BlizzardApiClient blizzardClient,
+        WagoToolsClient wagoClient)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
         _config = config;
         _blizzardClient = blizzardClient;
+        _wagoClient = wagoClient;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -154,7 +161,7 @@ public class StaticDataSyncWorker : BackgroundService
 
         try
         {
-            var (processed, skipped, failed) = await SyncAllAsync(cancellationToken);
+            var (processed, skipped, failed) = await SyncAllAsync(_config.StaticDataSync.ItemDataSource, cancellationToken);
 
             request.Status = "completed";
             request.ItemsProcessed = processed;
@@ -205,14 +212,17 @@ public class StaticDataSyncWorker : BackgroundService
 
             try
             {
+                // Get requested source for item syncs
+                var requestedSource = request.RequestedSource ?? _config.StaticDataSync.ItemDataSource;
+
                 var (processed, skipped, failed) = request.SyncType switch
                 {
                     "achievements" => await SyncAchievementsWithStatsAsync(cancellationToken),
                     "pets" => await SyncPetsWithStatsAsync(cancellationToken),
                     "mounts" => await SyncMountsWithStatsAsync(cancellationToken),
                     "mount_images" => await SyncMountImagesAsync(cancellationToken),
-                    "items" => await SyncItemsWithStatsAsync(cancellationToken),
-                    "all" => await SyncAllAsync(cancellationToken),
+                    "items" => await SyncItemsWithStatsAsync(requestedSource, cancellationToken),
+                    "all" => await SyncAllAsync(requestedSource, cancellationToken),
                     _ => (0, 0, 0)
                 };
 
@@ -265,6 +275,12 @@ public class StaticDataSyncWorker : BackgroundService
             status.LastSyncItemCount = (request.ItemsProcessed ?? 0) + (request.ItemsSkipped ?? 0);
             status.NextScheduledSync = DateTime.UtcNow.AddDays(_config.StaticDataSync.SyncIntervalDays);
 
+            // Track the data source used for item sync
+            if (type == "items" && _lastItemSyncSource != null)
+            {
+                status.LastSyncSource = _lastItemSyncSource;
+            }
+
             // Update total count in database
             status.TotalItemsInDatabase = type switch
             {
@@ -279,12 +295,12 @@ public class StaticDataSyncWorker : BackgroundService
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    private async Task<(int processed, int skipped, int failed)> SyncAllAsync(CancellationToken cancellationToken)
+    private async Task<(int processed, int skipped, int failed)> SyncAllAsync(string requestedSource, CancellationToken cancellationToken)
     {
         var (achProcessed, achSkipped, achFailed) = await SyncAchievementsWithStatsAsync(cancellationToken);
         var (petProcessed, petSkipped, petFailed) = await SyncPetsWithStatsAsync(cancellationToken);
         var (mountProcessed, mountSkipped, mountFailed) = await SyncMountsWithStatsAsync(cancellationToken);
-        var (itemProcessed, itemSkipped, itemFailed) = await SyncItemsWithStatsAsync(cancellationToken);
+        var (itemProcessed, itemSkipped, itemFailed) = await SyncItemsWithStatsAsync(requestedSource, cancellationToken);
 
         return (
             achProcessed + petProcessed + mountProcessed + itemProcessed,
@@ -686,12 +702,139 @@ public class StaticDataSyncWorker : BackgroundService
     #region Item Sync
 
     /// <summary>
+    /// Sync items based on the configured or requested data source.
+    /// Supports "auto" (wago first with Blizzard fallback), "wago" only, or "blizzard" only.
+    /// </summary>
+    private async Task<(int processed, int skipped, int failed)> SyncItemsWithStatsAsync(string requestedSource, CancellationToken cancellationToken)
+    {
+        var source = requestedSource?.ToLower() ?? _config.StaticDataSync.ItemDataSource.ToLower();
+
+        _logger.LogInformation("Starting item sync with source: {Source}", source);
+
+        return source switch
+        {
+            "wago" => await SyncItemsFromWagoAsync(cancellationToken),
+            "blizzard" => await SyncItemsFromBlizzardAsync(cancellationToken),
+            "auto" or _ => await SyncItemsAutoAsync(cancellationToken)
+        };
+    }
+
+    /// <summary>
+    /// Auto mode: Try wago.tools first, fall back to Blizzard API on failure.
+    /// </summary>
+    private async Task<(int processed, int skipped, int failed)> SyncItemsAutoAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Item sync using AUTO mode (wago first, Blizzard fallback)");
+
+        try
+        {
+            var result = await SyncItemsFromWagoAsync(cancellationToken);
+            _logger.LogInformation("Item sync completed using wago.tools");
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Wago.tools item sync failed, falling back to Blizzard API");
+            return await SyncItemsFromBlizzardAsync(cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Sync items from wago.tools CSV export.
+    /// Downloads ~171k items in a single HTTP request (~10MB).
+    /// </summary>
+    private async Task<(int processed, int skipped, int failed)> SyncItemsFromWagoAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Fetching items from wago.tools...");
+
+        var wagoResult = await _wagoClient.GetAllItemsAsync(cancellationToken);
+
+        _logger.LogInformation("Fetched {Count} items from wago.tools, processing...", wagoResult.Items.Count);
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<HelpersDbContext>();
+
+        // Load existing item IDs to skip
+        var existingIds = await db.WowItems
+            .Select(i => i.Id)
+            .ToHashSetAsync(cancellationToken);
+
+        _logger.LogInformation("Found {Count} existing items in database", existingIds.Count);
+
+        int imported = 0;
+        int skipped = 0;
+        int failed = wagoResult.FailedRows;
+        int batchSize = 1000;
+        var batch = new List<WowItems>(batchSize);
+
+        foreach (var wagoItem in wagoResult.Items)
+        {
+            if (cancellationToken.IsCancellationRequested) break;
+
+            // Skip items we already have
+            if (existingIds.Contains(wagoItem.Id))
+            {
+                skipped++;
+                continue;
+            }
+
+            // Map wago item to database entity
+            var qualityName = WagoFieldMappings.GetQualityName(wagoItem.QualityId);
+            var inventoryType = WagoFieldMappings.GetInventoryTypeName(wagoItem.InventoryTypeId);
+            var source = WagoFieldMappings.GetExpansionName(wagoItem.ExpansionId);
+
+            var item = new WowItems
+            {
+                Id = wagoItem.Id,
+                Name = wagoItem.Name,
+                Quality = wagoItem.QualityId,
+                QualityName = qualityName.Length > 50 ? qualityName[..50] : qualityName,
+                ItemLevel = wagoItem.ItemLevel,
+                RequiredLevel = wagoItem.RequiredLevel,
+                InventoryType = inventoryType?.Length > 50 ? inventoryType[..50] : inventoryType,
+                IsEquippable = wagoItem.InventoryTypeId > 0,
+                Source = source?.Length > 100 ? source[..100] : source,
+                MediaUrl = null, // Media is fetched on-demand
+                LastUpdated = DateTime.UtcNow
+            };
+
+            batch.Add(item);
+            imported++;
+
+            // Batch insert for performance
+            if (batch.Count >= batchSize)
+            {
+                db.WowItems.AddRange(batch);
+                await db.SaveChangesAsync(cancellationToken);
+                batch.Clear();
+
+                _logger.LogInformation("Item sync progress: {Imported} imported, {Skipped} skipped",
+                    imported, skipped);
+            }
+        }
+
+        // Insert remaining items
+        if (batch.Count > 0)
+        {
+            db.WowItems.AddRange(batch);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        _lastItemSyncSource = "wago";
+
+        _logger.LogInformation("Item sync from wago.tools complete: {Imported} imported, {Skipped} skipped, {Failed} parse errors",
+            imported, skipped, failed);
+
+        return (imported, skipped, failed);
+    }
+
+    /// <summary>
     /// Sync items using Blizzard's search API with ID filtering.
     /// This is the Blizzard-approved approach for bulk importing items.
     /// </summary>
-    private async Task<(int processed, int skipped, int failed)> SyncItemsWithStatsAsync(CancellationToken cancellationToken)
+    private async Task<(int processed, int skipped, int failed)> SyncItemsFromBlizzardAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Starting item sync using ID-filtered search");
+        _logger.LogInformation("Starting item sync from Blizzard API using ID-filtered search");
 
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<HelpersDbContext>();
@@ -824,7 +967,9 @@ public class StaticDataSyncWorker : BackgroundService
             }
         }
 
-        _logger.LogInformation("Item sync complete: {Imported} imported, {Skipped} skipped, {Failed} batch errors",
+        _lastItemSyncSource = "blizzard";
+
+        _logger.LogInformation("Item sync from Blizzard complete: {Imported} imported, {Skipped} skipped, {Failed} batch errors",
             imported, skipped, failed);
 
         return (imported, skipped, failed);

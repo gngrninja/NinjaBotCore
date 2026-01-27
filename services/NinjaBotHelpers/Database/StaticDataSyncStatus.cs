@@ -48,4 +48,10 @@ public class StaticDataSyncStatus
     /// When the next scheduled sync will occur
     /// </summary>
     public DateTime? NextScheduledSync { get; set; }
+
+    /// <summary>
+    /// Data source used for last sync: "wago", "blizzard"
+    /// </summary>
+    [MaxLength(50)]
+    public string? LastSyncSource { get; set; }
 }

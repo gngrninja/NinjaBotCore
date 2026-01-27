@@ -75,5 +75,12 @@ namespace NinjaBotCore.Database
         /// Number of items that failed to process
         /// </summary>
         public int? ItemsFailed { get; set; }
+
+        /// <summary>
+        /// Requested data source for items: "auto", "wago", "blizzard"
+        /// Only applicable when SyncType is "items" or "all"
+        /// </summary>
+        [MaxLength(20)]
+        public string? RequestedSource { get; set; }
     }
 }

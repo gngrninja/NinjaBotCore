@@ -10,6 +10,7 @@ using Moq.Protected;
 using NinjaBotHelpers.Blizzard;
 using NinjaBotHelpers.Configuration;
 using NinjaBotHelpers.Database;
+using NinjaBotHelpers.Wago;
 using NinjaBotHelpers.Workers;
 using Xunit;
 
@@ -24,6 +25,7 @@ public class StaticDataSyncWorkerTests : IDisposable
     private readonly HelpersConfiguration _config;
     private readonly Mock<HttpMessageHandler> _mockHandler;
     private readonly BlizzardApiClient _blizzardClient;
+    private readonly WagoToolsClient _wagoClient;
     private readonly InMemoryDatabaseRoot _dbRoot;
 
     public StaticDataSyncWorkerTests()
@@ -45,6 +47,10 @@ public class StaticDataSyncWorkerTests : IDisposable
         var httpClient = new HttpClient(_mockHandler.Object);
         var logger = NullLogger<BlizzardApiClient>.Instance;
         _blizzardClient = new BlizzardApiClient(httpClient, logger, _config);
+
+        var wagoHttpClient = new HttpClient(_mockHandler.Object);
+        var wagoLogger = NullLogger<WagoToolsClient>.Instance;
+        _wagoClient = new WagoToolsClient(wagoHttpClient, wagoLogger);
 
         // Use shared database root for all scopes
         _dbRoot = new InMemoryDatabaseRoot();
@@ -94,7 +100,7 @@ public class StaticDataSyncWorkerTests : IDisposable
         var workerLogger = NullLogger<StaticDataSyncWorker>.Instance;
         var scopeFactory = _serviceProvider.GetRequiredService<IServiceScopeFactory>();
 
-        var worker = new StaticDataSyncWorker(workerLogger, scopeFactory, disabledConfig, _blizzardClient);
+        var worker = new StaticDataSyncWorker(workerLogger, scopeFactory, disabledConfig, _blizzardClient, _wagoClient);
 
         using var cts = new CancellationTokenSource();
         cts.CancelAfter(TimeSpan.FromSeconds(1));
@@ -417,7 +423,7 @@ public class StaticDataSyncWorkerTests : IDisposable
         // Arrange
         var workerLogger = NullLogger<StaticDataSyncWorker>.Instance;
         var scopeFactory = _serviceProvider.GetRequiredService<IServiceScopeFactory>();
-        var worker = new StaticDataSyncWorker(workerLogger, scopeFactory, _config, _blizzardClient);
+        var worker = new StaticDataSyncWorker(workerLogger, scopeFactory, _config, _blizzardClient, _wagoClient);
 
         using var cts = new CancellationTokenSource();
 

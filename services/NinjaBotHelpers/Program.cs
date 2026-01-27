@@ -3,6 +3,7 @@ using NinjaBotHelpers.Blizzard;
 using NinjaBotHelpers.Configuration;
 using NinjaBotHelpers.Database;
 using NinjaBotHelpers.Discord;
+using NinjaBotHelpers.Wago;
 using NinjaBotHelpers.Workers;
 using Serilog;
 using System.Net.Http.Headers;
@@ -50,6 +51,22 @@ try
         var httpClient = httpClientFactory.CreateClient();
         var logger = sp.GetRequiredService<ILogger<BlizzardApiClient>>();
         return new BlizzardApiClient(httpClient, logger, config);
+    });
+
+    // Register WagoToolsClient with configured timeout
+    builder.Services.AddHttpClient<WagoToolsClient>(client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(config.StaticDataSync.WagoTimeoutSeconds);
+        client.DefaultRequestHeaders.Add("User-Agent", "NinjaBotHelpers/1.0");
+    });
+
+    builder.Services.AddSingleton<WagoToolsClient>(sp =>
+    {
+        var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
+        var httpClient = httpClientFactory.CreateClient(nameof(WagoToolsClient));
+        httpClient.Timeout = TimeSpan.FromSeconds(config.StaticDataSync.WagoTimeoutSeconds);
+        var logger = sp.GetRequiredService<ILogger<WagoToolsClient>>();
+        return new WagoToolsClient(httpClient, logger);
     });
 
     // Workers
@@ -129,6 +146,8 @@ static HelpersConfiguration LoadConfiguration(IConfiguration configuration)
         config.StaticDataSync.SyncIntervalDays = sdsSection.GetValue("SyncIntervalDays", 30);
         config.StaticDataSync.InitialDelaySeconds = sdsSection.GetValue("InitialDelaySeconds", 60);
         config.StaticDataSync.ApiCallDelayMs = sdsSection.GetValue("ApiCallDelayMs", 100);
+        config.StaticDataSync.ItemDataSource = sdsSection.GetValue("ItemDataSource", "auto") ?? "auto";
+        config.StaticDataSync.WagoTimeoutSeconds = sdsSection.GetValue("WagoTimeoutSeconds", 120);
     }
 
     // Environment variable overrides for StaticDataSync
@@ -138,11 +157,20 @@ static HelpersConfiguration LoadConfiguration(IConfiguration configuration)
     if (int.TryParse(Environment.GetEnvironmentVariable("NINJABOT_STATICDATASYNC_INTERVAL"), out var sdsInterval))
         config.StaticDataSync.SyncIntervalDays = sdsInterval;
 
+    var itemSourceEnv = Environment.GetEnvironmentVariable("NINJABOT_STATICDATASYNC_ITEMSOURCE");
+    if (!string.IsNullOrEmpty(itemSourceEnv))
+        config.StaticDataSync.ItemDataSource = itemSourceEnv;
+
+    if (int.TryParse(Environment.GetEnvironmentVariable("NINJABOT_STATICDATASYNC_WAGOTIMEOUT"), out var wagoTimeout))
+        config.StaticDataSync.WagoTimeoutSeconds = wagoTimeout;
+
     Log.Information("Configuration loaded:");
     Log.Information("  RealmWatcher Enabled: {Enabled}", config.RealmWatcher.Enabled);
     Log.Information("  RealmWatcher Interval: {Interval}s", config.RealmWatcher.CheckIntervalSeconds);
     Log.Information("  StaticDataSync Enabled: {Enabled}", config.StaticDataSync.Enabled);
     Log.Information("  StaticDataSync Interval: {Interval} days", config.StaticDataSync.SyncIntervalDays);
+    Log.Information("  StaticDataSync ItemDataSource: {Source}", config.StaticDataSync.ItemDataSource);
+    Log.Information("  StaticDataSync WagoTimeout: {Timeout}s", config.StaticDataSync.WagoTimeoutSeconds);
 
     return config;
 }

@@ -2915,13 +2915,26 @@ namespace NinjaBotCore.Services
                             }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
                         }
 
+                        // Validate source if provided for item sync
+                        string? requestedSource = null;
+                        if ((syncType == "items" || syncType == "all") && !string.IsNullOrEmpty(body.Source))
+                        {
+                            var validSources = new[] { "auto", "wago", "blizzard" };
+                            requestedSource = body.Source.ToLower();
+                            if (!validSources.Contains(requestedSource))
+                            {
+                                return Results.BadRequest(new { error = "source must be one of: auto, wago, blizzard" });
+                            }
+                        }
+
                         var request = new StaticDataSyncRequest
                         {
                             SyncType = syncType,
                             Status = "pending",
                             RequestedByUserId = userId,
                             RequestSource = "api",
-                            RequestedAt = DateTime.UtcNow
+                            RequestedAt = DateTime.UtcNow,
+                            RequestedSource = requestedSource
                         };
 
                         db.StaticDataSyncRequests.Add(request);
@@ -2979,7 +2992,8 @@ namespace NinjaBotCore.Services
                                 last_sync = status?.LastSyncCompleted,
                                 last_status = status?.LastSyncStatus,
                                 item_count = status?.TotalItemsInDatabase,
-                                next_scheduled = status?.NextScheduledSync
+                                next_scheduled = status?.NextScheduledSync,
+                                last_source = type == "items" ? status?.LastSyncSource : null
                             };
                         }
 
@@ -3638,6 +3652,7 @@ namespace NinjaBotCore.Services
     /// </summary>
     public record TriggerSyncRequest(
         [property: JsonPropertyName("sync_type")] string? SyncType,
-        [property: JsonPropertyName("user_id")] string? UserId
+        [property: JsonPropertyName("user_id")] string? UserId,
+        [property: JsonPropertyName("source")] string? Source
     );
 }
