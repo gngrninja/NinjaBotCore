@@ -29,6 +29,11 @@ public class HelpersConfiguration
     /// RealmWatcher specific settings
     /// </summary>
     public RealmWatcherSettings RealmWatcher { get; set; } = new();
+
+    /// <summary>
+    /// Static data sync settings (achievements, pets, mounts)
+    /// </summary>
+    public StaticDataSyncSettings StaticDataSync { get; set; } = new();
 }
 
 public class RealmWatcherSettings
@@ -47,6 +52,32 @@ public class RealmWatcherSettings
     /// Delay before first check after startup (seconds)
     /// </summary>
     public int InitialDelaySeconds { get; set; } = 30;
+
+    /// <summary>
+    /// Delay between API calls to avoid rate limiting (milliseconds)
+    /// </summary>
+    public int ApiCallDelayMs { get; set; } = 100;
+}
+
+/// <summary>
+/// Settings for static data sync (achievements, pets, mounts)
+/// </summary>
+public class StaticDataSyncSettings
+{
+    /// <summary>
+    /// Whether the static data sync is enabled
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// How often to sync static data (days)
+    /// </summary>
+    public int SyncIntervalDays { get; set; } = 30;
+
+    /// <summary>
+    /// Delay before first sync after startup (seconds)
+    /// </summary>
+    public int InitialDelaySeconds { get; set; } = 60;
 
     /// <summary>
     /// Delay between API calls to avoid rate limiting (milliseconds)

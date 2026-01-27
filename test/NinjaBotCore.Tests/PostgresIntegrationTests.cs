@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using NinjaBotCore.Database;
 using Xunit;
@@ -10,17 +11,17 @@ using Npgsql;
 namespace NinjaBotCore.Tests
 {
     /// <summary>
-    /// Integration tests for PostgreSQL database operations.
-    /// These tests verify the migration from SQLite to PostgreSQL is working correctly.
+    /// Shared fixture for PostgreSQL integration tests.
+    /// Creates a single DbContext that's reused across all tests to avoid
+    /// the "too many service providers" warning from EF Core.
     /// </summary>
-    [Collection("DatabaseConfigurator")]
-    public class PostgresIntegrationTests : IDisposable
+    public class PostgresTestFixture : IDisposable
     {
-        private readonly NinjaBotEntities _context;
-        private readonly IConfiguration _configuration;
-        private readonly bool _skip;
+        public NinjaBotEntities Context { get; }
+        public IConfiguration Configuration { get; }
+        public bool Skip { get; }
 
-        public PostgresIntegrationTests()
+        public PostgresTestFixture()
         {
             // Load configuration from environment or config file
             var builder = new ConfigurationBuilder()
@@ -28,20 +29,20 @@ namespace NinjaBotCore.Tests
                 .AddJsonFile("config.json", optional: true)
                 .AddEnvironmentVariables(prefix: "NINJABOT_");
 
-            _configuration = builder.Build();
+            Configuration = builder.Build();
 
-            var provider = _configuration["Database:Provider"] ?? string.Empty;
-            var connectionString = _configuration.GetConnectionString("NinjaBot");
+            var provider = Configuration["Database:Provider"] ?? string.Empty;
+            var connectionString = Configuration.GetConnectionString("NinjaBot");
             if (!provider.Equals("postgres", StringComparison.OrdinalIgnoreCase) &&
                 !provider.Equals("postgresql", StringComparison.OrdinalIgnoreCase))
             {
-                _skip = true;
+                Skip = true;
                 return;
             }
 
             if (string.IsNullOrWhiteSpace(connectionString))
             {
-                _skip = true;
+                Skip = true;
                 return;
             }
 
@@ -53,18 +54,48 @@ namespace NinjaBotCore.Tests
             }
             catch (Exception)
             {
-                _skip = true;
+                Skip = true;
                 return;
             }
 
             // Configure the database
-            DatabaseConfigurator.ConfigureFrom(_configuration);
+            DatabaseConfigurator.ConfigureFrom(Configuration);
 
-            // Create context
-            _context = new NinjaBotEntities();
+            // Create context with warning suppression to avoid "ManyServiceProvidersCreatedWarning"
+            // when running after other tests that also create DbContext instances
+            var optionsBuilder = new DbContextOptionsBuilder<NinjaBotEntities>();
+            optionsBuilder.UseNpgsql(connectionString);
+            optionsBuilder.ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning));
+
+            Context = new NinjaBotEntities(optionsBuilder.Options);
 
             // Ensure database exists and is migrated
-            _context.Database.EnsureCreated();
+            Context.Database.EnsureCreated();
+        }
+
+        public void Dispose()
+        {
+            Context?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Integration tests for PostgreSQL database operations.
+    /// These tests verify the migration from SQLite to PostgreSQL is working correctly.
+    /// Uses IClassFixture to share a single DbContext across all tests.
+    /// </summary>
+    [Collection("DatabaseConfigurator")]
+    public class PostgresIntegrationTests : IClassFixture<PostgresTestFixture>, IAsyncLifetime
+    {
+        private readonly NinjaBotEntities _context;
+        private readonly IConfiguration _configuration;
+        private readonly bool _skip;
+
+        public PostgresIntegrationTests(PostgresTestFixture fixture)
+        {
+            _context = fixture.Context;
+            _configuration = fixture.Configuration;
+            _skip = fixture.Skip;
         }
 
         [Fact]
@@ -449,9 +480,15 @@ namespace NinjaBotCore.Tests
             }
         }
 
-        public void Dispose()
+        // IAsyncLifetime - runs before each test
+        public Task InitializeAsync() => Task.CompletedTask;
+
+        // IAsyncLifetime - runs after each test to clear change tracker
+        public Task DisposeAsync()
         {
-            _context?.Dispose();
+            // Clear the change tracker between tests to prevent state leakage
+            _context?.ChangeTracker.Clear();
+            return Task.CompletedTask;
         }
     }
 }

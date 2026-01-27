@@ -113,12 +113,10 @@ namespace NinjaBotCore.Services
         private async Task RunUpdateLoopAsync(CancellationToken cancellationToken)
         {
             // Get update intervals from config or use defaults
+            // NOTE: Mount updates have been moved to NinjaBotHelpers (StaticDataSyncWorker)
             var tokenPriceInterval = _tokenService.GetUpdateInterval();
-            var mountUpdateInterval = TimeSpan.FromDays(
-                int.Parse(_config["WowMountUpdateIntervalDays"] ?? DEFAULT_MOUNT_UPDATE_INTERVAL_DAYS));
 
             _logger.LogInformation("Token price update interval: {TokenMinutes}m", tokenPriceInterval.TotalMinutes);
-            _logger.LogInformation("Mount update interval: {MountDays}d", mountUpdateInterval.TotalDays);
 
             // Wait for WoW API to complete initialization
             _logger.LogInformation("Waiting for WoW API initialization...");
@@ -133,6 +131,8 @@ namespace NinjaBotCore.Services
             }
 
             // Check if databases are empty and perform initial imports if needed
+            // NOTE: Achievement, Pet, and Mount sync has been moved to NinjaBotHelpers (StaticDataSyncWorker)
+            // to avoid blocking bot startup. Only lightweight data (items, realms, classes, races) is synced here.
             using (var scope = _scopeFactory.CreateScope())
             {
                 var itemRepo = new Repository<WowItems>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
@@ -144,16 +144,7 @@ namespace NinjaBotCore.Services
                     await ImportAllItemsAsync(cancellationToken);
                 }
 
-                var mountRepo = new Repository<WowMounts>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
-                var mountCount = (await mountRepo.GetAllAsync()).Count();
-
-                if (mountCount == 0)
-                {
-                    _logger.LogInformation("Mount database is empty. Starting initial mount import...");
-                    await ImportAllMountsAsync("us", cancellationToken);
-                }
-
-                // Check if realm/class/race data is empty
+                // Check if realm/class/race data is empty (fast, low overhead)
                 var realmRepo = new Repository<WowRealms>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
                 var realmCount = (await realmRepo.GetAllAsync()).Count();
 
@@ -180,41 +171,18 @@ namespace NinjaBotCore.Services
                     _logger.LogInformation("Race database is empty. Starting initial race import...");
                     await ImportAllRacesAsync(cancellationToken);
                 }
-
-                // Check if achievement data is empty
-                var achievementRepo = new Repository<WowAchievements>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
-                var achievementCount = (await achievementRepo.GetAllAsync()).Count();
-
-                if (achievementCount == 0)
-                {
-                    _logger.LogInformation("Achievement database is empty. Starting initial achievement import (this may take 10-15 minutes)...");
-                    await ImportAllAchievementsAsync(cancellationToken);
-                }
-
-                // Check if pet data is empty
-                var petRepo = new Repository<WowPets>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
-                var petCount = (await petRepo.GetAllAsync()).Count();
-
-                if (petCount == 0)
-                {
-                    _logger.LogInformation("Pet database is empty. Starting initial pet import (this may take 3-5 minutes)...");
-                    await ImportAllPetsAsync(cancellationToken);
-                }
             }
 
             // Perform initial token price update for all regions
             await _tokenService.UpdateAllRegionsAsync(cancellationToken);
 
-            // Start periodic updates in parallel
+            // Start periodic token price updates
+            // NOTE: Mount updates have been moved to NinjaBotHelpers (StaticDataSyncWorker)
             using var tokenPriceTimer = new PeriodicTimer(tokenPriceInterval);
-            using var mountUpdateTimer = new PeriodicTimer(mountUpdateInterval);
 
             try
             {
-                var tokenTask = _tokenService.RunPriceUpdatesAsync(tokenPriceTimer, cancellationToken);
-                var mountTask = RunMountUpdatesAsync(mountUpdateTimer, cancellationToken);
-
-                await Task.WhenAll(tokenTask, mountTask);
+                await _tokenService.RunPriceUpdatesAsync(tokenPriceTimer, cancellationToken);
             }
             catch (OperationCanceledException)
             {
@@ -226,29 +194,8 @@ namespace NinjaBotCore.Services
             }
         }
 
-        private async Task RunMountUpdatesAsync(PeriodicTimer timer, CancellationToken cancellationToken)
-        {
-            try
-            {
-                while (await timer.WaitForNextTickAsync(cancellationToken))
-                {
-                    _logger.LogInformation("Starting periodic mount update");
-                    try
-                    {
-                        await ImportAllMountsAsync("us", cancellationToken);
-                        _logger.LogInformation("Periodic mount update completed successfully");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error during periodic mount update");
-                    }
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // Expected when service is disposed
-            }
-        }
+        // NOTE: RunMountUpdatesAsync has been removed - mount updates are now handled by
+        // NinjaBotHelpers StaticDataSyncWorker on a 30-day schedule.
 
         /// <summary>
         /// Import a single item by ID
@@ -979,28 +926,12 @@ namespace NinjaBotCore.Services
         /// <summary>
         /// Determine expansion from mount ID based on ID ranges.
         /// This is a fallback - prefer using DetermineExpansion() which checks description/category first.
-        /// Note: These ranges are approximate. Update this mapping when new expansions launch.
+        /// Uses shared WowExpansions.MountIdRanges - update that when new expansions launch.
         /// </summary>
         private static string GetExpansionFromMountId(long mountId)
         {
-            // Mount ID ranges are approximate and based on when they were added to the game
-            // IMPORTANT: New mounts for old expansions (e.g., MoP Remix) get high IDs, so this is a fallback only
-            return mountId switch
-            {
-                >= 1800 => "The War Within",        // Use TWW for new mounts until Midnight launches
-                >= 1700 => "The War Within",
-                >= 1500 => "Dragonflight",
-                >= 1200 => "Shadowlands",
-                >= 900 => "Battle for Azeroth",
-                >= 700 => "Legion",
-                >= 600 => "Warlords of Draenor",
-                >= 500 => "Mists of Pandaria",
-                >= 400 => "Cataclysm",
-                >= 300 => "Wrath of the Lich King",
-                >= 200 => "The Burning Crusade",
-                >= 1 => "Classic",
-                _ => "Unknown"
-            };
+            // Delegate to shared constants to avoid duplication
+            return Common.WowExpansions.GetExpansionFromMountId(mountId);
         }
 
         /// <summary>
@@ -1025,6 +956,9 @@ namespace NinjaBotCore.Services
                 return "The Burning Crusade";
 
             // Check for expansion-specific keywords in descriptions
+            // Midnight (12.x) - check first since it's newest
+            if (desc.Contains("midnight"))
+                return "Midnight";
             if (desc.Contains("isle of dorn") || desc.Contains("khaz algar") || desc.Contains("war within") ||
                 desc.Contains("earthen") || desc.Contains("hallowfall") || desc.Contains("azj-kahet") ||
                 desc.Contains("ringing deeps"))
@@ -1171,6 +1105,8 @@ namespace NinjaBotCore.Services
             var cat = category.ToLowerInvariant();
 
             // Check for expansion names in category
+            if (cat.Contains("midnight"))
+                return "Midnight";
             if (cat.Contains("war within") || cat.Contains("tww"))
                 return "The War Within";
             if (cat.Contains("dragonflight") || cat.Contains("df"))
@@ -1199,9 +1135,10 @@ namespace NinjaBotCore.Services
 
         /// <summary>
         /// Determine expansion using multiple detection methods with fallback.
-        /// Priority: Description > Zone > Category > ID-based
+        /// Priority: Description > Zone > Category > SourceText > ID-based
+        /// Public so API endpoints can use it for mount imports.
         /// </summary>
-        private static string DetermineExpansion(long mountId, string description, string zone, string category)
+        public static string DetermineExpansion(long mountId, string description, string zone, string category, string sourceText = null)
         {
             // Try description first (most accurate for special events like MoP Remix)
             var expansion = GetExpansionFromDescription(description);
@@ -1217,6 +1154,14 @@ namespace NinjaBotCore.Services
             expansion = GetExpansionFromCategory(category);
             if (!string.IsNullOrEmpty(expansion))
                 return expansion;
+
+            // Try source text (achievement, clean text, etc.)
+            if (!string.IsNullOrEmpty(sourceText))
+            {
+                expansion = GetExpansionFromCategory(sourceText); // Reuse category logic for keyword detection
+                if (!string.IsNullOrEmpty(expansion))
+                    return expansion;
+            }
 
             // Fallback to ID-based detection
             return GetExpansionFromMountId(mountId);
@@ -1412,12 +1357,13 @@ namespace NinjaBotCore.Services
                         dbMount.EncounterName = scraped.Source?.Drop;
 
                         // Recalculate expansion using smart detection with all available data
-                        // Priority: Description > Zone > Category > ID-based fallback
+                        // Priority: Description > Zone > Category > SourceText > ID-based fallback
                         dbMount.Expansion = DetermineExpansion(
                             dbMount.Id,
                             dbMount.Description,
                             scraped.Source?.Zone,
-                            scraped.Source?.Category
+                            scraped.Source?.Category,
+                            scraped.Source?.Clean ?? scraped.Source?.Achievement
                         );
 
                         // Set obtainability based on legacy status

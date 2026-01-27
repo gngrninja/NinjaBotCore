@@ -65,6 +65,8 @@ namespace NinjaBotCore.Database
         public virtual DbSet<RealmStatusCache> RealmStatusCache { get; set; }
         public virtual DbSet<ApiUsageLog> ApiUsageLogs { get; set; }
         public virtual DbSet<ItemMediaCache> ItemMediaCache { get; set; }
+        public virtual DbSet<StaticDataSyncRequest> StaticDataSyncRequests { get; set; }
+        public virtual DbSet<StaticDataSyncStatus> StaticDataSyncStatus { get; set; }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {

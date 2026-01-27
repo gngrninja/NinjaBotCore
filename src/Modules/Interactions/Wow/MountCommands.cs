@@ -62,6 +62,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             [Summary("expansion", "Filter by expansion")]
             [Choice("All Expansions", "all")]
+            [Choice("Midnight", "Midnight")]
             [Choice("The War Within", "The War Within")]
             [Choice("Dragonflight", "Dragonflight")]
             [Choice("Shadowlands", "Shadowlands")]
@@ -666,22 +667,15 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var totalPages = (int)Math.Ceiling(totalMounts / (double)pageSize);
             var builder = new ComponentBuilder();
 
-            // Expansion filter (Row 0)
+            // Expansion filter (Row 0) - uses shared WowExpansions constants
             var expansionOptions = new List<SelectMenuOptionBuilder>
             {
-                new("All Expansions", "all", isDefault: expansionFilter == "all"),
-                new("The War Within", "The War Within", isDefault: expansionFilter == "The War Within"),
-                new("Dragonflight", "Dragonflight", isDefault: expansionFilter == "Dragonflight"),
-                new("Shadowlands", "Shadowlands", isDefault: expansionFilter == "Shadowlands"),
-                new("Battle for Azeroth", "Battle for Azeroth", isDefault: expansionFilter == "Battle for Azeroth"),
-                new("Legion", "Legion", isDefault: expansionFilter == "Legion"),
-                new("Warlords of Draenor", "Warlords of Draenor", isDefault: expansionFilter == "Warlords of Draenor"),
-                new("Mists of Pandaria", "Mists of Pandaria", isDefault: expansionFilter == "Mists of Pandaria"),
-                new("Cataclysm", "Cataclysm", isDefault: expansionFilter == "Cataclysm"),
-                new("Wrath of the Lich King", "Wrath of the Lich King", isDefault: expansionFilter == "Wrath of the Lich King"),
-                new("The Burning Crusade", "The Burning Crusade", isDefault: expansionFilter == "The Burning Crusade"),
-                new("Classic", "Classic", isDefault: expansionFilter == "Classic")
+                new("All Expansions", "all", isDefault: expansionFilter == "all")
             };
+            foreach (var expansion in Common.WowExpansions.All)
+            {
+                expansionOptions.Add(new(expansion, expansion, isDefault: expansionFilter == expansion));
+            }
             builder.WithSelectMenu($"mount_expansion~{userId}~{charName}~{realmName}~{regionName}~{sourceFilter}", expansionOptions, "Filter by Expansion", row: 0);
 
             // Source filter (Row 1)

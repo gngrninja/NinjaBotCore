@@ -214,6 +214,10 @@ namespace NinjaBotCore.Services
 
             foreach (var moduleType in interactionModules)
             {
+                // Check if module has a group prefix (e.g., [Group("poll", "...")])
+                var groupAttr = moduleType.GetCustomAttribute<GroupAttribute>();
+                var groupPrefix = groupAttr?.Name;
+
                 var methods = moduleType.GetMethods(BindingFlags.Public | BindingFlags.Instance);
 
                 foreach (var method in methods)
@@ -294,9 +298,14 @@ namespace NinjaBotCore.Services
                         });
                     }
 
+                    // Build full command name with group prefix if present
+                    var commandName = string.IsNullOrEmpty(groupPrefix)
+                        ? slashCommandAttr.Name
+                        : $"{groupPrefix} {slashCommandAttr.Name}";
+
                     commandInfos.Add(new ScannedCommand
                     {
-                        Name = slashCommandAttr.Name,
+                        Name = commandName,
                         Description = slashCommandAttr.Description,
                         Permission = permission,
                         PermissionBadge = badge,
@@ -334,30 +343,11 @@ namespace NinjaBotCore.Services
         {
             var categories = new List<HelpCategory>();
 
-            // WoW Main commands
-            var wowMainCommands = commands
-                .Where(c => c.ModuleName.Contains("Wow") && c.ModuleTypeName == "WowInteract")
-                .Select(ToHelpCommand)
-                .OrderBy(c => c.Name)
-                .ToList();
-
-            if (wowMainCommands.Any())
-            {
-                categories.Add(new HelpCategory
-                {
-                    Id = "wow_main",
-                    Name = "World of Warcraft - Main",
-                    Emoji = "⚔️",
-                    Description = "Character lookups, guild info, and Mythic+ tracking",
-                    PermissionLevel = "public",
-                    Commands = wowMainCommands
-                });
-            }
-
-            // WoW Classic & Vanilla
+            // WoW Classic & Vanilla (check first to exclude from main)
+            var classicModules = new[] { "WowClassicInteract", "WowVanillaInteract" };
             var wowClassicCommands = commands
                 .Where(c => c.ModuleName.Contains("Wow") &&
-                           (c.ModuleTypeName.Contains("Classic") || c.ModuleTypeName.Contains("Vanilla")))
+                           classicModules.Contains(c.ModuleTypeName))
                 .Select(ToHelpCommand)
                 .OrderBy(c => c.Name)
                 .ToList();
@@ -372,6 +362,29 @@ namespace NinjaBotCore.Services
                     Description = "Classic and Vanilla WoW guild management and logs",
                     PermissionLevel = "public",
                     Commands = wowClassicCommands
+                });
+            }
+
+            // WoW Main commands - all Wow modules except Classic/Vanilla/Admin
+            var excludedModules = new[] { "WowClassicInteract", "WowVanillaInteract", "WowAdminInteract", "CharacterResolver" };
+            var wowMainCommands = commands
+                .Where(c => c.ModuleName.Contains("Wow") &&
+                           !excludedModules.Contains(c.ModuleTypeName) &&
+                           c.Permission != "owner")
+                .Select(ToHelpCommand)
+                .OrderBy(c => c.Name)
+                .ToList();
+
+            if (wowMainCommands.Any())
+            {
+                categories.Add(new HelpCategory
+                {
+                    Id = "wow_main",
+                    Name = "World of Warcraft",
+                    Emoji = "⚔️",
+                    Description = "Character lookups, guild info, Mythic+, mounts, PvP, and more",
+                    PermissionLevel = "public",
+                    Commands = wowMainCommands
                 });
             }
 
@@ -441,9 +454,10 @@ namespace NinjaBotCore.Services
                 });
             }
 
-            // Owner Only commands
+            // Owner Only commands (including WoW admin)
             var ownerCommands = commands
-                .Where(c => c.Permission == "owner" && !c.Name.Contains("regenerate-help"))
+                .Where(c => (c.Permission == "owner" || c.ModuleTypeName == "WowAdminInteract") &&
+                           !c.Name.Contains("regenerate-help"))
                 .Select(ToHelpCommand)
                 .OrderBy(c => c.Name)
                 .ToList();
@@ -458,6 +472,26 @@ namespace NinjaBotCore.Services
                     Description = "Bot owner administrative commands",
                     PermissionLevel = "owner",
                     Commands = ownerCommands
+                });
+            }
+
+            // Polls
+            var pollCommands = commands
+                .Where(c => c.ModuleName.Contains("Poll"))
+                .Select(ToHelpCommand)
+                .OrderBy(c => c.Name)
+                .ToList();
+
+            if (pollCommands.Any())
+            {
+                categories.Add(new HelpCategory
+                {
+                    Id = "polls",
+                    Name = "Polls",
+                    Emoji = "📊",
+                    Description = "Create and manage polls",
+                    PermissionLevel = "public",
+                    Commands = pollCommands
                 });
             }
 

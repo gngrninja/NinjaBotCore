@@ -54,6 +54,7 @@ try
 
     // Workers
     builder.Services.AddHostedService<RealmWatcherWorker>();
+    builder.Services.AddHostedService<StaticDataSyncWorker>();
 
     var host = builder.Build();
 
@@ -120,9 +121,28 @@ static HelpersConfiguration LoadConfiguration(IConfiguration configuration)
     if (int.TryParse(Environment.GetEnvironmentVariable("NINJABOT_REALMWATCHER_INTERVAL"), out var rwInterval))
         config.RealmWatcher.CheckIntervalSeconds = rwInterval;
 
+    // StaticDataSync settings (optional, with defaults)
+    var sdsSection = configuration.GetSection("StaticDataSync");
+    if (sdsSection.Exists())
+    {
+        config.StaticDataSync.Enabled = sdsSection.GetValue("Enabled", true);
+        config.StaticDataSync.SyncIntervalDays = sdsSection.GetValue("SyncIntervalDays", 30);
+        config.StaticDataSync.InitialDelaySeconds = sdsSection.GetValue("InitialDelaySeconds", 60);
+        config.StaticDataSync.ApiCallDelayMs = sdsSection.GetValue("ApiCallDelayMs", 100);
+    }
+
+    // Environment variable overrides for StaticDataSync
+    if (bool.TryParse(Environment.GetEnvironmentVariable("NINJABOT_STATICDATASYNC_ENABLED"), out var sdsEnabled))
+        config.StaticDataSync.Enabled = sdsEnabled;
+
+    if (int.TryParse(Environment.GetEnvironmentVariable("NINJABOT_STATICDATASYNC_INTERVAL"), out var sdsInterval))
+        config.StaticDataSync.SyncIntervalDays = sdsInterval;
+
     Log.Information("Configuration loaded:");
     Log.Information("  RealmWatcher Enabled: {Enabled}", config.RealmWatcher.Enabled);
     Log.Information("  RealmWatcher Interval: {Interval}s", config.RealmWatcher.CheckIntervalSeconds);
+    Log.Information("  StaticDataSync Enabled: {Enabled}", config.StaticDataSync.Enabled);
+    Log.Information("  StaticDataSync Interval: {Interval} days", config.StaticDataSync.SyncIntervalDays);
 
     return config;
 }
