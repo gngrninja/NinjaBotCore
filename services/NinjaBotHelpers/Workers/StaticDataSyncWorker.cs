@@ -116,7 +116,8 @@ public class StaticDataSyncWorker : BackgroundService
         // Manual sync triggers (via /api/sync/trigger or /admin sync) still work anytime.
         var hasData = await db.WowAchievements.AnyAsync(cancellationToken)
                    || await db.WowPets.AnyAsync(cancellationToken)
-                   || await db.WowMounts.AnyAsync(cancellationToken);
+                   || await db.WowMounts.AnyAsync(cancellationToken)
+                   || await db.WowItems.AnyAsync(cancellationToken);
 
         if (hasData)
         {
@@ -210,6 +211,7 @@ public class StaticDataSyncWorker : BackgroundService
                     "pets" => await SyncPetsWithStatsAsync(cancellationToken),
                     "mounts" => await SyncMountsWithStatsAsync(cancellationToken),
                     "mount_images" => await SyncMountImagesAsync(cancellationToken),
+                    "items" => await SyncItemsWithStatsAsync(cancellationToken),
                     "all" => await SyncAllAsync(cancellationToken),
                     _ => (0, 0, 0)
                 };
@@ -243,7 +245,7 @@ public class StaticDataSyncWorker : BackgroundService
         // "mount_images" updates the "mounts" status since it's part of mount data
         var types = syncType switch
         {
-            "all" => new[] { "achievements", "pets", "mounts" },
+            "all" => new[] { "achievements", "pets", "mounts", "items" },
             "mount_images" => new[] { "mounts" },
             _ => new[] { syncType }
         };
@@ -269,6 +271,7 @@ public class StaticDataSyncWorker : BackgroundService
                 "achievements" => await db.WowAchievements.CountAsync(cancellationToken),
                 "pets" => await db.WowPets.CountAsync(cancellationToken),
                 "mounts" => await db.WowMounts.CountAsync(cancellationToken),
+                "items" => await db.WowItems.CountAsync(cancellationToken),
                 _ => null
             };
         }
@@ -281,11 +284,12 @@ public class StaticDataSyncWorker : BackgroundService
         var (achProcessed, achSkipped, achFailed) = await SyncAchievementsWithStatsAsync(cancellationToken);
         var (petProcessed, petSkipped, petFailed) = await SyncPetsWithStatsAsync(cancellationToken);
         var (mountProcessed, mountSkipped, mountFailed) = await SyncMountsWithStatsAsync(cancellationToken);
+        var (itemProcessed, itemSkipped, itemFailed) = await SyncItemsWithStatsAsync(cancellationToken);
 
         return (
-            achProcessed + petProcessed + mountProcessed,
-            achSkipped + petSkipped + mountSkipped,
-            achFailed + petFailed + mountFailed
+            achProcessed + petProcessed + mountProcessed + itemProcessed,
+            achSkipped + petSkipped + mountSkipped + itemSkipped,
+            achFailed + petFailed + mountFailed + itemFailed
         );
     }
 
@@ -675,6 +679,180 @@ public class StaticDataSyncWorker : BackgroundService
             processed, skipped, failed);
 
         return (processed, skipped, failed);
+    }
+
+    #endregion
+
+    #region Item Sync
+
+    /// <summary>
+    /// Sync items using Blizzard's search API with ID filtering.
+    /// This is the Blizzard-approved approach for bulk importing items.
+    /// </summary>
+    private async Task<(int processed, int skipped, int failed)> SyncItemsWithStatsAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Starting item sync using ID-filtered search");
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<HelpersDbContext>();
+
+        // Load existing item IDs to skip
+        var existingIds = await db.WowItems
+            .Select(i => i.Id)
+            .ToHashSetAsync(cancellationToken);
+
+        _logger.LogInformation("Found {Count} existing items in database", existingIds.Count);
+
+        long minItemId = 1;
+        int pageSize = 1000;
+        int imported = 0;
+        int skipped = 0;
+        int failed = 0;
+        int batchNumber = 1;
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                var searchResult = await _blizzardClient.SearchItemsAsync(minItemId, pageSize, "us", cancellationToken);
+
+                if (searchResult?.Results == null || searchResult.Results.Count == 0)
+                {
+                    _logger.LogInformation("No more items found starting from ID {MinId}. Item sync completed.", minItemId);
+                    break;
+                }
+
+                _logger.LogInformation("Batch {BatchNumber}: minItemId={MinId}, resultCount={ResultCount}",
+                    batchNumber, minItemId, searchResult.Results.Count);
+
+                var processedIds = new HashSet<long>();
+                long lastItemId = minItemId;
+
+                foreach (var result in searchResult.Results)
+                {
+                    if (cancellationToken.IsCancellationRequested) break;
+
+                    if (result.Data == null) continue;
+
+                    var itemId = result.Data.Id;
+
+                    // Track highest ID
+                    if (itemId > lastItemId)
+                    {
+                        lastItemId = itemId;
+                    }
+
+                    // Skip duplicates in same batch
+                    if (processedIds.Contains(itemId))
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    // Skip items we already have
+                    if (existingIds.Contains(itemId))
+                    {
+                        skipped++;
+                        processedIds.Add(itemId);
+                        continue;
+                    }
+
+                    var itemName = result.Data.Name?.EnUs;
+                    if (string.IsNullOrEmpty(itemName))
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    processedIds.Add(itemId);
+
+                    // Parse quality
+                    int quality = ParseQualityType(result.Data.Quality?.Type);
+                    var qualityName = result.Data.Quality?.Name?.EnUs ?? "Common";
+                    if (qualityName.Length > 50)
+                        qualityName = qualityName[..50];
+
+                    // Parse inventory type
+                    var inventoryType = result.Data.InventoryType?.Name?.EnUs;
+                    if (inventoryType?.Length > 50)
+                        inventoryType = inventoryType[..50];
+
+                    // Parse item class/subclass
+                    var itemClass = result.Data.ItemClass?.Name?.EnUs;
+                    var itemSubclass = result.Data.ItemSubclass?.Name?.EnUs;
+
+                    var item = new WowItems
+                    {
+                        Id = itemId,
+                        Name = itemName,
+                        Quality = quality,
+                        QualityName = qualityName,
+                        ItemLevel = result.Data.Level,
+                        InventoryType = inventoryType,
+                        ItemClass = itemClass,
+                        ItemSubclass = itemSubclass,
+                        IsEquippable = result.Data.IsEquippable,
+                        RequiredLevel = result.Data.RequiredLevel,
+                        MediaUrl = null, // Media is fetched on-demand to reduce API calls
+                        LastUpdated = DateTime.UtcNow
+                    };
+
+                    db.WowItems.Add(item);
+                    imported++;
+                }
+
+                await db.SaveChangesAsync(cancellationToken);
+
+                _logger.LogInformation(
+                    "Item sync progress: Batch {BatchNumber} complete (IDs {MinId}-{MaxId}) - {Imported} total imported, {Skipped} total skipped",
+                    batchNumber, minItemId, lastItemId, imported, skipped);
+
+                // Move to next batch
+                minItemId = lastItemId + 1;
+                batchNumber++;
+
+                // Rate limiting between batches
+                await Task.Delay(_config.StaticDataSync.ApiCallDelayMs * 2, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing item batch {BatchNumber} (starting at ID {MinId})", batchNumber, minItemId);
+                failed++;
+                minItemId += pageSize;
+                batchNumber++;
+                await Task.Delay(5000, cancellationToken);
+            }
+        }
+
+        _logger.LogInformation("Item sync complete: {Imported} imported, {Skipped} skipped, {Failed} batch errors",
+            imported, skipped, failed);
+
+        return (imported, skipped, failed);
+    }
+
+    /// <summary>
+    /// Maps WoW item quality type string to numeric value
+    /// </summary>
+    private static int ParseQualityType(string? qualityType)
+    {
+        if (string.IsNullOrEmpty(qualityType))
+            return 0;
+
+        if (int.TryParse(qualityType, out int parsedQuality))
+            return parsedQuality;
+
+        return qualityType.ToUpper() switch
+        {
+            "POOR" => 0,
+            "COMMON" => 1,
+            "UNCOMMON" => 2,
+            "RARE" => 3,
+            "EPIC" => 4,
+            "LEGENDARY" => 5,
+            "ARTIFACT" => 6,
+            "HEIRLOOM" => 7,
+            _ => 0
+        };
     }
 
     #endregion

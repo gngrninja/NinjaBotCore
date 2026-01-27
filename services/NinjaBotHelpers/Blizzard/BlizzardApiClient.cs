@@ -222,6 +222,65 @@ public class BlizzardApiClient
     }
 
     /// <summary>
+    /// Search for items using ID filtering (Blizzard-approved bulk import method).
+    /// Uses the search endpoint with minimum item ID to bypass pagination limits.
+    /// Reference: https://us.forums.blizzard.com/en/blizzard/t/get-itemsubclasses-out-of-the-auction-house-api/12065
+    /// </summary>
+    public async Task<ItemSearchResponse?> SearchItemsAsync(
+        long minItemId,
+        int pageSize = 1000,
+        string region = "us",
+        CancellationToken cancellationToken = default)
+    {
+        var token = await GetAccessTokenAsync(cancellationToken);
+        if (token == null)
+        {
+            _logger.LogError("Failed to get Blizzard access token for item search");
+            return null;
+        }
+
+        var regionLower = region.ToLowerInvariant();
+        var url = $"https://{regionLower}.api.blizzard.com/data/wow/search/item?namespace=static-{regionLower}&orderby=id&id=[{minItemId},]&_page=1&_pageSize={pageSize}&locale=en_US";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        try
+        {
+            var response = await _resiliencePipeline.ExecuteAsync(
+                async ct => await _httpClient.SendAsync(request, ct),
+                cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Blizzard item search API returned {StatusCode}", response.StatusCode);
+                return null;
+            }
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            return JsonConvert.DeserializeObject<ItemSearchResponse>(json);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error searching items starting at ID {MinId}", minItemId);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Get media for a single item
+    /// </summary>
+    public async Task<MediaResponse?> GetItemMediaAsync(
+        long itemId,
+        string region = "us",
+        CancellationToken cancellationToken = default)
+    {
+        var json = await GetStaticDataAsync($"/data/wow/media/item/{itemId}", region, cancellationToken);
+        if (json == null) return null;
+        return JsonConvert.DeserializeObject<MediaResponse>(json);
+    }
+
+    /// <summary>
     /// Get the connected realm status from Blizzard API
     /// </summary>
     public async Task<ConnectedRealmStatus?> GetConnectedRealmStatusAsync(
@@ -608,6 +667,135 @@ public class PetResponse
 
     [JsonProperty("media")]
     public KeyRef? Media { get; set; }
+}
+
+/// <summary>
+/// Item search response from Blizzard API
+/// </summary>
+public class ItemSearchResponse
+{
+    [JsonProperty("page")]
+    public int Page { get; set; }
+
+    [JsonProperty("pageSize")]
+    public int PageSize { get; set; }
+
+    [JsonProperty("maxPageSize")]
+    public int MaxPageSize { get; set; }
+
+    [JsonProperty("pageCount")]
+    public int PageCount { get; set; }
+
+    [JsonProperty("results")]
+    public List<ItemSearchResult>? Results { get; set; }
+}
+
+public class ItemSearchResult
+{
+    [JsonProperty("key")]
+    public HrefLink? Key { get; set; }
+
+    [JsonProperty("data")]
+    public ItemSearchData? Data { get; set; }
+}
+
+public class ItemSearchData
+{
+    [JsonProperty("id")]
+    public long Id { get; set; }
+
+    [JsonProperty("name")]
+    public ItemLocalizedName? Name { get; set; }
+
+    [JsonProperty("quality")]
+    public ItemQuality? Quality { get; set; }
+
+    [JsonProperty("level")]
+    public int Level { get; set; }
+
+    [JsonProperty("required_level")]
+    public int RequiredLevel { get; set; }
+
+    [JsonProperty("inventory_type")]
+    public ItemInventoryType? InventoryType { get; set; }
+
+    [JsonProperty("item_class")]
+    public ItemClass? ItemClass { get; set; }
+
+    [JsonProperty("item_subclass")]
+    public ItemClass? ItemSubclass { get; set; }
+
+    [JsonProperty("is_equippable")]
+    public bool IsEquippable { get; set; }
+}
+
+public class ItemLocalizedName
+{
+    [JsonProperty("en_US")]
+    public string? EnUs { get; set; }
+
+    [JsonProperty("es_MX")]
+    public string? EsMx { get; set; }
+
+    [JsonProperty("pt_BR")]
+    public string? PtBr { get; set; }
+
+    [JsonProperty("de_DE")]
+    public string? DeDe { get; set; }
+
+    [JsonProperty("en_GB")]
+    public string? EnGb { get; set; }
+
+    [JsonProperty("es_ES")]
+    public string? EsEs { get; set; }
+
+    [JsonProperty("fr_FR")]
+    public string? FrFr { get; set; }
+
+    [JsonProperty("it_IT")]
+    public string? ItIt { get; set; }
+
+    [JsonProperty("ru_RU")]
+    public string? RuRu { get; set; }
+
+    [JsonProperty("ko_KR")]
+    public string? KoKr { get; set; }
+
+    [JsonProperty("zh_TW")]
+    public string? ZhTw { get; set; }
+
+    [JsonProperty("zh_CN")]
+    public string? ZhCn { get; set; }
+}
+
+public class ItemQuality
+{
+    [JsonProperty("type")]
+    public string? Type { get; set; }
+
+    [JsonProperty("name")]
+    public ItemLocalizedName? Name { get; set; }
+}
+
+public class ItemInventoryType
+{
+    [JsonProperty("type")]
+    public string? Type { get; set; }
+
+    [JsonProperty("name")]
+    public ItemLocalizedName? Name { get; set; }
+}
+
+public class ItemClass
+{
+    [JsonProperty("key")]
+    public HrefLink? Key { get; set; }
+
+    [JsonProperty("name")]
+    public ItemLocalizedName? Name { get; set; }
+
+    [JsonProperty("id")]
+    public long Id { get; set; }
 }
 
 #endregion

@@ -2720,6 +2720,11 @@ namespace NinjaBotCore.Services
                         var achievements = await wowStaticData.GetAllAchievementsAsync();
                         var pets = await wowStaticData.GetAllPetsAsync();
 
+                        // Items - query directly from database
+                        var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+                        var itemsCount = await db.WowItems.CountAsync();
+                        var oldestItem = await db.WowItems.OrderBy(i => i.LastUpdated).FirstOrDefaultAsync();
+
                         // Realms by region
                         var realmsByRegion = realms.GroupBy(r => r.Region)
                             .OrderBy(g => g.Key)
@@ -2787,6 +2792,11 @@ namespace NinjaBotCore.Services
                                 total = pets.Count,
                                 by_type = petsByType,
                                 oldest_update = oldestPet?.LastUpdated
+                            },
+                            items = new
+                            {
+                                total = itemsCount,
+                                oldest_update = oldestItem?.LastUpdated
                             }
                         }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
                     }
@@ -2821,13 +2831,13 @@ namespace NinjaBotCore.Services
                         }
 
                         var syncType = body.SyncType.ToLower();
-                        var queuedTypes = new[] { "achievements", "pets", "mounts", "mount_images", "all" };
+                        var queuedTypes = new[] { "achievements", "pets", "mounts", "mount_images", "items", "all" };
                         var directTypes = new[] { "realms", "classes", "races", "static" };
                         var validTypes = queuedTypes.Concat(directTypes).ToArray();
 
                         if (!validTypes.Contains(syncType))
                         {
-                            return Results.BadRequest(new { error = "sync_type must be one of: achievements, pets, mounts, mount_images, realms, classes, races, static, all" });
+                            return Results.BadRequest(new { error = "sync_type must be one of: achievements, pets, mounts, mount_images, items, realms, classes, races, static, all" });
                         }
 
                         using var scope = _serviceProvider.CreateScope();
@@ -2961,7 +2971,7 @@ namespace NinjaBotCore.Services
 
                         var result = new Dictionary<string, object>();
 
-                        foreach (var type in new[] { "achievements", "pets", "mounts" })
+                        foreach (var type in new[] { "achievements", "pets", "mounts", "items" })
                         {
                             var status = statuses.FirstOrDefault(s => s.SyncType == type);
                             result[type] = new

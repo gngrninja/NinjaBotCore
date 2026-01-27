@@ -20,6 +20,7 @@ public class HelpersDbContext : DbContext
     public DbSet<WowAchievementCriteria> WowAchievementCriteria { get; set; } = null!;
     public DbSet<WowPets> WowPets { get; set; } = null!;
     public DbSet<WowMounts> WowMounts { get; set; } = null!;
+    public DbSet<WowItems> WowItems { get; set; } = null!;
 
     // Sync control tables (shared with NinjaBotCore)
     public DbSet<StaticDataSyncRequest> StaticDataSyncRequests { get; set; } = null!;
@@ -47,6 +48,9 @@ public class HelpersDbContext : DbContext
 
         modelBuilder.Entity<WowMounts>()
             .ToTable("WowMounts");
+
+        modelBuilder.Entity<WowItems>()
+            .ToTable("WowItems");
 
         // Sync control tables (shared with NinjaBotCore)
         modelBuilder.Entity<StaticDataSyncRequest>()
