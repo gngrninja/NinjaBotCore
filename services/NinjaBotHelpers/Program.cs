@@ -4,6 +4,7 @@ using NinjaBotHelpers.Configuration;
 using NinjaBotHelpers.Database;
 using NinjaBotHelpers.Discord;
 using NinjaBotHelpers.Wago;
+using NinjaBotHelpers.WarcraftLogs;
 using NinjaBotHelpers.Workers;
 using Serilog;
 using System.Net.Http.Headers;
@@ -20,6 +21,9 @@ try
     Log.Information("Starting NinjaBotHelpers...");
 
     var builder = Host.CreateApplicationBuilder(args);
+
+    // Add environment variables with NINJABOT_ prefix (same as main bot)
+    builder.Configuration.AddEnvironmentVariables(prefix: "NINJABOT_");
 
     // Add Serilog
     builder.Services.AddSerilog();
@@ -69,9 +73,20 @@ try
         return new WagoToolsClient(httpClient, logger);
     });
 
+    // Register WarcraftLogsClient
+    builder.Services.AddHttpClient<WarcraftLogsClient>();
+    builder.Services.AddSingleton<WarcraftLogsClient>(sp =>
+    {
+        var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
+        var httpClient = httpClientFactory.CreateClient(nameof(WarcraftLogsClient));
+        var logger = sp.GetRequiredService<ILogger<WarcraftLogsClient>>();
+        return new WarcraftLogsClient(httpClient, logger, config);
+    });
+
     // Workers
     builder.Services.AddHostedService<RealmWatcherWorker>();
     builder.Services.AddHostedService<StaticDataSyncWorker>();
+    builder.Services.AddHostedService<LogMonitoringWorker>();
 
     var host = builder.Build();
 
@@ -164,6 +179,38 @@ static HelpersConfiguration LoadConfiguration(IConfiguration configuration)
     if (int.TryParse(Environment.GetEnvironmentVariable("NINJABOT_STATICDATASYNC_WAGOTIMEOUT"), out var wagoTimeout))
         config.StaticDataSync.WagoTimeoutSeconds = wagoTimeout;
 
+    // WarcraftLogs credentials (optional - worker will disable itself if not set)
+    // Uses same env vars as main bot: NINJABOT_WCLClientId, NINJABOT_WCLClientSecret
+    // The NINJABOT_ prefix is stripped by AddEnvironmentVariables, so we access as WCLClientId
+    config.WclClientId = configuration["WCLClientId"]
+        ?? configuration["WclClientId"]  // Also check alternate casing
+        ?? string.Empty;
+
+    config.WclClientSecret = configuration["WCLClientSecret"]
+        ?? configuration["WclClientSecret"]  // Also check alternate casing
+        ?? string.Empty;
+
+    // LogMonitoring settings (optional, with defaults)
+    var lmSection = configuration.GetSection("LogMonitoring");
+    if (lmSection.Exists())
+    {
+        config.LogMonitoring.Enabled = lmSection.GetValue("Enabled", true);
+        config.LogMonitoring.CheckIntervalMinutes = lmSection.GetValue("CheckIntervalMinutes", 15);
+        config.LogMonitoring.InitialDelaySeconds = lmSection.GetValue("InitialDelaySeconds", 90);
+        config.LogMonitoring.Tier1ThresholdDays = lmSection.GetValue("Tier1ThresholdDays", 14);
+        config.LogMonitoring.Tier2ThresholdDays = lmSection.GetValue("Tier2ThresholdDays", 30);
+        config.LogMonitoring.Tier1IntervalMinutes = lmSection.GetValue("Tier1IntervalMinutes", 20);
+        config.LogMonitoring.Tier2IntervalHours = lmSection.GetValue("Tier2IntervalHours", 3);
+        config.LogMonitoring.Tier3IntervalHours = lmSection.GetValue("Tier3IntervalHours", 24);
+    }
+
+    // Environment variable overrides for LogMonitoring
+    if (bool.TryParse(Environment.GetEnvironmentVariable("NINJABOT_LOGMONITORING_ENABLED"), out var lmEnabled))
+        config.LogMonitoring.Enabled = lmEnabled;
+
+    if (int.TryParse(Environment.GetEnvironmentVariable("NINJABOT_LOGMONITORING_INTERVAL"), out var lmInterval))
+        config.LogMonitoring.CheckIntervalMinutes = lmInterval;
+
     Log.Information("Configuration loaded:");
     Log.Information("  RealmWatcher Enabled: {Enabled}", config.RealmWatcher.Enabled);
     Log.Information("  RealmWatcher Interval: {Interval}s", config.RealmWatcher.CheckIntervalSeconds);
@@ -171,6 +218,9 @@ static HelpersConfiguration LoadConfiguration(IConfiguration configuration)
     Log.Information("  StaticDataSync Interval: {Interval} days", config.StaticDataSync.SyncIntervalDays);
     Log.Information("  StaticDataSync ItemDataSource: {Source}", config.StaticDataSync.ItemDataSource);
     Log.Information("  StaticDataSync WagoTimeout: {Timeout}s", config.StaticDataSync.WagoTimeoutSeconds);
+    Log.Information("  LogMonitoring Enabled: {Enabled}", config.LogMonitoring.Enabled);
+    Log.Information("  LogMonitoring Interval: {Interval}m", config.LogMonitoring.CheckIntervalMinutes);
+    Log.Information("  WarcraftLogs Configured: {Configured}", !string.IsNullOrEmpty(config.WclClientId));
 
     return config;
 }

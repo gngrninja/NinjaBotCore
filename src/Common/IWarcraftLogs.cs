@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Threading;
 using System.Threading.Tasks;
 using NinjaBotCore.Models.Wow;
 
@@ -43,8 +42,7 @@ namespace NinjaBotCore.Common
 
         // Utility
         DateTime ConvTimeToLocalTimezone(DateTime time, string timezone = "America/Los_Angeles");
-        Task WarcraftLogsTimer(Func<Task> action, CancellationToken token);
-        Task StartTimer();
-        Task StopTimer();
+
+        // Note: Timer methods removed - log monitoring now handled by NinjaBotHelpers service
     }
 }

@@ -26,6 +26,13 @@ public class HelpersDbContext : DbContext
     public DbSet<StaticDataSyncRequest> StaticDataSyncRequests { get; set; } = null!;
     public DbSet<StaticDataSyncStatus> StaticDataSyncStatus { get; set; } = null!;
 
+    // WarcraftLogs monitoring tables (shared with NinjaBotCore)
+    public DbSet<LogMonitoring> LogMonitoring { get; set; } = null!;
+    public DbSet<WclPosted> WclPosted { get; set; } = null!;
+    public DbSet<WowGuildAssociations> WowGuildAssociations { get; set; } = null!;
+    public DbSet<WowClassicGuild> WowClassicGuild { get; set; } = null!;
+    public DbSet<WowVanillaGuild> WowVanillaGuild { get; set; } = null!;
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -58,5 +65,21 @@ public class HelpersDbContext : DbContext
 
         modelBuilder.Entity<StaticDataSyncStatus>()
             .ToTable("StaticDataSyncStatus");
+
+        // WarcraftLogs monitoring tables (shared with NinjaBotCore)
+        modelBuilder.Entity<LogMonitoring>()
+            .ToTable("LogMonitoring");
+
+        modelBuilder.Entity<WclPosted>()
+            .ToTable("WclPosted");
+
+        modelBuilder.Entity<WowGuildAssociations>()
+            .ToTable("WowGuildAssociations");
+
+        modelBuilder.Entity<WowClassicGuild>()
+            .ToTable("WowClassicGuild");
+
+        modelBuilder.Entity<WowVanillaGuild>()
+            .ToTable("WowVanillaGuild");
     }
 }

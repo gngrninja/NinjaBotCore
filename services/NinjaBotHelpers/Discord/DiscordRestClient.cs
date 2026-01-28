@@ -166,6 +166,12 @@ public class DiscordEmbed
         };
     }
 
+    public DiscordEmbed WithDescription(string description)
+    {
+        Description = description;
+        return this;
+    }
+
     public DiscordEmbed WithField(string name, string value, bool inline = false)
     {
         Fields ??= new List<DiscordEmbedField>();

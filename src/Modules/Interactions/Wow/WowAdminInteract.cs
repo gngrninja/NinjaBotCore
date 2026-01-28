@@ -310,20 +310,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             await RespondAsync(sb.ToString());
         }
 
-        [SlashCommand("tu", "start wcl timer")]
-        [Discord.Interactions.RequireOwner]
-        public async Task StartTimer()
-        {
-            await _logsApi.StartTimer();
-        }
+        // Note: /tu and /td commands removed - log monitoring now handled by NinjaBotHelpers service
 
-        [SlashCommand("td", "stop wcl timer")]
-        [Discord.Interactions.RequireOwner]
-        public async Task StopTimer()
-        {
-            await _logsApi.StopTimer();
-        }
-    
         [SlashCommand("get-latest-zone", "get latest zone")]
         [Discord.Interactions.RequireOwner]
         public async Task GetLatestZone()

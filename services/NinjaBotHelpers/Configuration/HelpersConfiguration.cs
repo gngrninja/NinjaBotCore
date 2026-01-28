@@ -34,6 +34,21 @@ public class HelpersConfiguration
     /// Static data sync settings (achievements, pets, mounts)
     /// </summary>
     public StaticDataSyncSettings StaticDataSync { get; set; } = new();
+
+    /// <summary>
+    /// WarcraftLogs V2 API client ID
+    /// </summary>
+    public string WclClientId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// WarcraftLogs V2 API client secret
+    /// </summary>
+    public string WclClientSecret { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Log monitoring settings (auto-poster for WarcraftLogs)
+    /// </summary>
+    public LogMonitoringSettings LogMonitoring { get; set; } = new();
 }
 
 public class RealmWatcherSettings
@@ -96,4 +111,50 @@ public class StaticDataSyncSettings
     /// Timeout in seconds for wago.tools requests (default 120s for ~10MB download)
     /// </summary>
     public int WagoTimeoutSeconds { get; set; } = 120;
+}
+
+/// <summary>
+/// Settings for WarcraftLogs auto-poster background service
+/// </summary>
+public class LogMonitoringSettings
+{
+    /// <summary>
+    /// Whether log monitoring is enabled
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// How often to check for new logs (minutes)
+    /// </summary>
+    public int CheckIntervalMinutes { get; set; } = 15;
+
+    /// <summary>
+    /// Delay before first check after startup (seconds)
+    /// </summary>
+    public int InitialDelaySeconds { get; set; } = 90;
+
+    /// <summary>
+    /// Days since last activity for Tier 1 (most frequent) checking
+    /// </summary>
+    public int Tier1ThresholdDays { get; set; } = 14;
+
+    /// <summary>
+    /// Days since last activity for Tier 2 (medium) checking
+    /// </summary>
+    public int Tier2ThresholdDays { get; set; } = 30;
+
+    /// <summary>
+    /// Check interval for Tier 1 guilds (minutes) - active guilds
+    /// </summary>
+    public int Tier1IntervalMinutes { get; set; } = 20;
+
+    /// <summary>
+    /// Check interval for Tier 2 guilds (hours) - semi-active guilds
+    /// </summary>
+    public int Tier2IntervalHours { get; set; } = 3;
+
+    /// <summary>
+    /// Check interval for Tier 3 guilds (hours) - inactive guilds
+    /// </summary>
+    public int Tier3IntervalHours { get; set; } = 24;
 }
