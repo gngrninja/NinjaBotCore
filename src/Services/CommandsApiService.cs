@@ -1383,6 +1383,7 @@ namespace NinjaBotCore.Services
                             {
                                 guild_id = guildId,
                                 greet_users = false,
+                                part_users = false,
                                 greeting = (string?)null,
                                 greeting_channel_id = (string?)null,
                                 greeting_channel_name = (string?)null,
@@ -1405,6 +1406,7 @@ namespace NinjaBotCore.Services
                         {
                             guild_id = settings.DiscordGuildId.ToString(),
                             greet_users = settings.GreetUsers ?? false,
+                            part_users = settings.PartUsers ?? false,
                             greeting = settings.Greeting,
                             greeting_channel_id = settings.GreetingChannelId?.ToString(),
                             greeting_channel_name = settings.GreetingChannelName,
@@ -1466,6 +1468,9 @@ namespace NinjaBotCore.Services
                     if (body.GreetUsers.HasValue)
                         settings.GreetUsers = body.GreetUsers.Value;
 
+                    if (body.PartUsers.HasValue)
+                        settings.PartUsers = body.PartUsers.Value;
+
                     if (body.Greeting != null)
                         settings.Greeting = body.Greeting;
 
@@ -1502,6 +1507,10 @@ namespace NinjaBotCore.Services
 
                     await db.SaveChangesAsync();
 
+                    // Invalidate greeting cache so bot picks up changes immediately
+                    var greetingCache = scope.ServiceProvider.GetRequiredService<WowCacheService>();
+                    greetingCache.InvalidateServerGreeting(guildIdLong);
+
                     return Results.Json(new
                     {
                         success = true,
@@ -1509,6 +1518,7 @@ namespace NinjaBotCore.Services
                         {
                             guild_id = settings.DiscordGuildId.ToString(),
                             greet_users = settings.GreetUsers ?? false,
+                            part_users = settings.PartUsers ?? false,
                             greeting = settings.Greeting,
                             greeting_channel_id = settings.GreetingChannelId?.ToString(),
                             greeting_channel_name = settings.GreetingChannelName,
@@ -3558,93 +3568,94 @@ namespace NinjaBotCore.Services
     /// Request body for updating poll settings.
     /// </summary>
     public record UpdatePollSettingsRequest(
-        string? ResultsChannelId,
-        bool? MentionVotersOnClose,
-        bool? DefaultAnonymous,
-        string? UserId,
-        string? UserName
+        [property: JsonPropertyName("results_channel_id")] string? ResultsChannelId,
+        [property: JsonPropertyName("mention_voters_on_close")] bool? MentionVotersOnClose,
+        [property: JsonPropertyName("default_anonymous")] bool? DefaultAnonymous,
+        [property: JsonPropertyName("user_id")] string? UserId,
+        [property: JsonPropertyName("user_name")] string? UserName
     );
 
     /// <summary>
     /// Request body for updating log monitoring settings.
     /// </summary>
     public record UpdateLogMonitoringRequest(
-        string? ChannelId,
-        string? ChannelName,
-        bool? MonitorLogs,
-        string? ServerName
+        [property: JsonPropertyName("channel_id")] string? ChannelId,
+        [property: JsonPropertyName("channel_name")] string? ChannelName,
+        [property: JsonPropertyName("monitor_logs")] bool? MonitorLogs,
+        [property: JsonPropertyName("server_name")] string? ServerName
     );
 
     /// <summary>
     /// Request body for updating greeting settings.
     /// </summary>
     public record UpdateGreetingSettingsRequest(
-        bool? GreetUsers,
-        string? Greeting,
-        string? GreetingChannelId,
-        string? GreetingChannelName,
-        string? PartingMessage,
-        string? PartingChannelId,
-        string? SetById,
-        string? SetByName
+        [property: JsonPropertyName("greet_users")] bool? GreetUsers,
+        [property: JsonPropertyName("part_users")] bool? PartUsers,
+        [property: JsonPropertyName("greeting")] string? Greeting,
+        [property: JsonPropertyName("greeting_channel_id")] string? GreetingChannelId,
+        [property: JsonPropertyName("greeting_channel_name")] string? GreetingChannelName,
+        [property: JsonPropertyName("parting_message")] string? PartingMessage,
+        [property: JsonPropertyName("parting_channel_id")] string? PartingChannelId,
+        [property: JsonPropertyName("set_by_id")] string? SetById,
+        [property: JsonPropertyName("set_by_name")] string? SetByName
     );
 
     /// <summary>
     /// Request body for updating moderation watcher settings.
     /// </summary>
     public record UpdateModerationWatcherRequest(
-        string? ChannelId,
-        string? ChannelName,
-        bool? WatchVoice,
-        bool? WatchMessages,
-        bool? WatchRoles,
-        bool? WatchBans,
-        bool? WatchNicknames,
-        string? SetById,
-        string? SetByName
+        [property: JsonPropertyName("channel_id")] string? ChannelId,
+        [property: JsonPropertyName("channel_name")] string? ChannelName,
+        [property: JsonPropertyName("watch_voice")] bool? WatchVoice,
+        [property: JsonPropertyName("watch_messages")] bool? WatchMessages,
+        [property: JsonPropertyName("watch_roles")] bool? WatchRoles,
+        [property: JsonPropertyName("watch_bans")] bool? WatchBans,
+        [property: JsonPropertyName("watch_nicknames")] bool? WatchNicknames,
+        [property: JsonPropertyName("set_by_id")] string? SetById,
+        [property: JsonPropertyName("set_by_name")] string? SetByName
     );
 
     /// <summary>
     /// Request body for updating WoW guild association.
     /// </summary>
     public record UpdateWowAssociationRequest(
-        string? WowGuildName,
-        string? WowRealm,
-        string? WowRealmSlug,
-        string? WowRegion,
-        string? Locale,
-        string? ServerName,
-        string? SetById,
-        string? SetByName
+        [property: JsonPropertyName("wow_guild_name")] string? WowGuildName,
+        [property: JsonPropertyName("wow_realm")] string? WowRealm,
+        [property: JsonPropertyName("wow_realm_slug")] string? WowRealmSlug,
+        [property: JsonPropertyName("wow_region")] string? WowRegion,
+        [property: JsonPropertyName("locale")] string? Locale,
+        [property: JsonPropertyName("server_name")] string? ServerName,
+        [property: JsonPropertyName("set_by_id")] string? SetById,
+        [property: JsonPropertyName("set_by_name")] string? SetByName
     );
 
     /// <summary>
     /// Request body for updating away status.
     /// </summary>
     public record UpdateAwayStatusRequest(
-        string? UserName,
-        bool? IsAway,
-        string? Message
+        [property: JsonPropertyName("user_name")] string? UserName,
+        [property: JsonPropertyName("is_away")] bool? IsAway,
+        [property: JsonPropertyName("message")] string? Message
     );
 
     /// <summary>
     /// Request body for setting a character as main.
     /// </summary>
     public record SetMainCharacterRequest(
-        string? UserId
+        [property: JsonPropertyName("user_id")] string? UserId
     );
 
     /// <summary>
     /// Request body for adding a realm watch.
     /// </summary>
     public record AddRealmWatchRequest(
-        string? RealmSlug,
-        string? Region,
-        string? UserId,
-        string? ChannelId,
-        bool? AlertOnOnline,
-        bool? AlertOnOffline,
-        bool? AlertOnQueue
+        [property: JsonPropertyName("realm_slug")] string? RealmSlug,
+        [property: JsonPropertyName("region")] string? Region,
+        [property: JsonPropertyName("user_id")] string? UserId,
+        [property: JsonPropertyName("channel_id")] string? ChannelId,
+        [property: JsonPropertyName("alert_on_online")] bool? AlertOnOnline,
+        [property: JsonPropertyName("alert_on_offline")] bool? AlertOnOffline,
+        [property: JsonPropertyName("alert_on_queue")] bool? AlertOnQueue
     );
 
     /// <summary>

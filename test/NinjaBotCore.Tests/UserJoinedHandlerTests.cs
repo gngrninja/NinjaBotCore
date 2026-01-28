@@ -339,6 +339,237 @@ namespace NinjaBotCore.Tests
             Assert.NotNull(result.TimeSet);
         }
 
+        [Fact]
+        public async Task PartUsers_CanBeSetIndependentlyFromGreetUsers()
+        {
+            // Arrange - Greetings enabled, partings disabled
+            const long guildId = 901234;
+
+            await using (var scope = _provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+                db.ServerGreetings.Add(new ServerGreeting
+                {
+                    DiscordGuildId = guildId,
+                    GreetUsers = true,
+                    PartUsers = false,
+                    Greeting = "Welcome!",
+                    PartingMessage = "Goodbye!",
+                    GreetingChannelId = 100100
+                });
+                await db.SaveChangesAsync();
+            }
+
+            // Act
+            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>(), _provider.GetRequiredService<ILogger<WowCacheService>>());
+            var result = await cacheService.GetServerGreetingAsync(guildId);
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.True(result.GreetUsers);
+            Assert.False(result.PartUsers);
+        }
+
+        [Fact]
+        public async Task PartUsers_EnabledWithGreetingsDisabled()
+        {
+            // Arrange - Partings enabled, greetings disabled
+            const long guildId = 912345;
+
+            await using (var scope = _provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+                db.ServerGreetings.Add(new ServerGreeting
+                {
+                    DiscordGuildId = guildId,
+                    GreetUsers = false,
+                    PartUsers = true,
+                    Greeting = "Welcome!",
+                    PartingMessage = "Farewell!",
+                    PartingChannelId = 200200
+                });
+                await db.SaveChangesAsync();
+            }
+
+            // Act
+            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>(), _provider.GetRequiredService<ILogger<WowCacheService>>());
+            var result = await cacheService.GetServerGreetingAsync(guildId);
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.False(result.GreetUsers);
+            Assert.True(result.PartUsers);
+            Assert.Equal("Farewell!", result.PartingMessage);
+        }
+
+        [Fact]
+        public async Task PartUsers_BothEnabled()
+        {
+            // Arrange - Both greetings and partings enabled
+            const long guildId = 923456;
+
+            await using (var scope = _provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+                db.ServerGreetings.Add(new ServerGreeting
+                {
+                    DiscordGuildId = guildId,
+                    GreetUsers = true,
+                    PartUsers = true,
+                    Greeting = "Welcome to the server!",
+                    PartingMessage = "Sorry to see you go!",
+                    GreetingChannelId = 300300,
+                    PartingChannelId = 400400
+                });
+                await db.SaveChangesAsync();
+            }
+
+            // Act
+            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>(), _provider.GetRequiredService<ILogger<WowCacheService>>());
+            var result = await cacheService.GetServerGreetingAsync(guildId);
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.True(result.GreetUsers);
+            Assert.True(result.PartUsers);
+            Assert.Equal("Welcome to the server!", result.Greeting);
+            Assert.Equal("Sorry to see you go!", result.PartingMessage);
+            Assert.Equal(300300, result.GreetingChannelId);
+            Assert.Equal(400400, result.PartingChannelId);
+        }
+
+        [Fact]
+        public async Task PartUsers_BothDisabled()
+        {
+            // Arrange - Both greetings and partings disabled
+            const long guildId = 934567;
+
+            await using (var scope = _provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+                db.ServerGreetings.Add(new ServerGreeting
+                {
+                    DiscordGuildId = guildId,
+                    GreetUsers = false,
+                    PartUsers = false,
+                    Greeting = "Unused greeting",
+                    PartingMessage = "Unused parting"
+                });
+                await db.SaveChangesAsync();
+            }
+
+            // Act
+            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>(), _provider.GetRequiredService<ILogger<WowCacheService>>());
+            var result = await cacheService.GetServerGreetingAsync(guildId);
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.False(result.GreetUsers);
+            Assert.False(result.PartUsers);
+        }
+
+        [Fact]
+        public async Task PartUsers_NullTreatedAsFalse()
+        {
+            // Arrange - PartUsers is null (legacy behavior)
+            const long guildId = 945678;
+
+            await using (var scope = _provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+                db.ServerGreetings.Add(new ServerGreeting
+                {
+                    DiscordGuildId = guildId,
+                    GreetUsers = true,
+                    PartUsers = null, // Not set
+                    Greeting = "Welcome!"
+                });
+                await db.SaveChangesAsync();
+            }
+
+            // Act
+            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>(), _provider.GetRequiredService<ILogger<WowCacheService>>());
+            var result = await cacheService.GetServerGreetingAsync(guildId);
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.True(result.GreetUsers);
+            Assert.Null(result.PartUsers); // Null in database
+            // Handler should treat null as false (PartUsers != true check)
+        }
+
+        [Fact]
+        public async Task PartUsers_SeparateChannels()
+        {
+            // Arrange - Separate channels for greeting and parting
+            const long guildId = 956789;
+            const long greetingChannelId = 111111;
+            const long partingChannelId = 222222;
+
+            await using (var scope = _provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+                db.ServerGreetings.Add(new ServerGreeting
+                {
+                    DiscordGuildId = guildId,
+                    GreetUsers = true,
+                    PartUsers = true,
+                    Greeting = "Hello!",
+                    PartingMessage = "Bye!",
+                    GreetingChannelId = greetingChannelId,
+                    PartingChannelId = partingChannelId
+                });
+                await db.SaveChangesAsync();
+            }
+
+            // Act
+            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>(), _provider.GetRequiredService<ILogger<WowCacheService>>());
+            var result = await cacheService.GetServerGreetingAsync(guildId);
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.Equal(greetingChannelId, result.GreetingChannelId);
+            Assert.Equal(partingChannelId, result.PartingChannelId);
+            Assert.NotEqual(result.GreetingChannelId, result.PartingChannelId);
+        }
+
+        [Fact]
+        public async Task PartUsers_ToggleIndependently()
+        {
+            // Arrange - Start with both enabled
+            const long guildId = 967890;
+
+            await using (var scope = _provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+                db.ServerGreetings.Add(new ServerGreeting
+                {
+                    DiscordGuildId = guildId,
+                    GreetUsers = true,
+                    PartUsers = true
+                });
+                await db.SaveChangesAsync();
+            }
+
+            // Act - Toggle partings off while keeping greetings on
+            await using (var scope = _provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+                var settings = await db.ServerGreetings.FirstAsync(g => g.DiscordGuildId == guildId);
+                settings.PartUsers = false;
+                await db.SaveChangesAsync();
+            }
+
+            // Assert
+            var cacheService = new WowCacheService(_cache, _provider.GetRequiredService<IServiceScopeFactory>(), _provider.GetRequiredService<ILogger<WowCacheService>>());
+            cacheService.InvalidateServerGreeting(guildId); // Clear cache to get fresh data
+            var result = await cacheService.GetServerGreetingAsync(guildId);
+
+            Assert.NotNull(result);
+            Assert.True(result.GreetUsers);
+            Assert.False(result.PartUsers);
+        }
+
         public async ValueTask DisposeAsync()
         {
             _context?.Database.EnsureDeleted();

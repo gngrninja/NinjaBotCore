@@ -8,6 +8,7 @@ namespace NinjaBotCore.Database
         [Key]
         public long DiscordGuildId { get; set; }
         public Nullable<bool> GreetUsers { get; set; }
+        public Nullable<bool> PartUsers { get; set; }
         public string Greeting { get; set; }
         public Nullable<long> SetById { get; set; }
         public string SetByName { get; set; }

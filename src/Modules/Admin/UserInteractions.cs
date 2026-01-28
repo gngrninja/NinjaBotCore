@@ -496,7 +496,7 @@ namespace NinjaBotCore.Modules.Admin
         private async Task HandleParting(SocketGuild guild, SocketUser user)
         {
             ServerGreeting shouldGreet = await _greetingCache.GetServerGreetingAsync((long)guild.Id);
-                if (shouldGreet != null && shouldGreet.GreetUsers == true)
+                if (shouldGreet != null && shouldGreet.PartUsers == true)
                 {
                     var sb = new StringBuilder();
                     ISocketMessageChannel messageChannel = null;
@@ -521,7 +521,6 @@ namespace NinjaBotCore.Modules.Admin
                         {
                             var embed = new EmbedBuilder();
                             embed.Title = $"[{user.Username}] has left [**{guild.Name}**]!";
-                            sb.AppendLine($"{user.Username}");
                             if (string.IsNullOrEmpty(shouldGreet.PartingMessage))
                             {
                                 sb.AppendLine($"Fine, be that way! :wave:");
@@ -570,7 +569,6 @@ namespace NinjaBotCore.Modules.Admin
                         }
                         var embed = new EmbedBuilder();
                         embed.Title = $"[{user.Username}] has joined [**{user.Guild.Name}**]!";
-                        sb.AppendLine($"{user.Mention}");
                         if (string.IsNullOrEmpty(shouldGreet.Greeting))
                         {
                             sb.AppendLine($"Welcome them! :hugging:");

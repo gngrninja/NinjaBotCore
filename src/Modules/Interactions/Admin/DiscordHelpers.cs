@@ -555,7 +555,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             await FollowupAsync(embed: embed.Build(), ephemeral: true);
         }
 
-        [SlashCommand("set-parting-channel", "if greetings are enabled, set the channel for parting messages")]
+        [SlashCommand("set-parting-channel", "set the channel for parting messages (requires partings enabled)")]
         [RequireUserPermission(GuildPermission.KickMembers)]
         public async Task SetPartingChannel()
         {
@@ -572,7 +572,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                         .FirstOrDefaultAsync();
                     if (currentSetting != null)
                     {
-                        if (currentSetting.GreetUsers == true)
+                        if (currentSetting.PartUsers == true)
                         {
                             currentSetting.PartingChannelId = (long)Context.Channel.Id;
                             sb.AppendLine($"Parting messages channel set to {Context.Channel.Name}!");
@@ -581,12 +581,12 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                         }
                         else
                         {
-                            sb.AppendLine("Please enable greetings first via /toggle-greetings");
+                            sb.AppendLine("Please enable parting messages first via /toggle-partings");
                         }
                     }
                     else
                     {
-                        sb.AppendLine("No greeting settings found. Please enable greetings first via /toggle-greetings");
+                        sb.AppendLine("No settings found. Please enable parting messages first via /toggle-partings");
                     }
                 });
             }
@@ -598,6 +598,133 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             embed.Description = sb.ToString();
             embed.WithColor(new Color(0, 255, 0));
             embed.ThumbnailUrl = Context.Guild.IconUrl;
+            await FollowupAsync(embed: embed.Build(), ephemeral: true);
+        }
+
+        [SlashCommand("toggle-partings", "toggle goodbye messages when users leave")]
+        [RequireUserPermission(GuildPermission.KickMembers)]
+        public async Task TogglePartings()
+        {
+            await DeferAsync(ephemeral: true);
+
+            var embed = new EmbedBuilder();
+            StringBuilder sb = new StringBuilder();
+            try
+            {
+                await WithDbAsync(async db =>
+                {
+                    var currentSetting = await db.ServerGreetings
+                        .Where(g => g.DiscordGuildId == (long)Context.Guild.Id)
+                        .FirstOrDefaultAsync();
+                    if (currentSetting != null)
+                    {
+                        if (currentSetting.PartUsers == true)
+                        {
+                            currentSetting.PartUsers = false;
+                            sb.AppendLine("Parting messages have been disabled!");
+                        }
+                        else
+                        {
+                            currentSetting.PartUsers = true;
+                            // Use parting channel if set, otherwise use greeting channel, otherwise use current channel
+                            if (currentSetting.PartingChannelId == null)
+                            {
+                                currentSetting.PartingChannelId = currentSetting.GreetingChannelId ?? (long)Context.Channel.Id;
+                            }
+                            sb.AppendLine("Parting messages have been enabled!");
+                        }
+                    }
+                    else
+                    {
+                        db.ServerGreetings.Add(new ServerGreeting
+                        {
+                            DiscordGuildId = (long)Context.Guild.Id,
+                            PartingChannelId = (long)Context.Channel.Id,
+                            PartUsers = true
+                        });
+                        sb.AppendLine("Parting messages have been enabled!");
+                    }
+                    await db.SaveChangesAsync();
+                    _greetingCache.InvalidateServerGreeting((long)Context.Guild.Id);
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error toggling partings in {GuildName}", Context.Guild.Name);
+            }
+            embed.Title = $"User parting settings for {Context.Guild.Name}";
+            embed.Description = sb.ToString();
+            embed.WithColor(new Color(0, 255, 0));
+            embed.ThumbnailUrl = Context.Guild.IconUrl;
+            await FollowupAsync(embed: embed.Build(), ephemeral: true);
+        }
+
+        [SlashCommand("greeting-status", "show current greeting/parting message settings")]
+        [RequireUserPermission(GuildPermission.KickMembers)]
+        public async Task GreetingStatus()
+        {
+            await DeferAsync(ephemeral: true);
+
+            var embed = new EmbedBuilder();
+            embed.Title = $"Greeting/Parting Settings for {Context.Guild.Name}";
+            embed.ThumbnailUrl = Context.Guild.IconUrl;
+
+            try
+            {
+                var settings = await _greetingCache.GetServerGreetingAsync((long)Context.Guild.Id);
+
+                if (settings == null)
+                {
+                    embed.Description = "No greeting/parting settings configured for this server.";
+                    embed.WithColor(new Color(128, 128, 128));
+                }
+                else
+                {
+                    var sb = new StringBuilder();
+
+                    // Greetings status
+                    var greetStatus = settings.GreetUsers == true ? "Enabled" : "Disabled";
+                    sb.AppendLine($"**Greetings:** {greetStatus}");
+                    if (settings.GreetUsers == true)
+                    {
+                        var greetChannel = settings.GreetingChannelId != null
+                            ? $"<#{settings.GreetingChannelId}>"
+                            : "Not set";
+                        sb.AppendLine($"  Channel: {greetChannel}");
+                        var greetMsg = string.IsNullOrEmpty(settings.Greeting)
+                            ? "(default message)"
+                            : (settings.Greeting.Length > 50 ? settings.Greeting[..50] + "..." : settings.Greeting);
+                        sb.AppendLine($"  Message: {greetMsg}");
+                    }
+
+                    sb.AppendLine();
+
+                    // Partings status
+                    var partStatus = settings.PartUsers == true ? "Enabled" : "Disabled";
+                    sb.AppendLine($"**Partings:** {partStatus}");
+                    if (settings.PartUsers == true)
+                    {
+                        var partChannel = settings.PartingChannelId != null
+                            ? $"<#{settings.PartingChannelId}>"
+                            : (settings.GreetingChannelId != null ? $"<#{settings.GreetingChannelId}> (greeting channel)" : "Not set");
+                        sb.AppendLine($"  Channel: {partChannel}");
+                        var partMsg = string.IsNullOrEmpty(settings.PartingMessage)
+                            ? "(default message)"
+                            : (settings.PartingMessage.Length > 50 ? settings.PartingMessage[..50] + "..." : settings.PartingMessage);
+                        sb.AppendLine($"  Message: {partMsg}");
+                    }
+
+                    embed.Description = sb.ToString();
+                    embed.WithColor(new Color(0, 255, 0));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting greeting status in {GuildName}", Context.Guild.Name);
+                embed.Description = "Error retrieving settings.";
+                embed.WithColor(new Color(255, 0, 0));
+            }
+
             await FollowupAsync(embed: embed.Build(), ephemeral: true);
         }
 
