@@ -269,54 +269,6 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             }
         }
 
-        [SlashCommand("yoink", "grab users from one voice channel and move them to another")]
-        [RequireUserPermission(GuildPermission.Administrator)]
-        public async Task Yoink(SocketVoiceChannel to, SocketVoiceChannel from)
-        {
-            await DeferAsync(ephemeral: true);
-
-            if (from.Id == to.Id)
-            {
-                await FollowupAsync("Please pick two different voice channels.", ephemeral: true);
-                return;
-            }
-
-            var usersToMove = from.Users.Where(u => u.VoiceChannel?.Id == from.Id).ToList();
-
-            if (usersToMove.Count == 0)
-            {
-                await FollowupAsync($"No users currently in [{from.Name}] to move.", ephemeral: true);
-                return;
-            }
-
-            var movedUsers = 0;
-            var skippedUsers = new List<string>();
-
-            foreach (var user in usersToMove)
-            {
-                try
-                {
-                    await user.ModifyAsync(u => u.Channel = to);
-                    movedUsers++;
-                }
-                catch (HttpException ex) when (ex.DiscordCode.GetValueOrDefault() == (DiscordErrorCode)40032)
-                {
-                    skippedUsers.Add(user.Username);
-                }
-
-                await Task.Delay(750);
-            }
-
-            var message = $"Yoinked [{movedUsers}] users from [{from.Name}] to [{to.Name}]!";
-
-            if (skippedUsers.Count > 0)
-            {
-                message += $" Skipped {skippedUsers.Count} user(s) no longer in voice: {string.Join(", ", skippedUsers)}.";
-            }
-
-            await FollowupAsync(message, ephemeral: true);
-        }
-
         [SlashCommand("refresh-raid-tier", "Refresh current raid tier from WarcraftLogs API")]
         [RequireOwner]
         public async Task RefreshRaidTier(

@@ -546,6 +546,17 @@ namespace NinjaBotCore.Modules.Wow
             return JsonConvert.DeserializeObject<MountCollectionResponse>(response);
         }
 
+        public async Task<Models.Wow.Housing.DecorCollectionResponse> GetCharacterDecorAsync(string name, string realm, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            var locale = GetRegionFromString(regionName);
+            realm = realm.Replace("'", string.Empty).Replace(" ", "-").ToLowerInvariant();
+            var regionSegment = regionName.ToLowerInvariant();
+            var url = $"/profile/wow/character/{realm}/{name.ToLowerInvariant()}/collections/decor?namespace=profile-{regionSegment}";
+
+            var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
+            return JsonConvert.DeserializeObject<Models.Wow.Housing.DecorCollectionResponse>(response);
+        }
+
         /// <summary>
         /// Async version of GetConnectedRealmInfo for use in slash commands
         /// </summary>

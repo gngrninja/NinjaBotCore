@@ -1050,7 +1050,59 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                 await RespondAsync($"No warnings found for **{user.Username}**!", ephemeral: true);
             }
         }
-        
+
+        [SlashCommand("yoink", "Move users from one voice channel to another")]
+        [RequireUserPermission(GuildPermission.Administrator)]
+        public async Task Yoink(
+            [Summary("to", "Destination voice channel")]
+            SocketVoiceChannel to,
+            [Summary("from", "Source voice channel")]
+            SocketVoiceChannel from)
+        {
+            await DeferAsync(ephemeral: true);
+
+            if (from.Id == to.Id)
+            {
+                await FollowupAsync("Please pick two different voice channels.", ephemeral: true);
+                return;
+            }
+
+            var usersToMove = from.ConnectedUsers.ToList();
+
+            if (usersToMove.Count == 0)
+            {
+                await FollowupAsync($"No users currently in **{from.Name}** to move.", ephemeral: true);
+                return;
+            }
+
+            var movedUsers = 0;
+            var skippedUsers = new List<string>();
+
+            foreach (var user in usersToMove)
+            {
+                try
+                {
+                    await user.ModifyAsync(u => u.Channel = to);
+                    movedUsers++;
+                }
+                catch (HttpException ex) when (ex.DiscordCode.GetValueOrDefault() == (DiscordErrorCode)40032)
+                {
+                    skippedUsers.Add(user.Username);
+                }
+
+                await Task.Delay(750);
+            }
+
+            var message = $"Moved **{movedUsers}** user(s) from **{from.Name}** to **{to.Name}**!";
+
+            if (skippedUsers.Count > 0)
+            {
+                message += $"\nSkipped {skippedUsers.Count} user(s) no longer in voice: {string.Join(", ", skippedUsers)}";
+            }
+
+            await FollowupAsync(message, ephemeral: true);
+        }
+
         private async Task AddWarning(ShardedInteractionContext context, IGuildUser userWarned)
         {
             await WithDbAsync(async db =>

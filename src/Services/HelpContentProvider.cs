@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Discord;
@@ -34,23 +32,22 @@ namespace NinjaBotCore.Services
             _logger = logger;
             _config = config;
 
-            // Load from file initially
-            LoadFromFile();
-
-            // Set up auto-regeneration if configured
+            // Always regenerate from actual slash commands after startup
+            // No file persistence - in-memory only, regenerated each startup
             var intervalHours = _config.GetValue<int>("CommandsApi:AutoRegenerateHours", 0);
-            if (intervalHours > 0)
-            {
-                var interval = TimeSpan.FromHours(intervalHours);
-                _logger.LogInformation("Help content auto-regeneration enabled: every {Hours} hours", intervalHours);
+            var interval = intervalHours > 0
+                ? TimeSpan.FromHours(intervalHours)
+                : Timeout.InfiniteTimeSpan; // No recurring refresh if not configured
 
-                // Initial regeneration after 30 seconds (give bot time to start), then at interval
-                _autoRefreshTimer = new Timer(
-                    _ => RegenerateHelpContent(),
-                    null,
-                    TimeSpan.FromSeconds(30),
-                    interval);
-            }
+            _logger.LogInformation("Help content will regenerate from slash commands after startup" +
+                (intervalHours > 0 ? $", then every {intervalHours} hours" : ""));
+
+            // Initial regeneration after 30 seconds (give bot time to register commands), then at interval
+            _autoRefreshTimer = new Timer(
+                _ => RegenerateHelpContent(),
+                null,
+                TimeSpan.FromSeconds(30),
+                interval);
         }
 
         /// <summary>
@@ -93,48 +90,9 @@ namespace NinjaBotCore.Services
                     content.Categories?.Count ?? 0);
             }
         }
-
-        /// <summary>
-        /// Reloads help content from the JSON file.
-        /// </summary>
-        public void LoadFromFile()
-        {
-            try
-            {
-                var basePath = Directory.GetCurrentDirectory();
-                var helpPath = Path.Combine(basePath, "help-commands.json");
-
-                if (!File.Exists(helpPath))
-                {
-                    _logger.LogWarning("help-commands.json not found at {Path}", helpPath);
-                    return;
-                }
-
-                var json = File.ReadAllText(helpPath);
-                var content = JsonSerializer.Deserialize<HelpContent>(json);
-
-                if (content != null)
-                {
-                    lock (_lock)
-                    {
-                        _helpContent = content;
-                        _lastLoaded = DateTime.UtcNow;
-                    }
-
-                    _logger.LogInformation("Loaded help content: {Count} commands in {Categories} categories",
-                        content.Metadata?.TotalCommands ?? 0,
-                        content.Categories?.Count ?? 0);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error loading help-commands.json");
-            }
-        }
-
         /// <summary>
         /// Regenerates help content by scanning all slash commands via reflection.
-        /// Also saves to help-commands.json file.
+        /// Content is stored in-memory only (no file persistence).
         /// </summary>
         public void RegenerateHelpContent()
         {
@@ -164,11 +122,8 @@ namespace NinjaBotCore.Services
                     }
                 };
 
-                // Update in-memory content
+                // Update in-memory content only (no file persistence)
                 RefreshHelpContent(helpContent);
-
-                // Save to file
-                SaveToFile(helpContent);
 
                 _logger.LogInformation("Help content regenerated: {Count} commands in {Categories} categories",
                     commands.Count, categories.Count);
@@ -176,30 +131,6 @@ namespace NinjaBotCore.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error regenerating help content");
-            }
-        }
-
-        private void SaveToFile(HelpContent content)
-        {
-            try
-            {
-                var basePath = Directory.GetCurrentDirectory();
-                var helpPath = Path.Combine(basePath, "help-commands.json");
-
-                var options = new JsonSerializerOptions
-                {
-                    WriteIndented = true,
-                    PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
-                };
-
-                var json = JsonSerializer.Serialize(content, options);
-                File.WriteAllText(helpPath, json);
-
-                _logger.LogDebug("Saved help content to {Path}", helpPath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error saving help-commands.json");
             }
         }
 
@@ -454,26 +385,8 @@ namespace NinjaBotCore.Services
                 });
             }
 
-            // Owner Only commands (including WoW admin)
-            var ownerCommands = commands
-                .Where(c => (c.Permission == "owner" || c.ModuleTypeName == "WowAdminInteract") &&
-                           !c.Name.Contains("regenerate-help"))
-                .Select(ToHelpCommand)
-                .OrderBy(c => c.Name)
-                .ToList();
-
-            if (ownerCommands.Any())
-            {
-                categories.Add(new HelpCategory
-                {
-                    Id = "owner_only",
-                    Name = "Owner Only",
-                    Emoji = "🔒",
-                    Description = "Bot owner administrative commands",
-                    PermissionLevel = "owner",
-                    Commands = ownerCommands
-                });
-            }
+            // Owner Only commands are intentionally excluded from help
+            // They should not be visible to regular users
 
             // Polls
             var pollCommands = commands
