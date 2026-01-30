@@ -56,130 +56,25 @@ namespace NinjaBotCore.Modules.Admin
         }
 
         /// <summary>
-        /// Handles modal submissions for join/part messages and polls.
-        /// Uses ModalSubmitted event (not InteractionCreated) to avoid conflicts with slash command handling.
+        /// Legacy modal event handler - kept for any future non-attribute modals.
+        /// All current modals use [ModalInteraction] attribute handlers:
+        /// - joining_message, parting_message, discord_server_note -> DiscordHelpers.cs
+        /// - poll_create_modal -> PollComponentHandlers.cs
         /// </summary>
-        private async Task HandleModalSubmitted(SocketModal modal)
+        private Task HandleModalSubmitted(SocketModal modal)
         {
-            var customId = modal.Data.CustomId;
-
-            // Skip modals that aren't handled here
-            if (!ModalConstants.LegacyModals.Contains(customId) &&
-                !ModalConstants.PollModals.Contains(customId))
-            {
-                return;
-            }
-
-            // Prevent duplicate handling (sharded client may fire event multiple times)
-            if (!_handledInteractions.TryAdd(modal.Id, 0))
-            {
-                _logger.LogWarning("Modal {CustomId} already being handled, skipping duplicate", customId);
-                return;
-            }
-
-            try
-            {
-                // Defer the interaction immediately
-                // ModalSubmitted fires AFTER InteractionCreated, ensuring Discord's API is synced
-                if (!modal.HasResponded)
-                {
-                    try
-                    {
-                        await modal.DeferAsync(ephemeral: true);
-                    }
-                    catch (Discord.Net.HttpException ex) when (ex.DiscordCode.GetValueOrDefault() == (DiscordErrorCode)10062)
-                    {
-                        // Error 10062 typically means the defer actually succeeded on Discord's backend
-                        // but the REST API hasn't synced yet. Continue processing and use FollowupAsync.
-                        _logger.LogDebug("Received error 10062 on modal defer for {CustomId} - assuming defer succeeded", customId);
-                    }
-                    catch (Discord.Net.HttpException ex)
-                    {
-                        _logger.LogError(ex, "Failed to defer modal {CustomId} (DiscordCode: {Code})", customId, ex.DiscordCode);
-                        throw; // Can't proceed without deferring
-                    }
-                }
-
-                _logger.LogDebug("Processing modal {CustomId}", customId);
-
-                // Get the values of components.
-                List<SocketMessageComponentData> components =
-                    modal.Data.Components.ToList();
-                var embed = new EmbedBuilder();
-                StringBuilder sb = new StringBuilder();
-                var guildInfo = _client.GetGuild((ulong)modal.GuildId);
-
-                switch (customId)
-                {
-                    case "joining_message":
-                    {
-                        await HandleJoiningModal(modal, components, embed, sb, guildInfo);
-                        break;
-                    }
-                    case "parting_message":
-                    {
-                        await HandlePartingModal(modal, components, embed, sb, guildInfo);
-                        break;
-                    }
-                    case "discord_server_note":
-                    {
-                        await HandleNoteModal(modal, components, embed, sb, guildInfo);
-                        break;
-                    }
-                    case "poll_create_modal":
-                    {
-                        await HandlePollModal(modal, components);
-                        break;
-                    }
-                }
-            }
-            finally
-            {
-                // Clean up handled interaction after processing (delay prevents race with duplicate events)
-                _ = CleanupInteractionAsync(modal.Id);
-            }
+            // All modals now use attribute-based handlers via InteractionService
+            return Task.CompletedTask;
         }
 
         /// <summary>
-        /// Handles button clicks for poll voting and closing.
-        /// Uses ButtonExecuted event (not InteractionCreated) to avoid conflicts with slash command handling.
+        /// Legacy button event handler - kept for any future non-attribute components.
+        /// Poll buttons now use [ComponentInteraction] attribute handlers in PollComponentHandlers.cs
         /// </summary>
-        private async Task HandleButtonExecuted(SocketMessageComponent component)
+        private Task HandleButtonExecuted(SocketMessageComponent component)
         {
-            var customId = component.Data.CustomId;
-
-            // Only handle poll-related components
-            if (!customId.StartsWith(ModalConstants.PollVotePrefix) &&
-                !customId.StartsWith(ModalConstants.PollClosePrefix))
-                return;
-
-            // Prevent duplicate handling (sharded client may fire event multiple times)
-            if (!_handledInteractions.TryAdd(component.Id, 0))
-            {
-                _logger.LogWarning("Component {CustomId} already being handled, skipping duplicate", customId);
-                return;
-            }
-
-            try
-            {
-                // Defer is handled in the individual component handlers (HandlePollVoteComponent, HandlePollCloseComponent)
-                // ButtonExecuted fires AFTER InteractionCreated, ensuring Discord's API is synced
-                _logger.LogDebug("Processing poll component {CustomId}", customId);
-
-                if (customId.StartsWith(ModalConstants.PollVotePrefix))
-                {
-                    await HandlePollVoteComponent(component);
-                }
-                else if (customId.StartsWith(ModalConstants.PollClosePrefix))
-                {
-                    await HandlePollCloseComponent(component);
-                }
-            }
-            finally
-            {
-                // Clean up handled interaction after processing (delay prevents race with duplicate events)
-                _ = CleanupInteractionAsync(component.Id);
-            }
+            // All poll components now use attribute-based handlers via InteractionService
+            return Task.CompletedTask;
         }
 
         private async Task HandlePollVoteComponent(SocketMessageComponent component)
@@ -615,7 +510,7 @@ namespace NinjaBotCore.Modules.Admin
 
             return message
                 .Replace("{user}", user.Mention)
-                .Replace("{username}", user.DisplayName)
+                .Replace("{username}", user.Username)
                 .Replace("{user.tag}", $"{user.Username}#{user.Discriminator}")
                 .Replace("{server}", user.Guild.Name)
                 .Replace("{membercount}", user.Guild.MemberCount.ToString("N0"));

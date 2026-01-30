@@ -21,17 +21,20 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private readonly ILogger<HousingCommands> _logger;
         private readonly WowApi _wowApi;
         private readonly WowCacheService _wowCache;
+        private readonly WowStaticDataService _wowStaticData;
 
         public HousingCommands(
             IServiceScopeFactory scopeFactory,
             ILogger<HousingCommands> logger,
             WowApi wowApi,
-            WowCacheService wowCache)
+            WowCacheService wowCache,
+            WowStaticDataService wowStaticData)
             : base(scopeFactory)
         {
             _logger = logger;
             _wowApi = wowApi;
             _wowCache = wowCache;
+            _wowStaticData = wowStaticData;
         }
 
         [SlashCommand("housing-collection", "View your housing decor collection progress")]
@@ -125,14 +128,19 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     return;
                 }
 
-                // Get total decor count from the index
+                // Get total decor count - prefer database, fallback to API
                 int totalDecor = 0;
                 try
                 {
-                    var indexUrl = "/data/wow/decor/index?namespace=static-us";
-                    var indexResponse = await _wowApi.GetAPIRequestAsync(indexUrl, "en_US", "us");
-                    var decorIndex = JsonConvert.DeserializeObject<DecorIndexResponse>(indexResponse);
-                    totalDecor = decorIndex?.DecorItems?.Count ?? 0;
+                    totalDecor = await _wowStaticData.GetHousingDecorCountAsync();
+                    if (totalDecor == 0)
+                    {
+                        // Fallback to API if database is empty
+                        var indexUrl = "/data/wow/decor/index?namespace=static-us";
+                        var indexResponse = await _wowApi.GetAPIRequestAsync(indexUrl, "en_US", "us");
+                        var decorIndex = JsonConvert.DeserializeObject<DecorIndexResponse>(indexResponse);
+                        totalDecor = decorIndex?.DecorItems?.Count ?? 0;
+                    }
                 }
                 catch
                 {

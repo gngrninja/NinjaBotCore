@@ -2,12 +2,12 @@ namespace NinjaBotCore.Common
 {
     /// <summary>
     /// Constants for modal and component custom IDs used across the bot.
-    /// These are shared between InteractionHandler (for skipping) and UserInteractions (for handling).
+    /// These provide a single source of truth for custom IDs used in modals and components.
     /// </summary>
     public static class ModalConstants
     {
         /// <summary>
-        /// Legacy admin modals handled by UserInteractions event handler.
+        /// Admin modal IDs - handlers in DiscordHelpers.cs
         /// </summary>
         public static readonly string[] LegacyModals = new[]
         {
@@ -17,7 +17,7 @@ namespace NinjaBotCore.Common
         };
 
         /// <summary>
-        /// Poll-related modals handled by UserInteractions event handler.
+        /// Poll modal IDs - handlers in PollComponentHandlers.cs
         /// </summary>
         public static readonly string[] PollModals = new[]
         {
@@ -27,12 +27,14 @@ namespace NinjaBotCore.Common
         /// <summary>
         /// Prefix for poll vote button custom IDs.
         /// Format: poll_vote~{userId}~{pollId}~{optionId}
+        /// Handler: PollComponentHandlers.HandlePollVote
         /// </summary>
         public const string PollVotePrefix = "poll_vote~";
 
         /// <summary>
         /// Prefix for poll close button custom IDs.
         /// Format: poll_close~{creatorId}~{pollId}
+        /// Handler: PollComponentHandlers.HandlePollClose
         /// </summary>
         public const string PollClosePrefix = "poll_close~";
     }

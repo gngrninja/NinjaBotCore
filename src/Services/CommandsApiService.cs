@@ -2841,13 +2841,13 @@ namespace NinjaBotCore.Services
                         }
 
                         var syncType = body.SyncType.ToLower();
-                        var queuedTypes = new[] { "achievements", "pets", "mounts", "mount_images", "items", "all" };
+                        var queuedTypes = new[] { "achievements", "pets", "mounts", "mount_images", "items", "housing_decor", "all" };
                         var directTypes = new[] { "realms", "classes", "races", "static" };
                         var validTypes = queuedTypes.Concat(directTypes).ToArray();
 
                         if (!validTypes.Contains(syncType))
                         {
-                            return Results.BadRequest(new { error = "sync_type must be one of: achievements, pets, mounts, mount_images, items, realms, classes, races, static, all" });
+                            return Results.BadRequest(new { error = "sync_type must be one of: achievements, pets, mounts, mount_images, items, housing_decor, realms, classes, races, static, all" });
                         }
 
                         using var scope = _serviceProvider.CreateScope();

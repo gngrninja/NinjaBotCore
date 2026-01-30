@@ -5,6 +5,7 @@ using Discord.Interactions;
 using System;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using NinjaBotCore.Database;
 using System.Collections.Generic;
@@ -1177,5 +1178,292 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             });
             return sb.ToString();
         }
+
+        #region Modal Handlers
+
+        /// <summary>
+        /// Handles the joining (welcome) message modal submission.
+        /// </summary>
+        [ModalInteraction("joining_message")]
+        public async Task HandleJoiningMessageModal(JoiningMessageModal modal)
+        {
+            await DeferAsync(ephemeral: true);
+
+            var embed = new EmbedBuilder();
+            var sb = new StringBuilder();
+            var guildInfo = Context.Guild as SocketGuild;
+
+            if (string.IsNullOrEmpty(modal.Message))
+            {
+                await FollowupAsync("Message cannot be empty.", ephemeral: true);
+                return;
+            }
+
+            try
+            {
+                var resolvedMessage = ResolveEntityPlaceholders(modal.Message.Trim(), guildInfo);
+
+                embed.Title = $"Joining message change for {guildInfo.Name}";
+                sb.AppendLine("New message:");
+                sb.AppendLine(resolvedMessage);
+
+                await WithScopedUnitOfWorkAsync(async uow =>
+                {
+                    var greetingRepo = uow.Repository<ServerGreeting>();
+                    var existing = await uow.Context.ServerGreetings
+                        .FirstOrDefaultAsync(g => g.DiscordGuildId == (long)Context.Guild.Id);
+
+                    if (existing != null)
+                    {
+                        existing.Greeting = resolvedMessage;
+                        existing.SetById = (long)Context.User.Id;
+                        existing.SetByName = Context.User.Username;
+                        existing.TimeSet = DateTime.UtcNow;
+                    }
+                    else
+                    {
+                        await greetingRepo.AddAsync(new ServerGreeting
+                        {
+                            DiscordGuildId = (long)Context.Guild.Id,
+                            Greeting = resolvedMessage,
+                            SetById = (long)Context.User.Id,
+                            SetByName = Context.User.Username,
+                            TimeSet = DateTime.UtcNow
+                        });
+                    }
+                    await uow.SaveChangesAsync();
+                });
+
+                _greetingCache.InvalidateServerGreeting((long)Context.Guild.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error setting joining message for guild {GuildId}", Context.Guild.Id);
+                embed.Title = "Error changing message";
+                sb.Clear();
+                sb.AppendLine($"{Context.User.Mention},");
+                sb.AppendLine("I've encountered an error, please contact the owner for help.");
+            }
+
+            embed.Description = sb.ToString();
+            embed.WithColor(new Color(0, 255, 0));
+            embed.ThumbnailUrl = guildInfo.IconUrl;
+
+            await FollowupAsync(embed: embed.Build(), ephemeral: true);
+        }
+
+        /// <summary>
+        /// Handles the parting (goodbye) message modal submission.
+        /// </summary>
+        [ModalInteraction("parting_message")]
+        public async Task HandlePartingMessageModal(PartingMessageModal modal)
+        {
+            await DeferAsync(ephemeral: true);
+
+            var embed = new EmbedBuilder();
+            var sb = new StringBuilder();
+            var guildInfo = Context.Guild as SocketGuild;
+
+            if (string.IsNullOrEmpty(modal.Message))
+            {
+                await FollowupAsync("Message cannot be empty.", ephemeral: true);
+                return;
+            }
+
+            try
+            {
+                var resolvedMessage = ResolveEntityPlaceholders(modal.Message.Trim(), guildInfo);
+
+                embed.Title = $"Parting message change for {guildInfo.Name}";
+                sb.AppendLine("New message:");
+                sb.AppendLine(resolvedMessage);
+
+                await WithScopedUnitOfWorkAsync(async uow =>
+                {
+                    var greetingRepo = uow.Repository<ServerGreeting>();
+                    var existing = await uow.Context.ServerGreetings
+                        .FirstOrDefaultAsync(g => g.DiscordGuildId == (long)Context.Guild.Id);
+
+                    if (existing != null)
+                    {
+                        existing.PartingMessage = resolvedMessage;
+                        existing.SetById = (long)Context.User.Id;
+                        existing.SetByName = Context.User.Username;
+                        existing.TimeSet = DateTime.UtcNow;
+                    }
+                    else
+                    {
+                        await greetingRepo.AddAsync(new ServerGreeting
+                        {
+                            DiscordGuildId = (long)Context.Guild.Id,
+                            PartingMessage = resolvedMessage,
+                            SetById = (long)Context.User.Id,
+                            SetByName = Context.User.Username,
+                            TimeSet = DateTime.UtcNow
+                        });
+                    }
+                    await uow.SaveChangesAsync();
+                });
+
+                _greetingCache.InvalidateServerGreeting((long)Context.Guild.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error setting parting message for guild {GuildId}", Context.Guild.Id);
+                embed.Title = "Error changing message";
+                sb.Clear();
+                sb.AppendLine($"{Context.User.Mention},");
+                sb.AppendLine("I've encountered an error, please contact the owner for help.");
+            }
+
+            embed.Description = sb.ToString();
+            embed.WithColor(new Color(0, 255, 0));
+            embed.ThumbnailUrl = guildInfo.IconUrl;
+
+            await FollowupAsync(embed: embed.Build(), ephemeral: true);
+        }
+
+        /// <summary>
+        /// Handles the server note modal submission.
+        /// </summary>
+        [ModalInteraction("discord_server_note")]
+        public async Task HandleServerNoteModal(ServerNoteModal modal)
+        {
+            await DeferAsync(ephemeral: true);
+
+            var embed = new EmbedBuilder();
+            var sb = new StringBuilder();
+            var guildInfo = Context.Guild as SocketGuild;
+
+            try
+            {
+                await WithScopedUnitOfWorkAsync(async uow =>
+                {
+                    var noteRepo = uow.Repository<Note>();
+                    var existing = await uow.Context.Notes
+                        .FirstOrDefaultAsync(n => n.ServerId == (long)Context.Guild.Id);
+
+                    if (existing != null)
+                    {
+                        existing.Note1 = modal.NoteText;
+                        existing.SetBy = Context.User.Username;
+                        existing.SetById = (long)Context.User.Id;
+                        existing.TimeSet = DateTime.UtcNow;
+                    }
+                    else
+                    {
+                        await noteRepo.AddAsync(new Note
+                        {
+                            Note1 = modal.NoteText,
+                            ServerId = (long)Context.Guild.Id,
+                            ServerName = Context.Guild.Name,
+                            SetBy = Context.User.Username,
+                            SetById = (long)Context.User.Id,
+                            TimeSet = DateTime.UtcNow
+                        });
+                    }
+                    await uow.SaveChangesAsync();
+                });
+
+                sb.AppendLine($"Note successfully added for server [**{guildInfo.Name}**] by [**{Context.User.Username}**]!");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error setting note for guild {GuildId}", Context.Guild.Id);
+                sb.AppendLine($"Something went wrong adding a note for server [**{guildInfo.Name}**] :(");
+            }
+
+            embed.Title = $":notepad_spiral:Notes for {guildInfo.Name}:notepad_spiral:";
+            embed.Description = sb.ToString();
+            embed.ThumbnailUrl = guildInfo.IconUrl;
+            embed.WithColor(new Color(0, 255, 0));
+
+            await FollowupAsync(embed: embed.Build(), ephemeral: true);
+        }
+
+        /// <summary>
+        /// Resolves entity placeholders ({#channel-name}, {@role-name}, {:emoji-name:}) to Discord format.
+        /// </summary>
+        private string ResolveEntityPlaceholders(string message, SocketGuild guild)
+        {
+            if (string.IsNullOrEmpty(message) || guild == null) return message;
+
+            var result = message;
+
+            // Resolve {#channel-name} to <#CHANNEL_ID>
+            var channelRegex = new Regex(@"\{#([^}]+)\}");
+            foreach (Match match in channelRegex.Matches(message))
+            {
+                var channelName = match.Groups[1].Value;
+                var channel = guild.TextChannels.FirstOrDefault(c =>
+                    c.Name.Equals(channelName, StringComparison.OrdinalIgnoreCase));
+                if (channel != null)
+                {
+                    result = result.Replace(match.Value, $"<#{channel.Id}>");
+                }
+            }
+
+            // Resolve {@role-name} or {&role-name} to <@&ROLE_ID>
+            var roleRegex = new Regex(@"\{[@&]([^}]+)\}");
+            foreach (Match match in roleRegex.Matches(result))
+            {
+                var roleName = match.Groups[1].Value;
+                var role = guild.Roles.FirstOrDefault(r =>
+                    r.Name.Equals(roleName, StringComparison.OrdinalIgnoreCase));
+                if (role != null)
+                {
+                    result = result.Replace(match.Value, $"<@&{role.Id}>");
+                }
+            }
+
+            // Resolve {:emoji-name:} to <:name:ID> or <a:name:ID>
+            var emojiRegex = new Regex(@"\{:([^:}]+):\}");
+            foreach (Match match in emojiRegex.Matches(result))
+            {
+                var emojiName = match.Groups[1].Value;
+                var emoji = guild.Emotes.FirstOrDefault(e =>
+                    e.Name.Equals(emojiName, StringComparison.OrdinalIgnoreCase));
+                if (emoji != null)
+                {
+                    var prefix = emoji.Animated ? "a" : "";
+                    result = result.Replace(match.Value, $"<{prefix}:{emoji.Name}:{emoji.Id}>");
+                }
+            }
+
+            return result;
+        }
+
+        #endregion
     }
+
+    #region Modal Definitions
+
+    public class JoiningMessageModal : IModal
+    {
+        public string Title => "Set Joining Message";
+
+        [InputLabel("Message:")]
+        [ModalTextInput("joining_message", TextInputStyle.Paragraph, placeholder: "Enter message. Placeholders: {user}, {username}, {server}, {membercount}, {#channel}, {@role}")]
+        public string Message { get; set; }
+    }
+
+    public class PartingMessageModal : IModal
+    {
+        public string Title => "Set Parting Message";
+
+        [InputLabel("Message:")]
+        [ModalTextInput("parting_message", TextInputStyle.Paragraph, placeholder: "Enter message. Placeholders: {user}, {username}, {server}, {membercount}, {#channel}, {@role}")]
+        public string Message { get; set; }
+    }
+
+    public class ServerNoteModal : IModal
+    {
+        public string Title => "Set Server Note";
+
+        [InputLabel("Note:")]
+        [ModalTextInput("note_text", TextInputStyle.Paragraph, placeholder: "Enter note text")]
+        public string NoteText { get; set; }
+    }
+
+    #endregion
 }

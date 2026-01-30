@@ -33,6 +33,8 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             [Choice("Achievements", "achievements")]
             [Choice("Pets", "pets")]
             [Choice("Mounts", "mounts")]
+            [Choice("Items", "items")]
+            [Choice("Housing Decor", "housing_decor")]
             [Choice("All", "all")]
             string type)
         {
@@ -106,7 +108,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                     .WithTimestamp(DateTimeOffset.UtcNow);
 
                 // Add status for each type
-                var types = new[] { "achievements", "pets", "mounts" };
+                var types = new[] { "achievements", "pets", "mounts", "items", "housing_decor" };
                 foreach (var type in types)
                 {
                     var status = statuses.FirstOrDefault(s => s.SyncType == type);

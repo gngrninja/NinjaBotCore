@@ -1198,6 +1198,68 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             }
         }
 
+        [SlashCommand("import-housing-decor", "Import all housing decor items from the WoW API")]
+        [Discord.Interactions.RequireOwner]
+        public async Task ImportHousingDecor()
+        {
+            await DeferAsync(ephemeral: true);
+
+            try
+            {
+                var request = await WithDbAsync(async db =>
+                {
+                    // Check for existing pending request
+                    var existing = await db.StaticDataSyncRequests
+                        .FirstOrDefaultAsync(r => r.SyncType == "housing_decor" && r.Status == "pending");
+
+                    if (existing != null)
+                    {
+                        return null; // Signal that one already exists
+                    }
+
+                    var req = new StaticDataSyncRequest
+                    {
+                        SyncType = "housing_decor",
+                        Status = "pending",
+                        RequestedByUserId = (long)Context.User.Id,
+                        RequestSource = "slash_command",
+                        RequestedAt = DateTime.UtcNow
+                    };
+                    db.StaticDataSyncRequests.Add(req);
+                    await db.SaveChangesAsync();
+                    return req;
+                });
+
+                if (request == null)
+                {
+                    await FollowupAsync("A housing decor sync request is already pending.", ephemeral: true);
+                    return;
+                }
+
+                _logger.LogInformation("Housing decor sync request #{Id} queued by user {UserId}",
+                    request.Id, Context.User.Id);
+
+                var embed = new EmbedBuilder()
+                    .WithTitle("Housing Decor Import Queued")
+                    .WithColor(Color.Blue)
+                    .WithDescription($"Sync request **#{request.Id}** queued for **housing_decor**.\n\n" +
+                        $"The helpers service will process this within 60 seconds.\n" +
+                        $"This will import ~1136 items from the WoW API.")
+                    .WithCurrentTimestamp();
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error queuing housing decor import");
+                var errorEmbed = new EmbedBuilder()
+                    .WithTitle("Error")
+                    .WithColor(Color.Red)
+                    .WithDescription($"Failed to queue housing decor import: {ex.Message}");
+                await FollowupAsync(embed: errorEmbed.Build(), ephemeral: true);
+            }
+        }
+
         [SlashCommand("refresh-static-data", "Refresh static data (realms, classes, races) from WoW API")]
         [Discord.Interactions.RequireOwner]
         public async Task RefreshStaticData(

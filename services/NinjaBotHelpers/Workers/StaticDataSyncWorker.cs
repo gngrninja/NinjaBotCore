@@ -222,6 +222,7 @@ public class StaticDataSyncWorker : BackgroundService
                     "mounts" => await SyncMountsWithStatsAsync(cancellationToken),
                     "mount_images" => await SyncMountImagesAsync(cancellationToken),
                     "items" => await SyncItemsWithStatsAsync(requestedSource, cancellationToken),
+                    "housing_decor" => await SyncHousingDecorWithStatsAsync(cancellationToken),
                     "all" => await SyncAllAsync(requestedSource, cancellationToken),
                     _ => (0, 0, 0)
                 };
@@ -288,6 +289,7 @@ public class StaticDataSyncWorker : BackgroundService
                 "pets" => await db.WowPets.CountAsync(cancellationToken),
                 "mounts" => await db.WowMounts.CountAsync(cancellationToken),
                 "items" => await db.WowItems.CountAsync(cancellationToken),
+                "housing_decor" => await db.HousingDecor.CountAsync(cancellationToken),
                 _ => null
             };
         }
@@ -998,6 +1000,103 @@ public class StaticDataSyncWorker : BackgroundService
             "HEIRLOOM" => 7,
             _ => 0
         };
+    }
+
+    #endregion
+
+    #region Housing Decor Sync
+
+    /// <summary>
+    /// Sync housing decor items from Blizzard API.
+    /// Fetches the decor index and then individual decor details with linked item icons.
+    /// </summary>
+    private async Task<(int processed, int skipped, int failed)> SyncHousingDecorWithStatsAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Starting housing decor sync");
+
+        var index = await _blizzardClient.GetDecorIndexAsync("us", cancellationToken);
+        if (index?.DecorItems == null)
+        {
+            _logger.LogWarning("Failed to get housing decor index");
+            return (0, 0, 0);
+        }
+
+        _logger.LogInformation("Found {Count} housing decor items in index", index.DecorItems.Count);
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<HelpersDbContext>();
+
+        // Load existing decor IDs to skip
+        var existingIds = await db.HousingDecor
+            .Select(d => d.Id)
+            .ToHashSetAsync(cancellationToken);
+
+        _logger.LogInformation("Found {Count} existing housing decor items in database", existingIds.Count);
+
+        int imported = 0;
+        int skipped = 0;
+        int failed = 0;
+
+        foreach (var decorRef in index.DecorItems)
+        {
+            if (cancellationToken.IsCancellationRequested) break;
+
+            if (existingIds.Contains(decorRef.Id))
+            {
+                skipped++;
+                continue;
+            }
+
+            try
+            {
+                var decor = await _blizzardClient.GetDecorAsync(decorRef.Id, "us", cancellationToken);
+                if (decor == null)
+                {
+                    failed++;
+                    continue;
+                }
+
+                // Get icon URL from linked item media (if item exists)
+                string? iconUrl = null;
+                if (decor.Item?.Id > 0)
+                {
+                    var media = await _blizzardClient.GetItemMediaAsync(decor.Item.Id, "us", cancellationToken);
+                    iconUrl = media?.GetIconUrl();
+                }
+
+                var entity = new HousingDecor
+                {
+                    Id = decor.Id,
+                    Name = decor.Name ?? "Unknown",
+                    LinkedItemId = decor.Item?.Id,
+                    IconUrl = iconUrl,
+                    LastUpdated = DateTime.UtcNow
+                };
+
+                db.HousingDecor.Add(entity);
+                imported++;
+
+                if ((imported + skipped) % 100 == 0)
+                {
+                    await db.SaveChangesAsync(cancellationToken);
+                    _logger.LogInformation("Housing decor sync progress: {Imported} imported, {Skipped} skipped, {Failed} failed",
+                        imported, skipped, failed);
+                }
+
+                await Task.Delay(_config.StaticDataSync.ApiCallDelayMs, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to import housing decor {Id}", decorRef.Id);
+                failed++;
+            }
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Housing decor sync complete: {Imported} imported, {Skipped} skipped, {Failed} failed",
+            imported, skipped, failed);
+
+        return (imported, skipped, failed);
     }
 
     #endregion

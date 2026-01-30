@@ -315,12 +315,20 @@ namespace NinjaBotCore
 
             Log.Logger = logConfig.CreateLogger();  
         }
-         public static bool IsDebug()
+        /// <summary>
+        /// Returns true if running in development mode.
+        /// Checks both compile-time DEBUG flag and runtime NINJABOT_DEV_MODE environment variable.
+        /// </summary>
+        public static bool IsDebug()
         {
 #if DEBUG
             return true;
 #else
-            return false;
+            // Allow runtime override via environment variable for Docker dev harness
+            var devMode = Environment.GetEnvironmentVariable("NINJABOT_DEV_MODE");
+            return !string.IsNullOrEmpty(devMode) &&
+                   (devMode.Equals("true", StringComparison.OrdinalIgnoreCase) ||
+                    devMode.Equals("1", StringComparison.OrdinalIgnoreCase));
 #endif
         }
     }

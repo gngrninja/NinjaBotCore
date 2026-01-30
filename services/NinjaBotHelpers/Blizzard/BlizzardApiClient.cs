@@ -281,6 +281,31 @@ public class BlizzardApiClient
     }
 
     /// <summary>
+    /// Get housing decor index (list of all decor items)
+    /// </summary>
+    public async Task<DecorIndexResponse?> GetDecorIndexAsync(
+        string region = "us",
+        CancellationToken cancellationToken = default)
+    {
+        var json = await GetStaticDataAsync("/data/wow/decor/index", region, cancellationToken);
+        if (json == null) return null;
+        return JsonConvert.DeserializeObject<DecorIndexResponse>(json);
+    }
+
+    /// <summary>
+    /// Get a single housing decor item by ID
+    /// </summary>
+    public async Task<DecorResponse?> GetDecorAsync(
+        long decorId,
+        string region = "us",
+        CancellationToken cancellationToken = default)
+    {
+        var json = await GetStaticDataAsync($"/data/wow/decor/{decorId}", region, cancellationToken);
+        if (json == null) return null;
+        return JsonConvert.DeserializeObject<DecorResponse>(json);
+    }
+
+    /// <summary>
     /// Get the connected realm status from Blizzard API
     /// </summary>
     public async Task<ConnectedRealmStatus?> GetConnectedRealmStatusAsync(
@@ -793,6 +818,42 @@ public class ItemClass
 
     [JsonProperty("name")]
     public ItemLocalizedName? Name { get; set; }
+
+    [JsonProperty("id")]
+    public long Id { get; set; }
+}
+
+/// <summary>
+/// Housing decor index response
+/// </summary>
+public class DecorIndexResponse
+{
+    [JsonProperty("decor_items")]
+    public List<KeyRef>? DecorItems { get; set; }
+}
+
+/// <summary>
+/// Single housing decor item response
+/// </summary>
+public class DecorResponse
+{
+    [JsonProperty("id")]
+    public long Id { get; set; }
+
+    [JsonProperty("name")]
+    public string? Name { get; set; }
+
+    [JsonProperty("item")]
+    public DecorItemRef? Item { get; set; }
+}
+
+public class DecorItemRef
+{
+    [JsonProperty("key")]
+    public HrefLink? Key { get; set; }
+
+    [JsonProperty("name")]
+    public string? Name { get; set; }
 
     [JsonProperty("id")]
     public long Id { get; set; }

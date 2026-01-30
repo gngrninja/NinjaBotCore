@@ -216,6 +216,16 @@ namespace NinjaBotCore.Modules.Wow
 
             if (foundGuild != null)
             {
+                // Lazy backfill: if LocalRealmSlug is NULL, generate from realm name and save
+                if (string.IsNullOrEmpty(foundGuild.LocalRealmSlug) && !string.IsNullOrEmpty(foundGuild.WowRealm))
+                {
+                    foundGuild.LocalRealmSlug = foundGuild.WowRealm.ToLower().Replace(" ", "-").Replace("'", "");
+                    guildRepo.Update(foundGuild);
+                    await guildRepo.SaveChangesAsync();
+                    _logger.LogInformation("Backfilled LocalRealmSlug for guild {Guild} on server {Server}: {Slug}",
+                        foundGuild.WowGuild, discordGuildName, foundGuild.LocalRealmSlug);
+                }
+
                 guildObject.guildName = foundGuild.WowGuild;
                 guildObject.realmName = foundGuild.WowRealm;
                 guildObject.regionName = foundGuild.WowRegion;

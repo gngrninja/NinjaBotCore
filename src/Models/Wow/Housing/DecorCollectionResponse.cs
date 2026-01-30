@@ -8,7 +8,7 @@ namespace NinjaBotCore.Models.Wow.Housing
         [JsonProperty("_links")]
         public DecorCollectionLinks Links { get; set; }
 
-        [JsonProperty("decor")]
+        [JsonProperty("decor_collected")]
         public List<DecorCollectionItem> Decor { get; set; }
     }
 

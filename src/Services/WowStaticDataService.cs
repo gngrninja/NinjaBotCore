@@ -1047,6 +1047,47 @@ namespace NinjaBotCore.Services
             return allMounts.Where(m => m.Name.ToLower().Contains(mountNameLower)).ToList();
         }
 
+        #region Housing Decor
+
+        // Note: Housing decor import is handled by NinjaBotHelpers via StaticDataSyncRequest
+        // Use /sync trigger or /import-housing-decor to queue an import
+
+        /// <summary>
+        /// Get all housing decor from the database
+        /// </summary>
+        public async Task<List<HousingDecor>> GetAllHousingDecorAsync()
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var repo = new Repository<HousingDecor>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            return await repo.GetAllAsync();
+        }
+
+        /// <summary>
+        /// Get housing decor count from the database
+        /// </summary>
+        public async Task<int> GetHousingDecorCountAsync()
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+            return await Task.FromResult(db.HousingDecor.Count());
+        }
+
+        /// <summary>
+        /// Search for housing decor by name
+        /// </summary>
+        public async Task<List<HousingDecor>> SearchHousingDecorAsync(string decorName)
+        {
+            var decorNameLower = decorName.ToLower();
+
+            using var scope = _scopeFactory.CreateScope();
+            var repo = new Repository<HousingDecor>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+
+            var allDecor = await repo.GetAllAsync();
+            return allDecor.Where(d => d.Name.ToLower().Contains(decorNameLower)).ToList();
+        }
+
+        #endregion
+
         /// <summary>
         /// Merge source data from scraped mounts.json file into database
         /// </summary>

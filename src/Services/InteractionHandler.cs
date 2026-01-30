@@ -115,36 +115,22 @@ namespace NinjaBotCore.Services
                     interaction.User.Username,
                     interaction is SocketSlashCommand cmd ? cmd.Data.Name : interaction.GetType().Name);
 
-                // Skip modals and poll components - they're handled by UserInteractions event handlers
-                // The event-specific handlers (ModalSubmitted, ButtonExecuted) fire after InteractionCreated
-                // and have properly-synced interaction objects for reliable deferral
+                // Log modal/component routing for debugging
                 if (interaction is SocketModal modal)
                 {
-                    if (ModalConstants.LegacyModals.Contains(modal.Data.CustomId) ||
-                        ModalConstants.PollModals.Contains(modal.Data.CustomId))
-                    {
-                        _logger.LogInformation("[INTERACTION HANDLER] Modal {CustomId} will be handled by event system", modal.Data.CustomId);
-                        return;
-                    }
+                    _logger.LogDebug("Modal {CustomId} routing to InteractionService", modal.Data.CustomId);
                 }
 
                 if (interaction is SocketMessageComponent component)
                 {
                     var customId = component.Data?.CustomId;
-
                     if (!string.IsNullOrEmpty(customId))
                     {
-                        // Skip poll interactions - they're handled by UserInteractions event handlers
-                        if (customId.StartsWith(ModalConstants.PollVotePrefix) ||
-                            customId.StartsWith(ModalConstants.PollClosePrefix))
-                        {
-                            _logger.LogDebug("[INTERACTION HANDLER] Poll component {CustomId} will be handled by event system", customId);
-                            return;
-                        }
+                        _logger.LogDebug("Component {CustomId} routing to InteractionService", customId);
                     }
                     else
                     {
-                        _logger.LogWarning("[INTERACTION HANDLER] Component has null or empty CustomId");
+                        _logger.LogWarning("Component has null or empty CustomId");
                     }
                 }
 
@@ -197,34 +183,16 @@ namespace NinjaBotCore.Services
             IInteractionContext context,
             IResult result)
         {
-            // Skip UnknownCommand errors for interactions handled by event system
-            // These are poll modals and components handled via ModalSubmitted/ButtonExecuted events
-            if (result.Error == InteractionCommandError.UnknownCommand &&
-                context.Interaction is SocketMessageComponent msgComponent)
+            // Log UnknownCommand errors for debugging - all modals/components should have attribute handlers
+            if (result.Error == InteractionCommandError.UnknownCommand)
             {
-                var customId = msgComponent.Data?.CustomId;
-
-                if (!string.IsNullOrEmpty(customId))
+                if (context.Interaction is SocketMessageComponent msgComponent)
                 {
-                    // Skip error for poll components - they're handled by event handlers
-                    if (customId.StartsWith(ModalConstants.PollVotePrefix) ||
-                        customId.StartsWith(ModalConstants.PollClosePrefix))
-                    {
-                        _logger.LogDebug("[INTERACTION HANDLER] Skipping UnknownCommand error for poll component {CustomId}", customId);
-                        return;
-                    }
+                    _logger.LogWarning("UnknownCommand for component {CustomId} - handler may not be registered", msgComponent.Data?.CustomId);
                 }
-            }
-
-            if (result.Error == InteractionCommandError.UnknownCommand &&
-                context.Interaction is SocketModal modal)
-            {
-                var customId = modal.Data.CustomId;
-                if (ModalConstants.LegacyModals.Contains(customId) ||
-                    ModalConstants.PollModals.Contains(customId))
+                else if (context.Interaction is SocketModal modal)
                 {
-                    _logger.LogInformation("[INTERACTION HANDLER] Skipping UnknownCommand error for modal {CustomId} - handled by event system", customId);
-                    return;
+                    _logger.LogWarning("UnknownCommand for modal {CustomId} - handler may not be registered", modal.Data.CustomId);
                 }
             }
 
