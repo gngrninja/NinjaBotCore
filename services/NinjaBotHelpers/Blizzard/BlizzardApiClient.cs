@@ -843,7 +843,7 @@ public class DecorResponse
     [JsonProperty("name")]
     public string? Name { get; set; }
 
-    [JsonProperty("item")]
+    [JsonProperty("items")]
     public DecorItemRef? Item { get; set; }
 }
 

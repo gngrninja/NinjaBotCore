@@ -2735,6 +2735,11 @@ namespace NinjaBotCore.Services
                         var itemsCount = await db.WowItems.CountAsync();
                         var oldestItem = await db.WowItems.OrderBy(i => i.LastUpdated).FirstOrDefaultAsync();
 
+                        // Housing Decor
+                        var housingDecorCount = await db.HousingDecor.CountAsync();
+                        var housingDecorWithIcons = await db.HousingDecor.CountAsync(h => h.IconUrl != null && h.IconUrl != "");
+                        var oldestHousingDecor = await db.HousingDecor.OrderBy(h => h.LastUpdated).FirstOrDefaultAsync();
+
                         // Realms by region
                         var realmsByRegion = realms.GroupBy(r => r.Region)
                             .OrderBy(g => g.Key)
@@ -2807,6 +2812,13 @@ namespace NinjaBotCore.Services
                             {
                                 total = itemsCount,
                                 oldest_update = oldestItem?.LastUpdated
+                            },
+                            housing_decor = new
+                            {
+                                total = housingDecorCount,
+                                with_icons = housingDecorWithIcons,
+                                missing_icons = housingDecorCount - housingDecorWithIcons,
+                                oldest_update = oldestHousingDecor?.LastUpdated
                             }
                         }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
                     }

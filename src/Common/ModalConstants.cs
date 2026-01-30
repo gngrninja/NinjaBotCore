@@ -37,5 +37,16 @@ namespace NinjaBotCore.Common
         /// Handler: PollComponentHandlers.HandlePollClose
         /// </summary>
         public const string PollClosePrefix = "poll_close~";
+
+        /// <summary>
+        /// Housing decor component IDs - handlers in HousingCommands.cs
+        /// Format: housing_{action}~{userId}~{charName}~{realm}~{region}~{page}~{search}
+        /// </summary>
+        public const string HousingBrowse = "housing_browse";
+        public const string HousingPage = "housing_page";
+        public const string HousingSearch = "housing_search";
+        public const string HousingSearchModal = "housing_search_modal";
+        public const string HousingBack = "housing_back";
+        public const string HousingClearSearch = "housing_clear";
     }
 }

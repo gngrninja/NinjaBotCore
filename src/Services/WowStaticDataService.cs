@@ -5,6 +5,7 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
@@ -1084,6 +1085,32 @@ namespace NinjaBotCore.Services
 
             var allDecor = await repo.GetAllAsync();
             return allDecor.Where(d => d.Name.ToLower().Contains(decorNameLower)).ToList();
+        }
+
+        /// <summary>
+        /// Get missing housing decor items (items in database but not in collected set)
+        /// </summary>
+        /// <param name="collectedIds">Set of decor IDs the character has collected</param>
+        /// <param name="searchFilter">Optional name filter</param>
+        /// <returns>List of missing decor items, ordered by name</returns>
+        public async Task<List<HousingDecor>> GetMissingDecorAsync(HashSet<long> collectedIds, string searchFilter = null)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+            var query = db.HousingDecor.AsQueryable();
+
+            // Filter to missing items (not in collected set)
+            query = query.Where(d => !collectedIds.Contains(d.Id));
+
+            // Apply search filter if provided
+            if (!string.IsNullOrWhiteSpace(searchFilter))
+            {
+                var search = searchFilter.ToLower();
+                query = query.Where(d => d.Name.ToLower().Contains(search));
+            }
+
+            return await query.OrderBy(d => d.Name).ToListAsync();
         }
 
         #endregion
