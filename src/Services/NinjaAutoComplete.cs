@@ -450,6 +450,88 @@ namespace NinjaBotCore.Services
     }
 
     /// <summary>
+    /// Autocomplete handler for removing realm watches.
+    /// Shows both user's DM watches and guild channel watches (for admins) with clear labels.
+    /// Value format: "type~realmSlug~region" (e.g., "dm~area-52~us" or "channel~area-52~us")
+    /// </summary>
+    public class WatchedRealmRemoveAutocomplete : AutocompleteHandler
+    {
+        public override async Task<AutocompletionResult> GenerateSuggestionsAsync(
+            IInteractionContext context,
+            IAutocompleteInteraction autocompleteInteraction,
+            IParameterInfo parameter,
+            IServiceProvider services)
+        {
+            try
+            {
+                var scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
+                var userInput = (autocompleteInteraction.Data.Current.Value as string ?? "").ToLower().Trim();
+                var isAdmin = (context.User as IGuildUser)?.GuildPermissions.Administrator ?? false;
+
+                using var scope = scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotCore.Database.NinjaBotEntities>();
+
+                var results = new List<AutocompleteResult>();
+
+                // Get user's DM watches (ChannelId is null for DM watches)
+                var dmWatches = await db.RealmWatchSubscriptions
+                    .Where(s => s.UserId == (long)context.User.Id && !s.ChannelId.HasValue)
+                    .OrderBy(s => s.RealmName)
+                    .ToListAsync();
+
+                // Get guild's channel watches (admins only)
+                var channelWatches = isAdmin
+                    ? await db.RealmWatchSubscriptions
+                        .Where(s => s.GuildId == (long)context.Guild.Id && s.ChannelId.HasValue)
+                        .OrderBy(s => s.RealmName)
+                        .ToListAsync()
+                    : new List<NinjaBotCore.Database.RealmWatchSubscription>();
+
+                // Add channel watches first (server-wide)
+                foreach (var sub in channelWatches)
+                {
+                    var label = $"{sub.RealmName} ({sub.Region.ToUpper()}) - Channel";
+                    if (string.IsNullOrWhiteSpace(userInput) ||
+                        sub.RealmName.ToLower().Contains(userInput) ||
+                        sub.RealmSlug.ToLower().Contains(userInput))
+                    {
+                        // Encode type~realmSlug~region in value
+                        results.Add(new AutocompleteResult(label, $"channel~{sub.RealmSlug}~{sub.Region}"));
+                    }
+                }
+
+                // Add DM watches
+                foreach (var sub in dmWatches)
+                {
+                    var label = $"{sub.RealmName} ({sub.Region.ToUpper()}) - DM";
+                    if (string.IsNullOrWhiteSpace(userInput) ||
+                        sub.RealmName.ToLower().Contains(userInput) ||
+                        sub.RealmSlug.ToLower().Contains(userInput))
+                    {
+                        results.Add(new AutocompleteResult(label, $"dm~{sub.RealmSlug}~{sub.Region}"));
+                    }
+                }
+
+                if (!results.Any())
+                {
+                    return AutocompletionResult.FromSuccess(new[]
+                    {
+                        new AutocompleteResult("No watches found - use /realm-watch add first", "none")
+                    });
+                }
+
+                return AutocompletionResult.FromSuccess(results.Take(25));
+            }
+            catch (Exception ex)
+            {
+                var logger = services.GetService<ILogger<WatchedRealmRemoveAutocomplete>>();
+                logger?.LogError(ex, "Error in WatchedRealmRemoveAutocomplete");
+                return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
+            }
+        }
+    }
+
+    /// <summary>
     /// Autocomplete handler for WoW guild search
     /// Searches for guilds by name across all realms in the selected region
     /// Uses database-backed realm data with fallback to WowApi static data

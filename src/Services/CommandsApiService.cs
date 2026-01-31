@@ -2535,6 +2535,16 @@ namespace NinjaBotCore.Services
                         return Results.BadRequest(new { success = false, error = "Watch already exists for this realm" });
                     }
 
+                    // Check guild watch limit (5 watches max per guild)
+                    const int MaxWatchesPerGuild = 5;
+                    var guildWatchCount = await db.RealmWatchSubscriptions
+                        .CountAsync(s => s.GuildId == guildIdLong);
+
+                    if (guildWatchCount >= MaxWatchesPerGuild)
+                    {
+                        return Results.BadRequest(new { success = false, error = $"Guild has reached the maximum of {MaxWatchesPerGuild} realm watches" });
+                    }
+
                     long? channelIdLong = null;
                     if (!string.IsNullOrEmpty(body.ChannelId) && long.TryParse(body.ChannelId, out var parsedChannelId))
                     {
@@ -2614,6 +2624,102 @@ namespace NinjaBotCore.Services
 
                     return Results.Json(new { success = true, message = "Watch deleted" },
                         new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
+                });
+
+                // PUT /api/guilds/{guildId}/realm-watches/{watchId} - Update a realm watch
+                _app.MapPut("/api/guilds/{guildId}/realm-watches/{watchId}", async (HttpContext context, string guildId, string watchId) =>
+                {
+                    // Validate API key
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        var providedKey = context.Request.Headers["X-Api-Key"].ToString();
+                        if (providedKey != apiKey)
+                        {
+                            return Results.Unauthorized();
+                        }
+                    }
+
+                    if (!long.TryParse(guildId, out var guildIdLong))
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid guild ID" });
+                    }
+
+                    if (!long.TryParse(watchId, out var watchIdLong))
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid watch ID" });
+                    }
+
+                    var body = await context.Request.ReadFromJsonAsync<UpdateRealmWatchRequest>(
+                        new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
+
+                    if (body == null)
+                    {
+                        return Results.BadRequest(new { success = false, error = "Invalid request body" });
+                    }
+
+                    using var scope = _serviceProvider.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                    var watch = await db.RealmWatchSubscriptions
+                        .FirstOrDefaultAsync(w => w.Id == watchIdLong && w.GuildId == guildIdLong);
+
+                    if (watch == null)
+                    {
+                        return Results.NotFound(new { success = false, error = "Watch not found" });
+                    }
+
+                    // Update fields if provided
+                    if (body.ChannelId != null)
+                    {
+                        if (body.ChannelId == "")
+                        {
+                            watch.ChannelId = null; // Switch to DM
+                        }
+                        else if (long.TryParse(body.ChannelId, out var channelIdLong))
+                        {
+                            watch.ChannelId = channelIdLong;
+                        }
+                    }
+
+                    if (body.AlertOnOnline.HasValue)
+                        watch.AlertOnOnline = body.AlertOnOnline.Value;
+
+                    if (body.AlertOnOffline.HasValue)
+                        watch.AlertOnOffline = body.AlertOnOffline.Value;
+
+                    if (body.AlertOnQueue.HasValue)
+                        watch.AlertOnQueue = body.AlertOnQueue.Value;
+
+                    // At least one alert type must be enabled
+                    if (!watch.AlertOnOnline && !watch.AlertOnOffline && !watch.AlertOnQueue)
+                    {
+                        return Results.BadRequest(new { success = false, error = "At least one alert type must be enabled" });
+                    }
+
+                    await db.SaveChangesAsync();
+
+                    return Results.Json(new
+                    {
+                        success = true,
+                        watch = new
+                        {
+                            id = watch.Id,
+                            realm_slug = watch.RealmSlug,
+                            realm_name = watch.RealmName,
+                            region = watch.Region,
+                            guild_id = watch.GuildId.ToString(),
+                            channel_id = watch.ChannelId?.ToString(),
+                            user_id = watch.UserId.ToString(),
+                            alert_on_online = watch.AlertOnOnline,
+                            alert_on_offline = watch.AlertOnOffline,
+                            alert_on_queue = watch.AlertOnQueue,
+                            created_at = watch.CreatedAt,
+                            last_alert_at = watch.LastAlertAt
+                        }
+                    }, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                    });
                 });
 
                 // GET /api/users/{userId}/realm-watches - Get all realm watches for a user across guilds
@@ -3664,6 +3770,16 @@ namespace NinjaBotCore.Services
         [property: JsonPropertyName("realm_slug")] string? RealmSlug,
         [property: JsonPropertyName("region")] string? Region,
         [property: JsonPropertyName("user_id")] string? UserId,
+        [property: JsonPropertyName("channel_id")] string? ChannelId,
+        [property: JsonPropertyName("alert_on_online")] bool? AlertOnOnline,
+        [property: JsonPropertyName("alert_on_offline")] bool? AlertOnOffline,
+        [property: JsonPropertyName("alert_on_queue")] bool? AlertOnQueue
+    );
+
+    /// <summary>
+    /// Request body for updating an existing realm watch subscription.
+    /// </summary>
+    public record UpdateRealmWatchRequest(
         [property: JsonPropertyName("channel_id")] string? ChannelId,
         [property: JsonPropertyName("alert_on_online")] bool? AlertOnOnline,
         [property: JsonPropertyName("alert_on_offline")] bool? AlertOnOffline,
