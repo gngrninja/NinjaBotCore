@@ -34,12 +34,23 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         public async Task AddWatch(
             [Summary("realm", "Realm to watch")][Autocomplete(typeof(RealmAutocomplete))] string realm,
             [Summary("region", "Region (us/eu)")][Choice("US", "us")][Choice("EU", "eu")] string region = "us",
-            [Summary("channel", "Channel for alerts (leave empty for DM)")] ITextChannel channel = null,
+            [Summary("channel", "Channel for alerts (leave empty for DM, requires Admin)")] ITextChannel channel = null,
             [Summary("alert-online", "Alert when realm comes online")] bool alertOnline = true,
             [Summary("alert-offline", "Alert when realm goes offline")] bool alertOffline = true,
             [Summary("alert-queue", "Alert on queue changes")] bool alertQueue = true)
         {
             await DeferAsync(ephemeral: true);
+
+            // Channel alerts require Administrator permission
+            if (channel != null)
+            {
+                var guildUser = Context.User as IGuildUser;
+                if (guildUser == null || !guildUser.GuildPermissions.Administrator)
+                {
+                    await FollowupAsync("Only server administrators can set up channel alerts. Leave the channel empty to receive alerts via DM instead.", ephemeral: true);
+                    return;
+                }
+            }
 
             try
             {
@@ -55,17 +66,39 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 var realmSlug = RealmHelper.ToSlug(realm);
 
                 // Check if subscription already exists
-                var existingSub = await WithDbAsync(async db => await db.RealmWatchSubscriptions
-                    .FirstOrDefaultAsync(s =>
-                        s.GuildId == (long)Context.Guild.Id &&
-                        s.UserId == (long)Context.User.Id &&
-                        s.RealmSlug == realmSlug &&
-                        s.Region == region));
-
-                if (existingSub != null)
+                // Channel alerts: one per guild per realm
+                // DM alerts: one per user per realm
+                if (channel != null)
                 {
-                    await FollowupAsync($"You already have a watch on **{realmInfo.Name}** ({region.ToUpper()}). Use `/realm-watch remove` to remove it first.", ephemeral: true);
-                    return;
+                    // Check for existing channel-based subscription for this guild+realm
+                    var existingChannelSub = await WithDbAsync(async db => await db.RealmWatchSubscriptions
+                        .FirstOrDefaultAsync(s =>
+                            s.GuildId == (long)Context.Guild.Id &&
+                            s.ChannelId != null &&
+                            s.RealmSlug == realmSlug &&
+                            s.Region == region));
+
+                    if (existingChannelSub != null)
+                    {
+                        await FollowupAsync($"This server already has a channel alert for **{realmInfo.Name}** ({region.ToUpper()}) in <#{existingChannelSub.ChannelId}>. Remove it first with `/realm-watch remove`.", ephemeral: true);
+                        return;
+                    }
+                }
+                else
+                {
+                    // Check for existing DM subscription for this user+realm
+                    var existingDmSub = await WithDbAsync(async db => await db.RealmWatchSubscriptions
+                        .FirstOrDefaultAsync(s =>
+                            s.UserId == (long)Context.User.Id &&
+                            s.ChannelId == null &&
+                            s.RealmSlug == realmSlug &&
+                            s.Region == region));
+
+                    if (existingDmSub != null)
+                    {
+                        await FollowupAsync($"You already have a DM alert for **{realmInfo.Name}** ({region.ToUpper()}). Use `/realm-watch remove` to remove it first.", ephemeral: true);
+                        return;
+                    }
                 }
 
                 // Create subscription
@@ -122,41 +155,84 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         [SlashCommand("remove", "Remove realm watch")]
         public async Task RemoveWatch(
             [Summary("realm", "Realm to stop watching")][Autocomplete(typeof(RealmAutocomplete))] string realm,
-            [Summary("region", "Region (us/eu)")][Choice("US", "us")][Choice("EU", "eu")] string region = "us")
+            [Summary("region", "Region (us/eu)")][Choice("US", "us")][Choice("EU", "eu")] string region = "us",
+            [Summary("type", "Which alert to remove")][Choice("DM", "dm")][Choice("Channel (Admin)", "channel")] string type = "dm")
         {
             await DeferAsync(ephemeral: true);
 
             try
             {
                 var realmSlug = RealmHelper.ToSlug(realm);
+                var isAdmin = (Context.User as IGuildUser)?.GuildPermissions.Administrator ?? false;
 
-                var removed = await WithDbAsync(async db =>
+                if (type == "channel")
                 {
-                    var sub = await db.RealmWatchSubscriptions
-                        .FirstOrDefaultAsync(s =>
-                            s.GuildId == (long)Context.Guild.Id &&
-                            s.UserId == (long)Context.User.Id &&
-                            s.RealmSlug == realmSlug &&
-                            s.Region == region);
-
-                    if (sub != null)
+                    if (!isAdmin)
                     {
-                        db.RealmWatchSubscriptions.Remove(sub);
-                        await db.SaveChangesAsync();
-                        return true;
+                        await FollowupAsync("Only server administrators can remove channel alerts.", ephemeral: true);
+                        return;
                     }
-                    return false;
-                });
 
-                if (removed)
-                {
-                    await FollowupAsync($"Removed realm watch for **{realm}** ({region.ToUpper()}).", ephemeral: true);
-                    _logger.LogInformation("User {UserId} removed realm watch for {Realm} ({Region})",
-                        Context.User.Id, realm, region);
+                    var removed = await WithDbAsync(async db =>
+                    {
+                        var sub = await db.RealmWatchSubscriptions
+                            .FirstOrDefaultAsync(s =>
+                                s.GuildId == (long)Context.Guild.Id &&
+                                s.ChannelId != null &&
+                                s.RealmSlug == realmSlug &&
+                                s.Region == region);
+
+                        if (sub != null)
+                        {
+                            db.RealmWatchSubscriptions.Remove(sub);
+                            await db.SaveChangesAsync();
+                            return true;
+                        }
+                        return false;
+                    });
+
+                    if (removed)
+                    {
+                        await FollowupAsync($"Removed channel alert for **{realm}** ({region.ToUpper()}).", ephemeral: true);
+                        _logger.LogInformation("Admin {UserId} removed channel alert for {Realm} ({Region}) in guild {GuildId}",
+                            Context.User.Id, realm, region, Context.Guild.Id);
+                    }
+                    else
+                    {
+                        await FollowupAsync($"This server doesn't have a channel alert for **{realm}** ({region.ToUpper()}).", ephemeral: true);
+                    }
                 }
                 else
                 {
-                    await FollowupAsync($"You don't have a watch on **{realm}** ({region.ToUpper()}).", ephemeral: true);
+                    // Remove user's DM alert
+                    var removed = await WithDbAsync(async db =>
+                    {
+                        var sub = await db.RealmWatchSubscriptions
+                            .FirstOrDefaultAsync(s =>
+                                s.UserId == (long)Context.User.Id &&
+                                s.ChannelId == null &&
+                                s.RealmSlug == realmSlug &&
+                                s.Region == region);
+
+                        if (sub != null)
+                        {
+                            db.RealmWatchSubscriptions.Remove(sub);
+                            await db.SaveChangesAsync();
+                            return true;
+                        }
+                        return false;
+                    });
+
+                    if (removed)
+                    {
+                        await FollowupAsync($"Removed DM alert for **{realm}** ({region.ToUpper()}).", ephemeral: true);
+                        _logger.LogInformation("User {UserId} removed DM alert for {Realm} ({Region})",
+                            Context.User.Id, realm, region);
+                    }
+                    else
+                    {
+                        await FollowupAsync($"You don't have a DM alert for **{realm}** ({region.ToUpper()}).", ephemeral: true);
+                    }
                 }
             }
             catch (Exception ex)
@@ -166,44 +242,70 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             }
         }
 
-        [SlashCommand("list", "List your realm watches")]
+        [SlashCommand("list", "List realm watches")]
         public async Task ListWatches()
         {
             await DeferAsync(ephemeral: true);
 
             try
             {
-                var subscriptions = await WithDbAsync(async db => await db.RealmWatchSubscriptions
-                    .Where(s => s.GuildId == (long)Context.Guild.Id && s.UserId == (long)Context.User.Id)
+                // Get user's DM alerts
+                var dmAlerts = await WithDbAsync(async db => await db.RealmWatchSubscriptions
+                    .Where(s => s.UserId == (long)Context.User.Id && s.ChannelId == null)
                     .OrderBy(s => s.Region)
                     .ThenBy(s => s.RealmName)
                     .ToListAsync());
 
-                if (!subscriptions.Any())
+                // Get guild's channel alerts (visible to all)
+                var channelAlerts = await WithDbAsync(async db => await db.RealmWatchSubscriptions
+                    .Where(s => s.GuildId == (long)Context.Guild.Id && s.ChannelId != null)
+                    .OrderBy(s => s.Region)
+                    .ThenBy(s => s.RealmName)
+                    .ToListAsync());
+
+                if (!dmAlerts.Any() && !channelAlerts.Any())
                 {
-                    await FollowupAsync("You don't have any realm watches set up. Use `/realm-watch add` to add one.", ephemeral: true);
+                    await FollowupAsync("No realm watches set up. Use `/realm-watch add` to add one.", ephemeral: true);
                     return;
                 }
 
                 var embed = new EmbedBuilder()
-                    .WithTitle("Your Realm Watches")
+                    .WithTitle("Realm Watches")
                     .WithColor(Color.Blue);
 
                 var sb = new StringBuilder();
-                foreach (var sub in subscriptions)
-                {
-                    var destination = sub.ChannelId.HasValue ? $"<#{sub.ChannelId}>" : "DM";
-                    var alerts = new StringBuilder();
-                    if (sub.AlertOnOnline) alerts.Append("🟢");
-                    if (sub.AlertOnOffline) alerts.Append("🔴");
-                    if (sub.AlertOnQueue) alerts.Append("⏳");
 
-                    sb.AppendLine($"**{sub.RealmName}** ({sub.Region.ToUpper()})");
-                    sb.AppendLine($"  Alerts: {alerts} → {destination}");
+                if (channelAlerts.Any())
+                {
+                    sb.AppendLine("**Server Channel Alerts**");
+                    foreach (var sub in channelAlerts)
+                    {
+                        var alerts = new StringBuilder();
+                        if (sub.AlertOnOnline) alerts.Append("🟢");
+                        if (sub.AlertOnOffline) alerts.Append("🔴");
+                        if (sub.AlertOnQueue) alerts.Append("⏳");
+
+                        sb.AppendLine($"• **{sub.RealmName}** ({sub.Region.ToUpper()}) {alerts} → <#{sub.ChannelId}>");
+                    }
+                    sb.AppendLine();
+                }
+
+                if (dmAlerts.Any())
+                {
+                    sb.AppendLine("**Your DM Alerts**");
+                    foreach (var sub in dmAlerts)
+                    {
+                        var alerts = new StringBuilder();
+                        if (sub.AlertOnOnline) alerts.Append("🟢");
+                        if (sub.AlertOnOffline) alerts.Append("🔴");
+                        if (sub.AlertOnQueue) alerts.Append("⏳");
+
+                        sb.AppendLine($"• **{sub.RealmName}** ({sub.Region.ToUpper()}) {alerts}");
+                    }
                 }
 
                 embed.Description = sb.ToString();
-                embed.WithFooter($"{subscriptions.Count} realm watch(es)");
+                embed.WithFooter($"{channelAlerts.Count} channel alert(s), {dmAlerts.Count} DM alert(s)");
 
                 await FollowupAsync(embed: embed.Build(), ephemeral: true);
             }
