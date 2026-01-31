@@ -101,15 +101,33 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     }
                 }
 
-                // Check guild watch limit (5 watches max per guild)
-                const int MaxWatchesPerGuild = 5;
-                var guildWatchCount = await WithDbAsync(async db => await db.RealmWatchSubscriptions
-                    .CountAsync(s => s.GuildId == (long)Context.Guild.Id));
+                // Check limits based on alert type
+                const int MaxChannelWatchesPerGuild = 5;
+                const int MaxDmWatchesPerUser = 4;
 
-                if (guildWatchCount >= MaxWatchesPerGuild)
+                if (channel != null)
                 {
-                    await FollowupAsync($"This server has reached the maximum of {MaxWatchesPerGuild} realm watches. Remove an existing watch first with `/realm-watch remove`.", ephemeral: true);
-                    return;
+                    // Channel alerts: count only channel-based watches for this guild
+                    var channelWatchCount = await WithDbAsync(async db => await db.RealmWatchSubscriptions
+                        .CountAsync(s => s.GuildId == (long)Context.Guild.Id && s.ChannelId.HasValue));
+
+                    if (channelWatchCount >= MaxChannelWatchesPerGuild)
+                    {
+                        await FollowupAsync($"This server has reached the maximum of {MaxChannelWatchesPerGuild} channel realm watches. Remove an existing channel watch first with `/realm-watch remove`.", ephemeral: true);
+                        return;
+                    }
+                }
+                else
+                {
+                    // DM alerts: count only DM watches for this user (across all guilds)
+                    var dmWatchCount = await WithDbAsync(async db => await db.RealmWatchSubscriptions
+                        .CountAsync(s => s.UserId == (long)Context.User.Id && !s.ChannelId.HasValue));
+
+                    if (dmWatchCount >= MaxDmWatchesPerUser)
+                    {
+                        await FollowupAsync($"You have reached the maximum of {MaxDmWatchesPerUser} DM realm watches. Remove an existing DM watch first with `/realm-watch remove`.", ephemeral: true);
+                        return;
+                    }
                 }
 
                 // Create subscription

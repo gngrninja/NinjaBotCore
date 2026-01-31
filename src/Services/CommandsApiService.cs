@@ -2535,20 +2535,38 @@ namespace NinjaBotCore.Services
                         return Results.BadRequest(new { success = false, error = "Watch already exists for this realm" });
                     }
 
-                    // Check guild watch limit (5 watches max per guild)
-                    const int MaxWatchesPerGuild = 5;
-                    var guildWatchCount = await db.RealmWatchSubscriptions
-                        .CountAsync(s => s.GuildId == guildIdLong);
-
-                    if (guildWatchCount >= MaxWatchesPerGuild)
-                    {
-                        return Results.BadRequest(new { success = false, error = $"Guild has reached the maximum of {MaxWatchesPerGuild} realm watches" });
-                    }
-
+                    // Parse channel ID first to determine which limit to check
                     long? channelIdLong = null;
                     if (!string.IsNullOrEmpty(body.ChannelId) && long.TryParse(body.ChannelId, out var parsedChannelId))
                     {
                         channelIdLong = parsedChannelId;
+                    }
+
+                    // Check limits based on alert type
+                    const int MaxChannelWatchesPerGuild = 5;
+                    const int MaxDmWatchesPerUser = 4;
+
+                    if (channelIdLong.HasValue)
+                    {
+                        // Channel alerts: count only channel-based watches for this guild
+                        var channelWatchCount = await db.RealmWatchSubscriptions
+                            .CountAsync(s => s.GuildId == guildIdLong && s.ChannelId.HasValue);
+
+                        if (channelWatchCount >= MaxChannelWatchesPerGuild)
+                        {
+                            return Results.BadRequest(new { success = false, error = $"Guild has reached the maximum of {MaxChannelWatchesPerGuild} channel realm watches" });
+                        }
+                    }
+                    else
+                    {
+                        // DM alerts: count only DM watches for this user (across all guilds)
+                        var dmWatchCount = await db.RealmWatchSubscriptions
+                            .CountAsync(s => s.UserId == userIdLong && !s.ChannelId.HasValue);
+
+                        if (dmWatchCount >= MaxDmWatchesPerUser)
+                        {
+                            return Results.BadRequest(new { success = false, error = $"You have reached the maximum of {MaxDmWatchesPerUser} DM realm watches" });
+                        }
                     }
 
                     var watch = new Database.RealmWatchSubscription
