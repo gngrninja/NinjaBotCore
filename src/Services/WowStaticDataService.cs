@@ -487,7 +487,6 @@ namespace NinjaBotCore.Services
 
             // Check cache first - Note: WowCacheService uses IMemoryCache internally
             // For now, skip caching and search database directly
-            // TODO: Add generic caching method to WowCacheService
 
             using var scope = _scopeFactory.CreateScope();
             var repo = new Repository<WowItems>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());

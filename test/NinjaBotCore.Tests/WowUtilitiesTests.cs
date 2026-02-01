@@ -29,7 +29,6 @@ namespace NinjaBotCore.Tests
             var services = new ServiceCollection()
                 .AddHttpClient()
                 .AddSingleton<WowApi>()
-                .AddSingleton<WarcraftLogs>()
                 .AddSingleton<RaiderIOApi>()
                 .AddSingleton<DiscordShardedClient>()
                 .AddSingleton<WowTokenService>()

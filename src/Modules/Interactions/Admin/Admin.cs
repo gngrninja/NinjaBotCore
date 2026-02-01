@@ -13,7 +13,8 @@ using NinjaBotCore.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
-using NinjaBotCore.Migrations;
+using NinjaBotCore.Models.Wow;
+using NinjaBotCore.Database;
 using NinjaBotCore.Modules.Wow;
 
 namespace NinjaBotCore.Modules.Interactions.Admin
@@ -24,7 +25,9 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         private readonly IConfigurationRoot _config;
         private readonly ILogger<Admin> _logger;
         private readonly WordFilterService _wordFilterService;
-        private readonly WarcraftLogs _warcraftLogs;
+        private readonly WarcraftLogsV2Client _warcraftLogsV2;
+        private readonly WowCacheService _wowCache;
+        private readonly WowUtilities _wowUtils;
 
         // Event handling is now done by WordFilterService
         // This module only handles slash commands
@@ -35,7 +38,9 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             _logger = services.GetRequiredService<ILogger<Admin>>();
             _config = services.GetRequiredService<IConfigurationRoot>();
             _wordFilterService = services.GetRequiredService<WordFilterService>();
-            _warcraftLogs = services.GetRequiredService<WarcraftLogs>();
+            _warcraftLogsV2 = services.GetRequiredService<WarcraftLogsV2Client>();
+            _wowCache = services.GetRequiredService<WowCacheService>();
+            _wowUtils = services.GetRequiredService<WowUtilities>();
             _logger.LogInformation("Admin module loaded!");
         }
 
@@ -279,24 +284,51 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
             try
             {
-                var currentTier = WarcraftLogs.CurrentRaidTier;
-                var oldTierName = currentTier?.RaidName ?? "none";
-                var oldZoneId = currentTier?.WclZoneId ?? 0;
+                // Get current tier from database
+                var oldTier = await WithDbAsync(db => db.CurrentRaidTier.FirstOrDefaultAsync());
+                var oldTierName = oldTier?.RaidName ?? "none";
+                var oldZoneId = oldTier?.WclZoneId ?? 0;
 
-                var newTier = await _warcraftLogs.RefreshCurrentRaidTierAsync(expansionId);
+                // Get new tier from v2 API
+                var zoneTier = await _warcraftLogsV2.GetCurrentRaidTierAsync(expansionId);
 
-                if (newTier == null)
+                if (zoneTier == null)
                 {
                     await FollowupAsync("Failed to detect current raid tier from API.", ephemeral: true);
                     return;
                 }
 
+                var defaultPartition = zoneTier.Partitions?.FirstOrDefault(p => p.IsDefault == true)
+                    ?? zoneTier.Partitions?.LastOrDefault();
+
+                // Update database
+                await WithDbAsync(async db =>
+                {
+                    var existingTier = await db.CurrentRaidTier.FirstOrDefaultAsync();
+                    if (existingTier != null)
+                    {
+                        existingTier.WclZoneId = zoneTier.Id;
+                        existingTier.RaidName = zoneTier.Name;
+                        existingTier.Partition = defaultPartition?.Id;
+                    }
+                    else
+                    {
+                        db.CurrentRaidTier.Add(new CurrentRaidTier
+                        {
+                            WclZoneId = zoneTier.Id,
+                            RaidName = zoneTier.Name,
+                            Partition = defaultPartition?.Id
+                        });
+                    }
+                    await db.SaveChangesAsync();
+                });
+
                 var embed = new EmbedBuilder()
                     .WithTitle("Raid Tier Refreshed")
                     .WithColor(new Color(0, 200, 100))
                     .AddField("Previous", $"{oldTierName} (Zone ID: {oldZoneId})", true)
-                    .AddField("Current", $"{newTier.RaidName} (Zone ID: {newTier.WclZoneId})", true)
-                    .AddField("Partition", newTier.Partition?.ToString() ?? "default", true)
+                    .AddField("Current", $"{zoneTier.Name} (Zone ID: {zoneTier.Id})", true)
+                    .AddField("Partition", defaultPartition?.Id.ToString() ?? "default", true)
                     .WithFooter($"Expansion ID: {expansionId}")
                     .Build();
 
@@ -305,6 +337,80 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error refreshing raid tier");
+                await FollowupAsync($"Error: {ex.Message}", ephemeral: true);
+            }
+        }
+
+        [SlashCommand("top10-refresh", "Clear cached top10 rankings for this server's realm")]
+        [RequireOwner]
+        public async Task RefreshTop10Cache(
+            [Summary("scope", "Which rankings to refresh (server or guild)")]
+            [Choice("server", "server")]
+            [Choice("guild", "guild")]
+            string scope = "server",
+            [Summary("encounter", "Boss encounter ID (get from /top10 dropdown)")]
+            int? encounterId = null,
+            [Summary("metric", "Metric type")]
+            [Choice("dps", "dps")]
+            [Choice("hps", "hps")]
+            string metric = "dps",
+            [Summary("difficulty", "Raid difficulty")]
+            [Choice("Heroic", "heroic")]
+            [Choice("Mythic", "mythic")]
+            [Choice("Normal", "normal")]
+            [Choice("LFR", "lfr")]
+            string difficulty = "heroic")
+        {
+            await DeferAsync(ephemeral: true);
+
+            try
+            {
+                // Get guild association for realm info
+                var guildObject = await _wowUtils.GetGuildName(Context);
+                string realmSlug = guildObject.realmSlug ?? guildObject.realmName?.ToLower().Replace(" ", "-").Replace("'", "") ?? "";
+                string region = guildObject.regionName ?? "us";
+                string guildName = scope == "guild" ? guildObject.guildName : null;
+
+                if (string.IsNullOrEmpty(realmSlug))
+                {
+                    await FollowupAsync("No guild association found for this server. Use `/setguild` first.", ephemeral: true);
+                    return;
+                }
+
+                if (encounterId.HasValue)
+                {
+                    // Invalidate specific cache entry (cache key uses difficulty string, not ID)
+                    _wowCache.InvalidateTop10Rankings(scope, realmSlug, region, encounterId.Value, metric, difficulty.ToLower(), guildName);
+
+                    await FollowupAsync(embed: new EmbedBuilder()
+                        .WithTitle("Top10 Cache Cleared")
+                        .WithColor(new Color(0, 200, 100))
+                        .AddField("Scope", scope, true)
+                        .AddField("Realm", realmSlug, true)
+                        .AddField("Region", region.ToUpper(), true)
+                        .AddField("Encounter", encounterId.Value.ToString(), true)
+                        .AddField("Metric", metric, true)
+                        .AddField("Difficulty", difficulty, true)
+                        .WithFooter(guildName != null ? $"Guild: {guildName}" : null)
+                        .Build(), ephemeral: true);
+                }
+                else
+                {
+                    // No specific encounter - inform about TTL-based expiration
+                    _wowCache.InvalidateTop10Rankings(realmSlug, region);
+
+                    await FollowupAsync(embed: new EmbedBuilder()
+                        .WithTitle("Top10 Cache Info")
+                        .WithColor(new Color(255, 165, 0))
+                        .WithDescription("Cache entries expire automatically after 1 hour.\n\nTo clear a specific entry, provide the encounter ID from the /top10 dropdown.")
+                        .AddField("Realm", realmSlug, true)
+                        .AddField("Region", region.ToUpper(), true)
+                        .Build(), ephemeral: true);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error refreshing top10 cache");
                 await FollowupAsync($"Error: {ex.Message}", ephemeral: true);
             }
         }

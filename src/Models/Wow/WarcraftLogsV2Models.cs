@@ -218,7 +218,7 @@ namespace NinjaBotCore.Models.Wow
         public string Name { get; set; }
 
         [JsonProperty("class")]
-        public int ClassId { get; set; }
+        public string Class { get; set; }
 
         [JsonProperty("spec")]
         public string Spec { get; set; }
@@ -293,14 +293,11 @@ namespace NinjaBotCore.Models.Wow
         [JsonProperty("name")]
         public string Name { get; set; }
 
+        /// <summary>
+        /// Region - can be string ("US") or object depending on query
+        /// </summary>
         [JsonProperty("region")]
-        public WclV2RegionReference Region { get; set; }
-    }
-
-    public class WclV2RegionReference
-    {
-        [JsonProperty("slug")]
-        public string Slug { get; set; }
+        public string Region { get; set; }
     }
 
     // ===== Zones/Encounters (for encounter list) =====

@@ -25,7 +25,6 @@ namespace NinjaBotCore.Modules.Interactions.Wow
     // Interaction modules must be public and inherit from an IInteractionModuleBase
     public class WowAdminInteract : NinjaBotBaseModule
     {
-        private WarcraftLogs _logsApi;
         private WowApi _wowApi;
         private DiscordShardedClient _client;
         private RaiderIOApi _rioApi;
@@ -40,7 +39,6 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             IServiceScopeFactory scopeFactory,
             ILogger<WowAdminInteract> logger,
             WowUtilities wowUtils,
-            WarcraftLogs logsApi,
             WowApi wowApi,
             RaiderIOApi rioApi,
             DiscordShardedClient client,
@@ -51,7 +49,6 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         {
             _logger = logger;
             _wowUtils = wowUtils;
-            _logsApi = logsApi;
             _wowApi = wowApi;
             _rioApi = rioApi;
             _client = client;
@@ -168,61 +165,65 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         [Discord.Interactions.RequireOwner]
         public async Task PopulateLogs()
         {
+            await DeferAsync(ephemeral: true);
+
+            try
             {
-                List<WowGuildAssociations> guildList = null;
-                List<LogMonitoring> logWatchList = null;
-                try
+                var (guildList, logWatchList) = await WithDbAsync(async db =>
                 {
-                    var result = await WithDbAsync(async db =>
-                    {
-                        var guilds = await db.WowGuildAssociations.ToListAsync();
-                        var logWatch = await db.LogMonitoring.ToListAsync();
-                        return (guilds, logWatch);
-                    });
-                    guildList = result.guilds;
-                    logWatchList = result.logWatch;
+                    var guilds = await db.WowGuildAssociations.ToListAsync();
+                    var logWatch = await db.LogMonitoring.Where(w => w.MonitorLogs).ToListAsync();
+                    return (guilds, logWatch);
+                });
+
+                if (guildList == null || logWatchList == null)
+                {
+                    await FollowupAsync("No guilds or log watch entries found.", ephemeral: true);
+                    return;
                 }
-                catch (Exception ex)
+
+                // Build batch request for v2 API
+                var guildsToCheck = guildList
+                    .Where(g => logWatchList.Any(w => w.ServerId == g.ServerId))
+                    .Select(g => (
+                        guildName: g.WowGuild,
+                        serverSlug: g.LocalRealmSlug ?? g.WowRealm.ToLower().Replace(" ", "-").Replace("'", ""),
+                        serverRegion: g.WowRegion,
+                        guildKey: $"{g.ServerId}"
+                    ))
+                    .ToList();
+
+                var batchResult = await _v2Client.GetBatchGuildReportsAsync(guildsToCheck);
+                int updatedCount = 0;
+
+                await WithDbAsync(async db =>
                 {
-                    _logger.LogError($"Error getting guild/logwatch list -> [{ex.Message}]");
-                }
-                if (guildList != null)
-                {
-                    foreach (var guild in guildList)
+                    foreach (var kvp in batchResult.Reports)
                     {
-                        try
+                        var guildKey = kvp.Key;
+                        var report = kvp.Value;
+                        if (report == null) continue;
+
+                        var serverId = long.Parse(guildKey);
+
+                        var monitoring = await db.LogMonitoring.FirstOrDefaultAsync(l => l.ServerId == serverId);
+                        if (monitoring != null)
                         {
-                            var watchGuild = logWatchList.Where(w => w.ServerId == guild.ServerId).FirstOrDefault();
-                            if (watchGuild != null)
-                            {
-                                if (watchGuild.MonitorLogs)
-                                {
-                                    //System._logger.LogInformation($"YES! Watch logs on {guild.ServerName}!");
-                                    var logs = await _logsApi.GetReportsFromGuild(guildName: guild.WowGuild, realm: guild.WowRealm.Replace("'", ""), region: guild.WowRegion);
-                                    if (logs != null)
-                                    {
-                                        var latestLog = logs[logs.Count - 1];
-                                        DateTime startTime = latestLog.start.UnixTimeStampToDateTimeSeconds();
-                                        {
-                                            await WithDbAsync(async db =>
-                                            {
-                                                var latestForGuild = await db.LogMonitoring.Where(l => l.ServerId == guild.ServerId).FirstOrDefaultAsync();
-                                                latestForGuild.LatestLogRetail = startTime;
-                                                latestForGuild.RetailReportId = latestLog.id;
-                                                await db.SaveChangesAsync();
-                                            });
-                                            //System._logger.LogInformation($"Updated [{watchGuild.ServerName}] -> [{latestLog.id}] [{latestLog.owner}]!");
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError($"Error checking for logs! -> [{ex.Message}]");
+                            // v2 API returns milliseconds, convert to DateTime
+                            monitoring.LatestLogRetail = report.StartTime.UnixTimeStampToDateTime();
+                            monitoring.RetailReportId = report.Code;
+                            updatedCount++;
                         }
                     }
-                }
+                    await db.SaveChangesAsync();
+                });
+
+                await FollowupAsync($"Populated logs for {updatedCount} guilds using v2 API.", ephemeral: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error populating logs");
+                await FollowupAsync($"Error: {ex.Message}", ephemeral: true);
             }
         }
 
@@ -316,70 +317,107 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         [Discord.Interactions.RequireOwner]
         public async Task GetLatestZone()
         {
-            var zone = WarcraftLogs.Zones.OrderByDescending(z => z.id).First();
-            var encounters = zone.encounters.Select(s => s.name).ToList();
+            await DeferAsync(ephemeral: true);
 
-            var embed = new EmbedBuilder();
-            var sb = new StringBuilder();
-            
-            foreach (var encounter in encounters)
+            try
             {
-                sb.AppendLine($"*{encounter}*");
-            }    
+                var zone = await _v2Client.GetCurrentRaidTierAsync();
+                if (zone == null)
+                {
+                    await FollowupAsync("Could not retrieve current raid tier.", ephemeral: true);
+                    return;
+                }
 
-            embed.Title = $"{zone.name}";
+                var embed = new EmbedBuilder();
+                var sb = new StringBuilder();
 
-            embed.AddField(new EmbedFieldBuilder
+                if (zone.Encounters != null)
+                {
+                    foreach (var encounter in zone.Encounters)
+                    {
+                        sb.AppendLine($"*{encounter.Name}*");
+                    }
+                }
+
+                embed.Title = $"{zone.Name}";
+
+                embed.AddField(new EmbedFieldBuilder
+                {
+                    Name = "ID",
+                    Value = $"*{zone.Id}*",
+                });
+
+                embed.AddField(new EmbedFieldBuilder
+                {
+                    Name = "Encounters",
+                    Value = sb.Length > 0 ? sb.ToString() : "No encounters found"
+                });
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+            }
+            catch (Exception ex)
             {
-                Name = "ID",
-                Value = $"*{zone.id.ToString()}*",
-                              
-            });
-
-            embed.AddField(new EmbedFieldBuilder
-            {
-                Name = "Encounters",
-                Value = sb.ToString()
-
-            });
-            
-            await RespondAsync(embed: embed.Build());
+                _logger.LogError(ex, "Error getting latest zone");
+                await FollowupAsync($"Error: {ex.Message}", ephemeral: true);
+            }
         }
 
         [SlashCommand("set-zone", "set zone")]
         [Discord.Interactions.RequireOwner]
         public async Task SetLatestZone(string args = null)
-        {     
-            Zones zone = null;
-            int currentId = 0;
-            string name = string.Empty;
+        {
+            await DeferAsync(ephemeral: true);
 
-            if (args == null)
-            {
-                zone = WarcraftLogs.Zones.OrderByDescending(z => z.id).First();
-                currentId = zone.id;
-                name = zone.name;
-            }
-            else
-            {
-                currentId = int.Parse(args);
-                zone = WarcraftLogs.Zones.Where(z => z.id == currentId).FirstOrDefault();    
-                name = zone.name;    
-            }
-            
-            var embed = new EmbedBuilder();
-            embed.Title = "Raid tier setter for NinjaBot";
             try
             {
-                await _wowUtils.SetLatestRaid(zone);
-                embed.Description = $"Raid tier set to [{zone.id}] -> [{zone.name}]";
+                WclV2ZoneDetail zone = null;
+
+                if (args == null)
+                {
+                    // Get the current/latest raid tier
+                    zone = await _v2Client.GetCurrentRaidTierAsync();
+                }
+                else
+                {
+                    // Get specific zone by ID - need to get expansions first then zones
+                    int zoneId = int.Parse(args);
+                    var expansions = await _v2Client.GetExpansionsAsync();
+                    foreach (var exp in expansions ?? new List<WclV2Expansion>())
+                    {
+                        var zones = await _v2Client.GetZonesAsync(exp.Id);
+                        zone = zones?.FirstOrDefault(z => z.Id == zoneId);
+                        if (zone != null) break;
+                    }
+                }
+
+                if (zone == null)
+                {
+                    await FollowupAsync("Could not find the specified zone.", ephemeral: true);
+                    return;
+                }
+
+                // Convert to v1 Zones type for SetLatestRaid compatibility
+                var zoneForDb = new Zones
+                {
+                    id = zone.Id,
+                    name = zone.Name,
+                    encounters = zone.Encounters?.Select(e => new Encounter { id = e.Id, name = e.Name }).ToArray()
+                };
+
+                var embed = new EmbedBuilder();
+                embed.Title = "Raid tier setter for NinjaBot";
+
+                await _wowUtils.SetLatestRaid(zoneForDb);
+                embed.Description = $"Raid tier set to [{zone.Id}] -> [{zone.Name}]";
+                embed.WithColor(0, 200, 100);
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error setting db to new raid -> [{ex.Message}]");
-                embed.Description = $"Error setting raid tier!";
-            }            
-            await RespondAsync(embed: embed.Build());
+                _logger.LogError(ex, "Error setting db to new raid");
+                await FollowupAsync($"Error setting raid tier: {ex.Message}", ephemeral: true);
+            }
         }
 
         [SlashCommand("set-partition", "set partition")]
@@ -387,28 +425,33 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         public async Task SetPartition(string args = null)
         {
             var embed = new EmbedBuilder();
-            embed.Title = "Parition setter for NinjaBot";
-            int? partition = int.Parse(args.Trim());
+            embed.Title = "Partition setter for NinjaBot";
+
             try
             {
-                if (partition != null)
+                int? partition = int.Parse(args?.Trim() ?? "1");
+
+                await WithDbAsync(async db =>
                 {
-                    await WithDbAsync(async db =>
+                    var curTier = await db.CurrentRaidTier.FirstOrDefaultAsync();
+                    if (curTier != null)
                     {
-                        var curTier = await db.CurrentRaidTier.FirstOrDefaultAsync();
                         curTier.Partition = partition;
                         await db.SaveChangesAsync();
-                    });
-                }
-                embed.Description = $"Parition set to {partition}";
+                    }
+                });
+
+                embed.Description = $"Partition set to {partition}";
+                embed.WithColor(0, 200, 100);
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error setting partition -> [{ex.Message}]");
-                embed.Description = "Error setting parition!";
+                _logger.LogError(ex, "Error setting partition");
+                embed.Description = "Error setting partition!";
+                embed.WithColor(255, 0, 0);
             }
-            await RespondAsync(embed: embed.Build());
-            WarcraftLogs.CurrentRaidTier.Partition = partition;
+
+            await RespondAsync(embed: embed.Build(), ephemeral: true);
         }
 
         [SlashCommand("wcl-guild-cleanup", "List or remove problematic guild associations from WarcraftLogs monitoring")]

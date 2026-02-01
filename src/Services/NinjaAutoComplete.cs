@@ -676,4 +676,96 @@ namespace NinjaBotCore.Services
             }
         }
     }
+
+    /// <summary>
+    /// Autocomplete handler for WarcraftLogs encounter/boss names.
+    /// Fetches the current raid tier and returns matching encounters.
+    /// </summary>
+    public class EncounterAutocomplete : AutocompleteHandler
+    {
+        private static readonly MemoryCache _cache = new MemoryCache(new MemoryCacheOptions
+        {
+            SizeLimit = 10 // Cache a few raid tiers
+        });
+
+        public override async Task<AutocompletionResult> GenerateSuggestionsAsync(
+            IInteractionContext context,
+            IAutocompleteInteraction autocompleteInteraction,
+            IParameterInfo parameter,
+            IServiceProvider services)
+        {
+            try
+            {
+                var logger = services.GetService<ILogger<EncounterAutocomplete>>();
+                var logsApi = services.GetRequiredService<WarcraftLogsV2Client>();
+                var userInput = (autocompleteInteraction.Data.Current.Value as string ?? "").ToLower().Trim();
+
+                // Cache key for current raid tier
+                const string cacheKey = "wcl_current_raid_tier";
+
+                // Try to get from cache first
+                if (!_cache.TryGetValue(cacheKey, out WclV2ZoneDetail currentTier))
+                {
+                    try
+                    {
+                        currentTier = await logsApi.GetCurrentRaidTierAsync();
+                        if (currentTier?.Encounters != null)
+                        {
+                            // Cache for 1 hour (raid tier doesn't change often)
+                            _cache.Set(cacheKey, currentTier, new MemoryCacheEntryOptions
+                            {
+                                AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1),
+                                Size = 1
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger?.LogWarning(ex, "Failed to fetch current raid tier for autocomplete");
+                        return AutocompletionResult.FromSuccess(new[]
+                        {
+                            new AutocompleteResult("Unable to load encounters - try again", "error")
+                        });
+                    }
+                }
+
+                if (currentTier?.Encounters == null || !currentTier.Encounters.Any())
+                {
+                    return AutocompletionResult.FromSuccess(new[]
+                    {
+                        new AutocompleteResult("No encounters available", "error")
+                    });
+                }
+
+                // Filter encounters by user input (fuzzy match)
+                var encounters = currentTier.Encounters
+                    .Select((e, index) => new { Encounter = e, Index = index + 1 })
+                    .Where(e => string.IsNullOrWhiteSpace(userInput) ||
+                                e.Encounter.Name.ToLower().Contains(userInput) ||
+                                e.Index.ToString() == userInput)
+                    .Take(25)
+                    .Select(e => new AutocompleteResult(
+                        $"{e.Index}. {e.Encounter.Name}",
+                        e.Encounter.Id.ToString()))
+                    .ToList();
+
+                // If no input, show all encounters with raid name header
+                if (string.IsNullOrWhiteSpace(userInput) && encounters.Any())
+                {
+                    // Insert raid name as first non-selectable hint
+                    encounters.Insert(0, new AutocompleteResult(
+                        $"── {currentTier.Name} ──",
+                        currentTier.Encounters.First().Id.ToString()));
+                }
+
+                return AutocompletionResult.FromSuccess(encounters);
+            }
+            catch (Exception ex)
+            {
+                var logger = services.GetService<ILogger<EncounterAutocomplete>>();
+                logger?.LogError(ex, "Error in EncounterAutocomplete");
+                return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
+            }
+        }
+    }
 }

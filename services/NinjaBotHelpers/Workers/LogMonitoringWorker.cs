@@ -195,13 +195,14 @@ public class LogMonitoringWorker : BackgroundService
                 return result;
         }
 
-        // Apply tiered checking based on last log timestamp
+        // Apply tiered checking based on activity level and last check time
         foreach (var guild in guildAssociations)
         {
             var config = monitoringConfigs.FirstOrDefault(m => m.ServerId == guild.ServerId);
             if (config == null) continue;
 
-            var lastLog = gameVersion switch
+            // When was a log last found? (determines activity tier)
+            var lastLogFound = gameVersion switch
             {
                 WowGameVersion.Retail => config.LatestLogRetail ?? config.LatestLog,
                 WowGameVersion.Classic => config.LatestLogClassic,
@@ -209,8 +210,17 @@ public class LogMonitoringWorker : BackgroundService
                 _ => null
             };
 
-            // Determine tier and check interval
-            if (ShouldCheckGuild(lastLog, now))
+            // When did we last check WCL? (determines if check is due)
+            var lastChecked = gameVersion switch
+            {
+                WowGameVersion.Retail => config.LastCheckedRetail,
+                WowGameVersion.Classic => config.LastCheckedClassic,
+                WowGameVersion.Vanilla => config.LastCheckedVanilla,
+                _ => null
+            };
+
+            // Determine if this guild should be checked this cycle
+            if (ShouldCheckGuild(lastLogFound, lastChecked, now))
             {
                 guild.MonitoringConfig = config;
                 result.Add(guild);
@@ -220,39 +230,45 @@ public class LogMonitoringWorker : BackgroundService
         return result;
     }
 
-    private bool ShouldCheckGuild(DateTime? lastLog, DateTime now)
+    /// <summary>
+    /// Determines if a guild should be checked based on tiered intervals.
+    /// Tier is determined by when a log was last found (activity level).
+    /// Check frequency is determined by when we last checked WCL.
+    /// </summary>
+    /// <param name="lastLogFound">When a log was last found for this guild (determines tier)</param>
+    /// <param name="lastChecked">When we last checked WCL for this guild (determines if check is due)</param>
+    /// <param name="now">Current UTC time</param>
+    private bool ShouldCheckGuild(DateTime? lastLogFound, DateTime? lastChecked, DateTime now)
     {
-        if (lastLog == null)
-        {
-            // Never checked - always check
-            return true;
-        }
-
-        var daysSinceLastLog = (now - lastLog.Value).TotalDays;
         var settings = _config.LogMonitoring;
 
-        // Tier 1: Active guilds (logged recently)
-        if (daysSinceLastLog <= settings.Tier1ThresholdDays)
+        // Never checked - always check
+        if (lastChecked == null)
         {
-            // Check if enough time has passed since we last ran
-            // We assume this method is called every CheckIntervalMinutes,
-            // so for Tier1 we check every time if interval <= Tier1IntervalMinutes
             return true;
         }
 
-        // Tier 2: Semi-active guilds
-        if (daysSinceLastLog <= settings.Tier2ThresholdDays)
+        var minutesSinceLastCheck = (now - lastChecked.Value).TotalMinutes;
+
+        // Determine tier based on when a log was last found
+        var daysSinceLastLog = lastLogFound.HasValue
+            ? (now - lastLogFound.Value).TotalDays
+            : double.MaxValue; // Never found a log = treat as inactive
+
+        // Tier 1: Active guilds (logged in last N days) - check every cycle
+        if (daysSinceLastLog <= settings.Tier1ThresholdDays)
         {
-            // Check less frequently
-            var minutesSinceLastLog = (now - lastLog.Value).TotalMinutes;
-            var tier2IntervalMinutes = settings.Tier2IntervalHours * 60;
-            return minutesSinceLastLog % tier2IntervalMinutes < settings.CheckIntervalMinutes;
+            return true;
         }
 
-        // Tier 3: Inactive guilds
-        var tier3IntervalMinutes = settings.Tier3IntervalHours * 60;
-        var minutesSinceLastLogT3 = (now - lastLog.Value).TotalMinutes;
-        return minutesSinceLastLogT3 % tier3IntervalMinutes < settings.CheckIntervalMinutes;
+        // Tier 2: Semi-active guilds - check every Tier2IntervalHours
+        if (daysSinceLastLog <= settings.Tier2ThresholdDays)
+        {
+            return minutesSinceLastCheck >= settings.Tier2IntervalHours * 60;
+        }
+
+        // Tier 3: Inactive guilds - check every Tier3IntervalHours
+        return minutesSinceLastCheck >= settings.Tier3IntervalHours * 60;
     }
 
     private async Task ProcessBatchAsync(
@@ -276,6 +292,31 @@ public class LogMonitoringWorker : BackgroundService
             _logger.LogError(ex, "[LogMonitoring] Batch query failed for {GameVersion}", gameVersion);
             return;
         }
+
+        // Update LastChecked timestamp for ALL guilds in this batch (regardless of results)
+        // This ensures tiered checking works correctly based on actual check times
+        var now = DateTime.UtcNow;
+        var serverIds = guilds.Select(g => g.ServerId).Distinct().ToList();
+        var configsToUpdate = await db.LogMonitoring
+            .Where(m => serverIds.Contains(m.ServerId))
+            .ToListAsync(cancellationToken);
+
+        foreach (var config in configsToUpdate)
+        {
+            switch (gameVersion)
+            {
+                case WowGameVersion.Retail:
+                    config.LastCheckedRetail = now;
+                    break;
+                case WowGameVersion.Classic:
+                    config.LastCheckedClassic = now;
+                    break;
+                case WowGameVersion.Vanilla:
+                    config.LastCheckedVanilla = now;
+                    break;
+            }
+        }
+        await db.SaveChangesAsync(cancellationToken);
 
         // Process each guild's result
         foreach (var guild in guilds)

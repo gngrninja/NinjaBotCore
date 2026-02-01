@@ -1,5 +1,6 @@
 using Discord;
 using Discord.Interactions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NinjaBotCore.Common;
@@ -1169,8 +1170,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         {
             try
             {
-                // Get current raid tier zone ID from static property
-                var currentZoneId = (int)(WarcraftLogs.CurrentRaidTier?.WclZoneId ?? 0);
+                // Get current raid tier zone ID from database
+                var currentTier = await WithDbAsync(db => db.CurrentRaidTier.FirstOrDefaultAsync());
+                var currentZoneId = (int)(currentTier?.WclZoneId ?? 0);
                 if (currentZoneId == 0)
                 {
                     _logger.LogWarning("No current raid tier configured - WCL rankings unavailable. " +

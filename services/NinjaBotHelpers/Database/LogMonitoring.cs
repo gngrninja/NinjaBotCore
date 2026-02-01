@@ -69,17 +69,32 @@ public class LogMonitoring
     public DateTime? LatestLog { get; set; }
 
     /// <summary>
-    /// Timestamp of last Retail log check
+    /// Timestamp when last Retail log was found
     /// </summary>
     public DateTime? LatestLogRetail { get; set; }
 
     /// <summary>
-    /// Timestamp of last Classic log check
+    /// Timestamp when last Classic log was found
     /// </summary>
     public DateTime? LatestLogClassic { get; set; }
 
     /// <summary>
-    /// Timestamp of last Vanilla log check
+    /// Timestamp when last Vanilla log was found
     /// </summary>
     public DateTime? LatestLogVanilla { get; set; }
+
+    /// <summary>
+    /// When we last checked WCL for Retail logs (for tiered checking)
+    /// </summary>
+    public DateTime? LastCheckedRetail { get; set; }
+
+    /// <summary>
+    /// When we last checked WCL for Classic logs (for tiered checking)
+    /// </summary>
+    public DateTime? LastCheckedClassic { get; set; }
+
+    /// <summary>
+    /// When we last checked WCL for Vanilla logs (for tiered checking)
+    /// </summary>
+    public DateTime? LastCheckedVanilla { get; set; }
 }

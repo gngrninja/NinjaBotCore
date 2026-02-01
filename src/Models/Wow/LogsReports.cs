@@ -4,7 +4,6 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
-using NinjaBotCore.Modules.Wow;
 
 namespace NinjaBotCore.Models.Wow
 {
@@ -29,9 +28,8 @@ namespace NinjaBotCore.Models.Wow
                 if (!string.IsNullOrEmpty(_zoneNameOverride))
                     return _zoneNameOverride;
 
-                // Otherwise, look up by zone ID (v1 API compatibility)
-                string theZone = WarcraftLogs.Zones.Where(r => r.id == this.zone).Select(r => r.name).FirstOrDefault();
-                return theZone;
+                // Return placeholder with zone ID if name not available
+                return zone > 0 ? $"Zone #{zone}" : string.Empty;
             }
             set
             {
@@ -254,28 +252,8 @@ namespace NinjaBotCore.Models.Wow
                 if (!string.IsNullOrEmpty(encounterNameFromApi))
                     return encounterNameFromApi;
 
-                // Fall back to lookup from zones
-                string name = string.Empty;
-                if (WarcraftLogs.Zones != null)
-                {
-                    foreach (Zones zone in WarcraftLogs.Zones)
-                    {
-                        if (zone.encounters == null) continue;
-                        foreach (Encounter encounter in zone.encounters)
-                        {
-                            if (encounter.id == this.encounterId)
-                            {
-                                name = encounter.name;
-                            }
-                        }
-                    }
-                }
-
-                // If still empty, return a placeholder with the ID
-                if (string.IsNullOrEmpty(name))
-                    return $"Encounter #{encounterId}";
-
-                return name;
+                // Return a placeholder with the ID if no name available
+                return encounterId > 0 ? $"Encounter #{encounterId}" : string.Empty;
             }
         }
 
@@ -290,13 +268,7 @@ namespace NinjaBotCore.Models.Wow
             {
                 if (classRaw is int intVal) return intVal;
                 if (classRaw is long longVal) return (int)longVal;
-                if (classRaw is string strVal)
-                {
-                    // Try to look up class ID by name
-                    var charClass = WarcraftLogs.CharClasses?.FirstOrDefault(c =>
-                        string.Equals(c.name, strVal, StringComparison.OrdinalIgnoreCase));
-                    return charClass?.id ?? 0;
-                }
+                // String values cannot be looked up without v1 API data - return 0
                 return 0;
             }
         }
@@ -305,14 +277,11 @@ namespace NinjaBotCore.Models.Wow
         {
             get
             {
-                // If raw value is already a string, use it directly
+                // If raw value is already a string (v2 API), use it directly
                 if (classRaw is string strVal) return strVal;
 
-                // Otherwise look up by ID
-                string name = string.Empty;
-                List<CharClasses> charClasses = WarcraftLogs.CharClasses;
-                name = charClasses?.Where(c => c.id == this.classID).Select(c => c.name).FirstOrDefault();
-                return name ?? string.Empty;
+                // For numeric IDs, return placeholder (v2 API always provides name)
+                return classID > 0 ? $"Class #{classID}" : string.Empty;
             }
         }
 
@@ -326,14 +295,7 @@ namespace NinjaBotCore.Models.Wow
             {
                 if (specRaw is int intVal) return intVal;
                 if (specRaw is long longVal) return (int)longVal;
-                if (specRaw is string strVal)
-                {
-                    // Try to look up spec ID by name within the class
-                    var charClass = WarcraftLogs.CharClasses?.FirstOrDefault(c => c.id == this.classID);
-                    var spec = charClass?.specs?.FirstOrDefault(s =>
-                        string.Equals(s.name, strVal, StringComparison.OrdinalIgnoreCase));
-                    return spec?.id ?? 0;
-                }
+                // String values cannot be looked up without v1 API data - return 0
                 return 0;
             }
         }
@@ -342,22 +304,11 @@ namespace NinjaBotCore.Models.Wow
         {
             get
             {
-                // If raw value is already a string, use it directly
+                // If raw value is already a string (v2 API), use it directly
                 if (specRaw is string strVal) return strVal;
 
-                // Otherwise look up by ID
-                string name = string.Empty;
-                List<CharClasses> charClasses = WarcraftLogs.CharClasses;
-
-                foreach (CharClasses classItem in charClasses ?? new List<CharClasses>())
-                {
-                    if (classItem.id == this.classID)
-                    {
-                        name = classItem.specs?.Where(c => c.id == this.specID).Select(c => c.name).FirstOrDefault();
-                    }
-                }
-
-                return name ?? string.Empty;
+                // For numeric IDs, return placeholder (v2 API always provides name)
+                return specID > 0 ? $"Spec #{specID}" : string.Empty;
             }
         }
         public string guildName { get; set; }

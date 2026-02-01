@@ -28,6 +28,7 @@ namespace NinjaBotCore.Services
         private static readonly TimeSpan SearchHistoryExpiration = TimeSpan.FromMinutes(15);
         private static readonly TimeSpan GreetingExpiration = TimeSpan.FromMinutes(30);
         private static readonly TimeSpan ArmoryEquipmentExpiration = TimeSpan.FromMinutes(5);
+        private static readonly TimeSpan Top10RankingsExpiration = TimeSpan.FromHours(1);
 
         public WowCacheService(IMemoryCache cache, IServiceScopeFactory scopeFactory, ILogger<WowCacheService> logger)
         {
@@ -367,6 +368,75 @@ namespace NinjaBotCore.Services
         {
             var cacheKey = $"armory_equipment_{characterName.ToLower()}_{realmSlug.ToLower()}_{region.ToLower()}";
             _cache.Remove(cacheKey);
+        }
+
+        // ===== Top 10 Rankings Cache =====
+
+        /// <summary>
+        /// Generates cache key for top10 rankings
+        /// </summary>
+        private string GetTop10CacheKey(string scope, string serverSlug, string region, int encounterId, string metric, string difficulty, string guildName = null)
+        {
+            var baseKey = $"top10_{scope}_{serverSlug.ToLower()}_{region.ToLower()}_{encounterId}_{metric.ToLower()}_{difficulty.ToLower()}";
+            return scope == "guild" && !string.IsNullOrEmpty(guildName)
+                ? $"{baseKey}_{guildName.ToLower().Replace(" ", "_")}"
+                : baseKey;
+        }
+
+        /// <summary>
+        /// Gets cached top10 rankings if available
+        /// </summary>
+        public List<WclV2CharacterRanking> GetCachedTop10Rankings(string scope, string serverSlug, string region, int encounterId, string metric, string difficulty, string guildName = null)
+        {
+            var cacheKey = GetTop10CacheKey(scope, serverSlug, region, encounterId, metric, difficulty, guildName);
+
+            if (_cache.TryGetValue<List<WclV2CharacterRanking>>(cacheKey, out var cachedRankings))
+            {
+                _logger.LogDebug("[Top10 Cache] HIT: {CacheKey}", cacheKey);
+                return cachedRankings;
+            }
+
+            _logger.LogDebug("[Top10 Cache] MISS: {CacheKey}", cacheKey);
+            return null;
+        }
+
+        /// <summary>
+        /// Caches top10 rankings
+        /// </summary>
+        public void SetCachedTop10Rankings(string scope, string serverSlug, string region, int encounterId, string metric, string difficulty, List<WclV2CharacterRanking> rankings, string guildName = null)
+        {
+            var cacheKey = GetTop10CacheKey(scope, serverSlug, region, encounterId, metric, difficulty, guildName);
+
+            var cacheOptions = new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = Top10RankingsExpiration,
+                Size = 1
+            };
+
+            _cache.Set(cacheKey, rankings, cacheOptions);
+            _logger.LogDebug("[Top10 Cache] SET: {CacheKey} ({Count} rankings)", cacheKey, rankings?.Count ?? 0);
+        }
+
+        /// <summary>
+        /// Invalidates all top10 cache entries for a specific realm
+        /// Note: IMemoryCache doesn't support wildcard removal, so we track keys
+        /// </summary>
+        public void InvalidateTop10Rankings(string serverSlug, string region)
+        {
+            // IMemoryCache doesn't support prefix-based removal
+            // For now, we rely on TTL expiration
+            // A full implementation would require tracking cache keys in a separate collection
+            _logger.LogInformation("[Top10 Cache] Invalidation requested for {ServerSlug}-{Region} (will expire via TTL)", serverSlug, region);
+        }
+
+        /// <summary>
+        /// Invalidates a specific top10 cache entry
+        /// </summary>
+        public void InvalidateTop10Rankings(string scope, string serverSlug, string region, int encounterId, string metric, string difficulty, string guildName = null)
+        {
+            var cacheKey = GetTop10CacheKey(scope, serverSlug, region, encounterId, metric, difficulty, guildName);
+            _cache.Remove(cacheKey);
+            _logger.LogInformation("[Top10 Cache] Invalidated: {CacheKey}", cacheKey);
         }
     }
 }

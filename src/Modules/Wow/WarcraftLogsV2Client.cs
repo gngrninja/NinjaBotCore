@@ -41,6 +41,10 @@ namespace NinjaBotCore.Modules.Wow
         private DateTime _lastRateLimitCheck = DateTime.MinValue;
         private int _requestCounter = 0;
 
+        // Current raid tier cache (1 hour TTL)
+        private static readonly Dictionary<WowGameVersion, (WclV2ZoneDetail Zone, DateTime CachedAt)> _raidTierCache = new();
+        private static readonly TimeSpan RaidTierCacheTtl = TimeSpan.FromHours(1);
+
         private const string TokenUrl = "https://www.warcraftlogs.com/oauth/token";
         private const string ApiUrlRetail = "https://www.warcraftlogs.com/api/v2/client";
         private const string ApiUrlClassic = "https://classic.warcraftlogs.com/api/v2/client";
@@ -214,7 +218,17 @@ namespace NinjaBotCore.Modules.Wow
                 throw new HttpRequestException($"GraphQL request failed: {response.StatusCode}");
             }
 
-            var result = JsonConvert.DeserializeObject<GraphQLResponse<T>>(content);
+            GraphQLResponse<T> result;
+            try
+            {
+                result = JsonConvert.DeserializeObject<GraphQLResponse<T>>(content);
+            }
+            catch (JsonException jsonEx)
+            {
+                // Log raw response for debugging API changes
+                _logger.LogError($"[WCL] JSON deserialization failed. Raw response (first 2000 chars): {content.Substring(0, Math.Min(content.Length, 2000))}");
+                throw new InvalidOperationException($"Failed to parse WCL response: {jsonEx.Message}", jsonEx);
+            }
 
             if (result.Errors != null && result.Errors.Count > 0)
             {
@@ -806,10 +820,9 @@ namespace NinjaBotCore.Modules.Wow
             WowGameVersion gameVersion = WowGameVersion.Retail)
         {
             // Note: The v2 API doesn't have a direct guild filter for characterRankings
-            // We fetch server-wide rankings and filter client-side, or use multiple pages
-            // For guild-specific rankings, we use the includedGuilds filter
+            // We fetch server-wide rankings and filter client-side by guild name
             var query = @"
-                query($encounterId: Int!, $serverSlug: String!, $serverRegion: String!, $metric: CharacterRankingMetricType!, $difficulty: Int!, $page: Int!, $guildName: String!) {
+                query($encounterId: Int!, $serverSlug: String!, $serverRegion: String!, $metric: CharacterRankingMetricType!, $difficulty: Int!, $page: Int!) {
                     worldData {
                         encounter(id: $encounterId) {
                             id
@@ -820,7 +833,6 @@ namespace NinjaBotCore.Modules.Wow
                                 metric: $metric
                                 difficulty: $difficulty
                                 page: $page
-                                includedGuilds: $guildName
                             )
                         }
                     }
@@ -834,8 +846,7 @@ namespace NinjaBotCore.Modules.Wow
                 serverRegion,
                 metric,
                 difficulty,
-                page,
-                guildName
+                page
             };
 
             try
@@ -845,8 +856,22 @@ namespace NinjaBotCore.Modules.Wow
                 if (result.Data?.WorldData?.Encounter?.CharacterRankings != null)
                 {
                     var rankings = result.Data.WorldData.Encounter.CharacterRankings;
-                    _logger.LogInformation($"[v2] Retrieved {rankings.Rankings?.Count ?? 0} guild rankings for {guildName} on encounter {encounterId}");
-                    return rankings;
+
+                    // Filter to only include rankings from the specified guild
+                    var filteredRankings = rankings.Rankings?
+                        .Where(r => r.Guild?.Name != null &&
+                                    r.Guild.Name.Equals(guildName, StringComparison.OrdinalIgnoreCase))
+                        .ToList() ?? new List<WclV2CharacterRanking>();
+
+                    _logger.LogInformation($"[v2] Retrieved {filteredRankings.Count} guild rankings for {guildName} on encounter {encounterId} (filtered from {rankings.Rankings?.Count ?? 0} total)");
+
+                    return new WclV2CharacterRankingsPage
+                    {
+                        Rankings = filteredRankings,
+                        Page = rankings.Page,
+                        HasMorePages = rankings.HasMorePages,
+                        Count = filteredRankings.Count
+                    };
                 }
 
                 _logger.LogWarning($"[v2] No guild rankings found for {guildName} on encounter {encounterId}");
@@ -869,12 +894,17 @@ namespace NinjaBotCore.Modules.Wow
             string guildName,
             string metric = "dps",
             int difficulty = 4,
-            int maxPages = 25,
+            int maxPages = 10,
             WowGameVersion gameVersion = WowGameVersion.Retail)
         {
             var allRankings = new List<WclV2CharacterRanking>();
             var page = 1;
             var hasMore = true;
+            var consecutiveEmptyPages = 0;
+
+            // Optimization thresholds
+            const int earlyExitThreshold = 10;      // Stop once we have enough for top 10
+            const int maxConsecutiveEmpty = 3;      // Stop after 3 pages with no guild members
 
             while (hasMore && page <= maxPages)
             {
@@ -891,8 +921,35 @@ namespace NinjaBotCore.Modules.Wow
                             .Where(r => r.GuildName?.Equals(guildName, StringComparison.OrdinalIgnoreCase) == true)
                             .ToList();
 
-                        allRankings.AddRange(guildRankings);
-                        _logger.LogDebug($"[v2] Page {page}: Added {guildRankings.Count} rankings for {guildName}");
+                        if (guildRankings.Count > 0)
+                        {
+                            allRankings.AddRange(guildRankings);
+                            consecutiveEmptyPages = 0; // Reset counter
+                            _logger.LogDebug($"[v2] Page {page}: Added {guildRankings.Count} rankings for {guildName} (total: {allRankings.Count})");
+
+                            // Early exit if we have enough rankings
+                            if (allRankings.Count >= earlyExitThreshold)
+                            {
+                                _logger.LogInformation($"[v2] Early exit: Found {allRankings.Count} guild rankings after {page} pages");
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            consecutiveEmptyPages++;
+                            _logger.LogDebug($"[v2] Page {page}: No guild members found ({consecutiveEmptyPages} consecutive empty)");
+
+                            // Stop if too many consecutive pages without guild members
+                            if (consecutiveEmptyPages >= maxConsecutiveEmpty)
+                            {
+                                _logger.LogInformation($"[v2] Stopping: {maxConsecutiveEmpty} consecutive pages without guild members");
+                                break;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        consecutiveEmptyPages++;
                     }
 
                     hasMore = result.HasMorePages;
@@ -1097,6 +1154,17 @@ namespace NinjaBotCore.Modules.Wow
         /// <param name="gameVersion">Game version</param>
         public async Task<WclV2ZoneDetail> GetCurrentRaidTierAsync(int expansionId = 0, WowGameVersion gameVersion = WowGameVersion.Retail)
         {
+            // Check cache first (only for auto-detect, not specific expansion)
+            if (expansionId == 0 && _raidTierCache.TryGetValue(gameVersion, out var cached))
+            {
+                if (DateTime.UtcNow - cached.CachedAt < RaidTierCacheTtl)
+                {
+                    _logger.LogDebug("[v2] Using cached raid tier: {ZoneName} (cached {MinutesAgo:F0}m ago)",
+                        cached.Zone.Name, (DateTime.UtcNow - cached.CachedAt).TotalMinutes);
+                    return cached.Zone;
+                }
+            }
+
             try
             {
                 List<int> expansionIds;
@@ -1171,6 +1239,9 @@ namespace NinjaBotCore.Modules.Wow
                     {
                         _logger.LogInformation("[v2] Detected current raid tier: {ZoneName} (ID: {ZoneId}, Expansion: {ExpId})",
                             currentTier.Name, currentTier.Id, expId);
+
+                        // Cache the result for future calls
+                        _raidTierCache[gameVersion] = (currentTier, DateTime.UtcNow);
                         return currentTier;
                     }
 
@@ -1184,6 +1255,9 @@ namespace NinjaBotCore.Modules.Wow
                     {
                         _logger.LogInformation("[v2] Using latest zone from expansion {ExpId}: {ZoneName} (ID: {ZoneId})",
                             expId, currentTier.Name, currentTier.Id);
+
+                        // Cache the result for future calls
+                        _raidTierCache[gameVersion] = (currentTier, DateTime.UtcNow);
                         return currentTier;
                     }
                 }

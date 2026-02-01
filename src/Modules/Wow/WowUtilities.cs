@@ -24,23 +24,23 @@ namespace NinjaBotCore.Modules.Wow
 {
     public class WowUtilities
     {
-        public WarcraftLogs _logsApi;
         public WowApi _wowApi;
         public DiscordShardedClient _client;
         public RaiderIOApi _rioApi;
         public readonly IConfigurationRoot _config;
         public readonly ILogger _logger;
         private readonly IServiceScopeFactory _scopeFactory;
+        private readonly WarcraftLogsV2Client _wclV2Client;
 
         public WowUtilities(IServiceProvider services)
         {
             _logger = services.GetRequiredService<ILogger<WowUtilities>>();
-            _logsApi = services.GetRequiredService<WarcraftLogs>();
             _wowApi = services.GetRequiredService<WowApi>();
             _rioApi = services.GetRequiredService<RaiderIOApi>();
             _client = services.GetRequiredService<DiscordShardedClient>();
             _config = services.GetRequiredService<IConfigurationRoot>();
             _scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
+            _wclV2Client = services.GetRequiredService<WarcraftLogsV2Client>();
         }
 
         private IRepository<TEntity> GetRepository<TEntity>() where TEntity : class
@@ -459,15 +459,26 @@ namespace NinjaBotCore.Modules.Wow
             return sb.ToString();
         }
 
-        public int GetEncounterID(string encounterName, string zoneName = "The Nighthold")
+        /// <summary>
+        /// Gets encounter ID by name. Uses v2 API to get current raid tier.
+        /// </summary>
+        public async Task<int> GetEncounterIDAsync(string encounterName)
         {
-            int encounterID = 0;
-            var zone = WarcraftLogs.Zones.Where(z => z.name.ToLower() == zoneName.ToLower()).FirstOrDefault();
-            if (zone != null)
+            try
             {
-                encounterID = zone.encounters.Where(e => e.name.ToLower() == encounterName.ToLower()).FirstOrDefault().id;
+                var currentTier = await _wclV2Client.GetCurrentRaidTierAsync();
+                if (currentTier?.Encounters != null)
+                {
+                    var encounter = currentTier.Encounters.FirstOrDefault(
+                        e => e.Name.Contains(encounterName, StringComparison.OrdinalIgnoreCase));
+                    return encounter?.Id ?? 0;
+                }
             }
-            return encounterID;
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error getting encounter ID for {EncounterName}", encounterName);
+            }
+            return 0;
         }
 
         public string GetNumberEmojiFromString(int number)
@@ -522,7 +533,6 @@ namespace NinjaBotCore.Modules.Wow
             }
 
             await raidRepo.SaveChangesAsync();
-            WarcraftLogs.CurrentRaidTier = currentTier;
         }
 
         private Color GetEmbedColorFromClass(string className)

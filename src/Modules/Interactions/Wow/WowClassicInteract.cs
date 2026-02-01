@@ -26,19 +26,15 @@ namespace NinjaBotCore.Modules.Interactions.Wow
     {
         private readonly ILogger<WowClassicInteract> _logger;
         private readonly List<String> _wclRegions = new List<String>{"US", "EU", "KR", "TW", "CN"};
-        private WarcraftLogs _wclLogsApi;
-        private WarcraftLogsV2Client _wclLogsV2Api;
+        private readonly WarcraftLogsV2Client _wclLogsV2Api;
 
-        // Pattern #3: Constructor injection instead of service locator
         public WowClassicInteract(
             IServiceScopeFactory scopeFactory,
             ILogger<WowClassicInteract> logger,
-            WarcraftLogs wclLogsApi,
             WarcraftLogsV2Client wclLogsV2Api)
             : base(scopeFactory)
         {
             _logger = logger;
-            _wclLogsApi = wclLogsApi;
             _wclLogsV2Api = wclLogsV2Api;
         }
 
@@ -159,7 +155,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             if (wowClassicGuild != null)
             {
                 var guildLogs = await _wclLogsV2Api.GetGuildReportsAsync(
-                    wowClassicGuild.WowGuild, wowClassicGuild.WowRealm, wowClassicGuild.WowRegion, gameVersion: WowGameVersion.Classic);
+                    wowClassicGuild.WowGuild,
+                    wowClassicGuild.WowRealm.ToLower().Replace(" ", "-").Replace("'", ""),
+                    wowClassicGuild.WowRegion?.ToLower() ?? "us",
+                    gameVersion: WowGameVersion.Classic);
 
                 if (guildLogs.Count > 0)
                 {
@@ -183,36 +182,96 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
         [SlashCommand("listclassicfights", "list classic fights")]
         [Discord.Interactions.RequireOwner]
-        public async Task GetClassicZones(string args = null)         
+        public async Task GetClassicZones(string zoneName = null)
         {
-            var zones = await _wclLogsApi.GetClassicZones();
-            Zones latest = null;
-            if (args == null) 
-            {
-                latest = zones[zones.Count - 2];
-            }
-            else 
-            {
-                if (args.ToLower() == "bwl") 
-                {
-                    args = "Blackwing Lair";
-                }
-                if (args.ToLower() == "mc") 
-                {
-                    args = "Molten Core";
-                }                
-                latest = zones.Where(z => z.name.ToLower() == args.ToLower()).FirstOrDefault();
-            }
+            await DeferAsync();
             var sb = new StringBuilder();
-            if (latest != null)
+
+            try
             {
-                sb.AppendLine($"fights for [{latest.name}]");                
-                foreach (var fight in latest.encounters)
+                // Get all expansions for Classic
+                var expansions = await _wclLogsV2Api.GetExpansionsAsync(WowGameVersion.Classic);
+
+                if (expansions == null || expansions.Count == 0)
                 {
-                    sb.AppendLine($"id [{fight.id}] name [{fight.name}]");
+                    await FollowupAsync("No expansions found for Classic.");
+                    return;
                 }
+
+                // Get zones from all expansions
+                var allZones = new List<WclV2ZoneDetail>();
+                foreach (var expansion in expansions)
+                {
+                    var zones = await _wclLogsV2Api.GetZonesAsync(expansion.Id, WowGameVersion.Classic);
+                    if (zones != null)
+                    {
+                        allZones.AddRange(zones);
+                    }
+                }
+
+                if (allZones.Count == 0)
+                {
+                    await FollowupAsync("No zones found for Classic.");
+                    return;
+                }
+
+                WclV2ZoneDetail targetZone = null;
+
+                if (string.IsNullOrEmpty(zoneName))
+                {
+                    // Show all zones
+                    sb.AppendLine("**Classic Zones:**");
+                    foreach (var zone in allZones.OrderBy(z => z.Id))
+                    {
+                        sb.AppendLine($"[{zone.Id}] {zone.Name} - {zone.Encounters?.Count ?? 0} encounters");
+                    }
+                }
+                else
+                {
+                    // Handle shortcuts
+                    var searchName = zoneName.ToLower() switch
+                    {
+                        "bwl" => "blackwing lair",
+                        "mc" => "molten core",
+                        "aq40" => "temple of ahn'qiraj",
+                        "aq20" => "ruins of ahn'qiraj",
+                        "naxx" => "naxxramas",
+                        "ony" => "onyxia's lair",
+                        "icc" => "icecrown citadel",
+                        "uld" => "ulduar",
+                        "toc" => "trial of the crusader",
+                        _ => zoneName.ToLower()
+                    };
+
+                    targetZone = allZones.FirstOrDefault(z => z.Name.ToLower().Contains(searchName));
+
+                    if (targetZone != null && targetZone.Encounters != null)
+                    {
+                        sb.AppendLine($"**Encounters for [{targetZone.Name}]:**");
+                        foreach (var encounter in targetZone.Encounters)
+                        {
+                            sb.AppendLine($"  [{encounter.Id}] {encounter.Name}");
+                        }
+                    }
+                    else
+                    {
+                        sb.AppendLine($"Zone '{zoneName}' not found. Use command without args to list all zones.");
+                    }
+                }
+
+                // Discord has a 2000 char limit
+                var response = sb.ToString();
+                if (response.Length > 1900)
+                {
+                    response = response.Substring(0, 1900) + "\n... (truncated)";
+                }
+                await FollowupAsync(response);
             }
-            await RespondAsync(sb.ToString());
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching classic zones");
+                await FollowupAsync($"Error: {ex.Message}");
+            }
         }
     }
 }

@@ -40,13 +40,19 @@ namespace NinjaBotCore.Common
 
         /// <summary>
         /// Housing decor component IDs - handlers in HousingCommands.cs
-        /// Format: housing_{action}~{userId}~{charName}~{realm}~{region}~{page}~{search}
+        /// Standard format: housing_{action}~{userId}~{charName}~{realm}~{region}~{search}~{currentPage}[~{totalPages}]
+        /// Note: Pagination buttons use unique action prefixes (_first, _prev, _next, _last) per the pattern in PATTERNS.md
         /// </summary>
-        public const string HousingBrowse = "housing_browse";
-        public const string HousingPage = "housing_page";
-        public const string HousingSearch = "housing_search";
-        public const string HousingSearchModal = "housing_search_modal";
-        public const string HousingBack = "housing_back";
-        public const string HousingClearSearch = "housing_clear";
+        public const string HousingBrowse = "housing_browse";         // Initial browse button from summary
+        public const string HousingFirst = "housing_first";           // Pagination: go to first page
+        public const string HousingPrev = "housing_prev";             // Pagination: go to previous page
+        public const string HousingNext = "housing_next";             // Pagination: go to next page
+        public const string HousingLast = "housing_last";             // Pagination: go to last page (includes totalPages)
+        public const string HousingDetails = "housing_details";       // Select menu for item details
+        public const string HousingDetailBack = "housing_detail_back"; // Back button from item detail view
+        public const string HousingSearch = "housing_search";         // Search button opens modal
+        public const string HousingSearchModal = "housing_search_modal"; // Search modal ID
+        public const string HousingClear = "housing_clear";           // Clear search filter
+        public const string HousingBack = "housing_back";             // Back to summary button
     }
 }
