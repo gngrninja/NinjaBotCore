@@ -29,6 +29,7 @@ namespace NinjaBotCore.Services
         private static readonly TimeSpan GreetingExpiration = TimeSpan.FromMinutes(30);
         private static readonly TimeSpan ArmoryEquipmentExpiration = TimeSpan.FromMinutes(5);
         private static readonly TimeSpan Top10RankingsExpiration = TimeSpan.FromHours(1);
+        private static readonly TimeSpan CharacterEncounterRankingsExpiration = TimeSpan.FromMinutes(30);
 
         public WowCacheService(IMemoryCache cache, IServiceScopeFactory scopeFactory, ILogger<WowCacheService> logger)
         {
@@ -437,6 +438,72 @@ namespace NinjaBotCore.Services
             var cacheKey = GetTop10CacheKey(scope, serverSlug, region, encounterId, metric, difficulty, guildName);
             _cache.Remove(cacheKey);
             _logger.LogInformation("[Top10 Cache] Invalidated: {CacheKey}", cacheKey);
+        }
+
+        // ===== Character Encounter Rankings Cache (individual parses for /char logs) =====
+
+        /// <summary>
+        /// Generates cache key for character encounter rankings (individual parses)
+        /// </summary>
+        private string GetCharEncounterCacheKey(string characterName, string realmSlug, string region, int encounterId, int? difficulty)
+        {
+            var diffStr = difficulty?.ToString() ?? "all";
+            return $"char_encounter_{characterName.ToLower()}_{realmSlug.ToLower()}_{region.ToLower()}_{encounterId}_{diffStr}";
+        }
+
+        /// <summary>
+        /// Gets cached character encounter rankings if available
+        /// </summary>
+        public WclV2EncounterRankingsData GetCachedCharacterEncounterRankings(
+            string characterName,
+            string realmSlug,
+            string region,
+            int encounterId,
+            int? difficulty)
+        {
+            var cacheKey = GetCharEncounterCacheKey(characterName, realmSlug, region, encounterId, difficulty);
+
+            if (_cache.TryGetValue<WclV2EncounterRankingsData>(cacheKey, out var cachedRankings))
+            {
+                _logger.LogDebug("[CharEncounter Cache] HIT: {CacheKey}", cacheKey);
+                return cachedRankings;
+            }
+
+            _logger.LogDebug("[CharEncounter Cache] MISS: {CacheKey}", cacheKey);
+            return null;
+        }
+
+        /// <summary>
+        /// Caches character encounter rankings
+        /// </summary>
+        public void SetCachedCharacterEncounterRankings(
+            string characterName,
+            string realmSlug,
+            string region,
+            int encounterId,
+            int? difficulty,
+            WclV2EncounterRankingsData rankings)
+        {
+            var cacheKey = GetCharEncounterCacheKey(characterName, realmSlug, region, encounterId, difficulty);
+
+            var cacheOptions = new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = CharacterEncounterRankingsExpiration,
+                Size = 1
+            };
+
+            _cache.Set(cacheKey, rankings, cacheOptions);
+            _logger.LogDebug("[CharEncounter Cache] SET: {CacheKey} ({Count} parses)", cacheKey, rankings?.Ranks?.Count ?? 0);
+        }
+
+        /// <summary>
+        /// Invalidates cached character encounter rankings for a specific encounter
+        /// </summary>
+        public void InvalidateCharacterEncounterRankings(string characterName, string realmSlug, string region, int encounterId, int? difficulty)
+        {
+            var cacheKey = GetCharEncounterCacheKey(characterName, realmSlug, region, encounterId, difficulty);
+            _cache.Remove(cacheKey);
+            _logger.LogDebug("[CharEncounter Cache] Invalidated: {CacheKey}", cacheKey);
         }
     }
 }

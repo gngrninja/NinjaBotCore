@@ -80,6 +80,102 @@ namespace NinjaBotCore.Modules.Interactions.Polls
         }
 
         /// <summary>
+        /// Handles poll view voters button clicks.
+        /// CustomId format: poll_voters~{pollId}
+        /// Shows ephemeral message with per-option voter breakdown.
+        /// </summary>
+        [ComponentInteraction("poll_voters~*")]
+        public async Task HandlePollViewVoters(string pollIdStr)
+        {
+            _logger.LogInformation("[POLL] Attribute handler received view voters: {PollId}", pollIdStr);
+
+            await DeferAsync(ephemeral: true);
+
+            try
+            {
+                if (!long.TryParse(pollIdStr, out var pollId))
+                {
+                    await FollowupAsync("Invalid poll data.", ephemeral: true);
+                    return;
+                }
+
+                var embed = await BuildVotersEmbedAsync(pollId);
+                if (embed == null)
+                {
+                    await FollowupAsync("Poll not found or is anonymous.", ephemeral: true);
+                    return;
+                }
+
+                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[POLL] Error viewing poll voters");
+                await FollowupAsync("An error occurred while fetching voters.", ephemeral: true);
+            }
+        }
+
+        private async Task<EmbedBuilder?> BuildVotersEmbedAsync(long pollId)
+        {
+            return await WithDbAsync(async db =>
+            {
+                var poll = await db.Polls
+                    .Include(p => p.PollOptions)
+                    .Include(p => p.PollVotes)
+                    .AsSplitQuery()
+                    .FirstOrDefaultAsync(p => p.Id == pollId);
+
+                if (poll == null || poll.IsAnonymous)
+                    return null;
+
+                var totalVotes = poll.PollVotes.Count;
+
+                var embed = new EmbedBuilder()
+                    .WithTitle($"👥 Voters for: {poll.Question}")
+                    .WithColor(Color.Gold)
+                    .WithFooter($"{totalVotes} total vote{(totalVotes != 1 ? "s" : "")}")
+                    .WithTimestamp(DateTime.UtcNow);
+
+                foreach (var option in poll.PollOptions.OrderBy(o => o.DisplayOrder))
+                {
+                    var optionVotes = poll.PollVotes
+                        .Where(v => v.OptionId == option.Id)
+                        .OrderBy(v => v.VotedAt)
+                        .ToList();
+
+                    var emote = !string.IsNullOrEmpty(option.Emote) ? option.Emote + " " : "";
+                    var voteCount = optionVotes.Count;
+
+                    string voterList;
+                    if (voteCount == 0)
+                    {
+                        voterList = "*No votes*";
+                    }
+                    else
+                    {
+                        var mentions = optionVotes
+                            .Take(15)
+                            .Select(v => $"<@{v.UserId}>")
+                            .ToList();
+
+                        voterList = string.Join(", ", mentions);
+                        if (voteCount > 15)
+                        {
+                            voterList += $"\n*+{voteCount - 15} more*";
+                        }
+                    }
+
+                    embed.AddField(
+                        $"{emote}{option.OptionText} ({voteCount})",
+                        voterList,
+                        inline: false);
+                }
+
+                return embed;
+            });
+        }
+
+        /// <summary>
         /// Handles poll close button clicks.
         /// CustomId format: poll_close~{creatorId}~{pollId}
         /// </summary>
@@ -274,7 +370,19 @@ namespace NinjaBotCore.Modules.Interactions.Polls
             var builder = new ComponentBuilder();
 
             if (poll.IsClosed)
+            {
+                // Still show "View Voters" button for closed non-anonymous polls
+                if (!poll.IsAnonymous)
+                {
+                    var viewVotersButton = new ButtonBuilder()
+                        .WithLabel("View Voters")
+                        .WithCustomId($"{ModalConstants.PollViewVotersPrefix}{poll.Id}")
+                        .WithStyle(ButtonStyle.Secondary)
+                        .WithEmote(new Emoji("👥"));
+                    builder.WithButton(viewVotersButton, row: 0);
+                }
                 return builder;
+            }
 
             var options = poll.PollOptions.OrderBy(o => o.DisplayOrder).ToList();
 
@@ -316,6 +424,17 @@ namespace NinjaBotCore.Modules.Interactions.Polls
                         .WithStyle(ButtonStyle.Danger)
                         .WithEmote(new Emoji("🔒"));
                     builder.WithButton(closeButton, row: closeRow);
+
+                    // Add "View Voters" button for non-anonymous polls
+                    if (!poll.IsAnonymous)
+                    {
+                        var viewVotersButton = new ButtonBuilder()
+                            .WithLabel("View Voters")
+                            .WithCustomId($"{ModalConstants.PollViewVotersPrefix}{poll.Id}")
+                            .WithStyle(ButtonStyle.Secondary)
+                            .WithEmote(new Emoji("👥"));
+                        builder.WithButton(viewVotersButton, row: closeRow);
+                    }
                 }
             }
 

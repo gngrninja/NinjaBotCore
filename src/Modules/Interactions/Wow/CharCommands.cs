@@ -296,6 +296,18 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var (zoneRankings, currentZoneId) = await FetchWclV2DataAsync(charInfo);
             var rioData = await FetchRioDataAsync(charInfo); // For class/spec info
 
+            // Fetch encounter rankings batch for fight links and rank display
+            Dictionary<int, WclV2EncounterRankingsData> encounterRankings = null;
+            if (zoneRankings?.Rankings != null && zoneRankings.Rankings.Any())
+            {
+                var encounterIds = zoneRankings.Rankings
+                    .Where(r => r.Encounter != null)
+                    .Select(r => r.Encounter.Id)
+                    .ToList();
+                encounterRankings = await _wclV2Api.GetCharacterEncounterRankingsBatchAsync(
+                    charInfo.Name, charInfo.RealmSlug, charInfo.Region, encounterIds);
+            }
+
             // Check if character is already saved
             var isAlreadySaved = await IsCharacterSavedAsync(charInfo, Context.User.Id);
 
@@ -303,6 +315,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var embed = CharLogsView.BuildV2(
                 charInfo,
                 zoneRankings,
+                encounterRankings,
                 difficulty: null,
                 zoneId: currentZoneId,
                 specName: rioData?.ActiveSpecName,
@@ -317,8 +330,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 components.WithSelectMenu(difficultyMenu, 2);
             }
 
-            // Add encounter select menu if we have rankings (row 3)
-            var encounterMenu = CharLogsView.BuildEncounterSelectMenuV2(Context.User.Id, charInfo, zoneRankings, currentZoneId);
+            // Add encounter select menu if we have rankings (row 3) - 0 = all difficulties
+            var encounterMenu = CharLogsView.BuildEncounterSelectMenuV2(Context.User.Id, charInfo, zoneRankings, currentZoneId, 0);
             if (encounterMenu != null)
             {
                 components.WithSelectMenu(encounterMenu, 3);
@@ -334,6 +347,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         [ComponentInteraction("char_logs_difficulty~*~*~*~*~*")]
         public async Task HandleLogsDifficultySelect(string userIdStr, string name, string realm, string region, string zoneIdStr, string[] selections)
         {
+            _logger.LogInformation("[CharLogs] Difficulty select: userId={UserId}, char={Name}-{Realm}-{Region}, zone={Zone}, selection={Selection}",
+                userIdStr, name, realm, region, zoneIdStr, selections?.FirstOrDefault() ?? "null");
+
             if (!ValidateUser(userIdStr, out var errorMsg))
             {
                 await RespondAsync(errorMsg, ephemeral: true);
@@ -366,15 +382,28 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             // Difficulty: 0 = All, 3 = Normal, 4 = Heroic, 5 = Mythic
             int? difficultyFilter = difficulty == 0 ? null : difficulty;
 
-            // Fetch WCL data with difficulty filter (partition 1 = All)
-            var zoneRankings = await FetchWclV2DataWithFiltersAsync(charInfo, zoneId, difficultyFilter, partitionFilter: 1);
+            // Fetch WCL data with difficulty filter
+            var zoneRankings = await FetchWclV2DataWithFiltersAsync(charInfo, zoneId, difficultyFilter);
             var rioData = await FetchRioDataAsync(charInfo);
+
+            // Fetch encounter rankings batch for fight links and rank display
+            Dictionary<int, WclV2EncounterRankingsData> encounterRankings = null;
+            if (zoneRankings?.Rankings != null && zoneRankings.Rankings.Any())
+            {
+                var encounterIds = zoneRankings.Rankings
+                    .Where(r => r.Encounter != null)
+                    .Select(r => r.Encounter.Id)
+                    .ToList();
+                encounterRankings = await _wclV2Api.GetCharacterEncounterRankingsBatchAsync(
+                    charInfo.Name, charInfo.RealmSlug, charInfo.Region, encounterIds, difficultyFilter);
+            }
 
             var isAlreadySaved = await IsCharacterSavedAsync(charInfo, Context.User.Id);
 
             var embed = CharLogsView.BuildV2(
                 charInfo,
                 zoneRankings,
+                encounterRankings,
                 difficulty: difficultyFilter,
                 zoneId: zoneId,
                 specName: rioData?.ActiveSpecName,
@@ -386,8 +415,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var difficultyMenu = CharLogsView.BuildDifficultySelectMenu(Context.User.Id, charInfo, zoneId, difficulty);
             components.WithSelectMenu(difficultyMenu, 2);
 
-            // Add encounter select menu (row 3)
-            var encounterMenu = CharLogsView.BuildEncounterSelectMenuV2(Context.User.Id, charInfo, zoneRankings, zoneId);
+            // Add encounter select menu (row 3) with current difficulty
+            var encounterMenu = CharLogsView.BuildEncounterSelectMenuV2(Context.User.Id, charInfo, zoneRankings, zoneId, difficulty);
             if (encounterMenu != null)
             {
                 components.WithSelectMenu(encounterMenu, 3);
@@ -400,9 +429,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             });
         }
 
-        [ComponentInteraction("char_logs_encounter_v2~*~*~*~*~*")]
-        public async Task HandleLogsEncounterSelectV2(string userIdStr, string name, string realm, string region, string zoneIdStr, string[] selections)
+        [ComponentInteraction("char_logs_encounter_v2~*~*~*~*~*~*")]
+        public async Task HandleLogsEncounterSelectV2(string userIdStr, string name, string realm, string region, string zoneIdStr, string difficultyStr, string[] selections)
         {
+            _logger.LogInformation("[CharLogs] Encounter select: userId={UserId}, char={Name}-{Realm}-{Region}, zone={Zone}, diff={Diff}, selection={Selection}",
+                userIdStr, name, realm, region, zoneIdStr, difficultyStr, selections?.FirstOrDefault() ?? "null");
+
             if (!ValidateUser(userIdStr, out var errorMsg))
             {
                 await RespondAsync(errorMsg, ephemeral: true);
@@ -432,28 +464,35 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 return;
             }
 
-            // Fetch WCL V2 data
-            var (zoneRankings, _) = await FetchWclV2DataAsync(charInfo);
+            // Parse difficulty (0 = all, 3 = normal, 4 = heroic, 5 = mythic)
+            int.TryParse(difficultyStr, out var difficulty);
+            int? difficultyFilter = difficulty == 0 ? null : difficulty;
+
+            // Fetch zone rankings for the encounter select menu
+            var zoneRankings = await FetchWclV2DataWithFiltersAsync(charInfo, zoneId, difficultyFilter);
             if (zoneRankings?.Rankings == null || !zoneRankings.Rankings.Any())
             {
                 await FollowupAsync("Could not load logs data.", ephemeral: true);
                 return;
             }
 
+            // Fetch individual parses for this encounter (with caching)
+            var encounterRankings = await FetchCharacterEncounterRankingsAsync(charInfo, encounterId, difficultyFilter);
+
             // Check if character is already saved
             var isAlreadySaved = await IsCharacterSavedAsync(charInfo, Context.User.Id);
 
-            // Build encounter detail embed (zoneId for link construction, no difficulty filter)
-            var embed = CharLogsView.BuildEncounterDetailV2(charInfo, zoneRankings, encounterId, zoneId: zoneId);
+            // Build encounter detail embed with individual parses
+            var embed = CharLogsView.BuildEncounterDetailV2(charInfo, zoneRankings, encounterId, encounterRankings, zoneId: zoneId, difficulty: difficultyFilter);
 
             var components = CharOverviewView.BuildDetailViewComponents(Context.User.Id, charInfo, "logs", isAlreadySaved);
 
-            // Add difficulty dropdown (row 2)
-            var difficultyMenu = CharLogsView.BuildDifficultySelectMenu(Context.User.Id, charInfo, zoneId);
+            // Add difficulty dropdown (row 2) with current selection
+            var difficultyMenu = CharLogsView.BuildDifficultySelectMenu(Context.User.Id, charInfo, zoneId, difficulty);
             components.WithSelectMenu(difficultyMenu, 2);
 
-            // Add encounter select menu (row 3)
-            var encounterMenu = CharLogsView.BuildEncounterSelectMenuV2(Context.User.Id, charInfo, zoneRankings, zoneId);
+            // Add encounter select menu (row 3) with current difficulty
+            var encounterMenu = CharLogsView.BuildEncounterSelectMenuV2(Context.User.Id, charInfo, zoneRankings, zoneId, difficulty);
             if (encounterMenu != null)
             {
                 components.WithSelectMenu(encounterMenu, 3);
@@ -1166,7 +1205,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         /// <summary>
         /// Fetches WCL zone rankings using V2 API for current raid tier
         /// </summary>
-        private async Task<(WclV2ZoneRankingsData Rankings, int ZoneId)> FetchWclV2DataAsync(CharacterInfo charInfo, int? difficultyFilter = null, int? partitionFilter = 1)
+        private async Task<(WclV2ZoneRankingsData Rankings, int ZoneId)> FetchWclV2DataAsync(CharacterInfo charInfo, int? difficultyFilter = null, int? partitionFilter = null)
         {
             try
             {
@@ -1204,10 +1243,53 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         }
 
         /// <summary>
+        /// Fetches individual character encounter rankings (parses) with caching
+        /// </summary>
+        private async Task<WclV2EncounterRankingsData> FetchCharacterEncounterRankingsAsync(CharacterInfo charInfo, int encounterId, int? difficultyFilter, int? partitionFilter = null)
+        {
+            // Check cache first
+            var cached = _wowCache.GetCachedCharacterEncounterRankings(
+                charInfo.Name, charInfo.RealmSlug, charInfo.Region, encounterId, difficultyFilter);
+            if (cached != null)
+            {
+                return cached;
+            }
+
+            try
+            {
+                var result = await _wclV2Api.GetCharacterEncounterRankingsAsync(
+                    charInfo.Name,
+                    charInfo.RealmSlug,
+                    charInfo.Region,
+                    encounterId,
+                    difficultyFilter,
+                    partitionFilter);
+
+                // Cache the result
+                if (result != null)
+                {
+                    _wowCache.SetCachedCharacterEncounterRankings(
+                        charInfo.Name, charInfo.RealmSlug, charInfo.Region, encounterId, difficultyFilter, result);
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch character encounter rankings for {Character} on encounter {EncounterId}",
+                    charInfo.Name, encounterId);
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Fetches WCL zone rankings with specific difficulty and partition filter
         /// </summary>
-        private async Task<WclV2ZoneRankingsData> FetchWclV2DataWithFiltersAsync(CharacterInfo charInfo, int zoneId, int? difficultyFilter, int? partitionFilter = 1)
+        private async Task<WclV2ZoneRankingsData> FetchWclV2DataWithFiltersAsync(CharacterInfo charInfo, int zoneId, int? difficultyFilter, int? partitionFilter = null)
         {
+            _logger.LogInformation("Fetching WCL V2 data for {Name} on {Realm}-{Region}, Zone: {Zone}, Difficulty: {Diff}, Partition: {Part}",
+                charInfo.Name, charInfo.RealmSlug, charInfo.Region, zoneId, difficultyFilter?.ToString() ?? "null", partitionFilter?.ToString() ?? "null");
+
             try
             {
                 var result = await _wclV2Api.GetCharacterZoneRankingsAsync(

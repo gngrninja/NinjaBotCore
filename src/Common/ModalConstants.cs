@@ -39,6 +39,14 @@ namespace NinjaBotCore.Common
         public const string PollClosePrefix = "poll_close~";
 
         /// <summary>
+        /// Prefix for poll view voters button custom IDs.
+        /// Format: poll_voters~{pollId}
+        /// Handler: PollComponentHandlers.HandlePollViewVoters
+        /// Only shown for non-anonymous polls.
+        /// </summary>
+        public const string PollViewVotersPrefix = "poll_voters~";
+
+        /// <summary>
         /// Housing decor component IDs - handlers in HousingCommands.cs
         /// Standard format: housing_{action}~{userId}~{charName}~{realm}~{region}~{search}~{currentPage}[~{totalPages}]
         /// Note: Pagination buttons use unique action prefixes (_first, _prev, _next, _last) per the pattern in PATTERNS.md

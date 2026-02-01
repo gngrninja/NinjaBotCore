@@ -1334,8 +1334,8 @@ namespace NinjaBotCore.Modules.Wow
                     var charName = characterJson["name"]?.ToString();
                     var zoneRankingsJson = characterJson["zoneRankings"];
 
-                    _logger.LogInformation("[v2] Retrieved zone rankings for {Name}-{Server} ({Region}), Zone: {ZoneId}",
-                        name, serverSlug, serverRegion, zoneId);
+                    _logger.LogInformation("[v2] Retrieved zone rankings for {Name}-{Server} ({Region}), Zone: {ZoneId}, Difficulty: {Difficulty}",
+                        name, serverSlug, serverRegion, zoneId, difficulty?.ToString() ?? "null");
 
                     if (zoneRankingsJson == null || zoneRankingsJson.Type == Newtonsoft.Json.Linq.JTokenType.Null)
                     {
@@ -1366,6 +1366,182 @@ namespace NinjaBotCore.Modules.Wow
             {
                 _logger.LogError(ex, "[v2] Failed to get character zone rankings for {Name}-{Server}", name, serverSlug);
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Gets character encounter rankings (individual parses) for a specific boss.
+        /// Returns detailed per-kill data including fight links, percentiles, and DPS/HPS.
+        /// </summary>
+        /// <param name="name">Character name</param>
+        /// <param name="serverSlug">Realm slug (e.g., "illidan")</param>
+        /// <param name="serverRegion">Region (us, eu, etc.)</param>
+        /// <param name="encounterId">WCL encounter ID for the boss</param>
+        /// <param name="difficulty">Optional difficulty filter: 3=Normal, 4=Heroic, 5=Mythic, null=All</param>
+        /// <param name="partition">Optional partition filter: 1=All, or specific partition ID. null=current partition</param>
+        /// <param name="gameVersion">Game version (Retail, Classic, etc.)</param>
+        public async Task<WclV2EncounterRankingsData> GetCharacterEncounterRankingsAsync(
+            string name,
+            string serverSlug,
+            string serverRegion,
+            int encounterId,
+            int? difficulty = null,
+            int? partition = null,
+            WowGameVersion gameVersion = WowGameVersion.Retail)
+        {
+            // Build the encounterRankings field with parameters
+            var difficultyParam = difficulty.HasValue ? $", difficulty: {difficulty.Value}" : "";
+            var partitionParam = partition.HasValue ? $", partition: {partition.Value}" : "";
+
+            var query = $@"
+                query($name: String!, $serverSlug: String!, $serverRegion: String!) {{
+                    characterData {{
+                        character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {{
+                            id
+                            name
+                            classID
+                            encounterRankings(encounterID: {encounterId}{difficultyParam}{partitionParam})
+                        }}
+                    }}
+                }}
+            ";
+
+            var variables = new
+            {
+                name,
+                serverSlug,
+                serverRegion
+            };
+
+            try
+            {
+                // First get raw response to debug
+                var rawResult = await ExecuteGraphQLAsync<Newtonsoft.Json.Linq.JObject>(query, variables, gameVersion);
+
+                _logger.LogDebug("[v2] Raw encounter rankings response: {Response}",
+                    rawResult.Data?.ToString(Newtonsoft.Json.Formatting.None) ?? "null");
+
+                if (rawResult.Data?["characterData"]?["character"] != null)
+                {
+                    var characterJson = rawResult.Data["characterData"]["character"];
+                    var charName = characterJson["name"]?.ToString();
+                    var encounterRankingsJson = characterJson["encounterRankings"];
+
+                    _logger.LogInformation("[v2] Retrieved encounter rankings for {Name}-{Server} ({Region}), Encounter: {EncounterId}, Difficulty: {Difficulty}",
+                        name, serverSlug, serverRegion, encounterId, difficulty?.ToString() ?? "null");
+
+                    if (encounterRankingsJson == null || encounterRankingsJson.Type == Newtonsoft.Json.Linq.JTokenType.Null)
+                    {
+                        _logger.LogWarning("[v2] encounterRankings is null for {Name} - character may have no logs for encounter {EncounterId}", name, encounterId);
+                        return null;
+                    }
+
+                    // Log the raw encounterRankings data
+                    _logger.LogDebug("[v2] encounterRankings raw: {EncounterRankings}",
+                        encounterRankingsJson.ToString(Newtonsoft.Json.Formatting.None));
+
+                    // Parse the encounterRankings JSON
+                    var encounterRankings = encounterRankingsJson.ToObject<WclV2EncounterRankingsData>();
+
+                    if (encounterRankings != null)
+                    {
+                        _logger.LogInformation("[v2] Parsed encounter rankings: TotalKills={TotalKills}, Ranks={RankCount}",
+                            encounterRankings.TotalKills, encounterRankings.Ranks?.Count ?? 0);
+                    }
+
+                    return encounterRankings;
+                }
+
+                _logger.LogWarning("[v2] No character found for {Name}-{Server} ({Region})", name, serverSlug, serverRegion);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[v2] Failed to get character encounter rankings for {Name}-{Server}, encounter {EncounterId}", name, serverSlug, encounterId);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Gets character encounter rankings for multiple bosses in a single query.
+        /// More efficient than calling GetCharacterEncounterRankingsAsync multiple times.
+        /// </summary>
+        /// <param name="name">Character name</param>
+        /// <param name="serverSlug">Realm slug</param>
+        /// <param name="serverRegion">Region (us, eu, etc.)</param>
+        /// <param name="encounterIds">List of encounter IDs to fetch</param>
+        /// <param name="difficulty">Optional difficulty filter</param>
+        /// <param name="partition">Optional partition filter</param>
+        /// <param name="gameVersion">Game version</param>
+        /// <returns>Dictionary mapping encounter ID to its rankings data</returns>
+        public async Task<Dictionary<int, WclV2EncounterRankingsData>> GetCharacterEncounterRankingsBatchAsync(
+            string name,
+            string serverSlug,
+            string serverRegion,
+            List<int> encounterIds,
+            int? difficulty = null,
+            int? partition = null,
+            WowGameVersion gameVersion = WowGameVersion.Retail)
+        {
+            if (encounterIds == null || encounterIds.Count == 0)
+                return new Dictionary<int, WclV2EncounterRankingsData>();
+
+            var difficultyParam = difficulty.HasValue ? $", difficulty: {difficulty.Value}" : "";
+            var partitionParam = partition.HasValue ? $", partition: {partition.Value}" : "";
+
+            // Build aliased query for all encounters
+            var encounterFields = new System.Text.StringBuilder();
+            for (int i = 0; i < encounterIds.Count; i++)
+            {
+                encounterFields.AppendLine($"                            enc{i}: encounterRankings(encounterID: {encounterIds[i]}{difficultyParam}{partitionParam})");
+            }
+
+            var query = $@"
+                query($name: String!, $serverSlug: String!, $serverRegion: String!) {{
+                    characterData {{
+                        character(name: $name, serverSlug: $serverSlug, serverRegion: $serverRegion) {{
+                            id
+                            name
+{encounterFields}
+                        }}
+                    }}
+                }}
+            ";
+
+            var variables = new { name, serverSlug, serverRegion };
+            var result = new Dictionary<int, WclV2EncounterRankingsData>();
+
+            try
+            {
+                var rawResult = await ExecuteGraphQLAsync<Newtonsoft.Json.Linq.JObject>(query, variables, gameVersion);
+
+                if (rawResult.Data?["characterData"]?["character"] != null)
+                {
+                    var characterJson = rawResult.Data["characterData"]["character"];
+
+                    for (int i = 0; i < encounterIds.Count; i++)
+                    {
+                        var encJson = characterJson[$"enc{i}"];
+                        if (encJson != null && encJson.Type != Newtonsoft.Json.Linq.JTokenType.Null)
+                        {
+                            var encData = encJson.ToObject<WclV2EncounterRankingsData>();
+                            if (encData != null)
+                            {
+                                result[encounterIds[i]] = encData;
+                            }
+                        }
+                    }
+
+                    _logger.LogInformation("[v2] Batch fetched encounter rankings for {Name}: {Count}/{Total} encounters returned data",
+                        name, result.Count, encounterIds.Count);
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[v2] Failed to batch fetch encounter rankings for {Name}-{Server}", name, serverSlug);
+                return result;
             }
         }
     }

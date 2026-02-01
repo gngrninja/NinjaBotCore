@@ -698,6 +698,13 @@ namespace NinjaBotCore.Services
                                 var disabledComponents = new ComponentBuilder()
                                     .WithButton("Poll Closed", "poll_closed", ButtonStyle.Secondary, disabled: true);
 
+                                // Keep "View Voters" button for non-anonymous polls
+                                if (!poll.IsAnonymous)
+                                {
+                                    disabledComponents.WithButton("View Voters", $"{ModalConstants.PollViewVotersPrefix}{poll.Id}",
+                                        ButtonStyle.Secondary, emote: new Emoji("👥"));
+                                }
+
                                 await userMessage.ModifyAsync(msg =>
                                 {
                                     msg.Embed = closedEmbed.Build();
@@ -826,6 +833,77 @@ namespace NinjaBotCore.Services
                             total_votes = totalVotes
                         },
                         results
+                    }, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                    });
+                });
+
+                // GET /api/polls/{pollId}/voters - Get voters grouped by option (non-anonymous polls only)
+                _app.MapGet("/api/polls/{pollId:long}/voters", async (HttpContext context, long pollId) =>
+                {
+                    // Validate API key
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        var providedKey = context.Request.Headers["X-Api-Key"].ToString();
+                        if (providedKey != apiKey)
+                        {
+                            return Results.Unauthorized();
+                        }
+                    }
+
+                    using var scope = _serviceProvider.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                    var poll = await db.Polls
+                        .Include(p => p.PollOptions)
+                        .Include(p => p.PollVotes)
+                        .AsSplitQuery()
+                        .FirstOrDefaultAsync(p => p.Id == pollId);
+
+                    if (poll == null)
+                    {
+                        return Results.NotFound(new { success = false, error = "Poll not found" });
+                    }
+
+                    if (poll.IsAnonymous)
+                    {
+                        return Results.Json(new { success = false, error = "This poll is anonymous. Voter information is not available." },
+                            statusCode: 403);
+                    }
+
+                    var options = poll.PollOptions.OrderBy(o => o.DisplayOrder).Select(option =>
+                    {
+                        var optionVotes = poll.PollVotes
+                            .Where(v => v.OptionId == option.Id)
+                            .OrderBy(v => v.VotedAt)
+                            .ToList();
+
+                        return new
+                        {
+                            option_id = option.Id,
+                            option_text = option.OptionText,
+                            vote_count = optionVotes.Count,
+                            voters = optionVotes.Select(v => new
+                            {
+                                user_id = v.UserId.ToString(),
+                                user_name = v.UserName,
+                                voted_at = v.VotedAt
+                            }).ToList()
+                        };
+                    }).ToList();
+
+                    return Results.Json(new
+                    {
+                        success = true,
+                        poll = new
+                        {
+                            id = poll.Id,
+                            question = poll.Question,
+                            is_closed = poll.IsClosed,
+                            total_votes = poll.PollVotes.Count
+                        },
+                        options
                     }, new JsonSerializerOptions
                     {
                         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower

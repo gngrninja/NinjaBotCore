@@ -530,6 +530,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                             : $"{r.Amount:N0}";
 
                     // Link to WarcraftLogs report (preferred) or character page
+                    // Note: characterRankings API doesn't return fightID, so we link to report overview
                     string wclLink = r.Report?.Code != null
                         ? $"https://www.warcraftlogs.com/reports/{r.Report.Code}"
                         : $"https://www.warcraftlogs.com/character/{region}/{realmSlug}/{r.Name.ToLower()}";
@@ -853,6 +854,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                             : $"{r.Amount:N0}";
 
                     // Link to WarcraftLogs report (preferred) or character page
+                    // Note: characterRankings API doesn't return fightID, so we link to report overview
                     string wclLink = r.Report?.Code != null
                         ? $"https://www.warcraftlogs.com/reports/{r.Report.Code}"
                         : $"https://www.warcraftlogs.com/character/{region}/{realmSlug}/{r.Name.ToLower()}";

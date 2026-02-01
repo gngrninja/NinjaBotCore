@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using NinjaBotCore.Common;
 using NinjaBotCore.Database;
 using NinjaBotCore.Modules.Interactions.Polls;
 using NinjaBotCore.Repositories;
@@ -176,8 +177,8 @@ namespace NinjaBotCore.Services
                 // Build updated embed (red color, closed status)
                 var embed = BuildClosedPollEmbed(poll);
 
-                // Disable all buttons
-                var components = BuildDisabledComponents();
+                // Disable all buttons, but keep View Voters for non-anonymous polls
+                var components = BuildDisabledComponents(poll);
 
                 await userMessage.ModifyAsync(msg =>
                 {
@@ -297,12 +298,19 @@ namespace NinjaBotCore.Services
             return embed;
         }
 
-        private ComponentBuilder BuildDisabledComponents()
+        private ComponentBuilder BuildDisabledComponents(DbPoll poll)
         {
             var builder = new ComponentBuilder();
 
             // Add a single disabled button indicating poll is closed
             builder.WithButton("Poll Closed", "poll_closed", ButtonStyle.Secondary, disabled: true);
+
+            // Keep "View Voters" button for non-anonymous polls
+            if (!poll.IsAnonymous)
+            {
+                builder.WithButton("View Voters", $"{ModalConstants.PollViewVotersPrefix}{poll.Id}",
+                    ButtonStyle.Secondary, emote: new Emoji("👥"));
+            }
 
             return builder;
         }

@@ -1,4 +1,5 @@
 using Discord;
+using Microsoft.Extensions.Logging;
 using NinjaBotCore.Models.Wow;
 using System;
 using System.Collections.Generic;
@@ -288,9 +289,17 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
         /// <summary>
         /// Build the logs view embed from WCL V2 zone rankings data
         /// </summary>
+        /// <param name="charInfo">Character info</param>
+        /// <param name="rankings">Zone rankings data</param>
+        /// <param name="encounterRankings">Optional per-encounter rankings for fight links and rank display</param>
+        /// <param name="difficulty">Difficulty filter</param>
+        /// <param name="zoneId">Zone ID</param>
+        /// <param name="specName">Spec name for title</param>
+        /// <param name="className">Class name for title</param>
         public static EmbedBuilder BuildV2(
             CharacterInfo charInfo,
             WclV2ZoneRankingsData rankings,
+            Dictionary<int, WclV2EncounterRankingsData> encounterRankings = null,
             int? difficulty = null,
             int? zoneId = null,
             string specName = null,
@@ -386,10 +395,34 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 var spec = ranking.BestSpec ?? ranking.Spec ?? "";
                 var dpsFormatted = ranking.BestAmount.HasValue ? FormatNumber(ranking.BestAmount.Value) : "N/A";
 
-                // Build encounter-specific WCL URL
-                var encounterUrl = BuildWclEncounterUrl(charInfo, zoneId, ranking.Encounter?.Id, difficulty);
+                // Try to get best parse link and rank from encounter rankings
+                var encId = ranking.Encounter?.Id ?? 0;
+                string fightUrl = null;
+                string rankDisplay = "";
 
-                sb.AppendLine($"{emoji} **{pct:F0}%** [{encounterName}]({encounterUrl})");
+                if (encounterRankings != null && encId > 0 && encounterRankings.TryGetValue(encId, out var encData))
+                {
+                    var bestParse = encData.Ranks?.FirstOrDefault();
+                    if (bestParse != null)
+                    {
+                        // Build fight link
+                        if (bestParse.Report != null)
+                        {
+                            fightUrl = $"https://www.warcraftlogs.com/reports/{bestParse.Report.Code}#fight={bestParse.Report.FightID}";
+                        }
+
+                        // Build rank display
+                        if (bestParse.EstimatedRank.HasValue && bestParse.RankTotalParses.HasValue)
+                        {
+                            rankDisplay = $" #{bestParse.EstimatedRank.Value:N0}/{bestParse.RankTotalParses.Value:N0}";
+                        }
+                    }
+                }
+
+                // Use fight URL if available, otherwise fall back to encounter page URL
+                var linkUrl = fightUrl ?? BuildWclEncounterUrl(charInfo, zoneId, encId, difficulty);
+
+                sb.AppendLine($"{emoji} **{pct:F0}%**{rankDisplay} [{encounterName}]({linkUrl})");
                 sb.AppendLine($"   `{dpsFormatted}` | {ranking.TotalKills} kills | {spec}");
             }
 
@@ -519,29 +552,30 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             ulong userId,
             CharacterInfo charInfo,
             WclV2ZoneRankingsData rankings,
-            int zoneId)
+            int zoneId,
+            int currentDifficulty = 0)
         {
             if (rankings?.Rankings == null || rankings.Rankings.Count == 0)
                 return null;
 
-            var sortedRankings = rankings.Rankings
+            // Keep original API order (raid progression order) - don't sort by percentile
+            var orderedRankings = rankings.Rankings
                 .Where(r => r.Encounter != null && r.RankPercent.HasValue)
-                .OrderByDescending(r => r.RankPercent ?? 0)
                 .Take(25)
                 .ToList();
 
             // Return null if no valid rankings after filtering (avoids Discord 0-option menu error)
-            if (sortedRankings.Count == 0)
+            if (orderedRankings.Count == 0)
                 return null;
 
             var charParam = $"{charInfo.Name}~{charInfo.Realm}~{charInfo.Region}";
             var menu = new SelectMenuBuilder()
-                .WithCustomId($"char_logs_encounter_v2~{userId}~{charParam}~{zoneId}")
+                .WithCustomId($"char_logs_encounter_v2~{userId}~{charParam}~{zoneId}~{currentDifficulty}")
                 .WithPlaceholder("Select encounter for details...")
                 .WithMinValues(1)
                 .WithMaxValues(1);
 
-            foreach (var ranking in sortedRankings)
+            foreach (var ranking in orderedRankings)
             {
                 var pct = ranking.RankPercent ?? 0;
                 var emoji = CharViewHelpers.GetParseEmoji(pct);
@@ -562,6 +596,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             CharacterInfo charInfo,
             WclV2ZoneRankingsData rankings,
             int encounterId,
+            WclV2EncounterRankingsData encounterRankings = null,
             int? zoneId = null,
             int? difficulty = null)
         {
@@ -582,37 +617,67 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             var pct = bossRanking.RankPercent ?? 0;
             embed.WithColor(CharViewHelpers.GetParseColor(pct));
 
-            // Boss stats
-            sb.AppendLine($"{CharViewHelpers.GetParseEmoji(pct)} **Best Parse: {pct:F0}%**");
+            // Summary stats
+            sb.AppendLine($"{CharViewHelpers.GetParseEmoji(pct)} **Best: {pct:F0}%** | Median: **{bossRanking.MedianPercent:F0}%** | Kills: **{bossRanking.TotalKills}**");
             sb.AppendLine();
 
-            if (bossRanking.MedianPercent.HasValue)
+            // Display individual parses if available
+            if (encounterRankings?.Ranks != null && encounterRankings.Ranks.Any())
             {
-                var medPct = bossRanking.MedianPercent.Value;
-                sb.AppendLine($"{CharViewHelpers.GetParseEmoji(medPct)} Median Parse: **{medPct:F0}%**");
+                sb.AppendLine("**__Recent Parses__**");
+
+                foreach (var parse in encounterRankings.Ranks.Take(8))
+                {
+                    var parsePct = parse.RankPercent ?? 0;
+                    var emoji = CharViewHelpers.GetParseEmoji(parsePct);
+                    var dpsFormatted = FormatNumber(parse.DpsHps);
+                    var spec = parse.Spec ?? "Unknown";
+
+                    // Build rank display (e.g., "#11/7,279")
+                    var rankDisplay = "";
+                    if (parse.EstimatedRank.HasValue && parse.RankTotalParses.HasValue)
+                    {
+                        rankDisplay = $" #{parse.EstimatedRank.Value:N0}/{parse.RankTotalParses.Value:N0}";
+                    }
+
+                    // Build line with fight link
+                    if (!string.IsNullOrEmpty(parse.FightUrl))
+                    {
+                        sb.AppendLine($"{emoji} **{parsePct:F0}%**{rankDisplay} | `{dpsFormatted}` | {parse.DurationFormatted} | [{spec}]({parse.FightUrl})");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"{emoji} **{parsePct:F0}%**{rankDisplay} | `{dpsFormatted}` | {parse.DurationFormatted} | {spec}");
+                    }
+                }
+
+                if (encounterRankings.Ranks.Count > 8)
+                {
+                    sb.AppendLine($"*...and {encounterRankings.Ranks.Count - 8} more kills*");
+                }
             }
-
-            sb.AppendLine($"Total Kills: **{bossRanking.TotalKills}**");
-
-            if (bossRanking.BestAmount.HasValue)
+            else
             {
-                sb.AppendLine($"Best DPS/HPS: **{FormatNumber(bossRanking.BestAmount.Value)}**");
-            }
+                // Fallback to summary stats only
+                if (bossRanking.BestAmount.HasValue)
+                {
+                    sb.AppendLine($"Best DPS/HPS: **{FormatNumber(bossRanking.BestAmount.Value)}**");
+                }
 
-            if (bossRanking.FastestKill.HasValue)
-            {
-                var fastestSec = bossRanking.FastestKill.Value / 1000;
-                sb.AppendLine($"Fastest Kill: **{fastestSec / 60}:{fastestSec % 60:D2}**");
-            }
+                if (bossRanking.FastestKill.HasValue)
+                {
+                    var fastestSec = bossRanking.FastestKill.Value / 1000;
+                    sb.AppendLine($"Fastest Kill: **{fastestSec / 60}:{fastestSec % 60:D2}**");
+                }
 
-            sb.AppendLine($"Spec: **{bossRanking.BestSpec ?? bossRanking.Spec ?? "Unknown"}**");
+                sb.AppendLine($"Spec: **{bossRanking.BestSpec ?? bossRanking.Spec ?? "Unknown"}**");
+            }
 
             // All-star points for this boss
             if (bossRanking.AllStars != null)
             {
                 sb.AppendLine();
-                sb.AppendLine($"All-Stars: **{bossRanking.AllStars.Points:F0}/{bossRanking.AllStars.PossiblePoints:F0}** pts");
-                sb.AppendLine($"All-Star Rank: **{bossRanking.AllStars.RankPercent:F0}%**");
+                sb.AppendLine($"All-Stars: **{bossRanking.AllStars.Points:F0}/{bossRanking.AllStars.PossiblePoints:F0}** pts | Rank: **{bossRanking.AllStars.RankPercent:F0}%**");
             }
 
             // Add link to view all parses for this boss on WCL

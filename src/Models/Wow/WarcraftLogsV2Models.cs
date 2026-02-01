@@ -598,6 +598,188 @@ namespace NinjaBotCore.Models.Wow
         public double? BestAmount { get; set; }
     }
 
+    // ===== Character Encounter Rankings (individual parses for a specific boss) =====
+
+    /// <summary>
+    /// Response wrapper for character encounterRankings query (individual parses)
+    /// </summary>
+    public class WclV2CharacterEncounterRankingsResponse
+    {
+        [JsonProperty("characterData")]
+        public WclV2CharacterEncounterDataWrapper CharacterData { get; set; }
+    }
+
+    public class WclV2CharacterEncounterDataWrapper
+    {
+        [JsonProperty("character")]
+        public WclV2CharacterEncounterInfo Character { get; set; }
+    }
+
+    /// <summary>
+    /// Character info with encounter rankings from characterData query
+    /// </summary>
+    public class WclV2CharacterEncounterInfo
+    {
+        [JsonProperty("id")]
+        public int Id { get; set; }
+
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("classID")]
+        public int ClassId { get; set; }
+
+        /// <summary>
+        /// encounterRankings returns parsed JSON with individual parse data
+        /// </summary>
+        [JsonProperty("encounterRankings")]
+        public WclV2EncounterRankingsData EncounterRankings { get; set; }
+    }
+
+    /// <summary>
+    /// Encounter rankings data containing individual parses for a boss
+    /// </summary>
+    public class WclV2EncounterRankingsData
+    {
+        [JsonProperty("difficulty")]
+        public int? Difficulty { get; set; }
+
+        [JsonProperty("metric")]
+        public string Metric { get; set; }
+
+        [JsonProperty("partition")]
+        public int? Partition { get; set; }
+
+        [JsonProperty("zone")]
+        public int? ZoneId { get; set; }
+
+        [JsonProperty("totalKills")]
+        public int TotalKills { get; set; }
+
+        [JsonProperty("medianPerformance")]
+        public double? MedianPerformance { get; set; }
+
+        [JsonProperty("bestAmount")]
+        public double? BestAmount { get; set; }
+
+        [JsonProperty("averagePerformance")]
+        public double? AveragePerformance { get; set; }
+
+        [JsonProperty("ranks")]
+        public List<WclV2IndividualParse> Ranks { get; set; }
+    }
+
+    /// <summary>
+    /// Individual parse/kill data for a specific encounter
+    /// </summary>
+    public class WclV2IndividualParse
+    {
+        [JsonProperty("lockedIn")]
+        public bool LockedIn { get; set; }
+
+        [JsonProperty("rankPercent")]
+        public double? RankPercent { get; set; }
+
+        [JsonProperty("historicalPercent")]
+        public double? HistoricalPercent { get; set; }
+
+        [JsonProperty("todayPercent")]
+        public double? TodayPercent { get; set; }
+
+        /// <summary>
+        /// Total parses at the time this parse was recorded (for calculating rank)
+        /// </summary>
+        [JsonProperty("rankTotalParses")]
+        public int? RankTotalParses { get; set; }
+
+        /// <summary>
+        /// Historical total parses
+        /// </summary>
+        [JsonProperty("historicalTotalParses")]
+        public int? HistoricalTotalParses { get; set; }
+
+        /// <summary>
+        /// Current total parses as of today
+        /// </summary>
+        [JsonProperty("todayTotalParses")]
+        public int? TodayTotalParses { get; set; }
+
+        [JsonProperty("amount")]
+        public double Amount { get; set; }
+
+        [JsonProperty("duration")]
+        public long Duration { get; set; }
+
+        [JsonProperty("startTime")]
+        public long StartTime { get; set; }
+
+        [JsonProperty("spec")]
+        public string Spec { get; set; }
+
+        [JsonProperty("report")]
+        public WclV2ParseReportInfo Report { get; set; }
+
+        /// <summary>
+        /// Returns formatted DPS/HPS (amount per second)
+        /// </summary>
+        [JsonIgnore]
+        public double DpsHps => Duration > 0 ? Amount / (Duration / 1000.0) : 0;
+
+        /// <summary>
+        /// Returns formatted fight duration string (m:ss)
+        /// </summary>
+        [JsonIgnore]
+        public string DurationFormatted
+        {
+            get
+            {
+                var seconds = Duration / 1000;
+                return $"{seconds / 60}:{seconds % 60:D2}";
+            }
+        }
+
+        /// <summary>
+        /// Returns a direct URL to the fight on WarcraftLogs
+        /// </summary>
+        [JsonIgnore]
+        public string FightUrl => Report != null
+            ? $"https://www.warcraftlogs.com/reports/{Report.Code}#fight={Report.FightID}"
+            : null;
+
+        /// <summary>
+        /// Calculates estimated rank from percentile and total parses.
+        /// E.g., 99.85% of 7279 parses = rank ~11
+        /// </summary>
+        [JsonIgnore]
+        public int? EstimatedRank
+        {
+            get
+            {
+                if (!RankPercent.HasValue || !RankTotalParses.HasValue || RankTotalParses.Value <= 0)
+                    return null;
+
+                // rank = total × (1 - percentile/100)
+                var rank = (int)Math.Ceiling(RankTotalParses.Value * (1 - RankPercent.Value / 100.0));
+                return Math.Max(1, rank); // Minimum rank is 1
+            }
+        }
+    }
+
+    /// <summary>
+    /// Report info for an individual parse, includes fight ID for direct links
+    /// </summary>
+    public class WclV2ParseReportInfo
+    {
+        [JsonProperty("code")]
+        public string Code { get; set; }
+
+        [JsonProperty("fightID")]
+        public int FightID { get; set; }
+
+        [JsonProperty("startTime")]
+        public long StartTime { get; set; }
+    }
+
     /// <summary>
     /// All-star points for a specific boss
     /// </summary>
