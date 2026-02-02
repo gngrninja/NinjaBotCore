@@ -519,12 +519,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 int rank = 1;
                 foreach (var r in top10Rankings)
                 {
-                    // Rank medal emoji
-                    string rankEmoji = rank switch
+                    // Rank display - medals for top 3, numbers for all
+                    string rankDisplay = rank switch
                     {
-                        1 => ":first_place:",
-                        2 => ":second_place:",
-                        3 => ":third_place:",
+                        1 => "1. :first_place:",
+                        2 => "2. :second_place:",
+                        3 => "3. :third_place:",
                         _ => $"**{rank}.**"
                     };
 
@@ -545,7 +545,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         ? $"https://www.warcraftlogs.com/reports/{r.Report.Code}"
                         : $"https://www.warcraftlogs.com/character/{region}/{realmSlug}/{r.Name.ToLower()}";
 
-                    sb.AppendLine($"{rankEmoji} [{r.Name}]({wclLink}) - **{amountFormatted}** {metric.ToLower()}");
+                    sb.AppendLine($"{rankDisplay} [{r.Name}]({wclLink}) - **{amountFormatted}** {metric.ToLower()}");
                     sb.AppendLine($"> {className} · ilvl {r.ItemLevel}{playerGuild}");
 
                     rank++;
@@ -841,11 +841,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 int rank = 1;
                 foreach (var r in top10Rankings)
                 {
-                    string rankEmoji = rank switch
+                    // Rank display - medals for top 3, numbers for all
+                    string rankDisplay = rank switch
                     {
-                        1 => ":first_place:",
-                        2 => ":second_place:",
-                        3 => ":third_place:",
+                        1 => "1. :first_place:",
+                        2 => "2. :second_place:",
+                        3 => "3. :third_place:",
                         _ => $"**{rank}.**"
                     };
 
@@ -864,7 +865,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         ? $"https://www.warcraftlogs.com/reports/{r.Report.Code}"
                         : $"https://www.warcraftlogs.com/character/{region}/{realmSlug}/{r.Name.ToLower()}";
 
-                    sb.AppendLine($"{rankEmoji} [{r.Name}]({wclLink}) - **{amountFormatted}** {metric.ToLower()}");
+                    sb.AppendLine($"{rankDisplay} [{r.Name}]({wclLink}) - **{amountFormatted}** {metric.ToLower()}");
                     sb.AppendLine($"> {className} · ilvl {r.ItemLevel}{playerGuild}");
 
                     rank++;
