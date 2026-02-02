@@ -37,3 +37,4 @@
 - Fixed boss dropdown showing wrong order
 - Fixed realm watch autocomplete not finding subscriptions
 - Fixed crash when guild roster is empty
+- Fixed `/top10` title saying "Top 10" when fewer players available

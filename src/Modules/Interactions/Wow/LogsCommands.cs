@@ -499,7 +499,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             // Build embed title
             string scopeText = scope == "guild" ? $"Guild: {guildName}" : $"Server: {realmName}";
-            embed.Title = $"{metricEmoji} Top 10 {metric.ToUpper()} - {encounterName} ({difficultyName})";
+            int rankingCount = top10Rankings?.Count ?? 0;
+            string topLabel = rankingCount > 0 && rankingCount < 10 ? $"Top {rankingCount}" : "Top 10";
+            embed.Title = $"{metricEmoji} {topLabel} {metric.ToUpper()} - {encounterName} ({difficultyName})";
             embed.WithFooter($"{scopeText} ({region.ToUpper()}) | Data from warcraftlogs.com");
 
             // Set thumbnail
@@ -824,7 +826,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             // Build embed
             string scopeText = scope == "guild" ? $"Guild: {guildName}" : $"Server: {realmName}";
-            embed.Title = $"{metricEmoji} Top 10 {metric.ToUpper()} - {encounterName} ({difficultyName})";
+            int rankingCount = top10Rankings?.Count ?? 0;
+            string topLabel = rankingCount > 0 && rankingCount < 10 ? $"Top {rankingCount}" : "Top 10";
+            embed.Title = $"{metricEmoji} {topLabel} {metric.ToUpper()} - {encounterName} ({difficultyName})";
             embed.WithFooter($"{scopeText} ({region.ToUpper()}) | Data from warcraftlogs.com");
 
             if (Context.Channel is IGuildChannel)
