@@ -274,29 +274,8 @@ namespace NinjaBotCore.Services
         {
             var categories = new List<HelpCategory>();
 
-            // WoW Classic & Vanilla (check first to exclude from main)
+            // WoW Main commands - all Wow modules except Classic/Vanilla/Admin (listed first)
             var classicModules = new[] { "WowClassicInteract", "WowVanillaInteract" };
-            var wowClassicCommands = commands
-                .Where(c => c.ModuleName.Contains("Wow") &&
-                           classicModules.Contains(c.ModuleTypeName))
-                .Select(ToHelpCommand)
-                .OrderBy(c => c.Name)
-                .ToList();
-
-            if (wowClassicCommands.Any())
-            {
-                categories.Add(new HelpCategory
-                {
-                    Id = "wow_classic",
-                    Name = "WoW Classic & Vanilla",
-                    Emoji = "🏛️",
-                    Description = "Classic and Vanilla WoW guild management and logs",
-                    PermissionLevel = "public",
-                    Commands = wowClassicCommands
-                });
-            }
-
-            // WoW Main commands - all Wow modules except Classic/Vanilla/Admin
             var excludedModules = new[] { "WowClassicInteract", "WowVanillaInteract", "WowAdminInteract", "CharacterResolver" };
             var wowMainCommands = commands
                 .Where(c => c.ModuleName.Contains("Wow") &&
@@ -316,6 +295,27 @@ namespace NinjaBotCore.Services
                     Description = "Character lookups, guild info, Mythic+, mounts, PvP, and more",
                     PermissionLevel = "public",
                     Commands = wowMainCommands
+                });
+            }
+
+            // WoW Classic & Vanilla
+            var wowClassicCommands = commands
+                .Where(c => c.ModuleName.Contains("Wow") &&
+                           classicModules.Contains(c.ModuleTypeName))
+                .Select(ToHelpCommand)
+                .OrderBy(c => c.Name)
+                .ToList();
+
+            if (wowClassicCommands.Any())
+            {
+                categories.Add(new HelpCategory
+                {
+                    Id = "wow_classic",
+                    Name = "WoW Classic & Vanilla",
+                    Emoji = "🏛️",
+                    Description = "Classic and Vanilla WoW guild management and logs",
+                    PermissionLevel = "public",
+                    Commands = wowClassicCommands
                 });
             }
 
