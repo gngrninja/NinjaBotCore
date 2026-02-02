@@ -23,13 +23,18 @@ namespace NinjaBotCore.Services
 
         // Cache expiration times
         private static readonly TimeSpan MainCharacterExpiration = TimeSpan.FromMinutes(15);
+
+        // Limits
+        private const int MaxSearchHistoryEntries = 30;
         private static readonly TimeSpan LogMonitoringExpiration = TimeSpan.FromMinutes(10);
         private static readonly TimeSpan WowResourcesExpiration = TimeSpan.FromHours(1);
         private static readonly TimeSpan SearchHistoryExpiration = TimeSpan.FromMinutes(15);
         private static readonly TimeSpan GreetingExpiration = TimeSpan.FromMinutes(30);
         private static readonly TimeSpan ArmoryEquipmentExpiration = TimeSpan.FromMinutes(5);
-        private static readonly TimeSpan Top10RankingsExpiration = TimeSpan.FromHours(1);
-        private static readonly TimeSpan CharacterEncounterRankingsExpiration = TimeSpan.FromMinutes(30);
+        private static readonly TimeSpan Top10RankingsExpiration = TimeSpan.FromHours(10);
+        private static readonly TimeSpan CharacterEncounterRankingsExpiration = TimeSpan.FromHours(10);
+        private static readonly TimeSpan ZoneRankingsExpiration = TimeSpan.FromHours(10);
+        private static readonly TimeSpan GuildReportsExpiration = TimeSpan.FromHours(10);
 
         public WowCacheService(IMemoryCache cache, IServiceScopeFactory scopeFactory, ILogger<WowCacheService> logger)
         {
@@ -266,9 +271,9 @@ namespace NinjaBotCore.Services
                         SearchCount = 1
                     });
 
-                    // Enforce max 30 entries per user - delete oldest/least used if over limit
+                    // Enforce max entries per user - delete oldest/least used if over limit
                     var count = await db.RioSearchHistory.CountAsync(h => h.DiscordUserId == userId);
-                    if (count >= 30)
+                    if (count >= MaxSearchHistoryEntries)
                     {
                         var oldest = await db.RioSearchHistory
                             .Where(h => h.DiscordUserId == userId)
@@ -415,6 +420,10 @@ namespace NinjaBotCore.Services
             };
 
             _cache.Set(cacheKey, rankings, cacheOptions);
+
+            // Track the key for bulk invalidation when new logs are detected
+            TrackTop10CacheKey(cacheKey);
+
             _logger.LogDebug("[Top10 Cache] SET: {CacheKey} ({Count} rankings)", cacheKey, rankings?.Count ?? 0);
         }
 
@@ -504,6 +513,187 @@ namespace NinjaBotCore.Services
             var cacheKey = GetCharEncounterCacheKey(characterName, realmSlug, region, encounterId, difficulty);
             _cache.Remove(cacheKey);
             _logger.LogDebug("[CharEncounter Cache] Invalidated: {CacheKey}", cacheKey);
+        }
+
+        // ===== Zone Rankings Cache (per-boss aggregate stats for /char logs overview) =====
+
+        /// <summary>
+        /// Generates cache key for character zone rankings
+        /// </summary>
+        private string GetZoneRankingsCacheKey(string characterName, string realmSlug, string region, int zoneId, int? difficulty)
+        {
+            var diffStr = difficulty?.ToString() ?? "all";
+            return $"zone_rankings_{characterName.ToLower()}_{realmSlug.ToLower()}_{region.ToLower()}_{zoneId}_{diffStr}";
+        }
+
+        /// <summary>
+        /// Gets cached zone rankings if available
+        /// </summary>
+        public WclV2ZoneRankingsData GetCachedZoneRankings(
+            string characterName,
+            string realmSlug,
+            string region,
+            int zoneId,
+            int? difficulty)
+        {
+            var cacheKey = GetZoneRankingsCacheKey(characterName, realmSlug, region, zoneId, difficulty);
+
+            if (_cache.TryGetValue<WclV2ZoneRankingsData>(cacheKey, out var cachedRankings))
+            {
+                _logger.LogDebug("[ZoneRankings Cache] HIT: {CacheKey}", cacheKey);
+                return cachedRankings;
+            }
+
+            _logger.LogDebug("[ZoneRankings Cache] MISS: {CacheKey}", cacheKey);
+            return null;
+        }
+
+        /// <summary>
+        /// Caches zone rankings
+        /// </summary>
+        public void SetCachedZoneRankings(
+            string characterName,
+            string realmSlug,
+            string region,
+            int zoneId,
+            int? difficulty,
+            WclV2ZoneRankingsData rankings)
+        {
+            var cacheKey = GetZoneRankingsCacheKey(characterName, realmSlug, region, zoneId, difficulty);
+
+            var cacheOptions = new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = ZoneRankingsExpiration,
+                Size = 1
+            };
+
+            _cache.Set(cacheKey, rankings, cacheOptions);
+            _logger.LogDebug("[ZoneRankings Cache] SET: {CacheKey} ({Count} bosses)", cacheKey, rankings?.Rankings?.Count ?? 0);
+        }
+
+        /// <summary>
+        /// Invalidates cached zone rankings for a character
+        /// </summary>
+        public void InvalidateZoneRankings(string characterName, string realmSlug, string region, int zoneId, int? difficulty)
+        {
+            var cacheKey = GetZoneRankingsCacheKey(characterName, realmSlug, region, zoneId, difficulty);
+            _cache.Remove(cacheKey);
+            _logger.LogDebug("[ZoneRankings Cache] Invalidated: {CacheKey}", cacheKey);
+        }
+
+        // ===== Guild Reports Cache (for /logs command) =====
+
+        /// <summary>
+        /// Generates cache key for guild reports
+        /// </summary>
+        private string GetGuildReportsCacheKey(string guildName, string realmSlug, string region)
+        {
+            return $"guild_reports_{guildName.ToLower()}_{realmSlug.ToLower()}_{region.ToLower()}";
+        }
+
+        /// <summary>
+        /// Gets cached guild reports if available
+        /// </summary>
+        public List<WclV2Report> GetCachedGuildReports(string guildName, string realmSlug, string region)
+        {
+            var cacheKey = GetGuildReportsCacheKey(guildName, realmSlug, region);
+
+            if (_cache.TryGetValue<List<WclV2Report>>(cacheKey, out var cachedReports))
+            {
+                _logger.LogDebug("[GuildReports Cache] HIT: {CacheKey}", cacheKey);
+                return cachedReports;
+            }
+
+            _logger.LogDebug("[GuildReports Cache] MISS: {CacheKey}", cacheKey);
+            return null;
+        }
+
+        /// <summary>
+        /// Caches guild reports
+        /// </summary>
+        public void SetCachedGuildReports(string guildName, string realmSlug, string region, List<WclV2Report> reports)
+        {
+            var cacheKey = GetGuildReportsCacheKey(guildName, realmSlug, region);
+
+            var cacheOptions = new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = GuildReportsExpiration,
+                Size = 1
+            };
+
+            _cache.Set(cacheKey, reports, cacheOptions);
+            _logger.LogDebug("[GuildReports Cache] SET: {CacheKey} ({Count} reports)", cacheKey, reports?.Count ?? 0);
+        }
+
+        /// <summary>
+        /// Invalidates cached guild reports
+        /// </summary>
+        public void InvalidateGuildReports(string guildName, string realmSlug, string region)
+        {
+            var cacheKey = GetGuildReportsCacheKey(guildName, realmSlug, region);
+            _cache.Remove(cacheKey);
+            _logger.LogDebug("[GuildReports Cache] Invalidated: {CacheKey}", cacheKey);
+        }
+
+        // ===== Bulk Invalidation for New Log Detection =====
+
+        // Track cache keys for bulk invalidation (IMemoryCache doesn't support prefix removal)
+        private static readonly HashSet<string> _top10CacheKeys = new();
+        private static readonly object _top10KeysLock = new();
+
+        /// <summary>
+        /// Registers a top10 cache key for later bulk invalidation
+        /// </summary>
+        private void TrackTop10CacheKey(string cacheKey)
+        {
+            lock (_top10KeysLock)
+            {
+                _top10CacheKeys.Add(cacheKey);
+            }
+        }
+
+        /// <summary>
+        /// Invalidates all WCL caches for a guild when a new log is detected.
+        /// Called by the log watcher service via API when posting new logs.
+        /// </summary>
+        /// <param name="guildName">Guild name</param>
+        /// <param name="realmSlug">Realm slug</param>
+        /// <param name="region">Region (us, eu, etc.)</param>
+        /// <returns>Number of cache entries invalidated</returns>
+        public int InvalidateGuildWclCaches(string guildName, string realmSlug, string region)
+        {
+            int invalidated = 0;
+
+            // 1. Invalidate guild reports
+            var guildReportsKey = GetGuildReportsCacheKey(guildName, realmSlug, region);
+            _cache.Remove(guildReportsKey);
+            invalidated++;
+
+            // 2. Invalidate top10 rankings for this realm
+            List<string> keysToRemove;
+            lock (_top10KeysLock)
+            {
+                var realmPattern = $"_{realmSlug.ToLower()}_{region.ToLower()}_";
+                keysToRemove = _top10CacheKeys
+                    .Where(k => k.Contains(realmPattern))
+                    .ToList();
+
+                foreach (var key in keysToRemove)
+                {
+                    _top10CacheKeys.Remove(key);
+                }
+            }
+
+            foreach (var key in keysToRemove)
+            {
+                _cache.Remove(key);
+                invalidated++;
+            }
+
+            _logger.LogInformation("[WCL Cache] Invalidated {Count} entries for guild {Guild} on {Realm}-{Region} (new log detected)",
+                invalidated, guildName, realmSlug, region);
+
+            return invalidated;
         }
     }
 }

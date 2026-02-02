@@ -287,7 +287,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             {
                 Name = name,
                 Realm = realm,
-                RealmSlug = realm.ToLower().Replace(" ", "-").Replace("'", ""),
+                RealmSlug = CharViewHelpers.ToRealmSlug(realm),
                 Region = region,
                 Locale = CharacterResolver.GetLocaleFromRegion(region)
             };
@@ -368,7 +368,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             {
                 Name = name,
                 Realm = realm,
-                RealmSlug = realm.ToLower().Replace(" ", "-").Replace("'", ""),
+                RealmSlug = CharViewHelpers.ToRealmSlug(realm),
                 Region = region,
                 Locale = CharacterResolver.GetLocaleFromRegion(region)
             };
@@ -453,7 +453,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             {
                 Name = name,
                 Realm = realm,
-                RealmSlug = realm.ToLower().Replace(" ", "-").Replace("'", ""),
+                RealmSlug = CharViewHelpers.ToRealmSlug(realm),
                 Region = region,
                 Locale = CharacterResolver.GetLocaleFromRegion(region)
             };
@@ -699,7 +699,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var pvpSummary = await pvpTask;
             var media = await mediaTask;
             ArmorySummary summary = null;
-            try { summary = await summaryTask; } catch { }
+            try { summary = await summaryTask; }
+            catch (Exception ex) { _logger.LogDebug(ex, "Failed to fetch armory summary for PvP view"); }
 
             if (pvpSummary == null)
             {
@@ -1203,7 +1204,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         }
 
         /// <summary>
-        /// Fetches WCL zone rankings using V2 API for current raid tier
+        /// Fetches WCL zone rankings using V2 API for current raid tier (cached for 10 hours)
         /// </summary>
         private async Task<(WclV2ZoneRankingsData Rankings, int ZoneId)> FetchWclV2DataAsync(CharacterInfo charInfo, int? difficultyFilter = null, int? partitionFilter = null)
         {
@@ -1219,6 +1220,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     return (null, 0);
                 }
 
+                // Check cache first
+                var cached = _wowCache.GetCachedZoneRankings(charInfo.Name, charInfo.RealmSlug, charInfo.Region, currentZoneId, difficultyFilter);
+                if (cached != null)
+                {
+                    _logger.LogDebug("Using cached zone rankings for {Name} on {Realm}-{Region}", charInfo.Name, charInfo.RealmSlug, charInfo.Region);
+                    return (cached, currentZoneId);
+                }
+
                 _logger.LogInformation("Fetching WCL V2 data for {Character} on {Realm}-{Region}, Zone: {ZoneId}, Partition: {Partition}",
                     charInfo.Name, charInfo.RealmSlug, charInfo.Region, currentZoneId, partitionFilter ?? 0);
 
@@ -1232,6 +1241,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
                 _logger.LogInformation("WCL V2 returned {Count} boss rankings for {Character}",
                     result?.Rankings?.Count ?? 0, charInfo.Name);
+
+                // Cache the result
+                if (result != null)
+                {
+                    _wowCache.SetCachedZoneRankings(charInfo.Name, charInfo.RealmSlug, charInfo.Region, currentZoneId, difficultyFilter, result);
+                }
 
                 return (result, currentZoneId);
             }
@@ -1283,10 +1298,18 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         }
 
         /// <summary>
-        /// Fetches WCL zone rankings with specific difficulty and partition filter
+        /// Fetches WCL zone rankings with specific difficulty and partition filter (cached for 1 hour)
         /// </summary>
         private async Task<WclV2ZoneRankingsData> FetchWclV2DataWithFiltersAsync(CharacterInfo charInfo, int zoneId, int? difficultyFilter, int? partitionFilter = null)
         {
+            // Check cache first
+            var cached = _wowCache.GetCachedZoneRankings(charInfo.Name, charInfo.RealmSlug, charInfo.Region, zoneId, difficultyFilter);
+            if (cached != null)
+            {
+                _logger.LogDebug("Using cached zone rankings for {Name} on {Realm}-{Region}", charInfo.Name, charInfo.RealmSlug, charInfo.Region);
+                return cached;
+            }
+
             _logger.LogInformation("Fetching WCL V2 data for {Name} on {Realm}-{Region}, Zone: {Zone}, Difficulty: {Diff}, Partition: {Part}",
                 charInfo.Name, charInfo.RealmSlug, charInfo.Region, zoneId, difficultyFilter?.ToString() ?? "null", partitionFilter?.ToString() ?? "null");
 
@@ -1299,6 +1322,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     zoneId,
                     difficultyFilter,
                     partitionFilter);
+
+                // Cache the result
+                if (result != null)
+                {
+                    _wowCache.SetCachedZoneRankings(charInfo.Name, charInfo.RealmSlug, charInfo.Region, zoneId, difficultyFilter, result);
+                }
 
                 return result;
             }
@@ -1337,7 +1366,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             {
                 Name = parts[0],
                 Realm = parts[1],
-                RealmSlug = parts[1].ToLower().Replace(" ", "-").Replace("'", ""),
+                RealmSlug = CharViewHelpers.ToRealmSlug(parts[1]),
                 Region = parts[2],
                 Locale = CharacterResolver.GetLocaleFromRegion(parts[2])
             };

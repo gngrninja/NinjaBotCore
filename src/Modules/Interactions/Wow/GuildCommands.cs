@@ -292,8 +292,18 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError($"Get-Guild Error getting guild info: [{ex.Message}]");
+                    _logger.LogError(ex, "Get-Guild Error getting guild info for {GuildName}", guildObject.guildName);
                 }
+
+                if (members.Count == 0)
+                {
+                    sb.AppendLine($"Guild **{guildObject.guildName}** found but no roster members available.");
+                    sb.AppendLine("The guild roster may still be syncing. Please try again in a moment.");
+                    embed.Description = sb.ToString();
+                    await FollowupAsync(embed: embed.Build());
+                    return;
+                }
+
                 string guildName = string.Empty;
                 string guildRealm = string.Empty;
                 string guildRegion = string.Empty;

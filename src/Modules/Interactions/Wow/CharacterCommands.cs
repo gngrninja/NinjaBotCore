@@ -151,8 +151,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 return;
             }
 
-            // Normalize realm name for comparison (remove spaces, hyphens, apostrophes, and lowercase)
-            string normalizedRealmName = realmName.Replace(" ", "").Replace("-", "").Replace("'", "").ToLower();
+            // Normalize realm name for comparison
+            string normalizedRealmName = CharViewHelpers.NormalizeRealmForComparison(realmName);
 
             var result = await WithDbAsync(async db =>
             {
@@ -161,7 +161,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     .Where(a => a.UserId == (long)Context.User.Id)
                     .AsEnumerable() // Switch to client-side evaluation for complex string operations
                     .Where(a => a.CharName.ToLower() == charName.ToLower() &&
-                                a.WowRealm.Replace(" ", "").Replace("-", "").Replace("'", "").ToLower() == normalizedRealmName)
+                                CharViewHelpers.NormalizeRealmForComparison(a.WowRealm) == normalizedRealmName)
                     .FirstOrDefault();
 
                 if (existingChar != null)

@@ -469,7 +469,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
         private static string BuildWclZoneUrl(CharacterInfo charInfo, int? zoneId, int? difficulty)
         {
             // Base URL: https://www.warcraftlogs.com/character/{region}/{realm}/{name}
-            var realmSlug = charInfo.RealmSlug ?? charInfo.Realm.ToLower().Replace(" ", "-").Replace("'", "");
+            var realmSlug = charInfo.RealmSlug ?? CharViewHelpers.ToRealmSlug(charInfo.Realm);
             var baseUrl = $"https://www.warcraftlogs.com/character/{charInfo.Region.ToLower()}/{realmSlug}/{charInfo.Name.ToLower()}";
 
             // Add zone and difficulty filters
@@ -617,8 +617,24 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             var pct = bossRanking.RankPercent ?? 0;
             embed.WithColor(CharViewHelpers.GetParseColor(pct));
 
-            // Summary stats
-            sb.AppendLine($"{CharViewHelpers.GetParseEmoji(pct)} **Best: {pct:F0}%** | Median: **{bossRanking.MedianPercent:F0}%** | Kills: **{bossRanking.TotalKills}**");
+            // Find the best parse for linking
+            var bestParse = encounterRankings?.Ranks?
+                .OrderByDescending(r => r.RankPercent ?? 0)
+                .FirstOrDefault();
+
+            // Summary stats - link best parse if available
+            string bestDisplay;
+            if (bestParse?.Report != null)
+            {
+                var bestUrl = $"https://www.warcraftlogs.com/reports/{bestParse.Report.Code}#fight={bestParse.Report.FightID}";
+                bestDisplay = $"[{pct:F0}%]({bestUrl})";
+            }
+            else
+            {
+                bestDisplay = $"{pct:F0}%";
+            }
+
+            sb.AppendLine($"{CharViewHelpers.GetParseEmoji(pct)} **Best:** {bestDisplay} | **Median:** {bossRanking.MedianPercent:F0}% | **Kills:** {bossRanking.TotalKills}");
             sb.AppendLine();
 
             // Display individual parses if available

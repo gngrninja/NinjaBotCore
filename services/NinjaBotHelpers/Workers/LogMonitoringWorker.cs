@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NinjaBotHelpers.Configuration;
@@ -18,6 +19,7 @@ public class LogMonitoringWorker : BackgroundService
     private readonly HelpersConfiguration _config;
     private readonly DiscordRestClient _discordClient;
     private readonly WarcraftLogsClient _wclClient;
+    private readonly IHttpClientFactory _httpClientFactory;
 
     private const int ColorBlue = 0x3498DB;
     private const int MaxBatchSize = 50;
@@ -27,13 +29,15 @@ public class LogMonitoringWorker : BackgroundService
         IServiceScopeFactory scopeFactory,
         HelpersConfiguration config,
         DiscordRestClient discordClient,
-        WarcraftLogsClient wclClient)
+        WarcraftLogsClient wclClient,
+        IHttpClientFactory httpClientFactory)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
         _config = config;
         _discordClient = discordClient;
         _wclClient = wclClient;
+        _httpClientFactory = httpClientFactory;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -427,11 +431,57 @@ public class LogMonitoringWorker : BackgroundService
             });
 
             await db.SaveChangesAsync(cancellationToken);
+
+            // Invalidate WCL caches on the main bot (fire and forget, don't block on failure)
+            _ = InvalidateBotCachesAsync(guild.GuildName, guild.ServerSlug, guild.ServerRegion, cancellationToken);
         }
         else
         {
             _logger.LogWarning("[LogMonitoring] Failed to post log to channel {ChannelId} for {GuildName}",
                 channelId, guild.GuildName);
+        }
+    }
+
+    /// <summary>
+    /// Calls the main bot's API to invalidate WCL caches when a new log is detected.
+    /// This is fire-and-forget to avoid blocking the log poster on cache invalidation.
+    /// </summary>
+    private async Task InvalidateBotCachesAsync(string guildName, string realmSlug, string region, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(_config.LogMonitoring.BotApiBaseUrl))
+        {
+            _logger.LogDebug("[LogMonitoring] Bot API URL not configured, skipping cache invalidation");
+            return;
+        }
+
+        try
+        {
+            using var httpClient = _httpClientFactory.CreateClient();
+            httpClient.BaseAddress = new Uri(_config.LogMonitoring.BotApiBaseUrl);
+
+            if (!string.IsNullOrEmpty(_config.LogMonitoring.BotApiKey))
+            {
+                httpClient.DefaultRequestHeaders.Add("X-Api-Key", _config.LogMonitoring.BotApiKey);
+            }
+
+            var request = new { GuildName = guildName, RealmSlug = realmSlug, Region = region };
+            var response = await httpClient.PostAsJsonAsync("/api/cache/wcl-invalidate", request, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("[LogMonitoring] Invalidated bot WCL caches for {Guild} on {Realm}-{Region}",
+                    guildName, realmSlug, region);
+            }
+            else
+            {
+                _logger.LogWarning("[LogMonitoring] Failed to invalidate bot caches: {StatusCode}",
+                    response.StatusCode);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Log but don't fail - cache invalidation is best-effort
+            _logger.LogWarning(ex, "[LogMonitoring] Error calling bot cache invalidation API");
         }
     }
 }

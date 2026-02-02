@@ -157,4 +157,16 @@ public class LogMonitoringSettings
     /// Check interval for Tier 3 guilds (hours) - inactive guilds
     /// </summary>
     public int Tier3IntervalHours { get; set; } = 24;
+
+    /// <summary>
+    /// Base URL for the main bot's Commands API (for cache invalidation).
+    /// Example: "http://localhost:5100" or "http://ninjabot:5100" in Docker.
+    /// Leave empty to disable cache invalidation calls.
+    /// </summary>
+    public string BotApiBaseUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// API key for the main bot's Commands API (must match the bot's configured API key)
+    /// </summary>
+    public string BotApiKey { get; set; } = string.Empty;
 }

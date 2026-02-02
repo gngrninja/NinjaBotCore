@@ -14,7 +14,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using NinjaBotCore.Models.Wow;
-using NinjaBotCore.Database;
 using NinjaBotCore.Modules.Wow;
 
 namespace NinjaBotCore.Modules.Interactions.Admin
@@ -339,6 +338,123 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                 _logger.LogError(ex, "Error refreshing raid tier");
                 await FollowupAsync($"Error: {ex.Message}", ephemeral: true);
             }
+        }
+
+        [SlashCommand("wcl-refresh", "Clear WarcraftLogs cache entries")]
+        [RequireUserPermission(GuildPermission.ManageGuild)]
+        public async Task RefreshWclCache(
+            [Summary("type", "Which cache to clear")]
+            [Choice("top10", "top10")]
+            [Choice("logs", "logs")]
+            [Choice("character", "character")]
+            [Choice("all", "all")]
+            string type = "all",
+            [Summary("character", "Character name (for character cache type)")]
+            string characterName = null,
+            [Summary("realm", "Realm name (for character cache type)")]
+            string realmName = null)
+        {
+            await DeferAsync(ephemeral: true);
+
+            try
+            {
+                var guildObject = await _wowUtils.GetGuildName(Context);
+                string realmSlug = realmName?.ToLower().Replace(" ", "-").Replace("'", "")
+                    ?? guildObject.realmSlug
+                    ?? guildObject.realmName?.ToLower().Replace(" ", "-").Replace("'", "") ?? "";
+                string region = guildObject.regionName ?? "us";
+                string guildName = guildObject.guildName;
+
+                var cleared = new List<string>();
+
+                if (type == "top10" || type == "all")
+                {
+                    _wowCache.InvalidateTop10Rankings(realmSlug, region);
+                    cleared.Add("Top10 rankings");
+                }
+
+                if (type == "logs" || type == "all")
+                {
+                    if (!string.IsNullOrEmpty(guildName))
+                    {
+                        _wowCache.InvalidateGuildReports(guildName, realmSlug, region);
+                        cleared.Add($"Guild reports ({guildName})");
+                    }
+                }
+
+                if (type == "character" || type == "all")
+                {
+                    // Get current zone for cache key
+                    var currentTier = await WithDbAsync(db => db.CurrentRaidTier.FirstOrDefaultAsync());
+                    var zoneId = (int)(currentTier?.WclZoneId ?? 0);
+
+                    if (zoneId > 0)
+                    {
+                        if (!string.IsNullOrEmpty(characterName))
+                        {
+                            // Clear specific character
+                            InvalidateCharacterZoneRankings(characterName, realmSlug, region, zoneId);
+                            cleared.Add($"Character rankings ({characterName})");
+                        }
+                        else
+                        {
+                            // Clear all saved characters for this Discord server
+                            var serverChars = await WithDbAsync(db => db.WowCharAssociation
+                                .Where(c => c.ServerId == (long)Context.Guild.Id)
+                                .Select(c => new { c.CharName, c.LocalRealmSlug, c.WowRegion })
+                                .Distinct()
+                                .ToListAsync());
+
+                            foreach (var ch in serverChars)
+                            {
+                                var charRealm = ch.LocalRealmSlug ?? realmSlug;
+                                var charRegion = ch.WowRegion ?? region;
+                                InvalidateCharacterZoneRankings(ch.CharName, charRealm, charRegion, zoneId);
+                            }
+
+                            if (serverChars.Count > 0)
+                            {
+                                cleared.Add($"Character rankings ({serverChars.Count} characters)");
+                            }
+                        }
+                    }
+                }
+
+                if (cleared.Count == 0)
+                {
+                    await FollowupAsync(embed: new EmbedBuilder()
+                        .WithTitle("WCL Cache")
+                        .WithColor(new Color(255, 165, 0))
+                        .WithDescription("No cache entries to clear. Specify a character name for character cache, or ensure guild association is set for logs cache.")
+                        .Build(), ephemeral: true);
+                    return;
+                }
+
+                await FollowupAsync(embed: new EmbedBuilder()
+                    .WithTitle("WCL Cache Cleared")
+                    .WithColor(new Color(0, 200, 100))
+                    .WithDescription($"Cleared: {string.Join(", ", cleared)}")
+                    .AddField("Realm", realmSlug, true)
+                    .AddField("Region", region.ToUpper(), true)
+                    .WithFooter("WCL caches: 10hr TTL, auto-invalidated on new logs")
+                    .Build(), ephemeral: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error refreshing WCL cache");
+                await FollowupAsync($"Error: {ex.Message}", ephemeral: true);
+            }
+        }
+
+        /// <summary>
+        /// Helper to invalidate all zone rankings cache entries for a character (all difficulties)
+        /// </summary>
+        private void InvalidateCharacterZoneRankings(string characterName, string realmSlug, string region, int zoneId)
+        {
+            _wowCache.InvalidateZoneRankings(characterName, realmSlug, region, zoneId, null);
+            _wowCache.InvalidateZoneRankings(characterName, realmSlug, region, zoneId, 3);
+            _wowCache.InvalidateZoneRankings(characterName, realmSlug, region, zoneId, 4);
+            _wowCache.InvalidateZoneRankings(characterName, realmSlug, region, zoneId, 5);
         }
 
         [SlashCommand("top10-refresh", "Clear cached top10 rankings for this server's realm")]

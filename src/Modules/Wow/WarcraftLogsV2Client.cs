@@ -41,9 +41,9 @@ namespace NinjaBotCore.Modules.Wow
         private DateTime _lastRateLimitCheck = DateTime.MinValue;
         private int _requestCounter = 0;
 
-        // Current raid tier cache (1 hour TTL)
+        // Current raid tier cache (10 hour TTL - matches WCL data cache)
         private static readonly Dictionary<WowGameVersion, (WclV2ZoneDetail Zone, DateTime CachedAt)> _raidTierCache = new();
-        private static readonly TimeSpan RaidTierCacheTtl = TimeSpan.FromHours(1);
+        private static readonly TimeSpan RaidTierCacheTtl = TimeSpan.FromHours(10);
 
         private const string TokenUrl = "https://www.warcraftlogs.com/oauth/token";
         private const string ApiUrlRetail = "https://www.warcraftlogs.com/api/v2/client";
@@ -894,7 +894,7 @@ namespace NinjaBotCore.Modules.Wow
             string guildName,
             string metric = "dps",
             int difficulty = 4,
-            int maxPages = 10,
+            int maxPages = 3,
             WowGameVersion gameVersion = WowGameVersion.Retail)
         {
             var allRankings = new List<WclV2CharacterRanking>();

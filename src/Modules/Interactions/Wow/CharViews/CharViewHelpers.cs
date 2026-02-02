@@ -138,10 +138,20 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
 
         /// <summary>
         /// Normalize realm name for comparison (removes spaces, dashes, apostrophes)
+        /// Example: "Sisters of Elune" → "sistersofelune"
         /// </summary>
         public static string NormalizeRealmForComparison(string realm)
         {
             return realm?.Replace(" ", "").Replace("-", "").Replace("'", "").ToLower() ?? "";
+        }
+
+        /// <summary>
+        /// Convert realm name to slug format for API calls
+        /// Example: "Sisters of Elune" → "sisters-of-elune"
+        /// </summary>
+        public static string ToRealmSlug(string realm)
+        {
+            return realm?.ToLower().Replace(" ", "-").Replace("'", "") ?? "";
         }
 
         /// <summary>

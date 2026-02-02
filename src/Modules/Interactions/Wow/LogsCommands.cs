@@ -216,7 +216,26 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 try
                 {
                     string realmSlug = guildObject.realmSlug ?? realmName.ToLower().Replace(" ", "-").Replace("'", "");
-                    var v2Reports = await _logsApiV2.GetGuildReportsAsync(guildName, realmSlug, guildRegion, limit: 3);
+
+                    // Check cache first
+                    var cachedReports = _wowCache.GetCachedGuildReports(guildName, realmSlug, guildRegion);
+                    List<WclV2Report> v2Reports;
+
+                    if (cachedReports != null)
+                    {
+                        v2Reports = cachedReports;
+                        _logger.LogDebug("[logs] Using cached reports for {GuildName}", guildName);
+                    }
+                    else
+                    {
+                        v2Reports = await _logsApiV2.GetGuildReportsAsync(guildName, realmSlug, guildRegion, limit: 3);
+
+                        // Cache the result
+                        if (v2Reports != null)
+                        {
+                            _wowCache.SetCachedGuildReports(guildName, realmSlug, guildRegion, v2Reports);
+                        }
+                    }
 
                     if (v2Reports != null && v2Reports.Count > 0)
                     {
@@ -438,7 +457,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                             guildName: guildName,
                             metric: metric,
                             difficulty: difficultyID,
-                            maxPages: 10);
+                            maxPages: 3);
 
                         // Dedupe by player name - keep only each player's best parse
                         top10Rankings = allGuildRankings
@@ -495,17 +514,6 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             if (top10Rankings != null && top10Rankings.Count > 0)
             {
-                // Get class info for display
-                List<WclV2Class> v2Classes = null;
-                try
-                {
-                    v2Classes = await _logsApiV2.GetCharacterClassesAsync();
-                }
-                catch
-                {
-                    _logger.LogWarning("[top10] Could not fetch character classes");
-                }
-
                 int rank = 1;
                 foreach (var r in top10Rankings)
                 {
@@ -772,7 +780,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                             guildName: guildName,
                             metric: metric,
                             difficulty: difficultyID,
-                            maxPages: 25);
+                            maxPages: 3);
 
                         // Deduplicate by player name - take best parse per player
                         top10Rankings = allGuildRankings
@@ -826,13 +834,6 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             if (top10Rankings != null && top10Rankings.Count > 0)
             {
-                List<WclV2Class> v2Classes = null;
-                try
-                {
-                    v2Classes = await _logsApiV2.GetCharacterClassesAsync();
-                }
-                catch { }
-
                 int rank = 1;
                 foreach (var r in top10Rankings)
                 {

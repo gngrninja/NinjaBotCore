@@ -228,6 +228,58 @@ namespace NinjaBotCore.Services
                     }
                 });
 
+                // Invalidate WCL caches when new log is detected (called by NinjaBotHelpers)
+                _app.MapPost("/api/cache/wcl-invalidate", async (HttpContext context) =>
+                {
+                    // Validate API key
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        var providedKey = context.Request.Headers["X-Api-Key"].ToString();
+                        if (providedKey != apiKey)
+                        {
+                            _logger.LogWarning("Cache invalidation request with invalid API key from {IP}",
+                                context.Connection.RemoteIpAddress);
+                            return Results.Unauthorized();
+                        }
+                    }
+
+                    // Parse request body
+                    WclCacheInvalidateRequest? request;
+                    try
+                    {
+                        request = await context.Request.ReadFromJsonAsync<WclCacheInvalidateRequest>();
+                    }
+                    catch
+                    {
+                        return Results.BadRequest(new { error = "Invalid JSON body" });
+                    }
+
+                    if (request == null || string.IsNullOrEmpty(request.GuildName) ||
+                        string.IsNullOrEmpty(request.RealmSlug) || string.IsNullOrEmpty(request.Region))
+                    {
+                        return Results.BadRequest(new { error = "GuildName, RealmSlug, and Region are required" });
+                    }
+
+                    // Get cache service and invalidate
+                    using var scope = _serviceProvider.CreateScope();
+                    var wowCache = scope.ServiceProvider.GetRequiredService<WowCacheService>();
+
+                    var invalidatedCount = wowCache.InvalidateGuildWclCaches(
+                        request.GuildName, request.RealmSlug, request.Region);
+
+                    _logger.LogInformation("WCL cache invalidated via API for guild {Guild} on {Realm}-{Region}: {Count} entries",
+                        request.GuildName, request.RealmSlug, request.Region, invalidatedCount);
+
+                    return Results.Ok(new
+                    {
+                        success = true,
+                        invalidatedCount,
+                        guild = request.GuildName,
+                        realm = request.RealmSlug,
+                        region = request.Region
+                    });
+                });
+
                 // Add character via API (for web dashboard)
                 _app.MapPost("/api/characters/add", async (HttpContext context) =>
                 {
@@ -3736,6 +3788,11 @@ namespace NinjaBotCore.Services
     /// Request body for the refresh-roster endpoint.
     /// </summary>
     public record RefreshRosterRequest(string DiscordGuildId);
+
+    /// <summary>
+    /// Request body for WCL cache invalidation (called by NinjaBotHelpers when new log detected).
+    /// </summary>
+    public record WclCacheInvalidateRequest(string GuildName, string RealmSlug, string Region);
 
     /// <summary>
     /// Request body for the add-character endpoint.
