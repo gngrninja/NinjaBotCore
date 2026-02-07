@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -41,9 +42,20 @@ namespace NinjaBotCore.Modules.Wow
         private DateTime _lastRateLimitCheck = DateTime.MinValue;
         private int _requestCounter = 0;
 
-        // Current raid tier cache (10 hour TTL - matches WCL data cache)
-        private static readonly Dictionary<WowGameVersion, (WclV2ZoneDetail Zone, DateTime CachedAt)> _raidTierCache = new();
-        private static readonly TimeSpan RaidTierCacheTtl = TimeSpan.FromHours(10);
+        // Current raid tier cache (7 day TTL - boss encounters are static data that only changes when new raids release)
+        // Using ConcurrentDictionary for thread-safety (singleton service, static cache)
+        private static readonly ConcurrentDictionary<WowGameVersion, (WclV2ZoneDetail Zone, DateTime CachedAt)> _raidTierCache = new();
+        private static readonly TimeSpan RaidTierCacheTtl = TimeSpan.FromDays(7);
+
+        /// <summary>
+        /// Clears the raid tier cache, forcing a fresh fetch on next request.
+        /// Call this when a new raid releases or after /refresh-raid-tier.
+        /// </summary>
+        public void ClearRaidTierCache()
+        {
+            _raidTierCache.Clear();
+            _logger.LogInformation("Raid tier cache cleared");
+        }
 
         private const string TokenUrl = "https://www.warcraftlogs.com/oauth/token";
         private const string ApiUrlRetail = "https://www.warcraftlogs.com/api/v2/client";

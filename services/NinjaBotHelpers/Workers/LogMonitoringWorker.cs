@@ -129,7 +129,7 @@ public class LogMonitoringWorker : BackgroundService
         }
     }
 
-    private async Task<List<GuildCheckInfo>> GetGuildsToCheckAsync(
+    internal async Task<List<GuildCheckInfo>> GetGuildsToCheckAsync(
         WowGameVersion gameVersion,
         List<LogMonitoring> monitoringConfigs,
         HelpersDbContext db,
@@ -242,7 +242,7 @@ public class LogMonitoringWorker : BackgroundService
     /// <param name="lastLogFound">When a log was last found for this guild (determines tier)</param>
     /// <param name="lastChecked">When we last checked WCL for this guild (determines if check is due)</param>
     /// <param name="now">Current UTC time</param>
-    private bool ShouldCheckGuild(DateTime? lastLogFound, DateTime? lastChecked, DateTime now)
+    internal bool ShouldCheckGuild(DateTime? lastLogFound, DateTime? lastChecked, DateTime now)
     {
         var settings = _config.LogMonitoring;
 
@@ -275,7 +275,7 @@ public class LogMonitoringWorker : BackgroundService
         return minutesSinceLastCheck >= settings.Tier3IntervalHours * 60;
     }
 
-    private async Task ProcessBatchAsync(
+    internal async Task ProcessBatchAsync(
         WowGameVersion gameVersion,
         List<GuildCheckInfo> guilds,
         List<LogMonitoring> monitoringConfigs,
@@ -290,6 +290,12 @@ public class LogMonitoringWorker : BackgroundService
         try
         {
             batchResult = await _wclClient.GetBatchGuildReportsAsync(guildTuples, gameVersion, cancellationToken);
+        }
+        catch (WclRateLimitException ex)
+        {
+            _logger.LogWarning("[LogMonitoring] WCL rate limit reached for {GameVersion} batch ({Percent:F1}% used). Will retry next cycle.",
+                gameVersion, ex.RateLimitData.UsagePercent);
+            return;
         }
         catch (Exception ex)
         {
@@ -360,7 +366,7 @@ public class LogMonitoringWorker : BackgroundService
         }
     }
 
-    private async Task PostNewLogAsync(
+    internal async Task PostNewLogAsync(
         GuildCheckInfo guild,
         WclV2Report report,
         WowGameVersion gameVersion,

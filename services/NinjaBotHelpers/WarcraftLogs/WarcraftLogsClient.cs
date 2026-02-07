@@ -4,6 +4,8 @@ using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NinjaBotHelpers.Configuration;
+using Polly;
+using Polly.Retry;
 
 namespace NinjaBotHelpers.WarcraftLogs;
 
@@ -16,6 +18,7 @@ public class WarcraftLogsClient
     private readonly HttpClient _httpClient;
     private readonly ILogger<WarcraftLogsClient> _logger;
     private readonly HelpersConfiguration _config;
+    private readonly ResiliencePipeline<HttpResponseMessage> _resiliencePipeline;
 
     private WclV2TokenResponse? _currentToken;
     private WclV2RateLimitData? _lastRateLimitData;
@@ -30,12 +33,48 @@ public class WarcraftLogsClient
     private const int RateLimitCheckInterval = 10;
     private const double WarningThreshold = 80.0;
     private const double CriticalThreshold = 95.0;
+    private const int MinRateLimitWaitSeconds = 10;
+    private const int MaxRateLimitWaitSeconds = 3600;
+
+    /// <summary>
+    /// Exposes last rate limit data for test seeding
+    /// </summary>
+    internal WclV2RateLimitData? LastRateLimitData
+    {
+        get => _lastRateLimitData;
+        set => _lastRateLimitData = value;
+    }
 
     public WarcraftLogsClient(HttpClient httpClient, ILogger<WarcraftLogsClient> logger, HelpersConfiguration config)
     {
         _httpClient = httpClient;
         _logger = logger;
         _config = config;
+
+        // Configure resilience pipeline for GraphQL API calls
+        _resiliencePipeline = new ResiliencePipelineBuilder<HttpResponseMessage>()
+            .AddRetry(new RetryStrategyOptions<HttpResponseMessage>
+            {
+                MaxRetryAttempts = 3,
+                Delay = TimeSpan.FromSeconds(2),
+                BackoffType = DelayBackoffType.Exponential,
+                UseJitter = true,
+                ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
+                    .Handle<HttpRequestException>()
+                    .Handle<TaskCanceledException>()
+                    .HandleResult(response =>
+                        (int)response.StatusCode == 429 ||
+                        (int)response.StatusCode >= 500),
+                OnRetry = args =>
+                {
+                    var statusCode = args.Outcome.Result?.StatusCode.ToString() ?? "Exception";
+                    _logger.LogWarning(
+                        "[WCL] Retry attempt {AttemptNumber}. Status: {StatusCode}",
+                        args.AttemptNumber, statusCode);
+                    return ValueTask.CompletedTask;
+                }
+            })
+            .Build();
 
         if (string.IsNullOrEmpty(_config.WclClientId) || string.IsNullOrEmpty(_config.WclClientSecret))
         {
@@ -114,30 +153,47 @@ public class WarcraftLogsClient
         WowGameVersion gameVersion = WowGameVersion.Retail,
         CancellationToken cancellationToken = default)
     {
-        // Check if we're approaching rate limits
+        // Check if we're approaching rate limits - wait for reset instead of hard stop
         if (_lastRateLimitData != null && _lastRateLimitData.UsagePercent >= CriticalThreshold)
         {
-            _logger.LogError("[WCL] Blocking request - rate limit at {Percent:F1}%. Wait {ResetIn}s for reset.",
-                _lastRateLimitData.UsagePercent, _lastRateLimitData.PointsResetIn);
-            throw new InvalidOperationException($"Rate limit exceeded: {_lastRateLimitData.UsagePercent:F1}% used");
+            var waitSeconds = Math.Clamp(_lastRateLimitData.PointsResetIn, MinRateLimitWaitSeconds, MaxRateLimitWaitSeconds);
+            _logger.LogWarning("[WCL] Rate limit at {Percent:F1}%. Waiting {WaitSeconds}s for reset.",
+                _lastRateLimitData.UsagePercent, waitSeconds);
+
+            await Task.Delay(TimeSpan.FromSeconds(waitSeconds), cancellationToken);
+
+            // Refresh rate limit data after waiting
+            await CheckRateLimitAsync(gameVersion, cancellationToken);
+
+            // If STILL over limit after waiting, throw typed exception
+            if (_lastRateLimitData != null && _lastRateLimitData.UsagePercent >= CriticalThreshold)
+            {
+                throw new WclRateLimitException(_lastRateLimitData);
+            }
+
+            _logger.LogInformation("[WCL] Rate limit recovered to {Percent:F1}% after waiting. Resuming.",
+                _lastRateLimitData?.UsagePercent ?? 0);
         }
 
         var token = await GetAccessTokenAsync(cancellationToken);
         var apiUrl = GetApiUrl(gameVersion);
-
-        using var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         var graphqlRequest = new GraphQLRequest
         {
             Query = query,
             Variables = variables
         };
-
         var json = JsonConvert.SerializeObject(graphqlRequest);
-        request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        // Use Polly resilience pipeline - must recreate request for each retry (POST)
+        using var response = await _resiliencePipeline.ExecuteAsync(async ct =>
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+            return await _httpClient.SendAsync(request, ct);
+        }, cancellationToken);
+
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
 
         if (!response.IsSuccessStatusCode)
@@ -167,9 +223,13 @@ public class WarcraftLogsClient
             }
         }
 
-        // Check rate limits periodically
+        // Check rate limits proactively - at warning threshold or periodically
         _requestCounter++;
-        if (_requestCounter >= RateLimitCheckInterval || DateTime.UtcNow - _lastRateLimitCheck > TimeSpan.FromMinutes(5))
+        var shouldCheck = _requestCounter >= RateLimitCheckInterval
+            || DateTime.UtcNow - _lastRateLimitCheck > TimeSpan.FromMinutes(5)
+            || (_lastRateLimitData != null && _lastRateLimitData.UsagePercent >= WarningThreshold);
+
+        if (shouldCheck)
         {
             await CheckRateLimitAsync(gameVersion, cancellationToken);
             _requestCounter = 0;
@@ -181,7 +241,7 @@ public class WarcraftLogsClient
     /// <summary>
     /// Check current rate limit status
     /// </summary>
-    private async Task CheckRateLimitAsync(WowGameVersion gameVersion = WowGameVersion.Retail, CancellationToken cancellationToken = default)
+    internal async Task CheckRateLimitAsync(WowGameVersion gameVersion = WowGameVersion.Retail, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -189,13 +249,17 @@ public class WarcraftLogsClient
             var token = await GetAccessTokenAsync(cancellationToken);
             var apiUrl = GetApiUrl(gameVersion);
 
-            using var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-
             var graphqlRequest = new GraphQLRequest { Query = query };
-            request.Content = new StringContent(JsonConvert.SerializeObject(graphqlRequest), Encoding.UTF8, "application/json");
+            var json = JsonConvert.SerializeObject(graphqlRequest);
 
-            using var response = await _httpClient.SendAsync(request, cancellationToken);
+            using var response = await _resiliencePipeline.ExecuteAsync(async ct =>
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+                return await _httpClient.SendAsync(request, ct);
+            }, cancellationToken);
+
             if (response.IsSuccessStatusCode)
             {
                 var content = await response.Content.ReadAsStringAsync(cancellationToken);

@@ -281,19 +281,6 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     embed.Description = sb.ToString();
                     await RespondAsync(embed: embed.Build(), ephemeral: true);
                 }
-                else if (guildLogs.Count == 1)
-                {
-                    sb.AppendLine($"[__**{guildLogs[0].title}** **/** **{guildLogs[0].zoneName}**__]({guildLogs[0].reportURL})");
-                    sb.AppendLine($"\t:timer: Start time: **{guildLogs[0].start.UnixTimeStampToDateTime()}**");
-                    sb.AppendLine($"\t:stopwatch: End time: **{guildLogs[0].end.UnixTimeStampToDateTime()}**");
-                    sb.AppendLine($"\t:mag: [WoWAnalyzer](https://wowanalyzer.com/report/{guildLogs[0].id}) | :sob: [WipeFest](https://www.wipefest.net/report/{guildLogs[arrayCount].id})");
-                    sb.AppendLine($"\t");
-                    sb.AppendLine();
-                    _logger.LogInformation($"Sending logs to {Context.Channel.Name}, requested by {Context.User.Username}");
-                    embed.Title = $":1234: __Logs for **{guildName}** on **{realmName}**__:1234: ";
-                    embed.Description = sb.ToString();
-                    await RespondAsync(embed: embed.Build(), ephemeral: true);
-                }
                 else
                 {
                     embed.Title = $"Unable to find logs for {guildName} on {realmName} ({guildRegion})";

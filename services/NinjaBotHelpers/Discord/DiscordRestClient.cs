@@ -2,6 +2,8 @@ using System.Net.Http.Headers;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Polly;
+using Polly.Retry;
 
 namespace NinjaBotHelpers.Discord;
 
@@ -14,11 +16,46 @@ public class DiscordRestClient
     private const string DiscordApiBase = "https://discord.com/api/v10";
     private readonly HttpClient _httpClient;
     private readonly ILogger<DiscordRestClient> _logger;
+    private readonly ResiliencePipeline<HttpResponseMessage> _resiliencePipeline;
 
     public DiscordRestClient(HttpClient httpClient, ILogger<DiscordRestClient> logger)
     {
         _httpClient = httpClient;
         _logger = logger;
+
+        // Configure resilience pipeline for Discord REST API calls
+        _resiliencePipeline = new ResiliencePipelineBuilder<HttpResponseMessage>()
+            .AddRetry(new RetryStrategyOptions<HttpResponseMessage>
+            {
+                MaxRetryAttempts = 2,
+                Delay = TimeSpan.FromSeconds(1),
+                BackoffType = DelayBackoffType.Exponential,
+                UseJitter = true,
+                ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
+                    .Handle<HttpRequestException>()
+                    .Handle<TaskCanceledException>()
+                    .HandleResult(response =>
+                        (int)response.StatusCode == 429 ||
+                        (int)response.StatusCode >= 500),
+                DelayGenerator = args =>
+                {
+                    // Respect Discord's Retry-After header if present
+                    if (args.Outcome.Result?.Headers.RetryAfter?.Delta is TimeSpan retryAfter)
+                    {
+                        return ValueTask.FromResult<TimeSpan?>(retryAfter);
+                    }
+                    return ValueTask.FromResult<TimeSpan?>(null); // Use default delay
+                },
+                OnRetry = args =>
+                {
+                    var statusCode = args.Outcome.Result?.StatusCode.ToString() ?? "Exception";
+                    _logger.LogWarning(
+                        "[Discord] Retry attempt {AttemptNumber}. Status: {StatusCode}",
+                        args.AttemptNumber, statusCode);
+                    return ValueTask.CompletedTask;
+                }
+            })
+            .Build();
     }
 
     /// <summary>
@@ -33,15 +70,17 @@ public class DiscordRestClient
                 embeds = new[] { embed }
             };
 
-            var content = new StringContent(
-                JsonConvert.SerializeObject(payload),
-                Encoding.UTF8,
-                "application/json");
+            var json = JsonConvert.SerializeObject(payload);
 
-            var response = await _httpClient.PostAsync(
-                $"{DiscordApiBase}/channels/{channelId}/messages",
-                content,
-                cancellationToken);
+            // Use Polly resilience pipeline - recreate content for each retry (POST)
+            using var response = await _resiliencePipeline.ExecuteAsync(async ct =>
+            {
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                return await _httpClient.PostAsync(
+                    $"{DiscordApiBase}/channels/{channelId}/messages",
+                    content,
+                    ct);
+            }, cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {

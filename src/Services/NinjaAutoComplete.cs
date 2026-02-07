@@ -680,14 +680,10 @@ namespace NinjaBotCore.Services
     /// <summary>
     /// Autocomplete handler for WarcraftLogs encounter/boss names.
     /// Fetches the current raid tier and returns matching encounters.
+    /// Uses WarcraftLogsV2Client's internal cache (10hr TTL).
     /// </summary>
     public class EncounterAutocomplete : AutocompleteHandler
     {
-        private static readonly MemoryCache _cache = new MemoryCache(new MemoryCacheOptions
-        {
-            SizeLimit = 10 // Cache a few raid tiers
-        });
-
         public override async Task<AutocompletionResult> GenerateSuggestionsAsync(
             IInteractionContext context,
             IAutocompleteInteraction autocompleteInteraction,
@@ -700,33 +696,19 @@ namespace NinjaBotCore.Services
                 var logsApi = services.GetRequiredService<WarcraftLogsV2Client>();
                 var userInput = (autocompleteInteraction.Data.Current.Value as string ?? "").ToLower().Trim();
 
-                // Cache key for current raid tier
-                const string cacheKey = "wcl_current_raid_tier";
-
-                // Try to get from cache first
-                if (!_cache.TryGetValue(cacheKey, out WclV2ZoneDetail currentTier))
+                // GetCurrentRaidTierAsync has its own 10hr cache in WarcraftLogsV2Client
+                WclV2ZoneDetail currentTier;
+                try
                 {
-                    try
+                    currentTier = await logsApi.GetCurrentRaidTierAsync();
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogWarning(ex, "Failed to fetch current raid tier for autocomplete");
+                    return AutocompletionResult.FromSuccess(new[]
                     {
-                        currentTier = await logsApi.GetCurrentRaidTierAsync();
-                        if (currentTier?.Encounters != null)
-                        {
-                            // Cache for 1 hour (raid tier doesn't change often)
-                            _cache.Set(cacheKey, currentTier, new MemoryCacheEntryOptions
-                            {
-                                AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1),
-                                Size = 1
-                            });
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        logger?.LogWarning(ex, "Failed to fetch current raid tier for autocomplete");
-                        return AutocompletionResult.FromSuccess(new[]
-                        {
-                            new AutocompleteResult("Unable to load encounters - try again", "error")
-                        });
-                    }
+                        new AutocompleteResult("Unable to load encounters - try again", "error")
+                    });
                 }
 
                 if (currentTier?.Encounters == null || !currentTier.Encounters.Any())

@@ -172,6 +172,27 @@ public class WclV2RateLimitResponse
 }
 
 /// <summary>
+/// Thrown when the WarcraftLogs API rate limit is at critical threshold
+/// and cannot proceed even after waiting for reset.
+/// </summary>
+public class WclRateLimitException : Exception
+{
+    public WclV2RateLimitData RateLimitData { get; }
+
+    public WclRateLimitException(WclV2RateLimitData rateLimitData)
+        : base($"WCL rate limit at {rateLimitData.UsagePercent:F1}% after waiting for reset")
+    {
+        RateLimitData = rateLimitData;
+    }
+
+    public WclRateLimitException(string message, WclV2RateLimitData rateLimitData)
+        : base(message)
+    {
+        RateLimitData = rateLimitData;
+    }
+}
+
+/// <summary>
 /// WoW game version for API endpoint selection
 /// </summary>
 public enum WowGameVersion

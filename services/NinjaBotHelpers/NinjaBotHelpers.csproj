@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="NinjaBotHelpers.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Entity Framework Core for PostgreSQL -->
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.9" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.3" />

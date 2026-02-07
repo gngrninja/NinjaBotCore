@@ -322,6 +322,9 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                     await db.SaveChangesAsync();
                 });
 
+                // Clear in-memory cache so all commands pick up the new tier immediately
+                _warcraftLogsV2.ClearRaidTierCache();
+
                 var embed = new EmbedBuilder()
                     .WithTitle("Raid Tier Refreshed")
                     .WithColor(new Color(0, 200, 100))
