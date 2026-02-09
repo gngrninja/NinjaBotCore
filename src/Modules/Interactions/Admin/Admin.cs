@@ -352,7 +352,8 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         }
 
         [SlashCommand("wcl-refresh", "Clear WarcraftLogs cache entries")]
-        [RequireUserPermission(GuildPermission.ManageGuild)]
+        [RequireUserPermission(GuildPermission.Administrator)]
+        [DefaultMemberPermissions(GuildPermission.Administrator)]
         public async Task RefreshWclCache(
             [Summary("type", "Which cache to clear")]
             [Choice("top10", "top10")]

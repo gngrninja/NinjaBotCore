@@ -409,60 +409,6 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             }
         }
 
-        [SlashCommand("test", "Send test alerts to verify your watch is working")]
-        public async Task TestWatch(
-            [Summary("realm", "Realm to test")][Autocomplete(typeof(WatchedRealmAutocomplete))] string realm)
-        {
-            await DeferAsync(ephemeral: true);
-
-            try
-            {
-                var realmSlug = RealmHelper.ToSlug(realm);
-
-                var result = await WithDbAsync(async db =>
-                {
-                    // Find user's subscription for this realm (region is stored in subscription)
-                    var subscription = await db.RealmWatchSubscriptions
-                        .FirstOrDefaultAsync(s =>
-                            s.UserId == (long)Context.User.Id &&
-                            s.RealmSlug == realmSlug);
-
-                    if (subscription == null)
-                        return (false, (string)null, (string)null);
-
-                    // Flip the cached status - watcher will detect change and alert
-                    var cached = await db.RealmStatusCache
-                        .FirstOrDefaultAsync(c =>
-                            c.Region.ToLower() == subscription.Region.ToLower() &&
-                            c.ConnectedRealmId == subscription.ConnectedRealmId);
-
-                    if (cached != null)
-                    {
-                        var oldStatus = cached.IsOnline ? "online" : "offline";
-                        cached.IsOnline = !cached.IsOnline;
-                        await db.SaveChangesAsync();
-                        var newStatus = cached.IsOnline ? "online" : "offline";
-                        return (true, subscription.RealmName, $"{oldStatus} → {newStatus}");
-                    }
-
-                    return (true, subscription.RealmName, "no cached status yet - will alert on first check");
-                });
-
-                if (!result.Item1)
-                {
-                    await FollowupAsync($"You don't have a watch on **{realm}**. Use `/realm-watch add` first.", ephemeral: true);
-                    return;
-                }
-
-                await FollowupAsync($"Flipped cached status for **{result.Item2}** ({result.Item3}). Alert will be sent on next watcher cycle (within 60 seconds).", ephemeral: true);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error triggering test alert");
-                await FollowupAsync("An error occurred. Please try again.", ephemeral: true);
-            }
-        }
-
         #region Helper Methods
 
         /// <summary>

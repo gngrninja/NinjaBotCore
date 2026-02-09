@@ -232,8 +232,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         }
 
         [SlashCommand("migrate-watchers", "Migrate old voice watcher data to new moderation watcher system (one-time use)")]
-        [RequireUserPermission(GuildPermission.Administrator)]
-        [DefaultMemberPermissions(GuildPermission.Administrator)]
+        [RequireOwner]
         public async Task MigrateWatchersCommand()
         {
             var embed = new EmbedBuilder();

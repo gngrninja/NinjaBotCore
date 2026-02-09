@@ -359,49 +359,6 @@ namespace NinjaBotCore.Tests
 
         #endregion
 
-        #region Test Alert Flip Logic
-
-        [Fact]
-        public async Task TestWatch_FlipsStatus_ForNextAlert()
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
-
-            // Setup subscription and cache
-            db.RealmWatchSubscriptions.Add(new RealmWatchSubscription
-            {
-                GuildId = 123,
-                UserId = 456,
-                RealmSlug = "stormrage",
-                RealmName = "Stormrage",
-                Region = "us",
-                ConnectedRealmId = 1,
-                CreatedAt = DateTime.UtcNow
-            });
-
-            db.RealmStatusCache.Add(new RealmStatusCache
-            {
-                Region = "us",
-                ConnectedRealmId = 1,
-                RealmName = "Stormrage",
-                IsOnline = true,
-                HasQueue = false,
-                LastCheckedAt = DateTime.UtcNow
-            });
-            await db.SaveChangesAsync();
-
-            // Flip status (like test command does)
-            var cached = await db.RealmStatusCache
-                .FirstAsync(c => c.Region == "us" && c.ConnectedRealmId == 1);
-            cached.IsOnline = !cached.IsOnline;
-            await db.SaveChangesAsync();
-
-            var updated = await db.RealmStatusCache.FirstAsync();
-            Assert.False(updated.IsOnline); // Was true, now false
-        }
-
-        #endregion
-
         #region WowRealms Lookup Tests
 
         [Fact]

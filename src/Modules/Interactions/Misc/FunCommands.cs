@@ -34,8 +34,8 @@ namespace NinjaBotCore.Modules.Interactions.Fun
             await RespondAsync(text: $"Status set to {args}", ephemeral: true);
         }
 
-        [SlashCommand("donate", "donate!")]        
-        public async Task Donate()
+        [SlashCommand("support-ninjabot", "Support NinjaBot!")]
+        public async Task SupportNinjaBot()
         {
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
@@ -44,11 +44,10 @@ namespace NinjaBotCore.Modules.Interactions.Fun
             sb.AppendLine();
             sb.AppendLine($"Every little bit counts!");
             sb.AppendLine();
-            sb.AppendLine($"[Donate To Support NinjaBot!]({_config["DonateUrl"]}/5) :thumbsup:");
+            sb.AppendLine($"[Support NinjaBot!](https://bot.gnja.io/support)");
 
-            embed.ThumbnailUrl = "https://static1.squarespace.com/static/5644323de4b07810c0b6db7b/t/5931c57f46c3c47b464d717a/1496434047310/FdxsNNRt.jpg";            
             embed.WithColor(new Color(0, 255, 0));
-            embed.Title = $"{Context.User.Username}, help keep NinjaBot going!";            
+            embed.Title = $"{Context.User.Username}, help keep NinjaBot going!";
             embed.Description = sb.ToString();
 
             await RespondAsync(embed: embed.Build(), ephemeral: true);
