@@ -2,9 +2,6 @@ using Discord;
 using Discord.Interactions;
 using Discord.WebSocket;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -30,6 +27,12 @@ namespace NinjaBotCore.Modules.Interactions.Misc
         }
 
         private HelpContent? HelpContent => _helpProvider.GetHelpContent();
+        private string? AvatarUrl => Context.Client.CurrentUser.GetAvatarUrl();
+        private string? Version => HelpContent?.Metadata?.Version;
+        private bool IsOwnerUser => IsOwner(Context.User.Id);
+
+        private Func<string, bool> PermissionCheck =>
+            perm => HasPermissionForCommand(Context.User as SocketGuildUser, perm);
 
         [SlashCommand("help", "Browse NinjaBot commands by category")]
         public async Task Help()
@@ -42,8 +45,8 @@ namespace NinjaBotCore.Modules.Interactions.Misc
                     return;
                 }
 
-                var embed = BuildWelcomeEmbed();
-                var components = BuildCategorySelectMenu(Context);
+                var embed = HelpViewBuilder.BuildWelcomeEmbed(AvatarUrl, Version);
+                var components = HelpViewBuilder.BuildCategorySelectMenu(HelpContent, IsOwnerUser, PermissionCheck);
 
                 await RespondAsync(embed: embed.Build(), components: components.Build(), ephemeral: true);
             }
@@ -65,8 +68,8 @@ namespace NinjaBotCore.Modules.Interactions.Misc
 
                 if (categoryId == "welcome")
                 {
-                    var welcomeEmbed = BuildWelcomeEmbed();
-                    var components = BuildCategorySelectMenu(Context);
+                    var welcomeEmbed = HelpViewBuilder.BuildWelcomeEmbed(AvatarUrl, Version);
+                    var components = HelpViewBuilder.BuildCategorySelectMenu(HelpContent, IsOwnerUser, PermissionCheck);
 
                     await ModifyOriginalResponseAsync(msg =>
                     {
@@ -76,13 +79,13 @@ namespace NinjaBotCore.Modules.Interactions.Misc
                     return;
                 }
 
-                var embed = BuildCategoryEmbed(categoryId, Context);
-                var selectMenu = BuildCategorySelectMenu(Context);
+                var embed = HelpViewBuilder.BuildCategoryEmbed(HelpContent, categoryId, 0, AvatarUrl, Version, PermissionCheck);
+                var categoryComponents = HelpViewBuilder.BuildCategoryComponents(HelpContent, categoryId, 0, Context.User.Id, IsOwnerUser, PermissionCheck);
 
                 await ModifyOriginalResponseAsync(msg =>
                 {
                     msg.Embed = embed.Build();
-                    msg.Components = selectMenu.Build();
+                    msg.Components = categoryComponents.Build();
                 });
             }
             catch (Exception ex)
@@ -91,130 +94,112 @@ namespace NinjaBotCore.Modules.Interactions.Misc
             }
         }
 
-        private EmbedBuilder BuildWelcomeEmbed()
+        [ComponentInteraction("help_first~*~*~*")]
+        public async Task HandleHelpFirst(string userIdStr, string categoryId, string currentPageStr)
         {
-            var embed = new EmbedBuilder();
-            embed.Title = "🟣 NinjaBot Help System";
-            embed.Description = "Select a category below to view available commands.\n\n" +
-                "Commands are filtered based on your permissions.";
-            embed.WithColor(new Color(0, 0, 255));
-            embed.ThumbnailUrl = Context.Client.CurrentUser.GetAvatarUrl();
-            embed.WithFooter($"NinjaBot v{HelpContent?.Metadata?.Version ?? "1.0.0"}");
-            embed.WithCurrentTimestamp();
-
-            return embed;
-        }
-
-        private EmbedBuilder BuildCategoryEmbed(string categoryId, ShardedInteractionContext context)
-        {
-            var category = HelpContent.Categories.FirstOrDefault(c => c.Id == categoryId);
-
-            if (category == null)
+            if (!ulong.TryParse(userIdStr, out var userId) || Context.User.Id != userId)
             {
-                return BuildWelcomeEmbed();
+                await RespondAsync("This pagination belongs to another user.", ephemeral: true);
+                return;
             }
 
-            // Filter commands based on user permissions
-            var user = context.User as SocketGuildUser;
-            var filteredCommands = category.Commands
-                .Where(cmd => HasPermissionForCommand(user, cmd.Permission))
-                .ToList();
+            await DeferAsync(ephemeral: true);
 
-            var embed = new EmbedBuilder();
-            embed.Title = $"{category.Emoji} {category.Name}";
-            embed.Description = category.Description;
+            var embed = HelpViewBuilder.BuildCategoryEmbed(HelpContent, categoryId, 0, AvatarUrl, Version, PermissionCheck);
+            var components = HelpViewBuilder.BuildCategoryComponents(HelpContent, categoryId, 0, Context.User.Id, IsOwnerUser, PermissionCheck);
 
-            // Color based on permission level
-            embed.WithColor(category.PermissionLevel switch
+            await ModifyOriginalResponseAsync(msg =>
             {
-                "owner" => new Color(255, 0, 0),      // Red
-                "moderator" => new Color(255, 165, 0), // Orange
-                _ => new Color(0, 0, 255)              // Blue
+                msg.Embed = embed.Build();
+                msg.Components = components.Build();
             });
-
-            // Add commands as fields (max 25)
-            int commandCount = 0;
-            foreach (var cmd in filteredCommands.Take(25))
-            {
-                var badge = !string.IsNullOrEmpty(cmd.PermissionBadge) ? $"{cmd.PermissionBadge} " : "";
-                var fieldValue = new StringBuilder();
-                fieldValue.AppendLine(cmd.Description);
-                fieldValue.AppendLine($"**Usage:** `{cmd.Usage}`");
-
-                if (!string.IsNullOrEmpty(cmd.Example))
-                {
-                    fieldValue.AppendLine($"**Example:** `{cmd.Example}`");
-                }
-
-                embed.AddField($"{badge}/{cmd.Name}", fieldValue.ToString(), inline: false);
-                commandCount++;
-            }
-
-            embed.WithFooter($"{commandCount} command{(commandCount != 1 ? "s" : "")} available");
-            embed.WithCurrentTimestamp();
-
-            return embed;
         }
 
-        private ComponentBuilder BuildCategorySelectMenu(ShardedInteractionContext context)
+        [ComponentInteraction("help_prev~*~*~*")]
+        public async Task HandleHelpPrevious(string userIdStr, string categoryId, string currentPageStr)
         {
-            var builder = new ComponentBuilder();
-            var selectMenu = new SelectMenuBuilder()
-                .WithPlaceholder("📚 Select a command category...")
-                .WithCustomId("help_category_select")
-                .WithMinValues(1)
-                .WithMaxValues(1);
-
-            // Add welcome option
-            selectMenu.AddOption("🏠 Home", "welcome", "Return to help home");
-
-            // Filter categories based on user permissions
-            var visibleCategories = FilterCategoriesByPermission(context);
-
-            foreach (var category in visibleCategories)
+            if (!ulong.TryParse(userIdStr, out var userId) || Context.User.Id != userId)
             {
-                var description = category.Description;
-                if (description.Length > 100)
-                {
-                    description = description.Substring(0, 97) + "...";
-                }
-
-                selectMenu.AddOption(
-                    label: $"{category.Emoji} {category.Name}",
-                    value: category.Id,
-                    description: description
-                );
+                await RespondAsync("This pagination belongs to another user.", ephemeral: true);
+                return;
             }
 
-            builder.WithSelectMenu(selectMenu);
-            return builder;
+            if (!int.TryParse(currentPageStr, out var currentPage))
+            {
+                await RespondAsync("Invalid page data.", ephemeral: true);
+                return;
+            }
+
+            var targetPage = Math.Max(0, currentPage - 1);
+
+            await DeferAsync(ephemeral: true);
+
+            var embed = HelpViewBuilder.BuildCategoryEmbed(HelpContent, categoryId, targetPage, AvatarUrl, Version, PermissionCheck);
+            var components = HelpViewBuilder.BuildCategoryComponents(HelpContent, categoryId, targetPage, Context.User.Id, IsOwnerUser, PermissionCheck);
+
+            await ModifyOriginalResponseAsync(msg =>
+            {
+                msg.Embed = embed.Build();
+                msg.Components = components.Build();
+            });
         }
 
-        private List<HelpCategory> FilterCategoriesByPermission(ShardedInteractionContext context)
+        [ComponentInteraction("help_next~*~*~*")]
+        public async Task HandleHelpNext(string userIdStr, string categoryId, string currentPageStr)
         {
-            var user = context.User as SocketGuildUser;
-            var categories = new List<HelpCategory>();
-
-            foreach (var category in HelpContent.Categories)
+            if (!ulong.TryParse(userIdStr, out var userId) || Context.User.Id != userId)
             {
-                // Owner sees everything
-                if (IsOwner(context.User.Id))
-                {
-                    categories.Add(category);
-                    continue;
-                }
-
-                // Check if user has permission for ANY command in this category
-                var hasAccessToAnyCommand = category.Commands.Any(cmd =>
-                    HasPermissionForCommand(user, cmd.Permission));
-
-                if (hasAccessToAnyCommand)
-                {
-                    categories.Add(category);
-                }
+                await RespondAsync("This pagination belongs to another user.", ephemeral: true);
+                return;
             }
 
-            return categories;
+            if (!int.TryParse(currentPageStr, out var currentPage))
+            {
+                await RespondAsync("Invalid page data.", ephemeral: true);
+                return;
+            }
+
+            var targetPage = currentPage + 1;
+
+            await DeferAsync(ephemeral: true);
+
+            var embed = HelpViewBuilder.BuildCategoryEmbed(HelpContent, categoryId, targetPage, AvatarUrl, Version, PermissionCheck);
+            var components = HelpViewBuilder.BuildCategoryComponents(HelpContent, categoryId, targetPage, Context.User.Id, IsOwnerUser, PermissionCheck);
+
+            await ModifyOriginalResponseAsync(msg =>
+            {
+                msg.Embed = embed.Build();
+                msg.Components = components.Build();
+            });
+        }
+
+        [ComponentInteraction("help_last~*~*~*~*")]
+        public async Task HandleHelpLast(string userIdStr, string categoryId, string currentPageStr, string totalPagesStr)
+        {
+            if (!ulong.TryParse(userIdStr, out var userId) || Context.User.Id != userId)
+            {
+                await RespondAsync("This pagination belongs to another user.", ephemeral: true);
+                return;
+            }
+
+            if (!int.TryParse(totalPagesStr, out var totalPages))
+            {
+                await RespondAsync("Invalid page data.", ephemeral: true);
+                return;
+            }
+
+            var targetPage = totalPages - 1;
+
+            await DeferAsync(ephemeral: true);
+
+            var embed = HelpViewBuilder.BuildCategoryEmbed(HelpContent, categoryId, targetPage, AvatarUrl, Version, PermissionCheck);
+            var components = HelpViewBuilder.BuildCategoryComponents(HelpContent, categoryId, targetPage, Context.User.Id, IsOwnerUser, PermissionCheck);
+
+            await ModifyOriginalResponseAsync(msg =>
+            {
+                msg.Embed = embed.Build();
+                msg.Components = components.Build();
+            });
         }
 
         private bool HasPermissionForCommand(SocketGuildUser user, string permission)
@@ -268,6 +253,5 @@ namespace NinjaBotCore.Modules.Interactions.Misc
                 await FollowupAsync($"❌ Error regenerating help file: {ex.Message}", ephemeral: true);
             }
         }
-
     }
 }
