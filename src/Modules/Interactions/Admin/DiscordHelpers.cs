@@ -25,12 +25,18 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         private readonly ModerationWatcherService _moderationWatcher;
         private readonly WowCacheService _greetingCache;
 
-        public DiscordHelpers(DiscordShardedClient client, IServiceProvider services, ModerationWatcherService moderationWatcher, WowCacheService greetingCache)
-            : base(services.GetRequiredService<IServiceScopeFactory>())
+        public DiscordHelpers(
+            IServiceScopeFactory scopeFactory,
+            DiscordShardedClient client,
+            IConfigurationRoot config,
+            ILogger<DiscordHelpers> logger,
+            ModerationWatcherService moderationWatcher,
+            WowCacheService greetingCache)
+            : base(scopeFactory)
         {
             _client = client;
-            _config = services.GetRequiredService<IConfigurationRoot>();
-            _logger = services.GetRequiredService<ILogger<DiscordHelpers>>();
+            _config = config;
+            _logger = logger;
             _moderationWatcher = moderationWatcher;
             _greetingCache = greetingCache;
         }

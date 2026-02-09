@@ -21,10 +21,10 @@ namespace NinjaBotCore.Modules.Interactions.Admin
     {
         private readonly ILogger<SyncCommands> _logger;
 
-        public SyncCommands(IServiceProvider services)
-            : base(services.GetRequiredService<IServiceScopeFactory>())
+        public SyncCommands(IServiceScopeFactory scopeFactory, ILogger<SyncCommands> logger)
+            : base(scopeFactory)
         {
-            _logger = services.GetRequiredService<ILogger<SyncCommands>>();
+            _logger = logger;
         }
 
         [SlashCommand("trigger", "Trigger a static data sync")]

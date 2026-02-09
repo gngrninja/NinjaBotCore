@@ -30,16 +30,24 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
         // Event handling is now done by WordFilterService
         // This module only handles slash commands
-        public Admin(IServiceProvider services)
-            : base(services.GetRequiredService<IServiceScopeFactory>())
+        public Admin(
+            IServiceScopeFactory scopeFactory,
+            DiscordShardedClient client,
+            ILogger<Admin> logger,
+            IConfigurationRoot config,
+            WordFilterService wordFilterService,
+            WarcraftLogsV2Client warcraftLogsV2,
+            WowCacheService wowCache,
+            WowUtilities wowUtils)
+            : base(scopeFactory)
         {
-            _client = services.GetRequiredService<DiscordShardedClient>();
-            _logger = services.GetRequiredService<ILogger<Admin>>();
-            _config = services.GetRequiredService<IConfigurationRoot>();
-            _wordFilterService = services.GetRequiredService<WordFilterService>();
-            _warcraftLogsV2 = services.GetRequiredService<WarcraftLogsV2Client>();
-            _wowCache = services.GetRequiredService<WowCacheService>();
-            _wowUtils = services.GetRequiredService<WowUtilities>();
+            _client = client;
+            _logger = logger;
+            _config = config;
+            _wordFilterService = wordFilterService;
+            _warcraftLogsV2 = warcraftLogsV2;
+            _wowCache = wowCache;
+            _wowUtils = wowUtils;
             _logger.LogInformation("Admin module loaded!");
         }
 
