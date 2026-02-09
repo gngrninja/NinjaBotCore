@@ -43,6 +43,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             _wowCache = wowCache;
         }
 
+        [RequireUserPermission(Discord.GuildPermission.KickMembers)]
+        [DefaultMemberPermissions(Discord.GuildPermission.KickMembers)]
         [SlashCommand("watchlogs", "watch logs for guild")]
         public async Task ToggleLogs()
         {
