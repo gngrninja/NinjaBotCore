@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using NinjaBotCore.Database;
 using NinjaBotCore.Services;
@@ -18,7 +19,8 @@ namespace NinjaBotCore.Tests
         {
             var services = new ServiceCollection();
             services.AddDbContext<NinjaBotEntities>(options =>
-                options.UseInMemoryDatabase($"RealmWatchTestDb_{Guid.NewGuid()}"));
+                options.UseInMemoryDatabase($"RealmWatchTestDb_{Guid.NewGuid()}")
+                    .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning)));
 
             _serviceProvider = services.BuildServiceProvider();
             _scopeFactory = _serviceProvider.GetRequiredService<IServiceScopeFactory>();

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using NinjaBotCore.Database;
 using NinjaBotCore.Modules.Interactions.Wow;
@@ -19,7 +20,8 @@ namespace NinjaBotCore.Tests
         {
             var services = new ServiceCollection();
             services.AddDbContext<NinjaBotEntities>(options =>
-                options.UseInMemoryDatabase($"RosterTestDb_{Guid.NewGuid()}"));
+                options.UseInMemoryDatabase($"RosterTestDb_{Guid.NewGuid()}")
+                    .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning)));
             services.AddScoped<IServiceScopeFactory>(sp => sp.GetRequiredService<IServiceScopeFactory>());
 
             _serviceProvider = services.BuildServiceProvider();

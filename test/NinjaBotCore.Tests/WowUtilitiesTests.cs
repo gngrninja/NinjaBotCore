@@ -12,6 +12,7 @@ using System.Collections.Generic;
 using NinjaBotCore.Database;
 using NinjaBotCore.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace NinjaBotCore.Tests
 {
@@ -41,7 +42,8 @@ namespace NinjaBotCore.Tests
 
             // Add DbContext with in-memory database
             services.AddDbContext<NinjaBotEntities>(options =>
-                options.UseInMemoryDatabase($"WowUtilsTestDb_{Guid.NewGuid()}"));
+                options.UseInMemoryDatabase($"WowUtilsTestDb_{Guid.NewGuid()}")
+                    .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning)));
 
             // Add repository for FindWowCheeve
             services.AddScoped<IRepository<FindWowCheeve>>(sp =>
