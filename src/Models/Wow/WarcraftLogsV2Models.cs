@@ -747,6 +747,13 @@ namespace NinjaBotCore.Models.Wow
             : null;
 
         /// <summary>
+        /// The total parses used for rank calculation (matches EstimatedRank).
+        /// Prefers todayTotalParses, falls back to rankTotalParses.
+        /// </summary>
+        [JsonIgnore]
+        public int? EstimatedTotalParses => TodayTotalParses ?? RankTotalParses;
+
+        /// <summary>
         /// Calculates estimated rank from percentile and total parses.
         /// E.g., 99.85% of 7279 parses = rank ~11
         /// </summary>
@@ -755,11 +762,16 @@ namespace NinjaBotCore.Models.Wow
         {
             get
             {
-                if (!RankPercent.HasValue || !RankTotalParses.HasValue || RankTotalParses.Value <= 0)
+                // Prefer todayPercent/todayTotalParses (recalculated daily, matches WCL website)
+                // Fall back to rankPercent/rankTotalParses (frozen at time of parse)
+                var pct = TodayPercent ?? RankPercent;
+                var total = EstimatedTotalParses;
+
+                if (!pct.HasValue || !total.HasValue || total.Value <= 0)
                     return null;
 
                 // rank = total × (1 - percentile/100)
-                var rank = (int)Math.Ceiling(RankTotalParses.Value * (1 - RankPercent.Value / 100.0));
+                var rank = (int)Math.Ceiling(total.Value * (1 - pct.Value / 100.0));
                 return Math.Max(1, rank); // Minimum rank is 1
             }
         }

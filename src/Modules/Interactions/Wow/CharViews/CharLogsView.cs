@@ -390,12 +390,11 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             foreach (var ranking in sortedRankings.Take(8))
             {
                 var pct = ranking.RankPercent ?? 0;
-                var emoji = CharViewHelpers.GetParseEmoji(pct);
                 var encounterName = CharViewHelpers.Truncate(ranking.Encounter?.Name ?? "Unknown", 18);
                 var spec = ranking.BestSpec ?? ranking.Spec ?? "";
                 var dpsFormatted = ranking.BestAmount.HasValue ? FormatNumber(ranking.BestAmount.Value) : "N/A";
 
-                // Try to get best parse link and rank from encounter rankings
+                // Try to get best parse link, rank, and current percentile from encounter rankings
                 var encId = ranking.Encounter?.Id ?? 0;
                 string fightUrl = null;
                 string rankDisplay = "";
@@ -405,6 +404,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                     var bestParse = encData.Ranks?.FirstOrDefault();
                     if (bestParse != null)
                     {
+                        // Use recalculated "today" percentile if available (matches WCL website)
+                        pct = bestParse.TodayPercent ?? bestParse.RankPercent ?? pct;
+
                         // Build fight link
                         if (bestParse.Report != null)
                         {
@@ -412,12 +414,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                         }
 
                         // Build rank display
-                        if (bestParse.EstimatedRank.HasValue && bestParse.RankTotalParses.HasValue)
+                        if (bestParse.EstimatedRank.HasValue && bestParse.EstimatedTotalParses.HasValue)
                         {
-                            rankDisplay = $" #{bestParse.EstimatedRank.Value:N0}/{bestParse.RankTotalParses.Value:N0}";
+                            rankDisplay = $" #{bestParse.EstimatedRank.Value:N0}/{bestParse.EstimatedTotalParses.Value:N0}";
                         }
                     }
                 }
+
+                var emoji = CharViewHelpers.GetParseEmoji(pct);
 
                 // Use fight URL if available, otherwise fall back to encounter page URL
                 var linkUrl = fightUrl ?? BuildWclEncounterUrl(charInfo, zoneId, encId, difficulty);
@@ -614,13 +618,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
 
             embed.Title = $"{bossRanking.Encounter.Name} - {charInfo.Name}";
 
-            var pct = bossRanking.RankPercent ?? 0;
-            embed.WithColor(CharViewHelpers.GetParseColor(pct));
-
-            // Find the best parse for linking
+            // Find the best parse for linking (prefer todayPercent for up-to-date rankings)
             var bestParse = encounterRankings?.Ranks?
-                .OrderByDescending(r => r.RankPercent ?? 0)
+                .OrderByDescending(r => r.TodayPercent ?? r.RankPercent ?? 0)
                 .FirstOrDefault();
+
+            // Use recalculated "today" percentile if available (matches WCL website)
+            var pct = bestParse?.TodayPercent ?? bestParse?.RankPercent ?? bossRanking.RankPercent ?? 0;
+            embed.WithColor(CharViewHelpers.GetParseColor(pct));
 
             // Summary stats - link best parse if available
             string bestDisplay;
@@ -644,16 +649,16 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
 
                 foreach (var parse in encounterRankings.Ranks.Take(8))
                 {
-                    var parsePct = parse.RankPercent ?? 0;
+                    var parsePct = parse.TodayPercent ?? parse.RankPercent ?? 0;
                     var emoji = CharViewHelpers.GetParseEmoji(parsePct);
                     var dpsFormatted = FormatNumber(parse.DpsHps);
                     var spec = parse.Spec ?? "Unknown";
 
                     // Build rank display (e.g., "#11/7,279")
                     var rankDisplay = "";
-                    if (parse.EstimatedRank.HasValue && parse.RankTotalParses.HasValue)
+                    if (parse.EstimatedRank.HasValue && parse.EstimatedTotalParses.HasValue)
                     {
-                        rankDisplay = $" #{parse.EstimatedRank.Value:N0}/{parse.RankTotalParses.Value:N0}";
+                        rankDisplay = $" #{parse.EstimatedRank.Value:N0}/{parse.EstimatedTotalParses.Value:N0}";
                     }
 
                     // Build line with fight link
