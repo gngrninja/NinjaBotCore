@@ -5,17 +5,10 @@
 
 NinjaBot is a Discord bot written in C#. 
 
-Its primary focus was to help out guilds in World of Warcraft.
-I will be shifting to more administrative / Discord tasks for the time being as I am no longer actively playing World of Warcraft.
+Its primary focus is to offer helpful features for World of Warcraft guilds, and even if you don't play wow offer helpful server management features.
 
-This project has been an awesome way for me to learn C#, feel free to toss in a pull request if there's a better way to do something!
-
-**10.2.x updates coming soon**
-
-## Getting Started
-The first thing you'll need to do is [invite the bot to your server](https://discord.com/api/oauth2/authorize?client_id=238495040446398467&permissions=377960909888&scope=bot%20applications.commands). 
-It will need permissions to read and post messages at the very minimum. 
-If you wish to use NinjaBot to assist with admin tasks (kicking/banning users, message management, etc), [please use this link](https://discord.com/api/oauth2/authorize?client_id=238495040446398467&permissions=1494652415174&scope=bot%20applications.commands).
+## Website
+Check out [the website](https://bot.gnja.io) to best learn how to use NinjaBot and add it to your Discord server!
 
 ### Slash commands
 This bot is now using [slash commands](https://discord.com/blog/slash-commands-permissions-discord-apps-bots), be sure to use the updated invites above to invite it to your discord server. 
@@ -170,9 +163,7 @@ Anyone in the server can retrieve the note via:
 ```
 /get-note
 ```
-
-(note: updating the website in the mere future!)
-Visit the [NinjaBot website](https://www.gngrninja.com/ninjabot-command-reference/2017/6/13/admin-commands) for more information.
+Visit the [NinjaBot website](https://bot.gnja.io/commands) for more information.
 
 ## Help!
 
@@ -180,9 +171,6 @@ If you're having trouble using any of the WoW commands, the first thing to try i
 If that doesn't help, check out the following resources below:
 
 [Discord Chat](https://discord.gg/MgvJuaV)
-
-[NinjaBot Website](https://www.gngrninja.com/bot)
-
 Feel free to open an issue here for any bugs or problems you come across!
 
 Enjoy.
