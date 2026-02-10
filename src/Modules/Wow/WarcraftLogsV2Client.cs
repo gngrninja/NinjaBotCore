@@ -32,7 +32,7 @@ namespace NinjaBotCore.Modules.Wow
     {
         private readonly ILogger _logger;
         private readonly IConfigurationRoot _config;
-        private readonly HttpClient _httpClient;
+        private readonly IHttpClientFactory _httpClientFactory;
         private WclV2TokenResponse _currentToken;
         private readonly string _clientId;
         private readonly string _clientSecret;
@@ -70,7 +70,7 @@ namespace NinjaBotCore.Modules.Wow
         {
             _config = config;
             _logger = logger;
-            _httpClient = httpClientFactory.CreateClient();
+            _httpClientFactory = httpClientFactory;
             _clientId = _config["WclClientId"];
             _clientSecret = _config["WclClientSecret"];
 
@@ -121,7 +121,8 @@ namespace NinjaBotCore.Modules.Wow
 
             try
             {
-                using var response = await _httpClient.SendAsync(request);
+                using var client = _httpClientFactory.CreateClient();
+                using var response = await client.SendAsync(request);
                 response.EnsureSuccessStatusCode();
 
                 var content = await response.Content.ReadAsStringAsync();
@@ -221,7 +222,8 @@ namespace NinjaBotCore.Modules.Wow
             var json = JsonConvert.SerializeObject(graphqlRequest);
             request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
-            using var response = await _httpClient.SendAsync(request);
+            using var client = _httpClientFactory.CreateClient();
+            using var response = await client.SendAsync(request);
             var content = await response.Content.ReadAsStringAsync();
 
             if (!response.IsSuccessStatusCode)

@@ -9,7 +9,6 @@ using NinjaBotCore.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net.Http;
 using System.Threading.Tasks;
 
 namespace NinjaBotCore.Modules.Interactions.Wow
@@ -20,22 +19,19 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private readonly CharacterResolver _charResolver;
         private readonly WowApi _wowApi;
         private readonly WowCacheService _wowCache;
-        private readonly HttpClient _httpClient;
 
         public PvPCommands(
             IServiceScopeFactory scopeFactory,
             ILogger<PvPCommands> logger,
             CharacterResolver charResolver,
             WowApi wowApi,
-            WowCacheService wowCache,
-            IHttpClientFactory httpClientFactory)
+            WowCacheService wowCache)
             : base(scopeFactory)
         {
             _logger = logger;
             _charResolver = charResolver;
             _wowApi = wowApi;
             _wowCache = wowCache;
-            _httpClient = httpClientFactory.CreateClient();
         }
 
         [SlashCommand("pvp", "View PvP ratings for a character")]
