@@ -152,6 +152,7 @@ namespace NinjaBotCore.Modules.Interactions.Away
 
         [SlashCommand("set-back-forced", "force a user as being back from away")]
         [RequireUserPermission(GuildPermission.KickMembers)]
+        [DefaultMemberPermissions(GuildPermission.KickMembers)]
         public async Task SetBack(IGuildUser user)
         {
             await SetBack(forced: true, forceUser: user);

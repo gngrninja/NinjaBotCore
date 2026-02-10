@@ -69,6 +69,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
         [SlashCommand("setvanillaguild", "set vanilla guild")]
         [RequireUserPermission(GuildPermission.KickMembers)]
+        [DefaultMemberPermissions(GuildPermission.KickMembers)]
         public async Task SetvanillaGuild(string guildName, string realm, string region = "US")
         {
             var embed = new EmbedBuilder();

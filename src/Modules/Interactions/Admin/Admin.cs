@@ -162,7 +162,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             await RespondAsync($"I am connected to {numGuilds.Count()} guilds!", ephemeral: true);
         }
 
-        [SlashCommand("add-word", "add word to blacklist")]
+        [SlashCommand("add-word", "add word to blocklist")]
         [RequireOwner]
         public async Task AddWord(string word)
         {
@@ -203,7 +203,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             await RespondAsync(sb.ToString(), ephemeral: true);
         }        
     
-        [SlashCommand("remove-word", "remove a word from the blacklist")]
+        [SlashCommand("remove-word", "remove a word from the blocklist")]
         [RequireOwner]
         public async Task RemoveWord(string word)
         {

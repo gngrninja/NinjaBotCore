@@ -268,6 +268,64 @@ namespace NinjaBotCore.Tests
 
         #endregion
 
+        #region Text Normalization Tests
+
+        [Theory]
+        [InlineData("h@te", "hate")]
+        [InlineData("$h!t", "shit")]
+        [InlineData("@$$", "ass")]
+        [InlineData("b4d", "bad")]
+        [InlineData("h3llo", "hello")]
+        public void NormalizeText_LeetSpeak_IsConverted(string input, string expected)
+        {
+            Assert.Equal(expected, WordFilterService.NormalizeText(input));
+        }
+
+        [Theory]
+        [InlineData("fück", "fuck")]
+        [InlineData("shït", "shit")]
+        [InlineData("àss", "ass")]
+        [InlineData("hèll", "hell")]
+        public void NormalizeText_AccentedChars_AreNormalized(string input, string expected)
+        {
+            Assert.Equal(expected, WordFilterService.NormalizeText(input));
+        }
+
+        [Theory]
+        [InlineData("shiiiit", "shiit")]
+        [InlineData("baaad", "baad")]
+        [InlineData("hellllo", "hello")]
+        public void NormalizeText_RepeatedChars_AreCollapsed(string input, string expected)
+        {
+            Assert.Equal(expected, WordFilterService.NormalizeText(input));
+        }
+
+        [Fact]
+        public void NormalizeText_ZeroWidthChars_AreStripped()
+        {
+            // Insert zero-width spaces between characters
+            var input = "b\u200Bad\u200Bword";
+            Assert.Equal("badword", WordFilterService.NormalizeText(input));
+        }
+
+        [Fact]
+        public void NormalizeText_NormalText_IsUnchanged()
+        {
+            Assert.Equal("hello world", WordFilterService.NormalizeText("hello world"));
+            Assert.Equal("good morning everyone", WordFilterService.NormalizeText("Good Morning Everyone"));
+        }
+
+        [Fact]
+        public void NormalizeText_CombinedObfuscation_IsCaught()
+        {
+            // Combines leet speak + accents + zero-width chars
+            var input = "$h\u200Bït";
+            var normalized = WordFilterService.NormalizeText(input);
+            Assert.Contains("shit", normalized);
+        }
+
+        #endregion
+
         #region Disposal Tests
 
         [Fact]

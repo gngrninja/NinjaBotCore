@@ -299,7 +299,8 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
             await RespondAsync(embed: embed.Build(), ephemeral: true);
         }
-        [SlashCommand("kick", "kick someone!")]        
+        [SlashCommand("kick", "kick someone!")]
+        [RequireUserPermission(GuildPermission.KickMembers)]
         [RequireBotPermission(GuildPermission.KickMembers)]
         [DefaultMemberPermissions(GuildPermission.KickMembers)]
         public async Task KickUser(IGuildUser user, string reason = null)
@@ -432,6 +433,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         [SlashCommand("list-bans", "list bans!")]
         [RequireBotPermission(GuildPermission.BanMembers)]
         [RequireUserPermission(GuildPermission.BanMembers)]
+        [DefaultMemberPermissions(GuildPermission.BanMembers)]
         public async Task ListBans()
         {
             await DeferAsync(ephemeral: true);
@@ -473,6 +475,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
         [SlashCommand("set-join-message", "set join message")]
         [RequireUserPermission(GuildPermission.KickMembers)]
+        [DefaultMemberPermissions(GuildPermission.KickMembers)]
         public async Task ChangeGreeting()
         {
             var guildGreetingInfo = await _greetingCache.GetServerGreetingAsync((long)Context.Guild.Id);
@@ -490,6 +493,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
         [SlashCommand("set-part-message", "set a message to display when users leave the server")]
         [RequireUserPermission(GuildPermission.KickMembers)]
+        [DefaultMemberPermissions(GuildPermission.KickMembers)]
         public async Task ChangeParting()
         {
             var guildGreetingInfo = await _greetingCache.GetServerGreetingAsync((long)Context.Guild.Id);
@@ -507,6 +511,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
         [SlashCommand("toggle-greetings", "toggle join/leave messages to be displayed in this channel")]
         [RequireUserPermission(GuildPermission.KickMembers)]
+        [DefaultMemberPermissions(GuildPermission.KickMembers)]
         public async Task ToggleGreetings()
         {
             await DeferAsync(ephemeral: true);
@@ -563,6 +568,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
         [SlashCommand("set-parting-channel", "set the channel for parting messages (requires partings enabled)")]
         [RequireUserPermission(GuildPermission.KickMembers)]
+        [DefaultMemberPermissions(GuildPermission.KickMembers)]
         public async Task SetPartingChannel()
         {
             await DeferAsync(ephemeral: true);
@@ -609,6 +615,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
         [SlashCommand("toggle-partings", "toggle goodbye messages when users leave")]
         [RequireUserPermission(GuildPermission.KickMembers)]
+        [DefaultMemberPermissions(GuildPermission.KickMembers)]
         public async Task TogglePartings()
         {
             await DeferAsync(ephemeral: true);
@@ -667,6 +674,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
         [SlashCommand("greeting-status", "show current greeting/parting message settings")]
         [RequireUserPermission(GuildPermission.KickMembers)]
+        [DefaultMemberPermissions(GuildPermission.KickMembers)]
         public async Task GreetingStatus()
         {
             await DeferAsync(ephemeral: true);
@@ -734,9 +742,9 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             await FollowupAsync(embed: embed.Build(), ephemeral: true);
         }
 
-        [SlashCommand("blacklist", "blacklist a user from using the bot")]
+        [SlashCommand("blocklist", "block a user from using the bot")]
         [RequireOwner]
-        public async Task BlackList(IGuildUser user, string reason = null)
+        public async Task BlockList(IGuildUser user, string reason = null)
         {
             var embed = new EmbedBuilder();
             StringBuilder sb = new StringBuilder();
@@ -749,7 +757,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                         .FirstOrDefaultAsync();
                     if (getUser != null)
                     {
-                        sb.AppendLine($"Unblacklisting {user.Username}");
+                        sb.AppendLine($"Removing {user.Username} from blocklist");
                         db.Blacklist.Remove(getUser);
                     }
                     else
@@ -765,16 +773,16 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                             Reason = reason,
                             WhenBlacklisted = DateTime.UtcNow
                         });
-                        sb.AppendLine($"Blacklisting [**{user.Username}**] -> [*{reason}*]");
+                        sb.AppendLine($"Adding [**{user.Username}**] to blocklist -> [*{reason}*]");
                     }
-                    embed.Title = "[Blacklist]";
+                    embed.Title = "[Blocklist]";
                     embed.Description = sb.ToString();
                     await db.SaveChangesAsync();
                 });
             }
             catch (Exception ex)
             {
-                sb.AppendLine($"Error attempting to blacklist [{user.Username}] -> [{ex.Message}]");
+                sb.AppendLine($"Error updating blocklist for [{user.Username}] -> [{ex.Message}]");
             }
             await RespondAsync(embed: embed.Build(), ephemeral: true);
         }
@@ -782,6 +790,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         [SlashCommand("clear", "clear x amount of messages from a channel")]
         [RequireBotPermission(GuildPermission.ManageMessages)]
         [RequireUserPermission(GuildPermission.ManageMessages)]
+        [DefaultMemberPermissions(GuildPermission.ManageMessages)]
         public async Task ClearMessage(int numberOfMessages = 5)
         {
             await DeferAsync(ephemeral: true);
@@ -846,6 +855,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         [SlashCommand("clearu", "clear x amount of messages from a specific user")]
         [RequireBotPermission(GuildPermission.ManageMessages)]
         [RequireUserPermission(GuildPermission.ManageMessages)]
+        [DefaultMemberPermissions(GuildPermission.ManageMessages)]
         public async Task ClearMessageFromUser(IGuildUser user, int numberOfMessages = 5)
         {
             await DeferAsync(ephemeral: true);
@@ -920,6 +930,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
         [SlashCommand("set-note", "set a note for the server")]
         [RequireUserPermission(GuildPermission.ManageMessages)]
+        [DefaultMemberPermissions(GuildPermission.ManageMessages)]
         public async Task SetNote()
         {
             // Get current note directly (not using GetNoteInfo which returns long error message)
@@ -951,6 +962,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
         [SlashCommand("warn", "warn a user")]
         [RequireUserPermission(GuildPermission.KickMembers)]
+        [DefaultMemberPermissions(GuildPermission.KickMembers)]
         public async Task WarnUser(IGuildUser user, string message = null)
         {
             int numWarnings = 0;
@@ -1043,6 +1055,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
         [SlashCommand("reset-warnings", "reset warnings for a user")]
         [RequireUserPermission(GuildPermission.KickMembers)]
+        [DefaultMemberPermissions(GuildPermission.KickMembers)]
         public async Task ResetWarning(IGuildUser user)
         {
             var warnings = await GetWarning(Context, user);
@@ -1059,6 +1072,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
 
         [SlashCommand("yoink", "Move users from one voice channel to another")]
         [RequireUserPermission(GuildPermission.Administrator)]
+        [DefaultMemberPermissions(GuildPermission.Administrator)]
         public async Task Yoink(
             [Summary("to", "Destination voice channel")]
             SocketVoiceChannel to,
