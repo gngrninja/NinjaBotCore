@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -26,7 +27,8 @@ public class SyncRequestProcessingTests : IDisposable
         var dbName = $"SyncRequestTests_{Guid.NewGuid()}";
 
         services.AddDbContext<HelpersDbContext>(options =>
-            options.UseInMemoryDatabase(dbName, _databaseRoot));
+            options.UseInMemoryDatabase(dbName, _databaseRoot)
+                .ConfigureWarnings(w => w.Ignore(CoreEventId.ManyServiceProvidersCreatedWarning)));
 
         _serviceProvider = services.BuildServiceProvider();
         _dbContext = _serviceProvider.GetRequiredService<HelpersDbContext>();
