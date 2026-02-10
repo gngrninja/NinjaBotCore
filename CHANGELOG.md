@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] - Changes since v2.3.7
+## [v3.0.0] - Changes since v2.3.7
 
 ### New Commands
 
@@ -25,10 +25,16 @@
 - Browse missing items with pagination
 - Wowhead links and item details
 
+### Renamed Commands
+
+- **`/donate`** → **`/support-ninjabot`**
+
 ### Enhancements
 
+- **Help** - Paginated with First/Prev/Next/Last buttons
 - **Polls** - "View Voters" button on non-anonymous polls
 - **Greetings** - Separate toggles for welcome and goodbye messages (`/toggle-greetings`, `/toggle-partings`)
+- **Word Filter** - Detects leet speak, accented characters, and other obfuscation; now available to server admins (was bot-owner only)
 - **Log Monitoring** - Smarter checking intervals based on guild activity
 
 ### Bug Fixes
