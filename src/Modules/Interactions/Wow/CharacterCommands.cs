@@ -179,6 +179,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         // Update existing character
                         existingChar.IsMain = isMain;
 
+                        // Backfill realm slug if missing
+                        if (string.IsNullOrEmpty(existingChar.LocalRealmSlug))
+                        {
+                            existingChar.LocalRealmSlug = CharViewHelpers.ToRealmSlug(existingChar.WowRealm);
+                        }
+
                         // If setting as main, unset other mains
                         if (isMain)
                         {
@@ -211,6 +217,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         CharName = charName,
                         WowRealm = realmName,
                         WowRegion = regionName,
+                        LocalRealmSlug = CharViewHelpers.ToRealmSlug(realmName),
                         Locale = locale
                     });
 

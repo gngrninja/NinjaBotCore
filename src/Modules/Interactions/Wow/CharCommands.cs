@@ -882,6 +882,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     await repo.AddAsync(newChar);
                     await uow.SaveChangesAsync();
 
+                    // Invalidate cache so /char with no args picks up the new main
+                    _wowCache.InvalidateUserCharacters((long)Context.User.Id);
+
                     var mainText = newChar.IsMain ? " (set as main)" : "";
                     await RespondAsync($"Saved **{charInfo.Name}** on **{charInfo.Realm}**{mainText}!", ephemeral: true);
                 });

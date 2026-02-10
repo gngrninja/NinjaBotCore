@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NinjaBotCore.Database;
+using NinjaBotCore.Modules.Interactions.Wow.CharViews;
 
 namespace NinjaBotCore.Services.Api
 {
@@ -86,6 +87,7 @@ namespace NinjaBotCore.Services.Api
                     CharName = request.CharacterName,
                     WowRealm = request.Realm,
                     WowRegion = region,
+                    LocalRealmSlug = CharViewHelpers.ToRealmSlug(request.Realm),
                     Locale = locale,
                     IsMain = false,
                     TimeSet = DateTime.UtcNow
@@ -93,6 +95,10 @@ namespace NinjaBotCore.Services.Api
 
                 db.WowCharAssociation.Add(character);
                 await db.SaveChangesAsync(context.RequestAborted);
+
+                // Invalidate cache so bot picks up the new character
+                var wowCache = scope.ServiceProvider.GetRequiredService<WowCacheService>();
+                wowCache.InvalidateUserCharacters(userId);
 
                 deps.Logger.LogInformation("Character added via API: {CharName} on {Realm} for user {UserId} server {ServerId}",
                     character.CharName, character.WowRealm, userId, serverId);
@@ -162,8 +168,18 @@ namespace NinjaBotCore.Services.Api
                     character.IsMain = true;
                     character.TimeSet = DateTime.UtcNow;
 
+                    // Backfill realm slug if missing
+                    if (string.IsNullOrEmpty(character.LocalRealmSlug))
+                    {
+                        character.LocalRealmSlug = CharViewHelpers.ToRealmSlug(character.WowRealm);
+                    }
+
                     await db.SaveChangesAsync();
                     await transaction.CommitAsync();
+
+                    // Invalidate cache so bot picks up the new main
+                    var wowCache = scope.ServiceProvider.GetRequiredService<WowCacheService>();
+                    wowCache.InvalidateUserCharacters(userIdLong);
 
                     return Results.Json(new
                     {
@@ -222,6 +238,10 @@ namespace NinjaBotCore.Services.Api
 
                 db.WowCharAssociation.Remove(character);
                 await db.SaveChangesAsync();
+
+                // Invalidate cache so bot picks up the removal
+                var wowCache = scope.ServiceProvider.GetRequiredService<WowCacheService>();
+                wowCache.InvalidateUserCharacters(userIdLong);
 
                 return Results.Json(new
                 {
