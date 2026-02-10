@@ -26,7 +26,7 @@ namespace NinjaBotCore.Modules.Wow
     {
         private readonly IConfigurationRoot _config;
         private readonly ILogger _logger;
-        private readonly HttpClient _httpClient;
+        private readonly IHttpClientFactory _httpClientFactory;
         private readonly ResiliencePipeline _resiliencePipeline;
 
         public RaiderIOApi(IServiceProvider services)
@@ -36,11 +36,7 @@ namespace NinjaBotCore.Modules.Wow
                 var innerLogger = services.GetRequiredService<ILogger<RaiderIOApi>>();
                 _logger = new SanitizingLogger<RaiderIOApi>(innerLogger);
                 _config = services.GetRequiredService<IConfigurationRoot>();
-                _httpClient = services.GetRequiredService<IHttpClientFactory>().CreateClient();
-
-                // Configure default headers
-                _httpClient.DefaultRequestHeaders.Accept.Add(
-                    new MediaTypeWithQualityHeaderValue("application/json"));
+                _httpClientFactory = services.GetRequiredService<IHttpClientFactory>();
 
                 // Configure resilience pipeline for API calls
                 _resiliencePipeline = new ResiliencePipelineBuilder()
@@ -83,7 +79,10 @@ namespace NinjaBotCore.Modules.Wow
                 var response = await _resiliencePipeline.ExecuteAsync(
                     async ct =>
                     {
-                        var httpResponse = await _httpClient.GetAsync(fullUrl, ct);
+                        using var client = _httpClientFactory.CreateClient();
+                        client.DefaultRequestHeaders.Accept.Add(
+                            new MediaTypeWithQualityHeaderValue("application/json"));
+                        var httpResponse = await client.GetAsync(fullUrl, ct);
 
                         // Don't retry 4xx client errors (bad request, not found, etc.)
                         // Only retry transient errors (5xx, network issues)

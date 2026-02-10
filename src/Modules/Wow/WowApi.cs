@@ -42,14 +42,14 @@ namespace NinjaBotCore.Modules.Wow
         private static WowRealm _realmInfoRu;
         private readonly IConfigurationRoot _config;
         private readonly ILogger _logger;
-        private readonly HttpClient _client;
+        private readonly IHttpClientFactory _httpClientFactory;
         private readonly ResiliencePipeline<HttpResponseMessage> _httpResiliencePipeline;
 
         public WowApi(IServiceProvider services)
         {
             try
             {
-                _client = services.GetRequiredService<IHttpClientFactory>().CreateClient();
+                _httpClientFactory = services.GetRequiredService<IHttpClientFactory>();
                 _config = services.GetRequiredService<IConfigurationRoot>();
                 var innerLogger = services.GetRequiredService<ILogger<WowApi>>();
                 _logger = new SanitizingLogger<WowApi>(innerLogger);
@@ -289,7 +289,8 @@ namespace NinjaBotCore.Modules.Wow
                     new KeyValuePair<string, string>("client_id", username),
                     new KeyValuePair<string, string>("client_secret", password)
                 });
-                var result =  await _client.PostAsync("https://us.battle.net/oauth/token", content);
+                using var client = _httpClientFactory.CreateClient();
+                var result =  await client.PostAsync("https://us.battle.net/oauth/token", content);
                 var contentString = await result.Content.ReadAsStringAsync();
                 ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString);
                 token = response.AccessToken;
@@ -364,7 +365,8 @@ namespace NinjaBotCore.Modules.Wow
                         using var request = new HttpRequestMessage(HttpMethod.Get, url);
                         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                        return await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+                        using var client = _httpClientFactory.CreateClient();
+                        return await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
                     },
                     cancellationToken);
 
@@ -769,10 +771,8 @@ namespace NinjaBotCore.Modules.Wow
             string url_string;
             HtmlDocument document = new HtmlDocument();
 
-            using (var httpclient = _client)
-            {
-                url_string = await httpclient.GetStringAsync(url, cancellationToken);
-            }
+            using var httpclient = _httpClientFactory.CreateClient();
+            url_string = await httpclient.GetStringAsync(url, cancellationToken);
 
             document.LoadHtml(url_string);
             List<FoundChar> chars = new List<FoundChar>();
