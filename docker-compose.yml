@@ -14,6 +14,8 @@ services:
       dockerfile: Dockerfile
     container_name: ninjabot
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "5100:5100"  # Commands API for web dashboard
     environment:
@@ -31,6 +33,8 @@ services:
       dockerfile: Dockerfile
     container_name: ninjabot-helpers
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - DOTNET_ENVIRONMENT=Production
     env_file:
