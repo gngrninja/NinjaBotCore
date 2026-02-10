@@ -163,7 +163,8 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         }
 
         [SlashCommand("add-word", "add word to blocklist")]
-        [RequireOwner]
+        [RequireUserPermission(GuildPermission.Administrator)]
+        [DefaultMemberPermissions(GuildPermission.Administrator)]
         public async Task AddWord(string word)
         {
             var sb = new StringBuilder();
@@ -204,7 +205,8 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         }        
     
         [SlashCommand("remove-word", "remove a word from the blocklist")]
-        [RequireOwner]
+        [RequireUserPermission(GuildPermission.Administrator)]
+        [DefaultMemberPermissions(GuildPermission.Administrator)]
         public async Task RemoveWord(string word)
         {
             var sb = new StringBuilder();
