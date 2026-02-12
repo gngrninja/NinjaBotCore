@@ -11,6 +11,18 @@
 
 set -e
 
+# Ensure dotnet is in PATH for non-interactive shells (e.g., SSH from Jenkins)
+if ! command -v dotnet &>/dev/null; then
+  for dir in /usr/local/share/dotnet "$HOME/.dotnet"; do
+    if [ -x "$dir/dotnet" ]; then
+      export DOTNET_ROOT="$dir"
+      export PATH="$PATH:$dir"
+      break
+    fi
+  done
+  [ -d "$HOME/.dotnet/tools" ] && export PATH="$PATH:$HOME/.dotnet/tools"
+fi
+
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_ROOT"
 
