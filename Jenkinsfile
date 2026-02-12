@@ -46,6 +46,15 @@ pipeline {
       }
     }
 
+    stage('Staging') {
+      when {
+        branch 'Dev'
+      }
+      steps {
+        sh 'sudo -n -u ninja ssh gnja@rpi /home/gnja/scripts/ninjabot/bot.sh'
+      }
+    }
+
     stage('Deploy') {
       when {
         // Require this to be a tag build and match semantic version tags
