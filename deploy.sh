@@ -1,50 +1,39 @@
 #!/bin/bash
-set -e  # Exit on any error
+set -e
 
-# Configuration - uses environment variables with defaults
-SERVICE_NAME="${NINJABOT_SERVICE_NAME}"
+# Configuration from environment (set via /var/lib/jenkins/ninjabot.env)
 DEPLOY_DIR="${NINJABOT_DEPLOY_DIR}"
 DEPLOY_USER="${NINJABOT_DEPLOY_USER}"
-DOTNET="/usr/local/share/dotnet/dotnet"
+DEPLOY_HOST="${NINJABOT_DEPLOY_HOST}"
 
-# Validate required config to avoid running with empty paths
 if [ -z "$DEPLOY_DIR" ] || [ -z "$DEPLOY_USER" ]; then
-  echo "Error: DEPLOY_DIR or DEPLOY_USER is empty. Check environment (/var/lib/jenkins/ninjabot.env)."
+  echo "Error: DEPLOY_DIR or DEPLOY_USER is empty. Check /var/lib/jenkins/ninjabot.env"
   exit 1
 fi
 
-# Normalize source path to the directory where this script lives (repo root)
+if [ -z "$DEPLOY_HOST" ]; then
+  echo "Error: DEPLOY_HOST is empty. Check /var/lib/jenkins/ninjabot.env"
+  exit 1
+fi
+
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 RSYNC_SRC="$SCRIPT_DIR/"
+SSH_TARGET="${DEPLOY_USER}@${DEPLOY_HOST}"
 
-# Require passwordless sudo (or root) since Jenkins is non-interactive
-SUDO="sudo -n"
-if [ "$(id -u)" -eq 0 ]; then
-  SUDO=""
-elif ! $SUDO -v >/dev/null 2>&1; then
-  echo "Error: passwordless sudo is required for deploy. Grant ${USER} NOPASSWD for mkdir/rsync/chown/docker or run as root."
-  exit 1
-fi
-
-# Run commands as deploy user
-run_as_deploy() {
-  if [ -z "$SUDO" ]; then
-    su -s /bin/sh -c "$*" "$DEPLOY_USER"
-  else
-    $SUDO -u "$DEPLOY_USER" "$@"
-  fi
+# Run a command on the remote host as the deploy user
+run_remote() {
+  ssh -o StrictHostKeyChecking=accept-new "$SSH_TARGET" "$@"
 }
 
 echo "========================================="
 echo "NinjaBot Docker Deployment"
 echo "========================================="
-echo "Running from: $SCRIPT_DIR"
-echo "Deploying to: $DEPLOY_DIR"
+echo "Deploying to: $SSH_TARGET:$DEPLOY_DIR"
 
-# Sync code to deployment directory
-echo "[1/5] Syncing code to $DEPLOY_DIR..."
-$SUDO mkdir -p "$DEPLOY_DIR"
-$SUDO rsync -av --delete \
+# Sync code
+echo "[1/4] Syncing code..."
+run_remote "mkdir -p \"$DEPLOY_DIR\" \"$DEPLOY_DIR/logs\" \"$DEPLOY_DIR/logs/helpers\""
+rsync -av --delete \
   --exclude='.git' \
   --exclude='TestResults' \
   --exclude='*.user' \
@@ -55,57 +44,28 @@ $SUDO rsync -av --delete \
   --exclude='.nuget' \
   --exclude='.env*' \
   --exclude='config.json' \
-  "$RSYNC_SRC" "$DEPLOY_DIR"/
-
-# Set proper permissions
-echo "[2/5] Setting permissions..."
-$SUDO chown -R "$DEPLOY_USER":"$DEPLOY_USER" "$DEPLOY_DIR"
-
-TARGET_DIR="$DEPLOY_DIR"
-# Ensure logs directory exists (as deploy user) but do not sync/overwrite
-run_as_deploy sh -c "cd \"$TARGET_DIR\" && mkdir -p logs"
+  -e "ssh -o StrictHostKeyChecking=accept-new" \
+  "$RSYNC_SRC" "$SSH_TARGET:$DEPLOY_DIR"/
 
 # Stop current containers
-echo "[3/5] Stopping containers..."
-run_as_deploy sh -c "cd \"$TARGET_DIR\" && /usr/bin/docker compose down" || echo "No containers running"
-
-# Run database migrations
-echo "[3.5/5] Running database migrations..."
-
-$SUDO -u "$DEPLOY_USER" -H env \
-  DOTNET_ROOT="/usr/local/share/dotnet" \
-  PATH="/usr/local/share/dotnet:$PATH" \
-  sh -c "
-    cd \"$TARGET_DIR\" &&
-    \"$DOTNET\" ef database update --project src/NinjaBotCore.csproj
-  " || {
-    echo \"⚠️  Warning: Migration failed. Container may still be starting or EF tools not available.\"
-    echo \"You can manually run: $DOTNET ef database update --project src/NinjaBotCore.csproj\"
-  }
-
+echo "[2/4] Stopping containers..."
+run_remote "cd \"$DEPLOY_DIR\" && docker compose down" || echo "No containers running"
 
 # Build and start new containers
-echo "[4/5] Building and starting containers..."
-run_as_deploy sh -c "cd \"$TARGET_DIR\" && /usr/bin/docker compose up -d --build"
+echo "[3/4] Building and starting containers..."
+run_remote "cd \"$DEPLOY_DIR\" && docker compose up -d --build"
 
-# Check status
-echo ""
-echo "========================================="
-echo "Deployment Status"
-echo "========================================="
-echo "[5/5] Checking container status..."
-run_as_deploy sh -c "cd \"$TARGET_DIR\" && /usr/bin/docker compose ps"
+# Verify
+echo "[4/4] Checking container status..."
+run_remote "cd \"$DEPLOY_DIR\" && docker compose ps"
 
-# Verify container is running
-if run_as_deploy sh -c "cd \"$TARGET_DIR\" && /usr/bin/docker compose ps" | grep -q "Up"; then
+if run_remote "cd \"$DEPLOY_DIR\" && docker compose ps" | grep -q "Up"; then
   echo ""
-  echo "✅ Deployment successful! NinjaBot is running in Docker."
-  echo ""
-  echo "View logs: docker compose logs -f"
+  echo "Deployment successful! NinjaBot is running."
   exit 0
 else
   echo ""
-  echo "❌ Warning: Container may not be running properly."
-  echo "Check logs: cd $DEPLOY_DIR && docker compose logs"
+  echo "Warning: Container may not be running properly."
+  echo "Check logs: ssh $SSH_TARGET 'cd $DEPLOY_DIR && docker compose logs'"
   exit 1
 fi
