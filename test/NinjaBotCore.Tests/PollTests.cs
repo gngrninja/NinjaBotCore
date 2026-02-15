@@ -156,6 +156,55 @@ namespace NinjaBotCore.Tests
         }
 
         [Fact]
+        public async Task CreatePoll_MultipleChoice_CreatesWithCorrectType()
+        {
+            // Arrange
+            var pollRepo = _serviceProvider.GetRequiredService<IRepository<DbPoll>>();
+            var optionRepo = _serviceProvider.GetRequiredService<IRepository<DbPollOption>>();
+
+            // Act
+            var poll = new DbPoll
+            {
+                Question = "Pick your favorites",
+                PollType = "MultipleChoice",
+                AllowVoteChange = true,
+                IsAnonymous = false,
+                IsClosed = false,
+                CreatedAt = DateTime.UtcNow,
+                CreatedById = 12345,
+                CreatedByName = "TestUser",
+                GuildId = 111,
+                ChannelId = 222,
+                MessageId = 333
+            };
+
+            await pollRepo.AddAsync(poll);
+            await pollRepo.SaveChangesAsync();
+
+            var options = new[] { "Pizza", "Tacos", "Sushi" };
+            for (int i = 0; i < options.Length; i++)
+            {
+                await optionRepo.AddAsync(new DbPollOption
+                {
+                    PollId = poll.Id,
+                    OptionText = options[i],
+                    DisplayOrder = i,
+                    Emote = $"{i + 1}️⃣"
+                });
+            }
+            await optionRepo.SaveChangesAsync();
+
+            // Assert
+            var savedPoll = await _context.Polls
+                .Include(p => p.PollOptions)
+                .FirstOrDefaultAsync(p => p.Id == poll.Id);
+
+            Assert.NotNull(savedPoll);
+            Assert.Equal("MultipleChoice", savedPoll.PollType);
+            Assert.Equal(3, savedPoll.PollOptions.Count);
+        }
+
+        [Fact]
         public async Task CreatePoll_WithExpiration_StoresExpirationDate()
         {
             // Arrange
