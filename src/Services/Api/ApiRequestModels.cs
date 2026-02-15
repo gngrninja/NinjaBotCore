@@ -51,7 +51,8 @@ namespace NinjaBotCore.Services.Api
         List<string>? Options,
         string? Duration,
         bool? AllowVoteChange,
-        bool? IsAnonymous
+        bool? IsAnonymous,
+        bool? AllowMultipleSelections
     );
 
     /// <summary>

@@ -337,10 +337,12 @@ namespace NinjaBotCore.Modules.Interactions.Polls
                 embed.AddField("Expires", $"<t:{new DateTimeOffset(poll.ExpiresAt.Value).ToUnixTimeSeconds()}:R>", inline: true);
             }
 
-            if (poll.IsAnonymous)
-            {
+            if (poll.IsAnonymous && poll.PollType == "MultipleChoice")
+                embed.AddField("Voting", "Anonymous \u2022 Multiple selections", inline: true);
+            else if (poll.IsAnonymous)
                 embed.AddField("Voting", "Anonymous", inline: true);
-            }
+            else if (poll.PollType == "MultipleChoice")
+                embed.AddField("Voting", "Multiple selections allowed", inline: true);
 
             if (poll.IsClosed)
             {
@@ -571,7 +573,9 @@ namespace NinjaBotCore.Modules.Interactions.Polls
                         return;
                     }
 
-                    pollType = "SingleChoice";
+                    var allowMultiSelect = !string.IsNullOrWhiteSpace(modal.MultiSelect)
+                        && modal.MultiSelect.Trim().Equals("yes", StringComparison.OrdinalIgnoreCase);
+                    pollType = allowMultiSelect ? "MultipleChoice" : "SingleChoice";
                 }
 
                 // Parse duration
@@ -720,10 +724,12 @@ namespace NinjaBotCore.Modules.Interactions.Polls
                 embed.AddField("Expires", $"<t:{new DateTimeOffset(poll.ExpiresAt.Value).ToUnixTimeSeconds()}:R>", inline: true);
             }
 
-            if (poll.IsAnonymous)
-            {
+            if (poll.IsAnonymous && poll.PollType == "MultipleChoice")
+                embed.AddField("Voting", "Anonymous \u2022 Multiple selections", inline: true);
+            else if (poll.IsAnonymous)
                 embed.AddField("Voting", "Anonymous", inline: true);
-            }
+            else if (poll.PollType == "MultipleChoice")
+                embed.AddField("Voting", "Multiple selections allowed", inline: true);
 
             if (!string.IsNullOrEmpty(poll.AllowedRoleIds))
             {
@@ -822,6 +828,11 @@ namespace NinjaBotCore.Modules.Interactions.Polls
         [ModalTextInput("poll_anonymous", placeholder: "Leave empty for server default, 'yes' or 'no' to override", maxLength: 10)]
         [RequiredInput(false)]
         public string Anonymous { get; set; }
+
+        [InputLabel("Allow multiple selections? (yes/no)")]
+        [ModalTextInput("poll_multi_select", placeholder: "Leave empty for single choice, 'yes' to allow multiple", maxLength: 10)]
+        [RequiredInput(false)]
+        public string MultiSelect { get; set; }
     }
 
     #endregion

@@ -56,6 +56,9 @@ namespace NinjaBotCore.Modules.Interactions.Polls
                 .AddTextInput("Anonymous voting? (yes/no)", "poll_anonymous",
                     placeholder: "Leave empty for server default, 'yes' or 'no' to override",
                     required: false, maxLength: 10)
+                .AddTextInput("Allow multiple selections? (yes/no)", "poll_multi_select",
+                    placeholder: "Leave empty for single choice, 'yes' to allow multiple",
+                    required: false, maxLength: 10)
                 .Build();
 
             await Context.Interaction.RespondWithModalAsync(modal);
@@ -262,6 +265,13 @@ namespace NinjaBotCore.Modules.Interactions.Polls
             {
                 embed.AddField("Expires", $"<t:{new DateTimeOffset(poll.ExpiresAt.Value).ToUnixTimeSeconds()}:R>", inline: true);
             }
+
+            if (poll.IsAnonymous && poll.PollType == "MultipleChoice")
+                embed.AddField("Voting", "Anonymous \u2022 Multiple selections", inline: true);
+            else if (poll.IsAnonymous)
+                embed.AddField("Voting", "Anonymous", inline: true);
+            else if (poll.PollType == "MultipleChoice")
+                embed.AddField("Voting", "Multiple selections allowed", inline: true);
 
             if (poll.IsClosed)
             {

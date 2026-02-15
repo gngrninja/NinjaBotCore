@@ -949,7 +949,7 @@ namespace NinjaBotCore.Services.Api
                             return Results.BadRequest(new { success = false, error = "Poll must have at least 2 options" });
                         }
 
-                        pollType = "SingleChoice";
+                        pollType = (body.AllowMultipleSelections == true) ? "MultipleChoice" : "SingleChoice";
                     }
 
                     // Parse duration
@@ -1031,6 +1031,13 @@ namespace NinjaBotCore.Services.Api
                     {
                         embed.AddField("Expires", $"<t:{new DateTimeOffset(poll.ExpiresAt.Value).ToUnixTimeSeconds()}:R>", inline: true);
                     }
+
+                    if (poll.IsAnonymous && poll.PollType == "MultipleChoice")
+                        embed.AddField("Voting", "Anonymous \u2022 Multiple selections", inline: true);
+                    else if (poll.IsAnonymous)
+                        embed.AddField("Voting", "Anonymous", inline: true);
+                    else if (poll.PollType == "MultipleChoice")
+                        embed.AddField("Voting", "Multiple selections allowed", inline: true);
 
                     // Build components (vote buttons)
                     var builder = new ComponentBuilder();
