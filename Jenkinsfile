@@ -51,7 +51,11 @@ pipeline {
         branch 'Dev'
       }
       steps {
-        sh 'sudo -n -u ninja ssh gnja@rpi /home/gnja/scripts/ninjabot/bot.sh'
+        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+          timeout(time: 2, unit: 'MINUTES') {
+            sh 'sudo -n -u ninja ssh -o ConnectTimeout=15 gnja@rpi /home/gnja/scripts/ninjabot/bot.sh'
+          }
+        }
       }
     }
 
