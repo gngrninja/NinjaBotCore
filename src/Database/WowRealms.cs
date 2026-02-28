@@ -40,5 +40,8 @@ namespace NinjaBotCore.Database
         public bool IsTournament { get; set; }
 
         public DateTime LastUpdated { get; set; }
+
+        [MaxLength(20)]
+        public string GameVersion { get; set; }
     }
 }

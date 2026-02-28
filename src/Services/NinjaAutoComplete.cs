@@ -326,10 +326,10 @@ namespace NinjaBotCore.Services
                 // Map region to uppercase for database query
                 var dbRegion = region.ToUpper();
 
-                // Try to get realms from database first (more reliable)
+                // Try to get realms from database first (more reliable, retail only)
                 if (staticDataService != null)
                 {
-                    var dbRealms = await staticDataService.GetRealmsByRegionAsync(dbRegion);
+                    var dbRealms = await staticDataService.GetRetailRealmsByRegionAsync(dbRegion);
 
                     if (dbRealms.Count > 0)
                     {
@@ -378,6 +378,100 @@ namespace NinjaBotCore.Services
             {
                 var logger = services.GetService<ILogger<RealmAutocomplete>>();
                 logger?.LogError(ex, "Error in RealmAutocomplete");
+                return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
+            }
+        }
+    }
+
+    /// <summary>
+    /// Autocomplete handler for Classic WoW realms.
+    /// Queries database-backed Classic realm list (GameVersion == "Classic").
+    /// </summary>
+    public class ClassicRealmAutocomplete : AutocompleteHandler
+    {
+        public override async Task<AutocompletionResult> GenerateSuggestionsAsync(
+            IInteractionContext context,
+            IAutocompleteInteraction autocompleteInteraction,
+            IParameterInfo parameter,
+            IServiceProvider services)
+        {
+            try
+            {
+                var logger = services.GetService<ILogger<ClassicRealmAutocomplete>>();
+                var staticDataService = services.GetService<WowStaticDataService>();
+                var userInput = (autocompleteInteraction.Data.Current.Value as string ?? "").ToLower().Trim();
+
+                // Get region parameter value (default to US)
+                var regionParam = autocompleteInteraction.Data.Options.FirstOrDefault(o => o.Name == "region");
+                var region = (regionParam?.Value as string ?? "us").ToUpper();
+
+                if (staticDataService == null)
+                {
+                    logger?.LogWarning("WowStaticDataService not available for ClassicRealmAutocomplete");
+                    return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
+                }
+
+                var classicRealms = await staticDataService.GetClassicRealmsByRegionAsync(region);
+
+                var filteredRealms = classicRealms
+                    .Where(r => string.IsNullOrWhiteSpace(userInput) ||
+                                r.Name.ToLower().Contains(userInput) ||
+                                r.Slug.ToLower().Contains(userInput))
+                    .OrderBy(r => r.Name)
+                    .Take(25)
+                    .Select(r => new AutocompleteResult(r.Name, r.Slug))
+                    .ToList();
+
+                return AutocompletionResult.FromSuccess(filteredRealms);
+            }
+            catch (Exception ex)
+            {
+                var logger = services.GetService<ILogger<ClassicRealmAutocomplete>>();
+                logger?.LogError(ex, "Error in ClassicRealmAutocomplete");
+                return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
+            }
+        }
+    }
+
+    /// <summary>
+    /// Autocomplete handler for Classic WoW character names.
+    /// Shows the user's recent Classic character lookups from search history.
+    /// </summary>
+    public class ClassicCharAutocomplete : AutocompleteHandler
+    {
+        public override async Task<AutocompletionResult> GenerateSuggestionsAsync(
+            IInteractionContext context,
+            IAutocompleteInteraction autocompleteInteraction,
+            IParameterInfo parameter,
+            IServiceProvider services)
+        {
+            try
+            {
+                var wowCache = services.GetService<WowCacheService>();
+                var userInput = (autocompleteInteraction.Data.Current.Value as string ?? "").ToLower().Trim();
+
+                if (wowCache == null)
+                {
+                    return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
+                }
+
+                var history = await wowCache.GetClassicSearchHistoryAsync((long)context.User.Id);
+
+                var suggestions = history
+                    .Where(h => string.IsNullOrWhiteSpace(userInput) ||
+                                h.CharacterName.ToLower().Contains(userInput))
+                    .Take(25)
+                    .Select(h => new AutocompleteResult(
+                        $"\U0001F552 {h.CharacterName} ({h.RealmName}) [{(h.Region?.ToUpper() ?? "?")}]",
+                        $"{h.CharacterName}~{h.RealmName}~{h.Region ?? "us"}"))
+                    .ToList();
+
+                return AutocompletionResult.FromSuccess(suggestions);
+            }
+            catch (Exception ex)
+            {
+                var logger = services.GetService<ILogger<ClassicCharAutocomplete>>();
+                logger?.LogError(ex, "Error in ClassicCharAutocomplete");
                 return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
             }
         }
@@ -574,7 +668,7 @@ namespace NinjaBotCore.Services
 
                 if (staticDataService != null)
                 {
-                    var dbRealms = await staticDataService.GetRealmsByRegionAsync(dbRegion);
+                    var dbRealms = await staticDataService.GetRetailRealmsByRegionAsync(dbRegion);
 
                     if (dbRealms.Count > 0)
                     {

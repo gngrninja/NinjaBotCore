@@ -206,7 +206,7 @@ namespace NinjaBotCore.Services
             await using var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
 
             var history = await db.RioSearchHistory
-                .Where(h => h.DiscordUserId == userId)
+                .Where(h => h.DiscordUserId == userId && h.GameVersion == null)
                 .OrderByDescending(h => h.SearchCount)
                 .ThenByDescending(h => h.LastSearched)
                 .Take(30) // Match the limit from SaveRioSearchHistory
@@ -244,10 +244,11 @@ namespace NinjaBotCore.Services
                 await using var scope = _scopeFactory.CreateAsyncScope();
                 await using var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
 
-                // Check for existing entry
+                // Check for existing retail entry (GameVersion == null means retail)
                 var existing = await db.RioSearchHistory
                     .FirstOrDefaultAsync(h =>
                         h.DiscordUserId == userId &&
+                        h.GameVersion == null &&
                         h.CharacterName.ToLower() == characterName.ToLower() &&
                         h.RealmName.ToLower() == realmName.ToLower() &&
                         h.Region.ToLower() == region.ToLower());
@@ -271,12 +272,13 @@ namespace NinjaBotCore.Services
                         SearchCount = 1
                     });
 
-                    // Enforce max entries per user - delete oldest/least used if over limit
-                    var count = await db.RioSearchHistory.CountAsync(h => h.DiscordUserId == userId);
+                    // Enforce max entries per user (retail only) - delete oldest/least used if over limit
+                    var count = await db.RioSearchHistory.CountAsync(
+                        h => h.DiscordUserId == userId && h.GameVersion == null);
                     if (count >= MaxSearchHistoryEntries)
                     {
                         var oldest = await db.RioSearchHistory
-                            .Where(h => h.DiscordUserId == userId)
+                            .Where(h => h.DiscordUserId == userId && h.GameVersion == null)
                             .OrderBy(h => h.SearchCount)
                             .ThenBy(h => h.LastSearched)
                             .FirstOrDefaultAsync();
@@ -299,6 +301,108 @@ namespace NinjaBotCore.Services
                 _logger.LogDebug(ex, "Failed to record search history for user {UserId}", userId);
             }
         }
+
+        #region Classic Search History
+
+        /// <summary>
+        /// Gets Classic character search history for a user, sorted by frequency then recency
+        /// </summary>
+        public async Task<List<RioSearchHistory>> GetClassicSearchHistoryAsync(long userId)
+        {
+            var cacheKey = $"classic_search_history_{userId}";
+
+            if (_cache.TryGetValue<List<RioSearchHistory>>(cacheKey, out var cachedHistory))
+            {
+                return cachedHistory;
+            }
+
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            await using var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+            var history = await db.RioSearchHistory
+                .Where(h => h.DiscordUserId == userId && h.GameVersion == "Classic")
+                .OrderByDescending(h => h.SearchCount)
+                .ThenByDescending(h => h.LastSearched)
+                .Take(30)
+                .ToListAsync();
+
+            if (history != null && history.Any())
+            {
+                var cacheOptions = new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = SearchHistoryExpiration,
+                    Size = 1
+                };
+                _cache.Set(cacheKey, history, cacheOptions);
+            }
+
+            return history ?? new List<RioSearchHistory>();
+        }
+
+        /// <summary>
+        /// Records a Classic character search to the user's search history
+        /// </summary>
+        public async Task RecordClassicSearchHistoryAsync(long userId, string characterName, string realmName, string region)
+        {
+            try
+            {
+                await using var scope = _scopeFactory.CreateAsyncScope();
+                await using var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                var existing = await db.RioSearchHistory
+                    .FirstOrDefaultAsync(h =>
+                        h.DiscordUserId == userId &&
+                        h.GameVersion == "Classic" &&
+                        h.CharacterName.ToLower() == characterName.ToLower() &&
+                        h.RealmName.ToLower() == realmName.ToLower() &&
+                        h.Region.ToLower() == region.ToLower());
+
+                if (existing != null)
+                {
+                    existing.SearchCount++;
+                    existing.LastSearched = DateTime.UtcNow;
+                }
+                else
+                {
+                    db.RioSearchHistory.Add(new RioSearchHistory
+                    {
+                        DiscordUserId = userId,
+                        CharacterName = characterName,
+                        RealmName = realmName,
+                        Region = region,
+                        LastSearched = DateTime.UtcNow,
+                        SearchCount = 1,
+                        GameVersion = "Classic"
+                    });
+
+                    // Enforce max entries per user (Classic only)
+                    var count = await db.RioSearchHistory.CountAsync(
+                        h => h.DiscordUserId == userId && h.GameVersion == "Classic");
+                    if (count >= MaxSearchHistoryEntries)
+                    {
+                        var oldest = await db.RioSearchHistory
+                            .Where(h => h.DiscordUserId == userId && h.GameVersion == "Classic")
+                            .OrderBy(h => h.SearchCount)
+                            .ThenBy(h => h.LastSearched)
+                            .FirstOrDefaultAsync();
+
+                        if (oldest != null)
+                        {
+                            db.RioSearchHistory.Remove(oldest);
+                        }
+                    }
+                }
+
+                await db.SaveChangesAsync();
+                _cache.Remove($"classic_search_history_{userId}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to record Classic search history for user {UserId}", userId);
+            }
+        }
+
+        #endregion
 
         /// <summary>
         /// Gets server greeting settings for a guild with caching

@@ -19,5 +19,8 @@ namespace NinjaBotCore.Database
         public DateTime LastSearched { get; set; }
 
         public int SearchCount { get; set; }
+
+        [MaxLength(20)]
+        public string GameVersion { get; set; }
     }
 }

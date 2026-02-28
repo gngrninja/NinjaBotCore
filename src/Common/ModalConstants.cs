@@ -62,5 +62,15 @@ namespace NinjaBotCore.Common
         public const string HousingSearchModal = "housing_search_modal"; // Search modal ID
         public const string HousingClear = "housing_clear";           // Clear search filter
         public const string HousingBack = "housing_back";             // Back to summary button
+
+        /// <summary>
+        /// Classic character component IDs - handlers in CharClassicCommands.cs
+        /// Standard format: charclassic_{action}~{userId}~{name}~{realm}~{region}
+        /// </summary>
+        public const string ClassicCharOverview = "charclassic_view_overview";
+        public const string ClassicCharGear = "charclassic_view_gear";
+        public const string ClassicCharRaids = "charclassic_view_raids";
+        public const string ClassicCharRefresh = "charclassic_refresh";
+        public const string ClassicCharShare = "charclassic_share";
     }
 }
