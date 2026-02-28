@@ -146,6 +146,15 @@ namespace NinjaBotCore.Services
                     await ImportAllRealmsAsync(cancellationToken);
                 }
 
+                // Import Classic realms if none exist yet
+                var classicRealmCount = (await realmRepo.GetAllAsync())
+                    .Count(r => r.GameVersion == "Classic");
+                if (classicRealmCount == 0)
+                {
+                    _logger.LogInformation("Classic realm database is empty. Starting initial Classic realm import...");
+                    await ImportAllClassicRealmsAsync(cancellationToken);
+                }
+
                 var classRepo = new Repository<WowPlayableClass>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
                 var classCount = (await classRepo.GetAllAsync()).Count();
 
@@ -1457,6 +1466,18 @@ namespace NinjaBotCore.Services
         }
 
         /// <summary>
+        /// Get retail realms for a specific region (excludes Classic realms)
+        /// </summary>
+        public async Task<List<WowRealms>> GetRetailRealmsByRegionAsync(string region)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var repo = new Repository<WowRealms>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            var allRealms = await repo.GetAllAsync();
+            return allRealms.Where(r => r.Region.Equals(region, StringComparison.OrdinalIgnoreCase)
+                && r.GameVersion != "Classic").ToList();
+        }
+
+        /// <summary>
         /// Get a realm by slug
         /// </summary>
         public async Task<WowRealms> GetRealmBySlugAsync(string slug, string region = null)
@@ -1474,6 +1495,138 @@ namespace NinjaBotCore.Services
 
             return query.FirstOrDefault();
         }
+
+        #region Classic Realm Import/Retrieval
+
+        /// <summary>
+        /// Import Classic realms for all supported regions (US, EU)
+        /// </summary>
+        public async Task ImportAllClassicRealmsAsync(CancellationToken cancellationToken = default)
+        {
+            var regions = new[] { "us", "eu" };
+
+            foreach (var region in regions)
+            {
+                if (cancellationToken.IsCancellationRequested) break;
+
+                try
+                {
+                    await ImportClassicRealmsForRegionAsync(region, cancellationToken);
+                    _logger.LogInformation("Classic realm import completed for region {Region}", region.ToUpper());
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error importing Classic realms for region {Region}", region.ToUpper());
+                }
+            }
+        }
+
+        /// <summary>
+        /// Import Classic realms for a specific region using Blizzard's dynamic-classic namespace
+        /// </summary>
+        public async Task ImportClassicRealmsForRegionAsync(string region = "us", CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                _logger.LogInformation("Starting Classic realm import for region {Region}", region);
+
+                var localeName = region switch
+                {
+                    "us" => "en_US",
+                    "eu" => "en_GB",
+                    _ => "en_US"
+                };
+
+                var url = $"/data/wow/realm/index?namespace=dynamic-classic-{region}";
+                var response = await _wowApi.GetAPIRequestAsync(url, localeName, region, cancellationToken);
+                var realmData = JsonConvert.DeserializeObject<WowRealm>(response);
+
+                if (realmData?.realms == null || realmData.realms.Length == 0)
+                {
+                    _logger.LogWarning("No Classic realms found for region {Region}", region);
+                    return;
+                }
+
+                _logger.LogInformation("Found {Count} Classic realms for region {Region}", realmData.realms.Length, region);
+
+                using var scope = _scopeFactory.CreateScope();
+                var repo = new Repository<WowRealms>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+
+                int imported = 0;
+                foreach (var realm in realmData.realms)
+                {
+                    if (cancellationToken.IsCancellationRequested) break;
+
+                    try
+                    {
+                        // Offset by +100000 to avoid ID collisions with retail realms
+                        // Classic realm IDs from the API are typically in the same range as retail
+                        var classicId = realm.id + 100000;
+
+                        var dbRealm = new WowRealms
+                        {
+                            Id = classicId,
+                            Name = realm.name,
+                            Slug = realm.slug,
+                            Region = region.ToUpper(),
+                            Timezone = realm.timezone,
+                            Type = realm.type,
+                            Population = realm.population,
+                            Locale = realm.locale,
+                            IsTournament = false,
+                            LastUpdated = DateTime.UtcNow,
+                            GameVersion = "Classic"
+                        };
+
+                        await repo.UpsertAsync(
+                            findPredicate: r => r.Id == classicId,
+                            updateAction: existing =>
+                            {
+                                existing.Name = dbRealm.Name;
+                                existing.Slug = dbRealm.Slug;
+                                existing.Region = dbRealm.Region;
+                                existing.Timezone = dbRealm.Timezone;
+                                existing.Type = dbRealm.Type;
+                                existing.Population = dbRealm.Population;
+                                existing.Locale = dbRealm.Locale;
+                                existing.GameVersion = "Classic";
+                                existing.LastUpdated = DateTime.UtcNow;
+                            },
+                            createFactory: () => dbRealm);
+
+                        imported++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to import Classic realm {RealmId} ({Name})", realm.id, realm.name);
+                    }
+                }
+
+                await repo.SaveChangesAsync();
+                _logger.LogInformation("Imported {Count} Classic realms for region {Region}", imported, region);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during Classic realm import for region {Region}", region);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Get Classic realms for a specific region
+        /// </summary>
+        public async Task<List<WowRealms>> GetClassicRealmsByRegionAsync(string region)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var repo = new Repository<WowRealms>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            var allRealms = await repo.GetAllAsync();
+            return allRealms
+                .Where(r => r.GameVersion == "Classic" &&
+                            r.Region.Equals(region, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+
+        #endregion
 
         #endregion
 

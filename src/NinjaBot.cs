@@ -127,6 +127,8 @@ namespace NinjaBotCore
                 .AddScoped(typeof(Repositories.IRepository<>), typeof(Repositories.Repository<>))
                 .AddSingleton<RaiderIOApi>()
                 .AddSingleton<IRaiderIOApi>(sp => sp.GetRequiredService<RaiderIOApi>())
+                .AddSingleton<ClassicRaiderIOApi>()
+                .AddSingleton<IClassicRaiderIOApi>(sp => sp.GetRequiredService<ClassicRaiderIOApi>())
                 .AddSingleton<AudioService>()       
                 .AddWarcraftClients(_config["WoWClient"], _config["WoWSecret"])         
                 .AddSingleton<LoggingService>();                   
