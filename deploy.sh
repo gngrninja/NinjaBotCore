@@ -31,7 +31,7 @@ echo "========================================="
 echo "Deploying to: $SSH_TARGET:$DEPLOY_DIR"
 
 # Sync code
-echo "[1/4] Syncing code..."
+echo "[1/5] Syncing code..."
 run_remote "mkdir -p \"$DEPLOY_DIR\" \"$DEPLOY_DIR/logs\" \"$DEPLOY_DIR/logs/helpers\""
 rsync -av --delete \
   --exclude='.git' \
@@ -47,16 +47,24 @@ rsync -av --delete \
   -e "ssh -o StrictHostKeyChecking=accept-new" \
   "$RSYNC_SRC" "$SSH_TARGET:$DEPLOY_DIR"/
 
+# Run database migrations (source .env.production for connection string)
+echo "[2/5] Running database migrations..."
+run_remote "cd \"$DEPLOY_DIR\" && set -a && . .env.production && set +a && dotnet ef database update --project src/NinjaBotCore.csproj" || {
+  echo "Warning: Migration failed. Check dotnet-ef tools on $DEPLOY_HOST"
+  echo "You may need to apply migrations manually."
+  exit 1
+}
+
 # Stop current containers
-echo "[2/4] Stopping containers..."
+echo "[3/5] Stopping containers..."
 run_remote "cd \"$DEPLOY_DIR\" && docker compose down" || echo "No containers running"
 
 # Build and start new containers
-echo "[3/4] Building and starting containers..."
+echo "[4/5] Building and starting containers..."
 run_remote "cd \"$DEPLOY_DIR\" && docker compose up -d --build"
 
 # Verify
-echo "[4/4] Checking container status..."
+echo "[5/5] Checking container status..."
 run_remote "cd \"$DEPLOY_DIR\" && docker compose ps"
 
 if run_remote "cd \"$DEPLOY_DIR\" && docker compose ps" | grep -q "Up"; then
