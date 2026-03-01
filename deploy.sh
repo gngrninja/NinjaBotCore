@@ -49,7 +49,7 @@ rsync -av --delete \
 
 # Run database migrations (source .env.production for connection string)
 echo "[2/5] Running database migrations..."
-run_remote "cd \"$DEPLOY_DIR\" && set -a && . .env.production && set +a && dotnet ef database update --project src/NinjaBotCore.csproj" || {
+run_remote "cd \"$DEPLOY_DIR\" && while IFS='=' read -r key value; do [[ -z \"\$key\" || \"\$key\" == \\#* ]] && continue; export \"\$key=\$value\"; done < .env.production && dotnet ef database update --project src/NinjaBotCore.csproj" || {
   echo "Warning: Migration failed. Check dotnet-ef tools on $DEPLOY_HOST"
   echo "You may need to apply migrations manually."
   exit 1
