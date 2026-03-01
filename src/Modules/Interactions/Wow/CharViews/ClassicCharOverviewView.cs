@@ -97,10 +97,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
 
             sb.AppendLine();
 
-            // Quick links
+            // Attribution
             if (profile.ProfileUrl != null)
             {
-                sb.AppendLine($"[Classic Raider.IO]({profile.ProfileUrl})");
+                sb.AppendLine($"*Data provided by [Raider.IO]({profile.ProfileUrl})*");
             }
 
             embed.Description = sb.ToString();
@@ -114,7 +114,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             // Footer
             embed.Footer = new EmbedFooterBuilder
             {
-                Text = $"{profile.Realm} ({profile.Region?.ToUpper()}) | Classic"
+                Text = $"{profile.Realm} ({profile.Region?.ToUpper()}) | Classic | Powered by Raider.IO"
             };
 
             return embed;

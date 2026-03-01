@@ -102,7 +102,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             // Footer
             embed.Footer = new EmbedFooterBuilder
             {
-                Text = $"{profile.Realm} ({profile.Region?.ToUpper()}) | Classic"
+                Text = $"{profile.Realm} ({profile.Region?.ToUpper()}) | Classic | Powered by Raider.IO"
             };
 
             return embed;
