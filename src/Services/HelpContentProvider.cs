@@ -275,11 +275,12 @@ namespace NinjaBotCore.Services
             var categories = new List<HelpCategory>();
 
             // WoW Main commands - all Wow modules except Classic/Vanilla/Admin (listed first)
-            var classicModules = new[] { "WowClassicInteract", "WowVanillaInteract" };
-            var excludedModules = new[] { "WowClassicInteract", "WowVanillaInteract", "WowAdminInteract", "CharacterResolver" };
+            var classicModules = new[] { "WowClassicInteract", "WowVanillaInteract", "CharClassicCommands" };
+            var nonRetailModules = new[] { "WowAdminInteract", "CharacterResolver" };
             var wowMainCommands = commands
                 .Where(c => c.ModuleName.Contains("Wow") &&
-                           !excludedModules.Contains(c.ModuleTypeName) &&
+                           !classicModules.Contains(c.ModuleTypeName) &&
+                           !nonRetailModules.Contains(c.ModuleTypeName) &&
                            c.Permission != "owner")
                 .Select(ToHelpCommand)
                 .OrderBy(c => c.Name)
