@@ -47,9 +47,9 @@ rsync -av --delete \
   -e "ssh -o StrictHostKeyChecking=accept-new" \
   "$RSYNC_SRC" "$SSH_TARGET:$DEPLOY_DIR"/
 
-# Run database migrations (source .env.production for connection string)
+# Run database migrations
 echo "[2/5] Running database migrations..."
-run_remote "export PATH=\"\$HOME/.dotnet/tools:\$PATH\" && cd \"$DEPLOY_DIR\" && while IFS='=' read -r key value; do [[ -z \"\$key\" || \"\$key\" == \\#* ]] && continue; export \"\$key=\$value\"; done < .env.production && dotnet ef database update --project src/NinjaBotCore.csproj" || {
+run_remote "bash \"$DEPLOY_DIR/tools/run-migrations.sh\"" || {
   echo "Warning: Migration failed. Check dotnet-ef tools on $DEPLOY_HOST"
   echo "You may need to apply migrations manually."
   exit 1
