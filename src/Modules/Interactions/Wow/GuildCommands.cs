@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using NinjaBotCore.Common;
 using NinjaBotCore.Database;
 using NinjaBotCore.Models.Wow;
+using NinjaBotCore.Modules.Interactions.Wow.CharViews;
 using NinjaBotCore.Modules.Wow;
 using NinjaBotCore.Services;
 using System;
@@ -82,23 +83,44 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             var guildStats = await _rioApi.GetRioGuildInfoAsync(guildName: guildObject.guildName, realmName: guildObject.realmSlug, region: guildObject.regionName);
 
-            string normalKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.ManaforgeOmega.NormalBossesKilled);
-            string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.ManaforgeOmega.HeroicBossesKilled);
-            string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.ManaforgeOmega.MythicBossesKilled);
-            string totalBosses = _wowUtils.GetNumberEmojiFromString((int)guildStats.RaidProgression.ManaforgeOmega.TotalBosses);
+            if (guildStats == null)
+            {
+                await FollowupAsync($"Could not retrieve Raider.IO data for **{guildObject.guildName}**.", ephemeral: true);
+                return;
+            }
 
             title = $"{guildObject.guildName} on {guildObject.realmName}'s Raider.IO Stats";
 
-            sb.AppendLine("**__Raid Progression:__**");
-            sb.AppendLine($"\t **normal** [{normalKilled} / {totalBosses}]");
-            sb.AppendLine($"\t **heroic** [{heroicKilled} / {totalBosses}]");
-            sb.AppendLine($"\t **mythic** [{mythicKilled} / {totalBosses}]");
-            sb.AppendLine();
-            sb.AppendLine("**__Raid Rankings:__**");
-            sb.AppendLine($"\t **normal** [ realm [**{guildStats.RaidRankings.ManaforgeOmega.Normal.Realm}**] world [**{guildStats.RaidRankings.ManaforgeOmega.Normal.World}**] region [**{guildStats.RaidRankings.ManaforgeOmega.Normal.Region}**] ]");
-            sb.AppendLine($"\t **heroic** [ realm [**{guildStats.RaidRankings.ManaforgeOmega.Heroic.Realm}**] world [**{guildStats.RaidRankings.ManaforgeOmega.Heroic.World}**] region [**{guildStats.RaidRankings.ManaforgeOmega.Heroic.Region}**] ]");
-            sb.AppendLine($"\t **mythic** [ realm [**{guildStats.RaidRankings.ManaforgeOmega.Mythic.Realm}**] world [**{guildStats.RaidRankings.ManaforgeOmega.Mythic.World}**] region [**{guildStats.RaidRankings.ManaforgeOmega.Mythic.Region}**] ]");
-            sb.AppendLine();
+            var currentProg = CharViewHelpers.GetCurrentRaid(guildStats.RaidProgression);
+            var currentRank = CharViewHelpers.GetCurrentRaid(guildStats.RaidRankings);
+
+            if (currentProg != null)
+            {
+                var prog = currentProg.Value.Value;
+                var raidName = CharViewHelpers.FormatRaidName(currentProg.Value.Key);
+                string normalKilled = _wowUtils.GetNumberEmojiFromString((int)prog.NormalBossesKilled);
+                string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)prog.HeroicBossesKilled);
+                string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)prog.MythicBossesKilled);
+                string totalBosses = _wowUtils.GetNumberEmojiFromString((int)prog.TotalBosses);
+
+                sb.AppendLine($"**__Raid Progression ({raidName}):__**");
+                sb.AppendLine($"\t **normal** [{normalKilled} / {totalBosses}]");
+                sb.AppendLine($"\t **heroic** [{heroicKilled} / {totalBosses}]");
+                sb.AppendLine($"\t **mythic** [{mythicKilled} / {totalBosses}]");
+                sb.AppendLine();
+            }
+
+            if (currentRank != null)
+            {
+                var rank = currentRank.Value.Value;
+                var raidName = CharViewHelpers.FormatRaidName(currentRank.Value.Key);
+                sb.AppendLine($"**__Raid Rankings ({raidName}):__**");
+                sb.AppendLine($"\t **normal** [ realm [**{rank.Normal.Realm}**] world [**{rank.Normal.World}**] region [**{rank.Normal.Region}**] ]");
+                sb.AppendLine($"\t **heroic** [ realm [**{rank.Heroic.Realm}**] world [**{rank.Heroic.World}**] region [**{rank.Heroic.Region}**] ]");
+                sb.AppendLine($"\t **mythic** [ realm [**{rank.Mythic.Realm}**] world [**{rank.Mythic.World}**] region [**{rank.Mythic.Region}**] ]");
+                sb.AppendLine();
+            }
+
             sb.AppendLine($"[{guildObject.guildName} Profile]({guildStats.ProfileUrl.AbsoluteUri})");
 
             embed.Title = title;

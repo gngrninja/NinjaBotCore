@@ -55,16 +55,18 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             }
 
             // Raid Progression
-            if (mPlusInfo.RaidProgression?.ManaforgeOmega != null)
+            var currentRaid = CharViewHelpers.GetCurrentRaid(mPlusInfo.RaidProgression);
+            if (currentRaid != null)
             {
-                var raid = mPlusInfo.RaidProgression.ManaforgeOmega;
+                var raid = currentRaid.Value.Value;
+                var raidName = CharViewHelpers.FormatRaidName(currentRaid.Value.Key);
                 string normalKilled = wowUtils?.GetNumberEmojiFromString((int)raid.NormalBossesKilled) ?? raid.NormalBossesKilled.ToString();
                 string heroicKilled = wowUtils?.GetNumberEmojiFromString((int)raid.HeroicBossesKilled) ?? raid.HeroicBossesKilled.ToString();
                 string mythicKilled = wowUtils?.GetNumberEmojiFromString((int)raid.MythicBossesKilled) ?? raid.MythicBossesKilled.ToString();
                 string totalBosses = wowUtils?.GetNumberEmojiFromString((int)raid.TotalBosses) ?? raid.TotalBosses.ToString();
 
                 sb.AppendLine($"**__Raid Progression__**");
-                sb.AppendLine($"__Manaforge Omega__");
+                sb.AppendLine($"__{raidName}__");
                 sb.AppendLine($"**Normal** [{normalKilled} / {totalBosses}] {CharViewHelpers.GetProgressBar(raid.NormalBossesKilled, raid.TotalBosses)}");
                 sb.AppendLine($"**Heroic** [{heroicKilled} / {totalBosses}] {CharViewHelpers.GetProgressBar(raid.HeroicBossesKilled, raid.TotalBosses)}");
                 sb.AppendLine($"**Mythic** [{mythicKilled} / {totalBosses}] {CharViewHelpers.GetProgressBar(raid.MythicBossesKilled, raid.TotalBosses)}");

@@ -1,5 +1,6 @@
 using Discord;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
@@ -124,6 +125,41 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 10 => "🔟",
                 _ => number.ToString()
             };
+        }
+
+        private static readonly Dictionary<string, string> TierSlugNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["tier-mn-1"] = "Midnight Season 1",
+        };
+
+        /// <summary>
+        /// Convert a raid slug to display name.
+        /// Checks known tier slugs first, then falls back to title-casing the slug.
+        /// Example: "tier-mn-1" -> "Midnight Season 1", "manaforge-omega" -> "Manaforge Omega"
+        /// </summary>
+        public static string FormatRaidName(string slug)
+        {
+            if (string.IsNullOrEmpty(slug))
+                return "Unknown Raid";
+
+            if (TierSlugNames.TryGetValue(slug, out var friendlyName))
+                return friendlyName;
+
+            return string.Join(" ", slug.Split('-')
+                .Select(word => word.Length > 0
+                    ? char.ToUpper(word[0]) + word.Substring(1)
+                    : ""));
+        }
+
+        /// <summary>
+        /// Get the current (latest) raid from a Raider.IO raid dictionary.
+        /// Raider.IO returns raids chronologically, so the last entry is the current tier.
+        /// </summary>
+        public static KeyValuePair<string, T>? GetCurrentRaid<T>(Dictionary<string, T> raidDict) where T : class
+        {
+            if (raidDict == null || raidDict.Count == 0)
+                return null;
+            return raidDict.Last();
         }
 
         /// <summary>

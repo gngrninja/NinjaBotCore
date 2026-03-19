@@ -43,7 +43,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                     break;
                 }
 
-                var raidName = ClassicCharOverviewView.FormatRaidName(raid.Key);
+                var raidName = CharViewHelpers.FormatRaidName(raid.Key);
                 var entry = raid.Value;
                 var hasKills = ClassicCharOverviewView.HasAnyKills(entry);
 

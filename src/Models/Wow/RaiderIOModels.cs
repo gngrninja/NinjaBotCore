@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using NinjaBotCore.Models.Wow;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -55,70 +56,13 @@ namespace NinjaBotCore.Models.Wow
             public Uri ProfileUrl { get; set; }
 
             [JsonProperty("raid_rankings")]
-            public RaidRankings RaidRankings { get; set; }
+            public Dictionary<string, RaidRankingsEntry> RaidRankings { get; set; }
 
             [JsonProperty("raid_progression")]
-            public RaidProgression RaidProgression { get; set; }
+            public Dictionary<string, RaidProgressionEntry> RaidProgression { get; set; }
         }
 
-        public partial class RaidProgression
-        {
-            [JsonProperty("antorus-the-burning-throne")]
-            public RaidProgressionAntorusTheBurningThrone AntorusTheBurningThrone { get; set; }
-
-            [JsonProperty("the-emerald-nightmare")]
-            public RaidProgressionAntorusTheBurningThrone TheEmeraldNightmare { get; set; }
-
-            [JsonProperty("the-nighthold")]
-            public RaidProgressionAntorusTheBurningThrone TheNighthold { get; set; }
-
-            [JsonProperty("tomb-of-sargeras")]
-            public RaidProgressionAntorusTheBurningThrone TombOfSargeras { get; set; }
-
-            [JsonProperty("trial-of-valor")]
-            public RaidProgressionAntorusTheBurningThrone TrialOfValor { get; set; }
-
-            [JsonProperty("uldir")]
-            public RaidProgressionAntorusTheBurningThrone Uldir { get; set; }
-
-            [JsonProperty("battle-of-dazaralor")]
-            public RaidProgressionAntorusTheBurningThrone BattleOfDazaralor { get; set; }
-
-            [JsonProperty("crucible-of-storms")]
-            public RaidProgressionAntorusTheBurningThrone CrucibleOfStorms { get; set; }
-
-            [JsonProperty("the-eternal-palace")]
-            public RaidProgressionAntorusTheBurningThrone TheEternalPalace { get; set; }
-
-            [JsonProperty("nyalotha-the-waking-city")]
-            public RaidProgressionAntorusTheBurningThrone Nyalotha { get; set; }
-
-            [JsonProperty("castle-nathria")]
-            public RaidProgressionAntorusTheBurningThrone CastleNathria { get; set; }
-
-            [JsonProperty("sanctum-of-domination")]
-            public RaidProgressionAntorusTheBurningThrone Sanctum { get; set; }
-
-            [JsonProperty("vault-of-the-incarnates")]
-            public RaidProgressionAntorusTheBurningThrone Vault { get; set; }
-
-            [JsonProperty("aberrus-the-shadowed-crucible")]
-            public RaidProgressionAntorusTheBurningThrone Aberrus { get; set; }
-
-            [JsonProperty("amirdrassil-the-dreams-hope")]
-            public RaidProgressionAntorusTheBurningThrone Amirdrassil { get; set; }
-
-            [JsonProperty("nerubar-palace")]
-            public RaidProgressionAntorusTheBurningThrone NerubarPalace { get; set; }
-
-            [JsonProperty("liberation-of-undermine")]
-            public RaidProgressionAntorusTheBurningThrone LiberationOfUndermine { get; set; }
-
-            [JsonProperty("manaforge-omega")]
-            public RaidProgressionAntorusTheBurningThrone ManaforgeOmega { get; set; }                                               
-        }
-
-        public partial class RaidProgressionAntorusTheBurningThrone
+        public partial class RaidProgressionEntry
         {
             [JsonProperty("summary")]
             public string Summary { get; set; }
@@ -136,64 +80,7 @@ namespace NinjaBotCore.Models.Wow
             public long MythicBossesKilled { get; set; }
         }
 
-        public partial class RaidRankings
-        {
-            [JsonProperty("antorus-the-burning-throne")]
-            public RaidRankingsAntorusTheBurningThrone AntorusTheBurningThrone { get; set; }
-
-            [JsonProperty("the-emerald-nightmare")]
-            public RaidRankingsAntorusTheBurningThrone TheEmeraldNightmare { get; set; }
-
-            [JsonProperty("the-nighthold")]
-            public RaidRankingsAntorusTheBurningThrone TheNighthold { get; set; }
-
-            [JsonProperty("tomb-of-sargeras")]
-            public RaidRankingsAntorusTheBurningThrone TombOfSargeras { get; set; }
-
-            [JsonProperty("trial-of-valor")]
-            public RaidRankingsAntorusTheBurningThrone TrialOfValor { get; set; }
-
-            [JsonProperty("uldir")]
-            public RaidRankingsAntorusTheBurningThrone Uldir { get; set; }
-
-            [JsonProperty("battle-of-dazaralor")]
-            public RaidRankingsAntorusTheBurningThrone BattleOfDazaralor { get; set; }
-
-            [JsonProperty("crucible-of-storms")]
-            public RaidRankingsAntorusTheBurningThrone CrucibleOfStorms { get; set; }
-
-            [JsonProperty("the-eternal-palace")]
-            public RaidRankingsAntorusTheBurningThrone TheEternalPalace { get; set; }
-
-            [JsonProperty("nyalotha-the-waking-city")]
-            public RaidRankingsAntorusTheBurningThrone Nyalotha { get; set; }
-
-            [JsonProperty("castle-nathria")]
-            public RaidRankingsAntorusTheBurningThrone CastleNathria { get; set; }
-
-            [JsonProperty("sanctum-of-domination")]
-            public RaidRankingsAntorusTheBurningThrone Sanctum { get; set; }
-
-            [JsonProperty("vault-of-the-incarnates")]
-            public RaidRankingsAntorusTheBurningThrone Vault { get; set; }
-
-            [JsonProperty("aberrus-the-shadowed-crucible")]
-            public RaidRankingsAntorusTheBurningThrone Aberrus { get; set; }
-
-            [JsonProperty("amirdrassil-the-dreams-hope")]
-            public RaidRankingsAntorusTheBurningThrone Amirdrassil { get; set; }
-
-            [JsonProperty("nerubar-palace")]
-            public RaidRankingsAntorusTheBurningThrone NerubarPalace { get; set; }
-
-            [JsonProperty("liberation-of-undermine")]
-            public RaidRankingsAntorusTheBurningThrone LiberationOfUndermine { get; set; }
-
-            [JsonProperty("manaforge-omega")]
-            public RaidRankingsAntorusTheBurningThrone ManaforgeOmega { get; set; }                       
-        }
-
-        public partial class RaidRankingsAntorusTheBurningThrone
+        public partial class RaidRankingsEntry
         {
             [JsonProperty("normal")]
             public Heroic Normal { get; set; }
@@ -307,15 +194,15 @@ namespace NinjaBotCore.Models.Wow
             public MythicPlusRun[] MythicPlusPreviousWeeklyHighestLevelRuns { get; set; }
 
             [JsonProperty("raid_progression")]
-            public RaidProgression RaidProgression { get; set; }
+            public Dictionary<string, RaidProgressionEntry> RaidProgression { get; set; }
 
             [JsonProperty("raid_achievement_meta")]
-            [JsonConverter(typeof(RaidAchievementMetaConverter))]
-            public RaidAchievementMeta RaidAchievementMeta { get; set; }
+            [JsonConverter(typeof(DictionaryOrEmptyArrayConverter<RaidAchievement>))]
+            public Dictionary<string, RaidAchievement> RaidAchievementMeta { get; set; }
 
             [JsonProperty("raid_achievement_curve")]
-            [JsonConverter(typeof(RaidAchievementCurveConverter))]
-            public RaidAchievementCurve RaidAchievementCurve { get; set; }
+            [JsonConverter(typeof(DictionaryOrEmptyArrayConverter<RaidAchievement>))]
+            public Dictionary<string, RaidAchievement> RaidAchievementCurve { get; set; }
         }
 
         public partial class MythicPlusRun
@@ -562,24 +449,6 @@ namespace NinjaBotCore.Models.Wow
             public long[] Gems { get; set; }
         }
 
-        public partial class RaidAchievementMeta
-        {
-            [JsonProperty("nerubar-palace")]
-            public RaidAchievement NerubarPalace { get; set; }
-
-            [JsonProperty("manaforge-omega")]
-            public RaidAchievement ManaforgeOmega { get; set; }
-        }
-
-        public partial class RaidAchievementCurve
-        {
-            [JsonProperty("nerubar-palace")]
-            public RaidAchievement NerubarPalace { get; set; }
-
-            [JsonProperty("manaforge-omega")]
-            public RaidAchievement ManaforgeOmega { get; set; }
-        }
-
         public partial class RaidAchievement
         {
             [JsonProperty("aotc")]
@@ -625,15 +494,15 @@ namespace NinjaBotCore.Models.Wow
     }
 
     /// <summary>
-    /// Custom converter to handle RaiderIO API inconsistency where 'raid_achievement_meta' can be either an object or an empty array
+    /// Generic converter to handle RaiderIO API inconsistency where dictionary fields can be either an object or an empty array.
+    /// Used for raid_achievement_meta and raid_achievement_curve which return [] instead of {} when empty.
     /// </summary>
-    public class RaidAchievementMetaConverter : JsonConverter<RaiderIOModels.RaidAchievementMeta>
+    public class DictionaryOrEmptyArrayConverter<TValue> : JsonConverter<Dictionary<string, TValue>>
     {
-        public override RaiderIOModels.RaidAchievementMeta ReadJson(JsonReader reader, Type objectType, RaiderIOModels.RaidAchievementMeta existingValue, bool hasExistingValue, JsonSerializer serializer)
+        public override Dictionary<string, TValue> ReadJson(JsonReader reader, Type objectType, Dictionary<string, TValue> existingValue, bool hasExistingValue, JsonSerializer serializer)
         {
             var token = JToken.Load(reader);
 
-            // RaiderIO returns [] when no achievements, but we expect an object
             if (token.Type == JTokenType.Array)
             {
                 return null;
@@ -641,42 +510,13 @@ namespace NinjaBotCore.Models.Wow
 
             if (token.Type == JTokenType.Object)
             {
-                return token.ToObject<RaiderIOModels.RaidAchievementMeta>(serializer);
+                return token.ToObject<Dictionary<string, TValue>>(serializer);
             }
 
             return null;
         }
 
-        public override void WriteJson(JsonWriter writer, RaiderIOModels.RaidAchievementMeta value, JsonSerializer serializer)
-        {
-            serializer.Serialize(writer, value);
-        }
-    }
-
-    /// <summary>
-    /// Custom converter to handle RaiderIO API inconsistency where 'raid_achievement_curve' can be either an object or an empty array
-    /// </summary>
-    public class RaidAchievementCurveConverter : JsonConverter<RaiderIOModels.RaidAchievementCurve>
-    {
-        public override RaiderIOModels.RaidAchievementCurve ReadJson(JsonReader reader, Type objectType, RaiderIOModels.RaidAchievementCurve existingValue, bool hasExistingValue, JsonSerializer serializer)
-        {
-            var token = JToken.Load(reader);
-
-            // RaiderIO returns [] when no achievements, but we expect an object
-            if (token.Type == JTokenType.Array)
-            {
-                return null;
-            }
-
-            if (token.Type == JTokenType.Object)
-            {
-                return token.ToObject<RaiderIOModels.RaidAchievementCurve>(serializer);
-            }
-
-            return null;
-        }
-
-        public override void WriteJson(JsonWriter writer, RaiderIOModels.RaidAchievementCurve value, JsonSerializer serializer)
+        public override void WriteJson(JsonWriter writer, Dictionary<string, TValue> value, JsonSerializer serializer)
         {
             serializer.Serialize(writer, value);
         }

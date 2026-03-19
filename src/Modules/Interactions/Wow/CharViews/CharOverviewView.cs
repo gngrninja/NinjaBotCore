@@ -63,7 +63,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             }
 
             // Raid Progression
-            var raidProg = rioData?.RaidProgression?.ManaforgeOmega;
+            var currentRaid = CharViewHelpers.GetCurrentRaid(rioData?.RaidProgression);
+            var raidProg = currentRaid?.Value;
             if (raidProg != null && raidProg.TotalBosses > 0)
             {
                 var progParts = new List<string>();
@@ -76,7 +77,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
 
                 if (progParts.Any())
                 {
-                    sb.AppendLine($"**Raid:** {string.Join(" ", progParts)} Manaforge Omega");
+                    var raidName = CharViewHelpers.FormatRaidName(currentRaid.Value.Key);
+                    sb.AppendLine($"**Raid:** {string.Join(" ", progParts)} {raidName}");
                 }
             }
 

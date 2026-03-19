@@ -71,7 +71,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 {
                     foreach (var raid in raidsWithKills)
                     {
-                        var raidName = FormatRaidName(raid.Key);
+                        var raidName = CharViewHelpers.FormatRaidName(raid.Key);
                         var progress = FormatClassicProgress(raid.Value);
                         sb.AppendLine($"• {raidName}: {progress}");
                     }
@@ -85,7 +85,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
 
                     foreach (var raid in availableRaids)
                     {
-                        var raidName = FormatRaidName(raid.Key);
+                        var raidName = CharViewHelpers.FormatRaidName(raid.Key);
                         var summary = !string.IsNullOrWhiteSpace(raid.Value.Summary)
                             ? raid.Value.Summary
                             : $"0/{raid.Value.TotalBosses}";
@@ -246,15 +246,6 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
         {
             return entry.Normal10BossesKilled + entry.Normal25BossesKilled +
                    entry.Heroic10BossesKilled + entry.Heroic25BossesKilled;
-        }
-
-        public static string FormatRaidName(string slug)
-        {
-            // Convert "icecrown-citadel" to "Icecrown Citadel"
-            return string.Join(" ", slug.Split('-')
-                .Select(word => word.Length > 0
-                    ? char.ToUpper(word[0]) + word.Substring(1)
-                    : ""));
         }
 
         public static string FormatClassicProgress(ClassicRaiderIOModels.ClassicRaidProgressionEntry entry)

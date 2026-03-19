@@ -427,7 +427,7 @@ namespace NinjaBotCore.Tests
         [InlineData("naxxramas", "Naxxramas")]
         public void FormatRaidName_ConvertsSlugToTitle(string slug, string expected)
         {
-            var result = ClassicCharOverviewView.FormatRaidName(slug);
+            var result = CharViewHelpers.FormatRaidName(slug);
             Assert.Equal(expected, result);
         }
 
