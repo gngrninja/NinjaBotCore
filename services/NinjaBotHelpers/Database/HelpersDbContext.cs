@@ -22,6 +22,7 @@ public class HelpersDbContext : DbContext
     public DbSet<WowMounts> WowMounts { get; set; } = null!;
     public DbSet<WowItems> WowItems { get; set; } = null!;
     public DbSet<HousingDecor> HousingDecor { get; set; } = null!;
+    public DbSet<CraftableItem> CraftableItems { get; set; } = null!;
 
     // Sync control tables (shared with NinjaBotCore)
     public DbSet<StaticDataSyncRequest> StaticDataSyncRequests { get; set; } = null!;
@@ -62,6 +63,9 @@ public class HelpersDbContext : DbContext
 
         modelBuilder.Entity<HousingDecor>()
             .ToTable("HousingDecor");
+
+        modelBuilder.Entity<CraftableItem>()
+            .ToTable("CraftableItems");
 
         // Sync control tables (shared with NinjaBotCore)
         modelBuilder.Entity<StaticDataSyncRequest>()

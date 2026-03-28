@@ -35,8 +35,11 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             [Choice("Mounts", "mounts")]
             [Choice("Items", "items")]
             [Choice("Housing Decor", "housing_decor")]
+            [Choice("Recipes", "recipes")]
             [Choice("All", "all")]
-            string type)
+            string type,
+            [Summary("fresh", "Clear existing data before syncing (full refresh)")]
+            bool fresh = false)
         {
             await DeferAsync(ephemeral: true);
 
@@ -51,6 +54,22 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                     if (existing != null)
                     {
                         return null; // Signal that one already exists
+                    }
+
+                    // Clear existing data if fresh sync requested
+                    if (fresh)
+                    {
+                        var cleared = type switch
+                        {
+                            "recipes" => await db.CraftableItems.ExecuteDeleteAsync(),
+                            "achievements" => await db.WowAchievements.ExecuteDeleteAsync(),
+                            "pets" => await db.WowPets.ExecuteDeleteAsync(),
+                            "mounts" => await db.WowMounts.ExecuteDeleteAsync(),
+                            _ => 0
+                        };
+
+                        if (cleared > 0)
+                            _logger.LogInformation("Cleared {Count} {Type} records for fresh sync", cleared, type);
                     }
 
                     var req = new StaticDataSyncRequest
@@ -75,7 +94,8 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                 _logger.LogInformation("Sync request #{Id} queued for {Type} by user {UserId}",
                     request.Id, type, Context.User.Id);
 
-                await FollowupAsync($"Sync request **#{request.Id}** queued for **{type}**.\n" +
+                var freshNote = fresh ? " (fresh — existing data cleared)" : "";
+                await FollowupAsync($"Sync request **#{request.Id}** queued for **{type}**{freshNote}.\n" +
                     $"The helpers service will process this within 60 seconds.", ephemeral: true);
             }
             catch (Exception ex)
@@ -108,7 +128,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                     .WithTimestamp(DateTimeOffset.UtcNow);
 
                 // Add status for each type
-                var types = new[] { "achievements", "pets", "mounts", "items", "housing_decor" };
+                var types = new[] { "achievements", "pets", "mounts", "items", "housing_decor", "recipes" };
                 foreach (var type in types)
                 {
                     var status = statuses.FirstOrDefault(s => s.SyncType == type);

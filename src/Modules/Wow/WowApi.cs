@@ -527,6 +527,17 @@ namespace NinjaBotCore.Modules.Wow
             return JsonConvert.DeserializeObject<ArmoryItemMedia>(response);
         }
 
+        public async Task<ItemSearchResponse> SearchItemByNameAsync(string itemName, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            var locale = GetRegionFromString(regionName);
+            var regionSegment = regionName.ToLowerInvariant();
+            var encodedName = Uri.EscapeDataString(itemName);
+            var url = $"/data/wow/search/item?namespace=static-{regionSegment}&name.en_US={encodedName}&orderby=id&_page=1&_pageSize=5";
+
+            var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
+            return JsonConvert.DeserializeObject<ItemSearchResponse>(response);
+        }
+
         public async Task<ArmoryItemMedia> GetCreatureDisplayMediaAsync(long displayId, string regionName = "us", CancellationToken cancellationToken = default)
         {
             var locale = GetRegionFromString(regionName);

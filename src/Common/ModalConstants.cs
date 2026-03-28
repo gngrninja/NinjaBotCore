@@ -72,5 +72,25 @@ namespace NinjaBotCore.Common
         public const string ClassicCharRaids = "charclassic_view_raids";
         public const string ClassicCharRefresh = "charclassic_refresh";
         public const string ClassicCharShare = "charclassic_share";
+
+        /// <summary>
+        /// CraftLink component IDs - handlers in CraftComponentHandlers.cs
+        /// Format: craft_{action}~{ticketId}
+        /// </summary>
+        public const string CraftClaimPrefix = "craft_claim~";
+        public const string CraftCraftedPrefix = "craft_crafted~";
+        public const string CraftCompletePrefix = "craft_complete~";
+        public const string CraftCancelPrefix = "craft_cancel~";
+        public const string CraftRequestModalPrefix = "craft_req~";
+        public const string CraftListFilterPrefix = "craft_list_filter~";
+        public const string CraftBoardFilterPrefix = "craft_board_filter~";
+    }
+
+    /// <summary>
+    /// Shared constants for the CraftLink system.
+    /// </summary>
+    public static class CraftConstants
+    {
+        public static readonly string[] ActiveStatuses = { "Open", "Claimed", "Crafted" };
     }
 }

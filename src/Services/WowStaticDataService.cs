@@ -172,6 +172,27 @@ namespace NinjaBotCore.Services
                     _logger.LogInformation("Race database is empty. Starting initial race import...");
                     await ImportAllRacesAsync(cancellationToken);
                 }
+
+                // Queue recipe sync if CraftableItems table is empty (processed by NinjaBotHelpers)
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+                var craftableItemCount = await db.CraftableItems.CountAsync();
+                if (craftableItemCount == 0)
+                {
+                    var hasPendingRecipeSync = await db.StaticDataSyncRequests
+                        .AnyAsync(r => r.SyncType == "recipes" && (r.Status == "pending" || r.Status == "in_progress"));
+                    if (!hasPendingRecipeSync)
+                    {
+                        _logger.LogInformation("CraftableItems database is empty. Queuing initial recipe sync...");
+                        db.StaticDataSyncRequests.Add(new StaticDataSyncRequest
+                        {
+                            SyncType = "recipes",
+                            Status = "pending",
+                            RequestSource = "startup",
+                            RequestedAt = DateTime.UtcNow
+                        });
+                        await db.SaveChangesAsync();
+                    }
+                }
             }
 
             // Perform initial token price update for all regions

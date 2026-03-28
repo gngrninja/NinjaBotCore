@@ -844,4 +844,131 @@ namespace NinjaBotCore.Services
             }
         }
     }
+
+    /// <summary>
+    /// Autocomplete for craftable items from synced Blizzard profession data.
+    /// Queries the CraftableItems table with case-insensitive search.
+    /// Falls back to typed text if no matches found (preserves free-text entry).
+    /// </summary>
+    public class CraftableItemAutocomplete : AutocompleteHandler
+    {
+        public override async Task<AutocompletionResult> GenerateSuggestionsAsync(
+            IInteractionContext context,
+            IAutocompleteInteraction autocompleteInteraction,
+            IParameterInfo parameter,
+            IServiceProvider services)
+        {
+            try
+            {
+                var userInput = (autocompleteInteraction.Data.Current.Value as string ?? "").Trim();
+
+                if (userInput.Length < 2)
+                {
+                    return AutocompletionResult.FromSuccess(
+                        new[] { new AutocompleteResult("Type at least 2 characters to search...", userInput) });
+                }
+
+                // Escape LIKE wildcards in user input
+                var escaped = userInput.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+
+                var scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
+                using var scope = scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                var matches = await db.CraftableItems
+                    .Where(c => EF.Functions.ILike(c.RecipeName, $"%{escaped}%", "\\"))
+                    .OrderBy(c => c.RecipeName)
+                    .Take(25)
+                    .Select(c => new { c.RecipeName, c.Profession })
+                    .ToListAsync();
+
+                if (!matches.Any())
+                {
+                    return AutocompletionResult.FromSuccess(
+                        new[] { new AutocompleteResult(userInput, userInput) });
+                }
+
+                var results = matches.Select(m =>
+                {
+                    // Discord autocomplete: name max 100 chars, value max 100 chars
+                    var displayName = $"{m.RecipeName} ({m.Profession})";
+                    if (displayName.Length > 100) displayName = $"{m.RecipeName[..Math.Min(m.RecipeName.Length, 90)]}... ({m.Profession})";
+                    if (displayName.Length > 100) displayName = displayName[..100];
+                    var value = m.RecipeName.Length > 100 ? m.RecipeName[..100] : m.RecipeName;
+                    return new AutocompleteResult(displayName, value);
+                });
+
+                return AutocompletionResult.FromSuccess(results);
+            }
+            catch (Exception ex)
+            {
+                var logger = services.GetService<ILogger<CraftableItemAutocomplete>>();
+                logger?.LogError(ex, "Error in CraftableItemAutocomplete");
+                return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
+            }
+        }
+    }
+
+    /// <summary>
+    /// Autocomplete for a user's own active craft tickets (for /craft cancel).
+    /// Shows tickets the user can cancel, with item name and status.
+    /// </summary>
+    public class CraftTicketAutocomplete : AutocompleteHandler
+    {
+        public override async Task<AutocompletionResult> GenerateSuggestionsAsync(
+            IInteractionContext context,
+            IAutocompleteInteraction autocompleteInteraction,
+            IParameterInfo parameter,
+            IServiceProvider services)
+        {
+            try
+            {
+                var scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
+                using var scope = scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                var userId = (long)context.User.Id;
+                var guildId = (long)context.Guild.Id;
+                var userInput = (autocompleteInteraction.Data.Current.Value as string ?? "").Trim();
+
+                var query = db.CraftTickets
+                    .Where(t => t.RequesterId == userId
+                                && t.GuildId == guildId
+                                && CraftConstants.ActiveStatuses.Contains(t.Status));
+
+                if (!string.IsNullOrEmpty(userInput))
+                {
+                    var escaped = userInput.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+                    query = query.Where(t => EF.Functions.ILike(t.ItemName, $"%{escaped}%", "\\"));
+                }
+
+                var tickets = await query
+                    .OrderBy(t => t.CreatedAt)
+                    .Take(25)
+                    .Select(t => new { t.Id, t.ItemName, t.Status })
+                    .ToListAsync();
+
+                if (!tickets.Any())
+                {
+                    return AutocompletionResult.FromSuccess(
+                        new[] { new AutocompleteResult("No active tickets to cancel", "0") });
+                }
+
+                var results = tickets.Select(t =>
+                {
+                    var display = $"#{t.Id} — {t.ItemName} ({t.Status})";
+                    if (display.Length > 100) display = display[..100];
+                    return new AutocompleteResult(display, t.Id.ToString());
+                });
+
+                return AutocompletionResult.FromSuccess(results);
+            }
+            catch (Exception ex)
+            {
+                var logger = services.GetService<ILogger<CraftTicketAutocomplete>>();
+                logger?.LogError(ex, "Error in CraftTicketAutocomplete");
+                return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
+            }
+        }
+    }
 }

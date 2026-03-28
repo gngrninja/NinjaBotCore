@@ -105,6 +105,7 @@ namespace NinjaBotCore
                 .AddSingleton<HelpContentProvider>()
                 .AddSingleton<CommandsApiService>()
                 .AddSingleton<PollExpirationService>()
+                .AddSingleton<CraftTicketExpirationService>()
                 // RealmWatcherService moved to NinjaBotHelpers container
                 .AddSingleton<WowCacheService>()
                 .AddSingleton<CharacterResolver>()
@@ -176,6 +177,10 @@ namespace NinjaBotCore
             // Start Poll Expiration Service
             var pollExpirationService = serviceProvider.GetRequiredService<PollExpirationService>();
             await pollExpirationService.StartAsync(CancellationToken.None);
+
+            // Start Craft Ticket Expiration Service
+            var craftExpirationService = serviceProvider.GetRequiredService<CraftTicketExpirationService>();
+            await craftExpirationService.StartAsync(CancellationToken.None);
 
             // RealmWatcherService runs in separate NinjaBotHelpers container
 

@@ -223,6 +223,7 @@ public class StaticDataSyncWorker : BackgroundService
                     "mount_images" => await SyncMountImagesAsync(cancellationToken),
                     "items" => await SyncItemsWithStatsAsync(requestedSource, cancellationToken),
                     "housing_decor" => await SyncHousingDecorWithStatsAsync(cancellationToken),
+                    "recipes" => await SyncRecipesWithStatsAsync(cancellationToken),
                     "all" => await SyncAllAsync(requestedSource, cancellationToken),
                     _ => (0, 0, 0)
                 };
@@ -256,7 +257,7 @@ public class StaticDataSyncWorker : BackgroundService
         // "mount_images" updates the "mounts" status since it's part of mount data
         var types = syncType switch
         {
-            "all" => new[] { "achievements", "pets", "mounts", "items" },
+            "all" => new[] { "achievements", "pets", "mounts", "items", "housing_decor", "recipes" },
             "mount_images" => new[] { "mounts" },
             _ => new[] { syncType }
         };
@@ -290,6 +291,7 @@ public class StaticDataSyncWorker : BackgroundService
                 "mounts" => await db.WowMounts.CountAsync(cancellationToken),
                 "items" => await db.WowItems.CountAsync(cancellationToken),
                 "housing_decor" => await db.HousingDecor.CountAsync(cancellationToken),
+                "recipes" => await db.CraftableItems.CountAsync(cancellationToken),
                 _ => null
             };
         }
@@ -303,11 +305,13 @@ public class StaticDataSyncWorker : BackgroundService
         var (petProcessed, petSkipped, petFailed) = await SyncPetsWithStatsAsync(cancellationToken);
         var (mountProcessed, mountSkipped, mountFailed) = await SyncMountsWithStatsAsync(cancellationToken);
         var (itemProcessed, itemSkipped, itemFailed) = await SyncItemsWithStatsAsync(requestedSource, cancellationToken);
+        var (decorProcessed, decorSkipped, decorFailed) = await SyncHousingDecorWithStatsAsync(cancellationToken);
+        var (recipeProcessed, recipeSkipped, recipeFailed) = await SyncRecipesWithStatsAsync(cancellationToken);
 
         return (
-            achProcessed + petProcessed + mountProcessed + itemProcessed,
-            achSkipped + petSkipped + mountSkipped + itemSkipped,
-            achFailed + petFailed + mountFailed + itemFailed
+            achProcessed + petProcessed + mountProcessed + itemProcessed + decorProcessed + recipeProcessed,
+            achSkipped + petSkipped + mountSkipped + itemSkipped + decorSkipped + recipeSkipped,
+            achFailed + petFailed + mountFailed + itemFailed + decorFailed + recipeFailed
         );
     }
 
@@ -1097,6 +1101,141 @@ public class StaticDataSyncWorker : BackgroundService
             imported, skipped, failed);
 
         return (imported, skipped, failed);
+    }
+
+    #endregion
+
+    #region Recipe Sync
+
+    /// <summary>
+    /// Current expansion skill tier keywords for matching profession skill tiers.
+    /// Blizzard names skill tiers like "Midnight Alchemy", "Midnight Blacksmithing", etc.
+    /// Update this when a new expansion launches.
+    /// </summary>
+    private static readonly string[] CurrentExpansionKeywords = { "Midnight" };
+
+    private async Task<(int processed, int skipped, int failed)> SyncRecipesWithStatsAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Starting recipe sync...");
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<HelpersDbContext>();
+
+        // Load existing recipe IDs for deduplication
+        var existingIds = await db.CraftableItems.Select(c => c.Id).ToHashSetAsync(cancellationToken);
+        _logger.LogInformation("Found {Count} existing recipes in database", existingIds.Count);
+
+        int processed = 0, skipped = 0, failed = 0;
+        var batch = new List<CraftableItem>();
+
+        // Step 1: Get profession index
+        var professionIndex = await _blizzardClient.GetProfessionIndexAsync("us", cancellationToken);
+        if (professionIndex?.Professions == null || professionIndex.Professions.Count == 0)
+        {
+            _logger.LogWarning("No professions found in Blizzard API index");
+            return (0, 0, 0);
+        }
+
+        _logger.LogInformation("Found {Count} professions", professionIndex.Professions.Count);
+
+        foreach (var profRef in professionIndex.Professions)
+        {
+            if (cancellationToken.IsCancellationRequested) break;
+
+            try
+            {
+                await Task.Delay(_config.StaticDataSync.ApiCallDelayMs, cancellationToken);
+
+                // Step 2: Get profession details with skill tiers
+                var profession = await _blizzardClient.GetProfessionAsync(profRef.Id, "us", cancellationToken);
+                if (profession?.SkillTiers == null || profession.SkillTiers.Count == 0)
+                {
+                    _logger.LogDebug("Profession {Name} has no skill tiers, skipping", profRef.Name);
+                    continue;
+                }
+
+                // Step 3: Find current expansion skill tier
+                var currentTier = profession.SkillTiers.FirstOrDefault(st =>
+                    st.Name != null && CurrentExpansionKeywords.Any(kw =>
+                        st.Name.Contains(kw, StringComparison.OrdinalIgnoreCase)));
+
+                if (currentTier == null)
+                {
+                    _logger.LogDebug("No current expansion skill tier found for {Profession}", profRef.Name);
+                    continue;
+                }
+
+                await Task.Delay(_config.StaticDataSync.ApiCallDelayMs, cancellationToken);
+
+                // Step 4: Get skill tier details with categories and recipes
+                var skillTier = await _blizzardClient.GetProfessionSkillTierAsync(
+                    profRef.Id, currentTier.Id, "us", cancellationToken);
+
+                if (skillTier?.Categories == null)
+                {
+                    _logger.LogDebug("Skill tier {Name} has no categories", currentTier.Name);
+                    continue;
+                }
+
+                // Step 5: Extract recipes from categories
+                foreach (var category in skillTier.Categories)
+                {
+                    if (category.Recipes == null) continue;
+
+                    foreach (var recipe in category.Recipes)
+                    {
+                        if (existingIds.Contains(recipe.Id))
+                        {
+                            skipped++;
+                            continue;
+                        }
+
+                        batch.Add(new CraftableItem
+                        {
+                            Id = recipe.Id,
+                            RecipeName = recipe.Name ?? "Unknown",
+                            Profession = profRef.Name ?? "Unknown",
+                            ProfessionId = profRef.Id,
+                            SkillTier = skillTier.Name,
+                            Category = category.Name,
+                            LastUpdated = DateTime.UtcNow
+                        });
+
+                        existingIds.Add(recipe.Id);
+                        processed++;
+
+                        // Batch save every 100 items
+                        if (batch.Count >= 100)
+                        {
+                            db.CraftableItems.AddRange(batch);
+                            await db.SaveChangesAsync(cancellationToken);
+                            batch.Clear();
+                        }
+                    }
+                }
+
+                _logger.LogInformation("Synced recipes for {Profession} ({TierName}): {Count} recipes in {Categories} categories",
+                    profRef.Name, skillTier.Name, skillTier.Categories.Sum(c => c.Recipes?.Count ?? 0),
+                    skillTier.Categories.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to sync recipes for profession {Name}", profRef.Name);
+                failed++;
+            }
+        }
+
+        // Save remaining batch
+        if (batch.Count > 0)
+        {
+            db.CraftableItems.AddRange(batch);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        _logger.LogInformation("Recipe sync complete: {Processed} new, {Skipped} skipped, {Failed} failed",
+            processed, skipped, failed);
+
+        return (processed, skipped, failed);
     }
 
     #endregion

@@ -68,6 +68,9 @@ namespace NinjaBotCore.Database
         public virtual DbSet<ItemMediaCache> ItemMediaCache { get; set; }
         public virtual DbSet<StaticDataSyncRequest> StaticDataSyncRequests { get; set; }
         public virtual DbSet<StaticDataSyncStatus> StaticDataSyncStatus { get; set; }
+        public virtual DbSet<CraftTicket> CraftTickets { get; set; }
+        public virtual DbSet<ServerCraftSettings> ServerCraftSettings { get; set; }
+        public virtual DbSet<CraftableItem> CraftableItems { get; set; }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {

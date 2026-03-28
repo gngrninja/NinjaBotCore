@@ -306,6 +306,59 @@ public class BlizzardApiClient
     }
 
     /// <summary>
+    /// Get the profession index (list of all professions)
+    /// </summary>
+    public async Task<ProfessionIndexResponse?> GetProfessionIndexAsync(
+        string region = "us",
+        CancellationToken cancellationToken = default)
+    {
+        var json = await GetStaticDataAsync("/data/wow/profession/index", region, cancellationToken);
+        if (json == null) return null;
+        return JsonConvert.DeserializeObject<ProfessionIndexResponse>(json);
+    }
+
+    /// <summary>
+    /// Get a single profession's details including skill tiers
+    /// </summary>
+    public async Task<ProfessionResponse?> GetProfessionAsync(
+        long professionId,
+        string region = "us",
+        CancellationToken cancellationToken = default)
+    {
+        var json = await GetStaticDataAsync($"/data/wow/profession/{professionId}", region, cancellationToken);
+        if (json == null) return null;
+        return JsonConvert.DeserializeObject<ProfessionResponse>(json);
+    }
+
+    /// <summary>
+    /// Get a profession's skill tier with categories and recipe names
+    /// </summary>
+    public async Task<ProfessionSkillTierResponse?> GetProfessionSkillTierAsync(
+        long professionId,
+        long skillTierId,
+        string region = "us",
+        CancellationToken cancellationToken = default)
+    {
+        var json = await GetStaticDataAsync(
+            $"/data/wow/profession/{professionId}/skill-tier/{skillTierId}", region, cancellationToken);
+        if (json == null) return null;
+        return JsonConvert.DeserializeObject<ProfessionSkillTierResponse>(json);
+    }
+
+    /// <summary>
+    /// Get a single recipe's details (crafted item, reagents)
+    /// </summary>
+    public async Task<RecipeResponse?> GetRecipeAsync(
+        long recipeId,
+        string region = "us",
+        CancellationToken cancellationToken = default)
+    {
+        var json = await GetStaticDataAsync($"/data/wow/recipe/{recipeId}", region, cancellationToken);
+        if (json == null) return null;
+        return JsonConvert.DeserializeObject<RecipeResponse>(json);
+    }
+
+    /// <summary>
     /// Get the connected realm status from Blizzard API
     /// </summary>
     public async Task<ConnectedRealmStatus?> GetConnectedRealmStatusAsync(
@@ -857,6 +910,69 @@ public class DecorItemRef
 
     [JsonProperty("id")]
     public long Id { get; set; }
+}
+
+/// <summary>
+/// Profession index response
+/// </summary>
+public class ProfessionIndexResponse
+{
+    [JsonProperty("professions")]
+    public List<KeyRef>? Professions { get; set; }
+}
+
+/// <summary>
+/// Single profession response with skill tiers
+/// </summary>
+public class ProfessionResponse
+{
+    [JsonProperty("id")]
+    public long Id { get; set; }
+
+    [JsonProperty("name")]
+    public string? Name { get; set; }
+
+    [JsonProperty("skill_tiers")]
+    public List<KeyRef>? SkillTiers { get; set; }
+}
+
+/// <summary>
+/// Profession skill tier response with recipe categories
+/// </summary>
+public class ProfessionSkillTierResponse
+{
+    [JsonProperty("id")]
+    public long Id { get; set; }
+
+    [JsonProperty("name")]
+    public string? Name { get; set; }
+
+    [JsonProperty("categories")]
+    public List<SkillTierCategory>? Categories { get; set; }
+}
+
+public class SkillTierCategory
+{
+    [JsonProperty("name")]
+    public string? Name { get; set; }
+
+    [JsonProperty("recipes")]
+    public List<KeyRef>? Recipes { get; set; }
+}
+
+/// <summary>
+/// Single recipe response with crafted item details
+/// </summary>
+public class RecipeResponse
+{
+    [JsonProperty("id")]
+    public long Id { get; set; }
+
+    [JsonProperty("name")]
+    public string? Name { get; set; }
+
+    [JsonProperty("crafted_item")]
+    public KeyRef? CraftedItem { get; set; }
 }
 
 #endregion
