@@ -119,7 +119,7 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             // Discord operations: best-effort, outside DB scope
             await UpdateTicketMessageAsync(ticket);
             await PostInThreadAsync(ticket,
-                $"<@{Context.User.Id}> has claimed this crafting request! Coordinate the trade here.\n\n" +
+                $"<@{Context.User.Id}> has claimed this crafting request! <@{(ulong)ticket.RequesterId}>, coordinate the trade here.\n\n" +
                 $"**Crafter:** Use the **Mark as Crafted** button when the item is ready.\n" +
                 $"**Requester:** Use **Trade Complete** once you've received the item.");
 
