@@ -84,6 +84,8 @@ namespace NinjaBotCore.Common
         public const string CraftRequestModalPrefix = "craft_req~";
         public const string CraftListFilterPrefix = "craft_list_filter~";
         public const string CraftBoardFilterPrefix = "craft_board_filter~";
+        public const string CraftProfessionSelectPrefix = "craft_prof_select~";
+        public const string CraftJoinRolePrefix = "craft_join_role~";
     }
 
     /// <summary>
@@ -92,5 +94,7 @@ namespace NinjaBotCore.Common
     public static class CraftConstants
     {
         public static readonly string[] ActiveStatuses = { "Open", "Claimed", "Crafted" };
+
+        public static readonly string[] GatheringProfessions = { "Mining", "Herbalism", "Skinning", "Fishing" };
     }
 }

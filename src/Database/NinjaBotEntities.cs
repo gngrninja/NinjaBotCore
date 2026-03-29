@@ -71,6 +71,7 @@ namespace NinjaBotCore.Database
         public virtual DbSet<CraftTicket> CraftTickets { get; set; }
         public virtual DbSet<ServerCraftSettings> ServerCraftSettings { get; set; }
         public virtual DbSet<CraftableItem> CraftableItems { get; set; }
+        public virtual DbSet<CraftProfessionRoleMapping> CraftProfessionRoleMappings { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -84,6 +85,13 @@ namespace NinjaBotCore.Database
 
                 entity.HasIndex(e => new { e.GuildId, e.Status })
                     .HasDatabaseName("IX_CraftTickets_GuildId_Status");
+            });
+
+            modelBuilder.Entity<CraftProfessionRoleMapping>(entity =>
+            {
+                entity.HasIndex(e => new { e.GuildId, e.Profession })
+                    .IsUnique()
+                    .HasDatabaseName("IX_CraftProfessionRoleMappings_GuildId_Profession");
             });
         }
 

@@ -109,6 +109,20 @@ namespace NinjaBotCore.Services
                         }
                     }
 
+                    // Also clean up stale PendingProfession tickets (user never selected a profession)
+                    var stalePending = await db.CraftTickets
+                        .Where(t => t.Status == "PendingProfession"
+                                    && t.ExpiresAt.HasValue
+                                    && t.ExpiresAt.Value <= DateTime.UtcNow)
+                        .ToListAsync(cancellationToken);
+
+                    if (stalePending.Any())
+                    {
+                        _logger.LogInformation("Cleaning up {Count} stale PendingProfession tickets", stalePending.Count);
+                        db.CraftTickets.RemoveRange(stalePending);
+                        await db.SaveChangesAsync(cancellationToken);
+                    }
+
                     _timer?.Change(TimeSpan.Zero, Timeout.InfiniteTimeSpan);
                 }
                 else

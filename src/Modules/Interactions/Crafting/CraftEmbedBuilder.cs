@@ -128,19 +128,16 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 .WithFooter($"Ticket #{ticket.Id} | Requested by {ticket.RequesterName}{footerHint}")
                 .WithTimestamp(ticket.CreatedAt);
 
-            if (ticket.BlizzardItemId.HasValue)
-            {
-                embed.WithUrl($"https://www.wowhead.com/item={ticket.BlizzardItemId}");
+            if (!string.IsNullOrEmpty(ticket.ItemIconUrl))
+                embed.WithThumbnailUrl(ticket.ItemIconUrl);
 
-                if (!string.IsNullOrEmpty(ticket.ItemIconUrl))
-                    embed.WithThumbnailUrl(ticket.ItemIconUrl);
-            }
-            else
-            {
+            if (!ticket.BlizzardItemId.HasValue)
                 embed.WithDescription("*Item unverified*");
-            }
 
             embed.AddField("Requested by", $"<@{(ulong)ticket.RequesterId}>", inline: true);
+
+            if (!string.IsNullOrEmpty(ticket.Profession))
+                embed.AddField("Profession", ticket.Profession, inline: true);
 
             if (!string.IsNullOrEmpty(ticket.RequesterRealm))
             {
@@ -177,6 +174,7 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             builder.WithButton("Cancel", $"{ModalConstants.CraftCancelPrefix}{ticket.Id}",
                 ButtonStyle.Danger, emote: new Emoji("\u274C"));
             AddWowheadButton(builder, ticket);
+            AddJoinRoleButton(builder, ticket);
             return builder;
         }
 
@@ -188,6 +186,7 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             builder.WithButton("Cancel", $"{ModalConstants.CraftCancelPrefix}{ticket.Id}",
                 ButtonStyle.Danger, emote: new Emoji("\u274C"));
             AddWowheadButton(builder, ticket);
+            AddJoinRoleButton(builder, ticket);
             return builder;
         }
 
@@ -199,6 +198,7 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             builder.WithButton("Cancel", $"{ModalConstants.CraftCancelPrefix}{ticket.Id}",
                 ButtonStyle.Danger, emote: new Emoji("\u274C"));
             AddWowheadButton(builder, ticket);
+            AddJoinRoleButton(builder, ticket);
             return builder;
         }
 
@@ -219,11 +219,22 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
 
         private static void AddWowheadButton(ComponentBuilder builder, CraftTicket ticket)
         {
-            if (ticket.BlizzardItemId.HasValue)
+            var encodedName = Uri.EscapeDataString(ticket.ItemName);
+            builder.WithButton("Search on Wowhead",
+                url: $"https://www.wowhead.com/search?q={encodedName}",
+                style: ButtonStyle.Link, row: 1);
+        }
+
+        private static void AddJoinRoleButton(ComponentBuilder builder, CraftTicket ticket)
+        {
+            if (!string.IsNullOrEmpty(ticket.Profession))
             {
-                builder.WithButton("View on Wowhead",
-                    url: $"https://www.wowhead.com/item={ticket.BlizzardItemId}",
-                    style: ButtonStyle.Link, row: 1);
+                var prefix = ModalConstants.CraftJoinRolePrefix;
+                var maxLen = 100 - prefix.Length;
+                var prof = ticket.Profession.Length > maxLen ? ticket.Profession[..maxLen] : ticket.Profession;
+                builder.WithButton($"Get {ticket.Profession} notifications",
+                    $"{prefix}{prof}",
+                    ButtonStyle.Secondary, emote: new Emoji("\uD83D\uDD14"), row: 2);
             }
         }
     }

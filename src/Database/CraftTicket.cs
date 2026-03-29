@@ -19,6 +19,9 @@ namespace NinjaBotCore.Database
         [MaxLength(500)]
         public string? ItemIconUrl { get; set; }
 
+        [MaxLength(100)]
+        public string? Profession { get; set; }
+
         [MaxLength(500)]
         public string? Note { get; set; }
 

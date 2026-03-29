@@ -950,7 +950,7 @@ namespace NinjaBotCore.Services
                 var userInput = (autocompleteInteraction.Data.Current.Value as string ?? "").Trim();
 
                 var query = db.CraftTickets
-                    .Where(t => t.RequesterId == userId
+                    .Where(t => (t.RequesterId == userId || t.CrafterId == userId)
                                 && t.GuildId == guildId
                                 && CraftConstants.ActiveStatuses.Contains(t.Status));
 
@@ -985,6 +985,105 @@ namespace NinjaBotCore.Services
             {
                 var logger = services.GetService<ILogger<CraftTicketAutocomplete>>();
                 logger?.LogError(ex, "Error in CraftTicketAutocomplete");
+                return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
+            }
+        }
+    }
+
+    /// <summary>
+    /// Autocomplete for crafting professions (excludes gathering).
+    /// Used by /craft roles-add.
+    /// </summary>
+    public class CraftProfessionAutocomplete : AutocompleteHandler
+    {
+        public override async Task<AutocompletionResult> GenerateSuggestionsAsync(
+            IInteractionContext context,
+            IAutocompleteInteraction autocompleteInteraction,
+            IParameterInfo parameter,
+            IServiceProvider services)
+        {
+            try
+            {
+                var userInput = (autocompleteInteraction.Data.Current.Value as string ?? "").Trim();
+
+                var scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
+                using var scope = scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                var query = db.CraftableItems
+                    .Where(c => !CraftConstants.GatheringProfessions.Contains(c.Profession))
+                    .Select(c => c.Profession)
+                    .Distinct();
+
+                if (!string.IsNullOrEmpty(userInput))
+                {
+                    var escaped = userInput.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+                    query = db.CraftableItems
+                        .Where(c => !CraftConstants.GatheringProfessions.Contains(c.Profession)
+                            && EF.Functions.ILike(c.Profession, $"%{escaped}%", "\\"))
+                        .Select(c => c.Profession)
+                        .Distinct();
+                }
+
+                var professions = await query.OrderBy(p => p).ToListAsync();
+
+                if (!professions.Any())
+                    return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
+
+                return AutocompletionResult.FromSuccess(
+                    professions.Select(p => new AutocompleteResult(p, p)));
+            }
+            catch (Exception ex)
+            {
+                var logger = services.GetService<ILogger<CraftProfessionAutocomplete>>();
+                logger?.LogError(ex, "Error in CraftProfessionAutocomplete");
+                return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
+            }
+        }
+    }
+
+    /// <summary>
+    /// Autocomplete for professions that have an active role mapping in this guild.
+    /// Used by /craft roles-remove.
+    /// </summary>
+    public class CraftMappedProfessionAutocomplete : AutocompleteHandler
+    {
+        public override async Task<AutocompletionResult> GenerateSuggestionsAsync(
+            IInteractionContext context,
+            IAutocompleteInteraction autocompleteInteraction,
+            IParameterInfo parameter,
+            IServiceProvider services)
+        {
+            try
+            {
+                var guildId = (long)context.Guild.Id;
+
+                var scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
+                using var scope = scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                var mappings = await db.CraftProfessionRoleMappings
+                    .Where(m => m.GuildId == guildId)
+                    .OrderBy(m => m.Profession)
+                    .Select(m => new { m.Profession, m.RoleName })
+                    .ToListAsync();
+
+                if (!mappings.Any())
+                    return AutocompletionResult.FromSuccess(
+                        new[] { new AutocompleteResult("No profession mappings configured", " ") });
+
+                return AutocompletionResult.FromSuccess(
+                    mappings.Select(m =>
+                    {
+                        var display = $"{m.Profession} → {m.RoleName ?? "Unknown role"}";
+                        if (display.Length > 100) display = display[..100];
+                        return new AutocompleteResult(display, m.Profession);
+                    }));
+            }
+            catch (Exception ex)
+            {
+                var logger = services.GetService<ILogger<CraftMappedProfessionAutocomplete>>();
+                logger?.LogError(ex, "Error in CraftMappedProfessionAutocomplete");
                 return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
             }
         }

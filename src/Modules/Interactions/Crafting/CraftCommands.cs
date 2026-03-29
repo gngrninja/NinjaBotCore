@@ -50,11 +50,86 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 return;
             }
 
-            await DeferAsync(ephemeral: true);
-            await CreateCraftTicketAsync(itemName.Trim());
+            var trimmedName = itemName.Trim();
+
+            // Check if item is from autocomplete (known profession) or freeform
+            var craftableItem = await WithDbAsync(async db =>
+                await db.CraftableItems.FirstOrDefaultAsync(c => c.RecipeName == trimmedName));
+
+            if (craftableItem != null)
+            {
+                // Known item — create ticket immediately with profession
+                await DeferAsync(ephemeral: true);
+                await CreateCraftTicketAsync(trimmedName, craftableItem.Profession);
+            }
+            else
+            {
+                // Freeform item — ask the user to pick a profession
+                var professions = await WithDbAsync(async db =>
+                    await db.CraftableItems
+                        .Where(c => !CraftConstants.GatheringProfessions.Contains(c.Profession))
+                        .Select(c => c.Profession)
+                        .Distinct()
+                        .OrderBy(p => p)
+                        .ToListAsync());
+
+                if (!professions.Any())
+                {
+                    // No professions in DB — just create without profession
+                    await DeferAsync(ephemeral: true);
+                    await CreateCraftTicketAsync(trimmedName, null);
+                    return;
+                }
+
+                // Create a pending ticket so we can reference it in the select menu
+                var pendingTicket = await WithDbAsync(async db =>
+                {
+                    var settings = await db.ServerCraftSettings
+                        .FirstOrDefaultAsync(s => s.DiscordGuildId == (long)Context.Guild.Id);
+
+                    if (settings?.CraftChannelId == null) return null;
+
+                    var ticket = new CraftTicket
+                    {
+                        ItemName = trimmedName,
+                        Status = "PendingProfession",
+                        CreatedAt = DateTime.UtcNow,
+                        ExpiresAt = DateTime.UtcNow.AddMinutes(15),
+                        RequesterId = (long)Context.User.Id,
+                        RequesterName = Context.User.Username,
+                        GuildId = (long)Context.Guild.Id,
+                        ChannelId = settings.CraftChannelId.Value,
+                        MessageId = 0
+                    };
+                    db.CraftTickets.Add(ticket);
+                    await db.SaveChangesAsync();
+                    return ticket;
+                });
+
+                if (pendingTicket == null)
+                {
+                    await RespondAsync("A crafting channel has not been configured. Ask an admin to run `/craft setup`.", ephemeral: true);
+                    return;
+                }
+
+                var options = professions.Select(p =>
+                    new SelectMenuOptionBuilder(p, p)).ToList();
+
+                var component = new ComponentBuilder()
+                    .WithSelectMenu(
+                        $"{ModalConstants.CraftProfessionSelectPrefix}{pendingTicket.Id}",
+                        options,
+                        "Which profession crafts this item?")
+                    .Build();
+
+                await RespondAsync(
+                    $"**{trimmedName}** isn't in the recipe database. Select the crafting profession:",
+                    components: component,
+                    ephemeral: true);
+            }
         }
 
-        private async Task CreateCraftTicketAsync(string itemName)
+        internal async Task CreateCraftTicketAsync(string itemName, string? profession = null)
         {
             // Pre-check: verify craft channel exists before creating ticket
             var preCheckSettings = await WithDbAsync(async db =>
@@ -94,6 +169,7 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 var newTicket = new CraftTicket
                 {
                     ItemName = itemName,
+                    Profession = profession,
                     Status = "Open",
                     CreatedAt = DateTime.UtcNow,
                     ExpiresAt = DateTime.UtcNow.AddHours(settings.TicketExpirationHours),
@@ -126,6 +202,8 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 if (craftableItem != null)
                 {
                     ticket.BlizzardItemId = craftableItem.CraftedItemId ?? craftableItem.Id;
+                    if (string.IsNullOrEmpty(ticket.Profession))
+                        ticket.Profession = craftableItem.Profession;
 
                     var recipe = await _wowApi.GetRecipeAsync(craftableItem.Id);
                     if (recipe?.CraftedItem != null)
@@ -242,10 +320,27 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
 
                 ticket.ThreadId = (long)thread.Id;
 
+                // Look up profession role for auto-ping
+                var rolePing = "";
+                AllowedMentions? allowedMentions = null;
+                if (!string.IsNullOrEmpty(ticket.Profession))
+                {
+                    var roleMapping = await WithDbAsync(async db =>
+                        await db.CraftProfessionRoleMappings
+                            .FirstOrDefaultAsync(m => m.GuildId == (long)Context.Guild.Id
+                                && m.Profession == ticket.Profession));
+                    if (roleMapping != null)
+                    {
+                        rolePing = $"\n<@&{(ulong)roleMapping.RoleId}>";
+                        allowedMentions = new AllowedMentions(AllowedMentionTypes.Users | AllowedMentionTypes.Roles);
+                    }
+                }
+
                 var threadComponents = CraftEmbedBuilder.BuildComponents(ticket);
                 var threadMessage = await thread.SendMessageAsync(
-                    $"<@{Context.User.Id}> is looking for a crafter for **{ticket.ItemName}**!",
-                    components: threadComponents.Build());
+                    $"<@{Context.User.Id}> is looking for a crafter for **{ticket.ItemName}**!{rolePing}",
+                    components: threadComponents.Build(),
+                    allowedMentions: allowedMentions);
                 ticket.ThreadMessageId = (long)threadMessage.Id;
             }
             catch (Exception ex)
@@ -269,6 +364,7 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                         dbTicket.ItemIconUrl = ticket.ItemIconUrl;
                         dbTicket.RequesterRealm = ticket.RequesterRealm;
                         dbTicket.ConnectedRealms = ticket.ConnectedRealms;
+                        dbTicket.Profession = ticket.Profession;
                         await db.SaveChangesAsync();
                     }
                 });
@@ -337,6 +433,354 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             await FollowupAsync(embed: embed, ephemeral: true);
         }
 
+        [SlashCommand("roles-setup", "Auto-create roles for all crafting professions")]
+        [RequireUserPermission(GuildPermission.ManageGuild)]
+        [RequireBotPermission(GuildPermission.ManageRoles)]
+        public async Task CraftRolesSetup()
+        {
+            await DeferAsync(ephemeral: true);
+
+            var guildId = (long)Context.Guild.Id;
+
+            // Get all crafting professions from the DB
+            var professions = await WithDbAsync(async db =>
+                await db.CraftableItems
+                    .Where(c => !CraftConstants.GatheringProfessions.Contains(c.Profession))
+                    .Select(c => c.Profession)
+                    .Distinct()
+                    .OrderBy(p => p)
+                    .ToListAsync());
+
+            if (!professions.Any())
+            {
+                await FollowupAsync("No crafting professions found in the database. Run a recipe sync first.", ephemeral: true);
+                return;
+            }
+
+            int created = 0, updated = 0, skipped = 0;
+            var results = new List<string>();
+
+            foreach (var profession in professions)
+            {
+                // Check if mapping already exists
+                var existing = await WithDbAsync(async db =>
+                    await db.CraftProfessionRoleMappings
+                        .FirstOrDefaultAsync(m => m.GuildId == guildId && m.Profession == profession));
+
+                if (existing != null)
+                {
+                    skipped++;
+                    results.Add($"\u26AA {profession} — already mapped to <@&{(ulong)existing.RoleId}>");
+                    continue;
+                }
+
+                // Check if a role with this name already exists in the guild
+                var existingRole = Context.Guild.Roles.FirstOrDefault(r =>
+                    string.Equals(r.Name, profession, StringComparison.OrdinalIgnoreCase));
+
+                Discord.IRole role;
+                if (existingRole != null)
+                {
+                    role = existingRole;
+                }
+                else
+                {
+                    // Create the role
+                    role = await Context.Guild.CreateRoleAsync(profession, isMentionable: true);
+                    created++;
+                }
+
+                // Save the mapping
+                await WithDbAsync(async db =>
+                {
+                    db.CraftProfessionRoleMappings.Add(new CraftProfessionRoleMapping
+                    {
+                        GuildId = guildId,
+                        Profession = profession,
+                        RoleId = (long)role.Id,
+                        RoleName = role.Name,
+                        SetById = (long)Context.User.Id,
+                        SetByName = Context.User.Username,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                    await db.SaveChangesAsync();
+                });
+                updated++;
+                results.Add($"\u2705 {profession} \u2192 <@&{role.Id}>");
+            }
+
+            var embed = new EmbedBuilder()
+                .WithTitle("Crafting Profession Roles Setup")
+                .WithColor(Color.Green)
+                .WithDescription(string.Join("\n", results))
+                .WithFooter($"{created} roles created, {updated} mappings saved, {skipped} already configured")
+                .WithCurrentTimestamp()
+                .Build();
+
+            await FollowupAsync(embed: embed, ephemeral: true);
+        }
+
+        [SlashCommand("roles-add", "Map a crafting profession to a Discord role")]
+        [RequireUserPermission(GuildPermission.ManageGuild)]
+        public async Task CraftRolesAdd(
+            [Summary("profession", "The crafting profession")]
+            [Autocomplete(typeof(CraftProfessionAutocomplete))] string profession,
+            [Summary("role", "The Discord role to ping (leave empty to auto-create)")]
+            IRole role = null)
+        {
+            await DeferAsync(ephemeral: true);
+
+            var guildId = (long)Context.Guild.Id;
+
+            // Validate profession exists and isn't gathering
+            var validProfession = await WithDbAsync(async db =>
+                await db.CraftableItems
+                    .AnyAsync(c => c.Profession == profession
+                        && !CraftConstants.GatheringProfessions.Contains(c.Profession)));
+
+            if (!validProfession)
+            {
+                await FollowupAsync($"'{profession}' is not a valid crafting profession.", ephemeral: true);
+                return;
+            }
+
+            // Auto-create role if not provided
+            if (role == null)
+            {
+                var botUser = Context.Guild.GetUser(_client.CurrentUser.Id);
+                if (botUser == null || !botUser.GuildPermissions.ManageRoles)
+                {
+                    await FollowupAsync("I need **Manage Roles** permission to create roles. Either grant it or specify an existing role.", ephemeral: true);
+                    return;
+                }
+
+                var existingRole = Context.Guild.Roles.FirstOrDefault(r =>
+                    string.Equals(r.Name, profession, StringComparison.OrdinalIgnoreCase));
+
+                role = (IRole)existingRole ?? await Context.Guild.CreateRoleAsync(profession, isMentionable: true);
+            }
+
+            // Upsert the mapping
+            await WithDbAsync(async db =>
+            {
+                var existing = await db.CraftProfessionRoleMappings
+                    .FirstOrDefaultAsync(m => m.GuildId == guildId && m.Profession == profession);
+
+                if (existing != null)
+                {
+                    existing.RoleId = (long)role.Id;
+                    existing.RoleName = role.Name;
+                    existing.SetById = (long)Context.User.Id;
+                    existing.SetByName = Context.User.Username;
+                }
+                else
+                {
+                    db.CraftProfessionRoleMappings.Add(new CraftProfessionRoleMapping
+                    {
+                        GuildId = guildId,
+                        Profession = profession,
+                        RoleId = (long)role.Id,
+                        RoleName = role.Name,
+                        SetById = (long)Context.User.Id,
+                        SetByName = Context.User.Username,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+                await db.SaveChangesAsync();
+            });
+
+            await FollowupAsync($"Mapped **{profession}** \u2192 {role.Mention}. Craft requests for {profession} items will ping this role.", ephemeral: true);
+        }
+
+        [SlashCommand("roles-remove", "Remove a profession-to-role mapping")]
+        [RequireUserPermission(GuildPermission.ManageGuild)]
+        public async Task CraftRolesRemove(
+            [Summary("profession", "The profession to unmap")]
+            [Autocomplete(typeof(CraftMappedProfessionAutocomplete))] string profession)
+        {
+            await DeferAsync(ephemeral: true);
+
+            var guildId = (long)Context.Guild.Id;
+
+            var removed = await WithDbAsync(async db =>
+            {
+                var mapping = await db.CraftProfessionRoleMappings
+                    .FirstOrDefaultAsync(m => m.GuildId == guildId && m.Profession == profession);
+
+                if (mapping == null) return false;
+
+                db.CraftProfessionRoleMappings.Remove(mapping);
+                await db.SaveChangesAsync();
+                return true;
+            });
+
+            await FollowupAsync(removed
+                ? $"Removed role mapping for **{profession}**."
+                : $"No mapping found for '{profession}'.", ephemeral: true);
+        }
+
+        [SlashCommand("roles-list", "View current profession-to-role mappings")]
+        [RequireUserPermission(GuildPermission.ManageGuild)]
+        public async Task CraftRolesList()
+        {
+            await DeferAsync(ephemeral: true);
+
+            var guildId = (long)Context.Guild.Id;
+
+            var mappings = await WithDbAsync(async db =>
+                await db.CraftProfessionRoleMappings
+                    .Where(m => m.GuildId == guildId)
+                    .OrderBy(m => m.Profession)
+                    .ToListAsync());
+
+            if (!mappings.Any())
+            {
+                await FollowupAsync("No profession-to-role mappings configured. Use `/craft roles-setup` to create them.", ephemeral: true);
+                return;
+            }
+
+            var lines = mappings.Select(m => $"**{m.Profession}** \u2192 <@&{(ulong)m.RoleId}>");
+            var embed = new EmbedBuilder()
+                .WithTitle("Crafting Profession Role Mappings")
+                .WithColor(Color.Blue)
+                .WithDescription(string.Join("\n", lines))
+                .WithFooter($"{mappings.Count} mapping(s)")
+                .WithCurrentTimestamp()
+                .Build();
+
+            await FollowupAsync(embed: embed, ephemeral: true);
+        }
+
+        [SlashCommand("roster", "View the guild's crafting roster")]
+        public async Task CraftRoster()
+        {
+            await DeferAsync(ephemeral: true);
+
+            var guildId = (long)Context.Guild.Id;
+
+            var mappings = await WithDbAsync(async db =>
+                await db.CraftProfessionRoleMappings
+                    .Where(m => m.GuildId == guildId)
+                    .OrderBy(m => m.Profession)
+                    .ToListAsync());
+
+            if (!mappings.Any())
+            {
+                await FollowupAsync("No crafting roles have been set up. Ask an admin to run `/craft roles-setup`.", ephemeral: true);
+                return;
+            }
+
+            var professionEmojis = new Dictionary<string, string>
+            {
+                ["Alchemy"] = "\u2697\uFE0F",
+                ["Blacksmithing"] = "\uD83D\uDD28",
+                ["Cooking"] = "\uD83C\uDF73",
+                ["Enchanting"] = "\u2728",
+                ["Engineering"] = "\u2699\uFE0F",
+                ["Inscription"] = "\uD83D\uDCDC",
+                ["Jewelcrafting"] = "\uD83D\uDC8E",
+                ["Leatherworking"] = "\uD83E\uDDE5",
+                ["Tailoring"] = "\uD83E\uDDF5"
+            };
+
+            var lines = new List<string>();
+            foreach (var mapping in mappings)
+            {
+                var role = Context.Guild.GetRole((ulong)mapping.RoleId);
+                if (role == null) continue;
+
+                var emoji = professionEmojis.GetValueOrDefault(mapping.Profession, "\u2692\uFE0F");
+                var members = Context.Guild.Users
+                    .Where(u => u.Roles.Any(r => r.Id == role.Id))
+                    .OrderBy(u => u.DisplayName)
+                    .ToList();
+
+                if (members.Any())
+                {
+                    var memberList = string.Join(", ", members.Select(m => m.Mention));
+                    if (memberList.Length > 900)
+                        memberList = memberList[..900] + "...";
+                    lines.Add($"{emoji} **{mapping.Profession}** ({members.Count})\n{memberList}");
+                }
+                else
+                {
+                    lines.Add($"{emoji} **{mapping.Profession}**\n*No crafters yet — use `/craft roles-join` to sign up!*");
+                }
+            }
+
+            var description = string.Join("\n\n", lines);
+            if (description.Length > 4000)
+                description = description[..4000] + "\n...";
+
+            var embed = new EmbedBuilder()
+                .WithTitle("\u2692\uFE0F Guild Crafting Roster")
+                .WithColor(Color.Gold)
+                .WithDescription(description)
+                .WithFooter($"Use /craft roles-join to add or remove yourself")
+                .WithCurrentTimestamp()
+                .Build();
+
+            await FollowupAsync(embed: embed, ephemeral: true);
+        }
+
+        [SlashCommand("roles-join", "Join or leave a crafting profession role")]
+        public async Task CraftRolesJoin(
+            [Summary("profession", "The profession to join or leave")]
+            [Autocomplete(typeof(CraftMappedProfessionAutocomplete))] string profession)
+        {
+            await DeferAsync(ephemeral: true);
+
+            if (string.IsNullOrWhiteSpace(profession))
+            {
+                await FollowupAsync("Please select a profession.", ephemeral: true);
+                return;
+            }
+
+            var guildId = (long)Context.Guild.Id;
+
+            var roleMapping = await WithDbAsync(async db =>
+                await db.CraftProfessionRoleMappings
+                    .FirstOrDefaultAsync(m => m.GuildId == guildId && m.Profession == profession));
+
+            if (roleMapping == null)
+            {
+                await FollowupAsync($"No role is configured for {profession}. Ask an admin to run `/craft roles-setup`.", ephemeral: true);
+                return;
+            }
+
+            var role = Context.Guild.GetRole((ulong)roleMapping.RoleId);
+            if (role == null)
+            {
+                await FollowupAsync($"The {profession} role no longer exists. Ask an admin to reconfigure it.", ephemeral: true);
+                return;
+            }
+
+            var guildUser = Context.User as Discord.WebSocket.SocketGuildUser;
+            if (guildUser == null)
+            {
+                await FollowupAsync("This command only works in a server.", ephemeral: true);
+                return;
+            }
+
+            try
+            {
+                if (guildUser.Roles.Any(r => r.Id == role.Id))
+                {
+                    await guildUser.RemoveRoleAsync(role);
+                    await FollowupAsync($"**{profession}** role removed. You won't be pinged for {profession} requests.", ephemeral: true);
+                }
+                else
+                {
+                    await guildUser.AddRoleAsync(role);
+                    await FollowupAsync($"**{profession}** role added! You'll be pinged for {profession} requests.\nClick the button again or use `/craft roles-join` to remove it.", ephemeral: true);
+                }
+            }
+            catch (Discord.Net.HttpException ex) when (ex.HttpCode == System.Net.HttpStatusCode.Forbidden)
+            {
+                await FollowupAsync($"I don't have permission to manage the **{profession}** role. Make sure my role is above it in the server settings.", ephemeral: true);
+            }
+        }
+
         [SlashCommand("cancel", "Cancel your open crafting request")]
         public async Task CraftCancel(
             [Summary("ticket", "Start typing to search your tickets")]
@@ -359,11 +803,16 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 return;
             }
 
+            var isUnclaim = ticket.Status == "Open"; // CancelTicketAsync sets back to Open for crafter unclaim
             await CraftTicketUpdater.UpdateTicketAsync(_client, ticket, _logger,
-                threadNotification: $"This crafting request has been cancelled by {cancelledBy}.",
-                archiveThread: true);
+                threadNotification: isUnclaim
+                    ? $"The crafter has released this ticket. It's open for a new crafter!"
+                    : $"This crafting request has been cancelled by {cancelledBy}.",
+                archiveThread: !isUnclaim);
 
-            await FollowupAsync("Your crafting request has been cancelled.", ephemeral: true);
+            await FollowupAsync(isUnclaim
+                ? "You've released this crafting request. It's back open for others."
+                : "Your crafting request has been cancelled.", ephemeral: true);
         }
 
         [SlashCommand("list", "View your active crafting requests")]

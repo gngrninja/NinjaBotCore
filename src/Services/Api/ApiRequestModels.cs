@@ -169,6 +169,17 @@ namespace NinjaBotCore.Services.Api
     );
 
     /// <summary>
+    /// Request body for adding/updating a craft profession-to-role mapping.
+    /// </summary>
+    public record UpsertCraftRoleMappingRequest(
+        [property: JsonPropertyName("profession")] string? Profession,
+        [property: JsonPropertyName("role_id")] string? RoleId,
+        [property: JsonPropertyName("role_name")] string? RoleName,
+        [property: JsonPropertyName("set_by_id")] string? SetById,
+        [property: JsonPropertyName("set_by_name")] string? SetByName
+    );
+
+    /// <summary>
     /// Request body for cancelling a craft ticket.
     /// </summary>
     public record CancelCraftTicketRequest(

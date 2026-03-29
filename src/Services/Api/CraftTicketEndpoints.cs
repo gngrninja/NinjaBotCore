@@ -147,7 +147,7 @@ namespace NinjaBotCore.Services.Api
                 // Discord operations: update embed + archive thread (best-effort)
                 try
                 {
-                    var client = scope.ServiceProvider.GetService<DiscordShardedClient>();
+                    var client = deps.ServiceProvider.GetService<DiscordShardedClient>();
                     if (client != null)
                     {
                         await CraftTicketUpdater.UpdateTicketAsync(client, ticket, deps.Logger,

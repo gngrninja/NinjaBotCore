@@ -32,12 +32,25 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 return (null, "", "Ticket not found.");
 
             var isRequester = ticket.RequesterId == cancelledByUserId;
+            var isCrafter = ticket.CrafterId == cancelledByUserId;
 
-            if (!isRequester && !isAdmin)
-                return (null, "", "Only the requester can cancel this ticket.");
+            if (!isRequester && !isCrafter && !isAdmin)
+                return (null, "", "Only the requester or crafter can cancel this ticket.");
 
             if (ticket.Status is "Complete" or "Cancelled" or "Expired")
                 return (null, "", $"This ticket is already {ticket.Status.ToLower()}.");
+
+            // Crafter cancelling a claimed/crafted ticket releases it back to Open
+            if (isCrafter && !isRequester && ticket.Status is "Claimed" or "Crafted")
+            {
+                ticket.Status = "Open";
+                ticket.CrafterId = null;
+                ticket.CrafterName = null;
+                ticket.ClaimedAt = null;
+                ticket.CraftedAt = null;
+                await db.SaveChangesAsync();
+                return (ticket, "the crafter (ticket released back to open)", null);
+            }
 
             ticket.Status = "Cancelled";
             ticket.CompletedAt = DateTime.UtcNow;

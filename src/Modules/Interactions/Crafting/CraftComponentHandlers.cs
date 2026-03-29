@@ -106,6 +106,9 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 t.CrafterId = (long)Context.User.Id;
                 t.CrafterName = Context.User.Username;
                 t.ClaimedAt = DateTime.UtcNow;
+                // Extend expiration — give the crafter time to work on it
+                if (t.ExpiresAt.HasValue)
+                    t.ExpiresAt = DateTime.UtcNow.AddHours(72);
                 var rowsAffected = await db.SaveChangesAsync();
 
                 if (rowsAffected == 0)
@@ -245,12 +248,251 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 return;
             }
 
+            var isUnclaim = ticket.Status == "Open"; // CancelTicketAsync sets back to Open for crafter unclaim
             await CraftTicketUpdater.UpdateTicketAsync(_client, ticket, _logger,
-                threadNotification: $"This crafting request has been cancelled by {cancelledBy}.",
-                archiveThread: true);
+                threadNotification: isUnclaim
+                    ? $"The crafter has released this ticket. It's open for a new crafter!"
+                    : $"This crafting request has been cancelled by {cancelledBy}.",
+                archiveThread: !isUnclaim);
 
-            await FollowupAsync("The crafting request has been cancelled.", ephemeral: true);
+            await FollowupAsync(isUnclaim
+                ? "You've released this crafting request. It's back open for others."
+                : "The crafting request has been cancelled.", ephemeral: true);
         }
+
+        #region Join Role Handler
+
+        [ComponentInteraction("craft_join_role~*")]
+        public async Task HandleJoinRole(string profession)
+        {
+            await DeferAsync(ephemeral: true);
+
+            var guildUser = Context.User as Discord.WebSocket.SocketGuildUser;
+            if (guildUser == null)
+            {
+                await FollowupAsync("This command only works in a server.", ephemeral: true);
+                return;
+            }
+
+            var roleMapping = await WithDbAsync(async db =>
+                await db.CraftProfessionRoleMappings
+                    .FirstOrDefaultAsync(m => m.GuildId == (long)Context.Guild.Id && m.Profession == profession));
+
+            if (roleMapping == null)
+            {
+                await FollowupAsync($"No role is configured for {profession}. Ask an admin to run `/craft roles-setup`.", ephemeral: true);
+                return;
+            }
+
+            var role = Context.Guild.GetRole((ulong)roleMapping.RoleId);
+            if (role == null)
+            {
+                await FollowupAsync($"The {profession} role no longer exists. Ask an admin to reconfigure it.", ephemeral: true);
+                return;
+            }
+
+            try
+            {
+                if (guildUser.Roles.Any(r => r.Id == role.Id))
+                {
+                    await guildUser.RemoveRoleAsync(role);
+                    await FollowupAsync($"**{profession}** role removed. You won't be pinged for {profession} requests.", ephemeral: true);
+                }
+                else
+                {
+                    await guildUser.AddRoleAsync(role);
+                    await FollowupAsync($"**{profession}** role added! You'll be pinged for {profession} requests.\nClick the button again or use `/craft roles-join` to remove it.", ephemeral: true);
+                }
+            }
+            catch (Discord.Net.HttpException ex) when (ex.HttpCode == System.Net.HttpStatusCode.Forbidden)
+            {
+                await FollowupAsync($"I don't have permission to manage the **{profession}** role. Make sure my role is above it in the server settings.", ephemeral: true);
+            }
+        }
+
+        #endregion
+
+        #region Profession Select Handler
+
+        [ComponentInteraction("craft_prof_select~*")]
+        public async Task HandleProfessionSelect(string ticketIdStr, string[] selections)
+        {
+            await DeferAsync(ephemeral: true);
+
+            if (!long.TryParse(ticketIdStr, out var ticketId) || selections.Length == 0)
+            {
+                await FollowupAsync("Invalid selection.", ephemeral: true);
+                return;
+            }
+
+            var selectedProfession = selections[0];
+
+            // Finalize the pending ticket
+            var (ticket, craftChannelId, error) = await WithDbAsync(async db =>
+            {
+                var t = await db.CraftTickets.FirstOrDefaultAsync(x => x.Id == ticketId);
+
+                if (t == null)
+                    return (null, 0L, "Ticket not found.");
+
+                if (t.Status != "PendingProfession")
+                    return (null, 0L, "This ticket has already been processed.");
+
+                if (t.RequesterId != (long)Context.User.Id)
+                    return (null, 0L, "This isn't your ticket.");
+
+                // Check ticket limit before transitioning to Open
+                var settings = await db.ServerCraftSettings
+                    .FirstOrDefaultAsync(s => s.DiscordGuildId == t.GuildId);
+                var openCount = await db.CraftTickets.CountAsync(x =>
+                    x.GuildId == t.GuildId
+                    && x.RequesterId == t.RequesterId
+                    && ActiveStatuses.Contains(x.Status));
+
+                if (settings != null && openCount >= settings.MaxOpenTicketsPerUser)
+                {
+                    db.CraftTickets.Remove(t);
+                    await db.SaveChangesAsync();
+                    return (null, 0L, $"You already have {openCount} open crafting requests (max {settings.MaxOpenTicketsPerUser}). Complete or cancel existing requests first.");
+                }
+
+                t.Profession = selectedProfession;
+                t.Status = "Open";
+                t.ExpiresAt = DateTime.UtcNow.AddHours(
+                    (await db.ServerCraftSettings
+                        .FirstOrDefaultAsync(s => s.DiscordGuildId == t.GuildId))?.TicketExpirationHours ?? 48);
+                await db.SaveChangesAsync();
+
+                return (t, t.ChannelId, (string?)null);
+            });
+
+            if (error != null)
+            {
+                await FollowupAsync(error, ephemeral: true);
+                return;
+            }
+
+            // Best-effort realm enrichment
+            try
+            {
+                var mainChar = await _wowCache.GetUserMainCharacterAsync((long)Context.User.Id);
+                if (mainChar?.LocalRealmSlug != null)
+                {
+                    ticket.RequesterRealm = mainChar.WowRealm;
+                    var region = mainChar.WowRegion ?? "us";
+
+                    var singleRealm = await _wowApi.GetSingleRealmInfoAsync(mainChar.LocalRealmSlug, region);
+                    if (singleRealm?.ConnectedRealm?.Href != null)
+                    {
+                        var connectedRealm = await _wowApi.GetConnectedRealmInfoAsync(
+                            singleRealm.ConnectedRealm.Href.ToString(), region);
+
+                        if (connectedRealm?.Realms?.Length > 0)
+                        {
+                            var realmNames = connectedRealm.Realms
+                                .Select(r => r.Name)
+                                .Where(n => !string.IsNullOrEmpty(n))
+                                .OrderBy(n => n);
+                            var joined = string.Join(", ", realmNames);
+                            ticket.ConnectedRealms = joined.Length > 2000 ? joined[..2000] : joined;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Connected realm lookup failed for user {UserId}", Context.User.Id);
+            }
+
+            // Post the ticket to the craft channel
+            var channel = _client.GetGuild(Context.Guild.Id)?.GetTextChannel((ulong)craftChannelId);
+            if (channel == null)
+            {
+                await WithDbAsync(async db =>
+                {
+                    var orphan = await db.CraftTickets.FindAsync(ticket.Id);
+                    if (orphan != null) { db.CraftTickets.Remove(orphan); await db.SaveChangesAsync(); }
+                });
+                await FollowupAsync("The configured crafting channel could not be found. Ask an admin to run `/craft setup` again.", ephemeral: true);
+                return;
+            }
+
+            IUserMessage message;
+            try
+            {
+                var embed = CraftEmbedBuilder.BuildTicketEmbed(ticket);
+                var components = CraftEmbedBuilder.BuildComponents(ticket);
+                message = await channel.SendMessageAsync(embed: embed.Build(), components: components.Build());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send craft ticket embed");
+                await WithDbAsync(async db =>
+                {
+                    var orphan = await db.CraftTickets.FindAsync(ticket.Id);
+                    if (orphan != null) { db.CraftTickets.Remove(orphan); await db.SaveChangesAsync(); }
+                });
+                await FollowupAsync("Failed to post the crafting request. Please try again.", ephemeral: true);
+                return;
+            }
+
+            ticket.MessageId = (long)message.Id;
+
+            // Create thread with role ping
+            try
+            {
+                var threadName = $"{ticket.ItemName} — {Context.User.GlobalName ?? Context.User.Username}";
+                if (threadName.Length > 97) threadName = threadName[..97] + "...";
+
+                var thread = await channel.CreateThreadAsync(
+                    threadName, ThreadType.PublicThread,
+                    autoArchiveDuration: ThreadArchiveDuration.OneDay, message: message);
+
+                ticket.ThreadId = (long)thread.Id;
+
+                var rolePing = "";
+                AllowedMentions? allowedMentions = null;
+                var roleMapping = await WithDbAsync(async db =>
+                    await db.CraftProfessionRoleMappings
+                        .FirstOrDefaultAsync(m => m.GuildId == (long)Context.Guild.Id
+                            && m.Profession == selectedProfession));
+                if (roleMapping != null)
+                {
+                    rolePing = $"\n<@&{(ulong)roleMapping.RoleId}>";
+                    allowedMentions = new AllowedMentions(AllowedMentionTypes.Users | AllowedMentionTypes.Roles);
+                }
+
+                var threadComponents = CraftEmbedBuilder.BuildComponents(ticket);
+                var threadMessage = await thread.SendMessageAsync(
+                    $"<@{Context.User.Id}> is looking for a crafter for **{ticket.ItemName}**!{rolePing}",
+                    components: threadComponents.Build(),
+                    allowedMentions: allowedMentions);
+                ticket.ThreadMessageId = (long)threadMessage.Id;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to create thread for craft ticket {TicketId}", ticket.Id);
+            }
+
+            // Save enrichment data
+            await WithDbAsync(async db =>
+            {
+                var dbTicket = await db.CraftTickets.FindAsync(ticket.Id);
+                if (dbTicket != null)
+                {
+                    dbTicket.MessageId = ticket.MessageId;
+                    dbTicket.ThreadId = ticket.ThreadId;
+                    dbTicket.ThreadMessageId = ticket.ThreadMessageId;
+                    dbTicket.RequesterRealm = ticket.RequesterRealm;
+                    dbTicket.ConnectedRealms = ticket.ConnectedRealms;
+                    await db.SaveChangesAsync();
+                }
+            });
+
+            await FollowupAsync($"Your crafting request has been posted! Check <#{craftChannelId}>.", ephemeral: true);
+        }
+
+        #endregion
 
         #region Ticket Creation (kept for modal handler compatibility)
 
