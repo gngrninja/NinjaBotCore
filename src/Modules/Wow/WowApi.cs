@@ -517,7 +517,7 @@ namespace NinjaBotCore.Modules.Wow
             return JsonConvert.DeserializeObject<ArmoryMedia>(response);
         }
 
-        public async Task<ArmoryItemMedia> GetItemMediaAsync(int itemId, string regionName = "us", CancellationToken cancellationToken = default)
+        public async Task<ArmoryItemMedia> GetItemMediaAsync(long itemId, string regionName = "us", CancellationToken cancellationToken = default)
         {
             var locale = GetRegionFromString(regionName);
             var regionSegment = regionName.ToLowerInvariant();
@@ -536,6 +536,26 @@ namespace NinjaBotCore.Modules.Wow
 
             var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
             return JsonConvert.DeserializeObject<ItemSearchResponse>(response);
+        }
+
+        public async Task<RecipeResponse> GetRecipeAsync(long recipeId, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            var locale = GetRegionFromString(regionName);
+            var regionSegment = regionName.ToLowerInvariant();
+            var url = $"/data/wow/recipe/{recipeId}?namespace=static-{regionSegment}";
+
+            var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
+            return JsonConvert.DeserializeObject<RecipeResponse>(response);
+        }
+
+        public async Task<ArmoryItemMedia> GetRecipeMediaAsync(long recipeId, string regionName = "us", CancellationToken cancellationToken = default)
+        {
+            var locale = GetRegionFromString(regionName);
+            var regionSegment = regionName.ToLowerInvariant();
+            var url = $"/data/wow/media/recipe/{recipeId}?namespace=static-{regionSegment}";
+
+            var response = await GetAPIRequestAsync(url, locale, regionName, cancellationToken);
+            return JsonConvert.DeserializeObject<ArmoryItemMedia>(response);
         }
 
         public async Task<ArmoryItemMedia> GetCreatureDisplayMediaAsync(long displayId, string regionName = "us", CancellationToken cancellationToken = default)

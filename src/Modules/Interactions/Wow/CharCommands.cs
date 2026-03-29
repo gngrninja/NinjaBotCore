@@ -1437,7 +1437,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         /// Gets item media with caching. Checks DB cache first, then fetches from API and caches result.
         /// Item icons are static and never change, so we cache indefinitely.
         /// </summary>
-        private async Task<ArmoryItemMedia> GetItemMediaCachedAsync(int itemId, string region)
+        private async Task<ArmoryItemMedia> GetItemMediaCachedAsync(long itemId, string region)
         {
             try
             {

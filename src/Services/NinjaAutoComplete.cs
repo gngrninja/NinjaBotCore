@@ -862,18 +862,36 @@ namespace NinjaBotCore.Services
             {
                 var userInput = (autocompleteInteraction.Data.Current.Value as string ?? "").Trim();
 
+                var scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
+                using var scope = scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
                 if (userInput.Length < 2)
                 {
-                    return AutocompletionResult.FromSuccess(
-                        new[] { new AutocompleteResult("Type at least 2 characters to search...", userInput) });
+                    // Show popular professions as hints when user hasn't typed yet
+                    var recentItems = await db.CraftableItems
+                        .OrderBy(c => c.RecipeName)
+                        .Take(24)
+                        .Select(c => new { c.RecipeName, c.Profession })
+                        .ToListAsync();
+
+                    var hints = new List<AutocompleteResult>
+                    {
+                        new("Start typing an item name, or enter any name", string.IsNullOrEmpty(userInput) ? " " : userInput)
+                    };
+                    hints.AddRange(recentItems.Select(m =>
+                    {
+                        var displayName = $"{m.RecipeName} ({m.Profession})";
+                        if (displayName.Length > 100) displayName = displayName[..100];
+                        var value = m.RecipeName.Length > 100 ? m.RecipeName[..100] : m.RecipeName;
+                        return new AutocompleteResult(displayName, value);
+                    }));
+
+                    return AutocompletionResult.FromSuccess(hints);
                 }
 
                 // Escape LIKE wildcards in user input
                 var escaped = userInput.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
-
-                var scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
-                using var scope = scopeFactory.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
 
                 var matches = await db.CraftableItems
                     .Where(c => EF.Functions.ILike(c.RecipeName, $"%{escaped}%", "\\"))
@@ -885,7 +903,7 @@ namespace NinjaBotCore.Services
                 if (!matches.Any())
                 {
                     return AutocompletionResult.FromSuccess(
-                        new[] { new AutocompleteResult(userInput, userInput) });
+                        new[] { new AutocompleteResult($"{userInput} (custom item)", userInput) });
                 }
 
                 var results = matches.Select(m =>

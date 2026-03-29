@@ -75,6 +75,8 @@ namespace NinjaBotCore.Services
                 _app.MapRealmEndpoints(deps, filter);
                 _app.MapStaticDataEndpoints(deps, filter);
                 _app.MapCraftableItemEndpoints(deps, filter);
+                _app.MapCraftSettingsEndpoints(deps, filter);
+                _app.MapCraftTicketEndpoints(deps, filter);
 
                 // Start the web server in the background
                 _runTask = Task.Run(async () =>

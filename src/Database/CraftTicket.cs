@@ -47,6 +47,7 @@ namespace NinjaBotCore.Database
         public long ChannelId { get; set; }
         public long MessageId { get; set; }
         public long? ThreadId { get; set; }
+        public long? ThreadMessageId { get; set; }
 
         /// <summary>
         /// Desired quality (e.g., "Max quality", "Rank 5", "Any rank")

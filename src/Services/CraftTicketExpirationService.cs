@@ -2,7 +2,6 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Discord;
 using Discord.WebSocket;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -99,9 +98,9 @@ namespace NinjaBotCore.Services
                             try
                             {
                                 _logger.LogInformation("Expired craft ticket {TicketId} in guild {GuildId}", ticket.Id, ticket.GuildId);
-                                await UpdateTicketMessageAsync(ticket);
-                                await PostExpiredInThreadAsync(ticket);
-                                await ArchiveThreadAsync(ticket);
+                                await CraftTicketUpdater.UpdateTicketAsync(_client, ticket, _logger,
+                                    threadNotification: $"<@{(ulong)ticket.RequesterId}> — this crafting request has expired. You can create a new request with `/craft request`.",
+                                    archiveThread: true);
                             }
                             catch (Exception ex)
                             {
@@ -128,73 +127,6 @@ namespace NinjaBotCore.Services
             {
                 _logger.LogError(ex, "Error in CraftTicketExpirationService check cycle - retrying in 1 minute");
                 _timer?.Change(TimeSpan.FromMinutes(1), Timeout.InfiniteTimeSpan);
-            }
-        }
-
-        private async Task UpdateTicketMessageAsync(CraftTicket ticket)
-        {
-            try
-            {
-                var guild = _client.GetGuild((ulong)ticket.GuildId);
-                if (guild == null) return;
-
-                var channel = guild.GetTextChannel((ulong)ticket.ChannelId);
-                if (channel == null) return;
-
-                var message = await channel.GetMessageAsync((ulong)ticket.MessageId);
-                if (message is not IUserMessage userMessage) return;
-
-                var embed = CraftEmbedBuilder.BuildTicketEmbed(ticket);
-                var components = CraftEmbedBuilder.BuildComponents(ticket);
-
-                await userMessage.ModifyAsync(msg =>
-                {
-                    msg.Embed = embed.Build();
-                    msg.Components = components.Build();
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error updating Discord message for expired craft ticket {TicketId}", ticket.Id);
-            }
-        }
-
-        private async Task PostExpiredInThreadAsync(CraftTicket ticket)
-        {
-            if (!ticket.ThreadId.HasValue) return;
-
-            try
-            {
-                var guild = _client.GetGuild((ulong)ticket.GuildId);
-                var thread = guild?.GetThreadChannel((ulong)ticket.ThreadId.Value);
-                if (thread != null)
-                {
-                    await thread.SendMessageAsync(
-                        $"<@{(ulong)ticket.RequesterId}> — this crafting request has expired. You can create a new request with `/craft request`.");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error posting expiration message to thread for craft ticket {TicketId}", ticket.Id);
-            }
-        }
-
-        private async Task ArchiveThreadAsync(CraftTicket ticket)
-        {
-            if (!ticket.ThreadId.HasValue) return;
-
-            try
-            {
-                var guild = _client.GetGuild((ulong)ticket.GuildId);
-                var thread = guild?.GetThreadChannel((ulong)ticket.ThreadId.Value);
-                if (thread != null)
-                {
-                    await thread.ModifyAsync(t => t.Archived = true);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error archiving thread for expired craft ticket {TicketId}", ticket.Id);
             }
         }
 

@@ -167,4 +167,23 @@ namespace NinjaBotCore.Services.Api
         [property: JsonPropertyName("user_id")] string? UserId,
         [property: JsonPropertyName("source")] string? Source
     );
+
+    /// <summary>
+    /// Request body for cancelling a craft ticket.
+    /// </summary>
+    public record CancelCraftTicketRequest(
+        [property: JsonPropertyName("cancelled_by_id")] string? CancelledById,
+        [property: JsonPropertyName("is_admin")] bool? IsAdmin
+    );
+
+    /// <summary>
+    /// Request body for updating craft settings.
+    /// </summary>
+    public record UpdateCraftSettingsRequest(
+        [property: JsonPropertyName("craft_channel_id")] string? CraftChannelId,
+        [property: JsonPropertyName("max_open_tickets_per_user")] int? MaxOpenTicketsPerUser,
+        [property: JsonPropertyName("ticket_expiration_hours")] int? TicketExpirationHours,
+        [property: JsonPropertyName("set_by_id")] string? SetById,
+        [property: JsonPropertyName("set_by_name")] string? SetByName
+    );
 }

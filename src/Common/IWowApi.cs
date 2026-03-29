@@ -26,9 +26,11 @@ namespace NinjaBotCore.Common
         Task<List<FoundChar>> SearchArmoryAsync(string searchFor, CancellationToken cancellationToken = default);
 
         // Item/Media methods
-        Task<ArmoryItemMedia> GetItemMediaAsync(int itemId, string regionName = "us", CancellationToken cancellationToken = default);
+        Task<ArmoryItemMedia> GetItemMediaAsync(long itemId, string regionName = "us", CancellationToken cancellationToken = default);
         Task<ArmoryItemMedia> GetCreatureDisplayMediaAsync(long displayId, string regionName = "us", CancellationToken cancellationToken = default);
         Task<ItemSearchResponse> SearchItemByNameAsync(string itemName, string regionName = "us", CancellationToken cancellationToken = default);
+        Task<RecipeResponse> GetRecipeAsync(long recipeId, string regionName = "us", CancellationToken cancellationToken = default);
+        Task<ArmoryItemMedia> GetRecipeMediaAsync(long recipeId, string regionName = "us", CancellationToken cancellationToken = default);
 
         // Realm methods
         Task<WowConnectedRealm> GetConnectedRealmInfoAsync(int realmId, string regionName = "us", CancellationToken cancellationToken = default);

@@ -14,22 +14,29 @@ using NinjaBotCore.Services;
 
 namespace NinjaBotCore.Modules.Interactions.Crafting
 {
+    [RequireContext(ContextType.Guild)]
     [Group("craft", "Crafting request commands")]
     public class CraftCommands : NinjaBotBaseModule
     {
         private readonly DiscordShardedClient _client;
         private readonly ILogger<CraftCommands> _logger;
+        private readonly IWowApi _wowApi;
+        private readonly WowCacheService _wowCache;
 
         private static string[] ActiveStatuses => CraftConstants.ActiveStatuses;
 
         public CraftCommands(
             IServiceScopeFactory scopeFactory,
             DiscordShardedClient client,
-            ILogger<CraftCommands> logger)
+            ILogger<CraftCommands> logger,
+            IWowApi wowApi,
+            WowCacheService wowCache)
             : base(scopeFactory)
         {
             _client = client;
             _logger = logger;
+            _wowApi = wowApi;
+            _wowCache = wowCache;
         }
 
         [SlashCommand("request", "Request a crafted item")]
@@ -37,24 +44,241 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             [Summary("item", "Name of the item you need crafted")]
             [Autocomplete(typeof(CraftableItemAutocomplete))] string itemName)
         {
-            // Encode item name in modal custom ID (max 100 chars total)
-            var prefix = ModalConstants.CraftRequestModalPrefix;
-            var maxItemLen = 100 - prefix.Length;
-            var encodedItem = itemName.Length > maxItemLen ? itemName[..maxItemLen] : itemName;
+            if (string.IsNullOrWhiteSpace(itemName))
+            {
+                await RespondAsync("Please type an item name in the autocomplete field first.", ephemeral: true);
+                return;
+            }
 
-            var modal = new ModalBuilder()
-                .WithTitle("Crafting Request Details")
-                .WithCustomId($"{prefix}{encodedItem}")
-                .AddTextInput("Quality Desired", "craft_quality", TextInputStyle.Short,
-                    placeholder: "Max quality, Rank 5, Any rank, etc.", maxLength: 100, required: false)
-                .AddTextInput("Materials", "craft_mats", TextInputStyle.Short,
-                    placeholder: "Have all mats, Need crafter to provide some, etc.", maxLength: 100, required: false)
-                .AddTextInput("Commission / Tip", "craft_commission", TextInputStyle.Short,
-                    placeholder: "5k tip, Negotiable, Free for guildies, etc.", maxLength: 100, required: false)
-                .AddTextInput("Note (optional)", "craft_note", TextInputStyle.Paragraph,
-                    placeholder: "Embellishment prefs, stat priority, timing, etc.", maxLength: 500, required: false);
+            await DeferAsync(ephemeral: true);
+            await CreateCraftTicketAsync(itemName.Trim());
+        }
 
-            await RespondWithModalAsync(modal.Build());
+        private async Task CreateCraftTicketAsync(string itemName)
+        {
+            // Pre-check: verify craft channel exists before creating ticket
+            var preCheckSettings = await WithDbAsync(async db =>
+                await db.ServerCraftSettings
+                    .FirstOrDefaultAsync(s => s.DiscordGuildId == (long)Context.Guild.Id));
+
+            if (preCheckSettings?.CraftChannelId == null)
+            {
+                await FollowupAsync("A crafting channel has not been configured. Ask an admin to run `/craft setup`.", ephemeral: true);
+                return;
+            }
+
+            var preCheckChannel = _client.GetGuild(Context.Guild.Id)?.GetTextChannel((ulong)preCheckSettings.CraftChannelId.Value);
+            if (preCheckChannel == null)
+            {
+                await FollowupAsync("The configured crafting channel could not be found. Ask an admin to run `/craft setup` again.", ephemeral: true);
+                return;
+            }
+
+            // Settings check + ticket limit + creation
+            var (ticket, craftChannelId, error) = await WithDbAsync(async db =>
+            {
+                var settings = await db.ServerCraftSettings
+                    .FirstOrDefaultAsync(s => s.DiscordGuildId == (long)Context.Guild.Id);
+
+                if (settings?.CraftChannelId == null)
+                    return (null, 0L, "A crafting channel has not been configured. Ask an admin to run `/craft setup`.");
+
+                var openCount = await db.CraftTickets.CountAsync(t =>
+                    t.GuildId == (long)Context.Guild.Id
+                    && t.RequesterId == (long)Context.User.Id
+                    && ActiveStatuses.Contains(t.Status));
+
+                if (openCount >= settings.MaxOpenTicketsPerUser)
+                    return (null, 0L, $"You already have {openCount} open crafting requests (max {settings.MaxOpenTicketsPerUser}). Complete or cancel existing requests first.");
+
+                var newTicket = new CraftTicket
+                {
+                    ItemName = itemName,
+                    Status = "Open",
+                    CreatedAt = DateTime.UtcNow,
+                    ExpiresAt = DateTime.UtcNow.AddHours(settings.TicketExpirationHours),
+                    RequesterId = (long)Context.User.Id,
+                    RequesterName = Context.User.Username,
+                    GuildId = (long)Context.Guild.Id,
+                    ChannelId = settings.CraftChannelId.Value,
+                    MessageId = 0
+                };
+
+                db.CraftTickets.Add(newTicket);
+                await db.SaveChangesAsync();
+
+                return (newTicket, settings.CraftChannelId.Value, (string)null);
+            });
+
+            if (error != null)
+            {
+                await FollowupAsync(error, ephemeral: true);
+                return;
+            }
+
+            // Best-effort item lookup via recipe detail API
+            try
+            {
+                var craftableItem = await WithDbAsync(async db =>
+                    await db.CraftableItems
+                        .FirstOrDefaultAsync(c => c.RecipeName == itemName));
+
+                if (craftableItem != null)
+                {
+                    ticket.BlizzardItemId = craftableItem.CraftedItemId ?? craftableItem.Id;
+
+                    var recipe = await _wowApi.GetRecipeAsync(craftableItem.Id);
+                    if (recipe?.CraftedItem != null)
+                    {
+                        ticket.BlizzardItemId = recipe.CraftedItem.Id;
+                        var resolvedName = recipe.CraftedItem.Name?.EnUS;
+                        if (!string.IsNullOrEmpty(resolvedName))
+                            ticket.ItemName = resolvedName;
+
+                        var media = await _wowApi.GetItemMediaAsync(recipe.CraftedItem.Id);
+                        ticket.ItemIconUrl = media?.Assets?.FirstOrDefault(a => a.Key == "icon")?.Value;
+                    }
+
+                    if (string.IsNullOrEmpty(ticket.ItemIconUrl))
+                    {
+                        var localItem = await WithDbAsync(async db =>
+                            await db.WowItems
+                                .FirstOrDefaultAsync(i => EF.Functions.ILike(i.Name, itemName)));
+                        if (localItem != null)
+                        {
+                            ticket.BlizzardItemId = localItem.Id;
+                            if (!string.IsNullOrEmpty(localItem.MediaUrl))
+                                ticket.ItemIconUrl = localItem.MediaUrl;
+                        }
+                    }
+
+                    if (string.IsNullOrEmpty(ticket.ItemIconUrl))
+                    {
+                        var recipeMedia = await _wowApi.GetRecipeMediaAsync(craftableItem.Id);
+                        ticket.ItemIconUrl = recipeMedia?.Assets?.FirstOrDefault(a => a.Key == "icon")?.Value;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Item lookup failed for '{ItemName}'", itemName);
+            }
+
+            // Best-effort connected realm lookup
+            try
+            {
+                var mainChar = await _wowCache.GetUserMainCharacterAsync((long)Context.User.Id);
+                if (mainChar?.LocalRealmSlug != null)
+                {
+                    ticket.RequesterRealm = mainChar.WowRealm;
+                    var region = mainChar.WowRegion ?? "us";
+
+                    var singleRealm = await _wowApi.GetSingleRealmInfoAsync(mainChar.LocalRealmSlug, region);
+                    if (singleRealm?.ConnectedRealm?.Href != null)
+                    {
+                        var connectedRealm = await _wowApi.GetConnectedRealmInfoAsync(
+                            singleRealm.ConnectedRealm.Href.ToString(), region);
+
+                        if (connectedRealm?.Realms?.Length > 0)
+                        {
+                            var realmNames = connectedRealm.Realms
+                                .Select(r => r.Name)
+                                .Where(n => !string.IsNullOrEmpty(n))
+                                .OrderBy(n => n);
+                            var joined = string.Join(", ", realmNames);
+                            ticket.ConnectedRealms = joined.Length > 2000 ? joined[..2000] : joined;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Connected realm lookup failed for user {UserId}", Context.User.Id);
+            }
+
+            // Send embed to craft channel
+            var channel = _client.GetGuild(Context.Guild.Id)?.GetTextChannel((ulong)craftChannelId);
+            if (channel == null)
+            {
+                await WithDbAsync(async db =>
+                {
+                    var orphan = await db.CraftTickets.FindAsync(ticket.Id);
+                    if (orphan != null) { db.CraftTickets.Remove(orphan); await db.SaveChangesAsync(); }
+                });
+                await FollowupAsync("The configured crafting channel could not be found. Ask an admin to run `/craft setup` again.", ephemeral: true);
+                return;
+            }
+
+            IUserMessage message;
+            try
+            {
+                var embed = CraftEmbedBuilder.BuildTicketEmbed(ticket);
+                var components = CraftEmbedBuilder.BuildComponents(ticket);
+                message = await channel.SendMessageAsync(embed: embed.Build(), components: components.Build());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send craft ticket embed to channel {ChannelId}", craftChannelId);
+                await WithDbAsync(async db =>
+                {
+                    var orphan = await db.CraftTickets.FindAsync(ticket.Id);
+                    if (orphan != null) { db.CraftTickets.Remove(orphan); await db.SaveChangesAsync(); }
+                });
+                await FollowupAsync("Failed to post the crafting request. Please try again.", ephemeral: true);
+                return;
+            }
+
+            ticket.MessageId = (long)message.Id;
+
+            // Create thread
+            try
+            {
+                var threadName = $"{ticket.ItemName} — {Context.User.GlobalName ?? Context.User.Username}";
+                if (threadName.Length > 97) threadName = threadName[..97] + "...";
+
+                var thread = await channel.CreateThreadAsync(
+                    threadName, ThreadType.PublicThread,
+                    autoArchiveDuration: ThreadArchiveDuration.OneDay, message: message);
+
+                ticket.ThreadId = (long)thread.Id;
+
+                var threadComponents = CraftEmbedBuilder.BuildComponents(ticket);
+                var threadMessage = await thread.SendMessageAsync(
+                    $"<@{Context.User.Id}> is looking for a crafter for **{ticket.ItemName}**!",
+                    components: threadComponents.Build());
+                ticket.ThreadMessageId = (long)threadMessage.Id;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to create thread for craft ticket {TicketId}", ticket.Id);
+            }
+
+            // Save enrichment data
+            try
+            {
+                await WithDbAsync(async db =>
+                {
+                    var dbTicket = await db.CraftTickets.FindAsync(ticket.Id);
+                    if (dbTicket != null)
+                    {
+                        dbTicket.MessageId = ticket.MessageId;
+                        dbTicket.ThreadId = ticket.ThreadId;
+                        dbTicket.ThreadMessageId = ticket.ThreadMessageId;
+                        dbTicket.ItemName = ticket.ItemName;
+                        dbTicket.BlizzardItemId = ticket.BlizzardItemId;
+                        dbTicket.ItemIconUrl = ticket.ItemIconUrl;
+                        dbTicket.RequesterRealm = ticket.RequesterRealm;
+                        dbTicket.ConnectedRealms = ticket.ConnectedRealms;
+                        await db.SaveChangesAsync();
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to save enrichment data for craft ticket {TicketId}", ticket.Id);
+            }
+
+            await FollowupAsync($"Your crafting request has been posted! Check <#{craftChannelId}>.", ephemeral: true);
         }
 
         [SlashCommand("setup", "Configure the crafting request channel")]
@@ -126,38 +350,18 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 return;
             }
 
-            CraftTicket cancelledTicket = null;
+            var (ticket, cancelledBy, error) = await WithDbAsync(async db =>
+                await CraftTicketUpdater.CancelTicketAsync(db, ticketId, (long)Context.User.Id));
 
-            var result = await WithDbAsync(async db =>
+            if (error != null)
             {
-                var ticket = await db.CraftTickets.FirstOrDefaultAsync(t =>
-                    t.Id == ticketId && t.GuildId == (long)Context.Guild.Id);
-
-                if (ticket == null)
-                    return "Ticket not found.";
-
-                if (ticket.RequesterId != (long)Context.User.Id)
-                    return "You can only cancel your own crafting requests.";
-
-                if (ticket.Status == "Complete" || ticket.Status == "Cancelled" || ticket.Status == "Expired")
-                    return $"This ticket is already {ticket.Status.ToLower()}.";
-
-                ticket.Status = "Cancelled";
-                ticket.CompletedAt = DateTime.UtcNow;
-                await db.SaveChangesAsync();
-
-                cancelledTicket = ticket;
-                return null;
-            });
-
-            if (result != null)
-            {
-                await FollowupAsync(result, ephemeral: true);
+                await FollowupAsync(error, ephemeral: true);
                 return;
             }
 
-            if (cancelledTicket != null)
-                await UpdateTicketMessageAsync(cancelledTicket, "This crafting request has been cancelled.");
+            await CraftTicketUpdater.UpdateTicketAsync(_client, ticket, _logger,
+                threadNotification: $"This crafting request has been cancelled by {cancelledBy}.",
+                archiveThread: true);
 
             await FollowupAsync("Your crafting request has been cancelled.", ephemeral: true);
         }
@@ -184,7 +388,7 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
 
                 return await query
                     .OrderBy(t => t.CreatedAt)
-                    .Take(25)
+                    .Take(24)
                     .ToListAsync();
             });
 
@@ -321,43 +525,5 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             return builder.Build();
         }
 
-        private async Task UpdateTicketMessageAsync(CraftTicket ticket, string threadMessage)
-        {
-            try
-            {
-                var guild = _client.GetGuild((ulong)ticket.GuildId);
-                if (guild == null) return;
-
-                var channel = guild.GetTextChannel((ulong)ticket.ChannelId);
-                if (channel == null) return;
-
-                var message = await channel.GetMessageAsync((ulong)ticket.MessageId);
-                if (message is not IUserMessage userMessage) return;
-
-                var embed = CraftEmbedBuilder.BuildTicketEmbed(ticket);
-                var components = CraftEmbedBuilder.BuildComponents(ticket);
-
-                await userMessage.ModifyAsync(msg =>
-                {
-                    msg.Embed = embed.Build();
-                    msg.Components = components.Build();
-                });
-
-                if (ticket.ThreadId.HasValue)
-                {
-                    var thread = guild.GetThreadChannel((ulong)ticket.ThreadId.Value);
-                    if (thread != null)
-                    {
-                        await thread.SendMessageAsync(threadMessage);
-                        try { await thread.ModifyAsync(t => t.Archived = true); }
-                        catch (Exception ex) { _logger.LogDebug(ex, "Could not archive thread {ThreadId}", ticket.ThreadId); }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error updating Discord message for craft ticket {TicketId}", ticket.Id);
-            }
-        }
     }
 }

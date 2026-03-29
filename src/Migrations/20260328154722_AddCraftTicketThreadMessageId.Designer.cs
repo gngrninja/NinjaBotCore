@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NinjaBotCore.Database;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace NinjaBotCore.Migrations
 {
     [DbContext(typeof(NinjaBotEntities))]
-    partial class NinjaBotEntitiesModelSnapshot : ModelSnapshot
+    [Migration("20260328154722_AddCraftTicketThreadMessageId")]
+    partial class AddCraftTicketThreadMessageId
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -335,15 +338,6 @@ namespace NinjaBotCore.Migrations
                         .HasColumnType("bigint");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("GuildId", "Status")
-                        .HasDatabaseName("IX_CraftTickets_GuildId_Status");
-
-                    b.HasIndex("Status", "ExpiresAt")
-                        .HasDatabaseName("IX_CraftTickets_Status_ExpiresAt");
-
-                    b.HasIndex("GuildId", "RequesterId", "Status")
-                        .HasDatabaseName("IX_CraftTickets_GuildId_RequesterId_Status");
 
                     b.ToTable("CraftTickets");
                 });

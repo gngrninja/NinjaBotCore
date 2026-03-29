@@ -119,7 +119,7 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
         private static EmbedBuilder BuildBaseEmbed(CraftTicket ticket, Color color, string statusLabel)
         {
             var footerHint = string.IsNullOrEmpty(ticket.RequesterRealm) && statusLabel == "Open"
-                ? " | Use /setchar to show your realm"
+                ? " | Use /char to show your realm"
                 : "";
 
             var embed = new EmbedBuilder()
@@ -174,6 +174,8 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             var builder = new ComponentBuilder();
             builder.WithButton("I can craft this", $"{ModalConstants.CraftClaimPrefix}{ticket.Id}",
                 ButtonStyle.Primary, emote: new Emoji("\u2692\uFE0F"));
+            builder.WithButton("Cancel", $"{ModalConstants.CraftCancelPrefix}{ticket.Id}",
+                ButtonStyle.Danger, emote: new Emoji("\u274C"));
             AddWowheadButton(builder, ticket);
             return builder;
         }
@@ -192,7 +194,7 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
         private static ComponentBuilder BuildCraftedComponents(CraftTicket ticket)
         {
             var builder = new ComponentBuilder();
-            builder.WithButton("Trade Complete", $"{ModalConstants.CraftCompletePrefix}{ticket.Id}",
+            builder.WithButton("Item Received", $"{ModalConstants.CraftCompletePrefix}{ticket.Id}",
                 ButtonStyle.Success, emote: new Emoji("\uD83E\uDD1D"));
             builder.WithButton("Cancel", $"{ModalConstants.CraftCancelPrefix}{ticket.Id}",
                 ButtonStyle.Danger, emote: new Emoji("\u274C"));

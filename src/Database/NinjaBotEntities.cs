@@ -72,6 +72,21 @@ namespace NinjaBotCore.Database
         public virtual DbSet<ServerCraftSettings> ServerCraftSettings { get; set; }
         public virtual DbSet<CraftableItem> CraftableItems { get; set; }
 
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<CraftTicket>(entity =>
+            {
+                entity.HasIndex(e => new { e.GuildId, e.RequesterId, e.Status })
+                    .HasDatabaseName("IX_CraftTickets_GuildId_RequesterId_Status");
+
+                entity.HasIndex(e => new { e.Status, e.ExpiresAt })
+                    .HasDatabaseName("IX_CraftTickets_Status_ExpiresAt");
+
+                entity.HasIndex(e => new { e.GuildId, e.Status })
+                    .HasDatabaseName("IX_CraftTickets_GuildId_Status");
+            });
+        }
+
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
             if (!optionsBuilder.IsConfigured)
