@@ -386,6 +386,27 @@ namespace NinjaBotCore.Services
                 });
             }
 
+            // Crafting
+            var craftingCommands = commands
+                .Where(c => c.ModuleName.Contains("Crafting") &&
+                           c.ModuleTypeName == "CraftCommands")
+                .Select(ToHelpCommand)
+                .OrderBy(c => c.Name)
+                .ToList();
+
+            if (craftingCommands.Any())
+            {
+                categories.Add(new HelpCategory
+                {
+                    Id = "crafting",
+                    Name = "Crafting",
+                    Emoji = "\u2692\uFE0F",
+                    Description = "Request crafted items and manage crafting orders",
+                    PermissionLevel = "public",
+                    Commands = craftingCommands
+                });
+            }
+
             // Owner Only commands are intentionally excluded from help
             // They should not be visible to regular users
 

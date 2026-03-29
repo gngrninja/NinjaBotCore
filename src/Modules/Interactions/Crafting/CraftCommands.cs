@@ -39,9 +39,9 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             _wowCache = wowCache;
         }
 
-        [SlashCommand("request", "Request a crafted item")]
+        [SlashCommand("request", "Request a crafted item from your guild")]
         public async Task CraftRequest(
-            [Summary("item", "Name of the item you need crafted")]
+            [Summary("item", "Start typing to search, or enter any item name")]
             [Autocomplete(typeof(CraftableItemAutocomplete))] string itemName)
         {
             if (string.IsNullOrWhiteSpace(itemName))
@@ -281,7 +281,7 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             await FollowupAsync($"Your crafting request has been posted! Check <#{craftChannelId}>.", ephemeral: true);
         }
 
-        [SlashCommand("setup", "Configure the crafting request channel")]
+        [SlashCommand("setup", "Set up the crafting channel and settings")]
         [RequireUserPermission(GuildPermission.ManageGuild)]
         public async Task CraftSetup(
             [Summary("channel", "Channel where crafting requests will be posted")] ITextChannel channel,
@@ -339,7 +339,7 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
 
         [SlashCommand("cancel", "Cancel your open crafting request")]
         public async Task CraftCancel(
-            [Summary("ticket", "Select the ticket to cancel")]
+            [Summary("ticket", "Start typing to search your tickets")]
             [Autocomplete(typeof(CraftTicketAutocomplete))] string ticketIdStr)
         {
             await DeferAsync(ephemeral: true);
@@ -366,9 +366,9 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             await FollowupAsync("Your crafting request has been cancelled.", ephemeral: true);
         }
 
-        [SlashCommand("list", "View crafting requests")]
+        [SlashCommand("list", "View your active crafting requests")]
         public async Task CraftList(
-            [Summary("scope", "Whose requests to view")]
+            [Summary("scope", "View your requests or all open ones")]
             [Choice("Mine", "mine")]
             [Choice("All Open", "all")]
             string scope = "mine")
@@ -417,7 +417,7 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             await FollowupAsync(embed: embed, components: components, ephemeral: true);
         }
 
-        [SlashCommand("board", "View all crafting requests in this server")]
+        [SlashCommand("board", "Admin view of all crafting requests")]
         [RequireUserPermission(GuildPermission.ManageMessages)]
         public async Task CraftBoard()
         {

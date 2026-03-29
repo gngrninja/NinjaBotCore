@@ -83,50 +83,51 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                     });
                 }
 
-                // Update the in-thread message
-                if (ticket.ThreadId.HasValue && ticket.ThreadMessageId.HasValue)
+                // Thread operations — resolve thread once and reuse
+                SocketThreadChannel? ticketThread = null;
+                if (ticket.ThreadId.HasValue)
                 {
-                    var thread = guild.GetThreadChannel((ulong)ticket.ThreadId.Value);
-                    if (thread != null)
+                    ticketThread = guild.GetThreadChannel((ulong)ticket.ThreadId.Value);
+                    if (ticketThread == null)
                     {
-                        var threadMsg = await thread.GetMessageAsync((ulong)ticket.ThreadMessageId.Value);
-                        if (threadMsg is IUserMessage threadUserMsg)
+                        // Thread may not be in cache — try fetching it directly
+                        try { ticketThread = client.GetChannel((ulong)ticket.ThreadId.Value) as SocketThreadChannel; }
+                        catch { /* ignore */ }
+                    }
+                }
+
+                // Update the in-thread message
+                if (ticketThread != null && ticket.ThreadMessageId.HasValue)
+                {
+                    var threadMsg = await ticketThread.GetMessageAsync((ulong)ticket.ThreadMessageId.Value);
+                    if (threadMsg is IUserMessage threadUserMsg)
+                    {
+                        await threadUserMsg.ModifyAsync(msg =>
                         {
-                            await threadUserMsg.ModifyAsync(msg =>
-                            {
-                                msg.Embed = builtEmbed;
-                                msg.Components = builtComponents;
-                            });
-                        }
+                            msg.Embed = builtEmbed;
+                            msg.Components = builtComponents;
+                        });
                     }
                 }
 
                 // Post a text notification in the thread
-                if (threadNotification != null && ticket.ThreadId.HasValue)
+                if (threadNotification != null && ticketThread != null)
                 {
-                    var thread = guild.GetThreadChannel((ulong)ticket.ThreadId.Value);
-                    if (thread != null)
-                    {
-                        await thread.SendMessageAsync(threadNotification);
-                    }
+                    await ticketThread.SendMessageAsync(threadNotification);
                 }
 
                 // Close the thread (archive + lock)
-                if (archiveThread && ticket.ThreadId.HasValue)
+                if (archiveThread && ticketThread != null)
                 {
-                    var thread = guild.GetThreadChannel((ulong)ticket.ThreadId.Value);
-                    if (thread != null)
+                    try
                     {
-                        try
+                        await ticketThread.ModifyAsync(t =>
                         {
-                            await thread.ModifyAsync(t =>
-                            {
-                                t.Locked = true;
-                                t.Archived = true;
-                            });
-                        }
-                        catch (Exception ex) { logger.LogDebug(ex, "Could not close thread {ThreadId}", ticket.ThreadId); }
+                            t.Locked = true;
+                            t.Archived = true;
+                        });
                     }
+                    catch (Exception ex) { logger.LogWarning(ex, "Could not close thread {ThreadId}", ticket.ThreadId); }
                 }
             }
             catch (Exception ex)
