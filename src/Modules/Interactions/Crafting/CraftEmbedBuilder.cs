@@ -171,6 +171,8 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             var builder = new ComponentBuilder();
             builder.WithButton("I can craft this", $"{ModalConstants.CraftClaimPrefix}{ticket.Id}",
                 ButtonStyle.Primary, emote: new Emoji("\u2692\uFE0F"));
+            builder.WithButton("Close request", $"{ModalConstants.CraftGotItPrefix}{ticket.Id}",
+                ButtonStyle.Success, emote: new Emoji("\u2705"));
             builder.WithButton("Cancel", $"{ModalConstants.CraftCancelPrefix}{ticket.Id}",
                 ButtonStyle.Danger, emote: new Emoji("\u274C"));
             AddWowheadButton(builder, ticket);

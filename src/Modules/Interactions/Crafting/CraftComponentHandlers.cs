@@ -228,6 +228,53 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             await FollowupAsync("Item received! The ticket has been closed.", ephemeral: true);
         }
 
+        [ComponentInteraction("craft_gotit~*")]
+        public async Task HandleGotIt(string ticketIdStr)
+        {
+            await DeferAsync(ephemeral: true);
+
+            if (!long.TryParse(ticketIdStr, out var ticketId))
+            {
+                await FollowupAsync("Invalid ticket data.", ephemeral: true);
+                return;
+            }
+
+            var (ticket, error) = await WithDbAsync(async db =>
+            {
+                var t = await db.CraftTickets.FirstOrDefaultAsync(
+                    x => x.Id == ticketId && x.Status == "Open");
+
+                if (t == null)
+                {
+                    var exists = await db.CraftTickets.AnyAsync(x => x.Id == ticketId);
+                    return (null, exists
+                        ? "This ticket is no longer open."
+                        : "Ticket not found.");
+                }
+
+                if (t.RequesterId != (long)Context.User.Id)
+                    return (null, "Only the requester can mark this as received.");
+
+                t.Status = "Complete";
+                t.CompletedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+
+                return (t, (string)null);
+            });
+
+            if (error != null)
+            {
+                await FollowupAsync(error, ephemeral: true);
+                return;
+            }
+
+            await CraftTicketUpdater.UpdateTicketAsync(_client, ticket, _logger,
+                threadNotification: "Item received! This ticket is now closed.",
+                archiveThread: true);
+
+            await FollowupAsync("Got it! The ticket has been closed.", ephemeral: true);
+        }
+
         [ComponentInteraction("craft_cancel~*")]
         public async Task HandleCraftCancel(string ticketIdStr)
         {

@@ -86,6 +86,7 @@ namespace NinjaBotCore.Common
         public const string CraftBoardFilterPrefix = "craft_board_filter~";
         public const string CraftProfessionSelectPrefix = "craft_prof_select~";
         public const string CraftJoinRolePrefix = "craft_join_role~";
+        public const string CraftGotItPrefix = "craft_gotit~";
     }
 
     /// <summary>
