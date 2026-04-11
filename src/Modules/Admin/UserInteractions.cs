@@ -391,106 +391,109 @@ namespace NinjaBotCore.Modules.Admin
         private async Task HandleParting(SocketGuild guild, SocketUser user)
         {
             ServerGreeting shouldGreet = await _greetingCache.GetServerGreetingAsync((long)guild.Id);
-                if (shouldGreet != null && shouldGreet.PartUsers == true)
+            if (shouldGreet == null || shouldGreet.PartUsers != true) return;
+
+            var sb = new StringBuilder();
+            ISocketMessageChannel messageChannel = null;
+            try
+            {
+                // Prefer parting channel, fall back to greeting channel, fall back to default
+                if (shouldGreet.PartingChannelId.HasValue && shouldGreet.PartingChannelId.Value != 0)
                 {
-                    var sb = new StringBuilder();
-                    ISocketMessageChannel messageChannel = null;
-                    try
-                    {
-                        if (shouldGreet.GreetingChannelId != 0)
-                        {
-                            if (shouldGreet.PartingChannelId != null)
-                            {
-                                messageChannel = guild.GetChannel((ulong)shouldGreet.PartingChannelId) as ISocketMessageChannel;
-                            }
-                            else
-                            {
-                                messageChannel = guild.GetChannel((ulong)shouldGreet.GreetingChannelId) as ISocketMessageChannel;
-                            }
-                        }
-                        else
-                        {
-                            messageChannel = guild.DefaultChannel as ISocketMessageChannel;
-                        }
-                        if (messageChannel != null)
-                        {
-                            var embed = new EmbedBuilder();
-                            embed.Title = $"[{user.Username}] has left [**{guild.Name}**]!";
-                            if (string.IsNullOrEmpty(shouldGreet.PartingMessage))
-                            {
-                                sb.AppendLine($"Fine, be that way! :wave:");
-                            }
-                            else
-                            {
-                                var expandedParting = ExpandPlaceholders(shouldGreet.PartingMessage, user, guild);
-                                sb.AppendLine(expandedParting);
-                            }
-                            embed.Description = sb.ToString();
-                            embed.ThumbnailUrl = user.GetAvatarUrl() ?? user.GetDefaultAvatarUrl();
-                            embed.WithColor(new Color(255, 0, 0));
-                            await messageChannel.SendMessageAsync("", false, embed.Build());
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        if (messageChannel != null)
-                        {
-                            _logger.LogError($"Error with channel -> [{messageChannel.Name}] on [{guild.Name}] -> [{guild.Id}] -> [{ex.Message}]");
-                        }
-                        else
-                        {
-                            _logger.LogError($"Error with no channel -> [{guild.Name}] -> [{guild.Id}] -> [{ex.Message}]");
-                        }
-                    }
+                    messageChannel = guild.GetChannel((ulong)shouldGreet.PartingChannelId.Value) as ISocketMessageChannel;
                 }
+                else if (shouldGreet.GreetingChannelId.HasValue && shouldGreet.GreetingChannelId.Value != 0)
+                {
+                    messageChannel = guild.GetChannel((ulong)shouldGreet.GreetingChannelId.Value) as ISocketMessageChannel;
+                }
+                else
+                {
+                    messageChannel = guild.DefaultChannel as ISocketMessageChannel;
+                }
+
+                if (messageChannel == null) return;
+
+                var embed = new EmbedBuilder();
+                embed.Title = $"[{user?.Username ?? "Unknown User"}] has left [**{guild.Name}**]!";
+                if (string.IsNullOrEmpty(shouldGreet.PartingMessage))
+                {
+                    sb.AppendLine($"Fine, be that way! :wave:");
+                }
+                else
+                {
+                    var expandedParting = ExpandPlaceholders(shouldGreet.PartingMessage, user, guild);
+                    sb.AppendLine(expandedParting);
+                }
+                embed.Description = sb.ToString();
+                try
+                {
+                    embed.ThumbnailUrl = user?.GetAvatarUrl() ?? user?.GetDefaultAvatarUrl();
+                }
+                catch (Exception)
+                {
+                    // Avatar URL resolution can fail for departed users — safe to skip
+                }
+                embed.WithColor(new Color(255, 0, 0));
+                await messageChannel.SendMessageAsync("", false, embed.Build());
+            }
+            catch (Exception ex)
+            {
+                var channelName = messageChannel?.Name ?? "no channel";
+                _logger.LogError(ex, "Error posting parting message for {UserId} in guild [{GuildName}] -> [{GuildId}] on channel [{Channel}]",
+                    user?.Id, guild.Name, guild.Id, channelName);
+            }
         }
 
         private async Task HandleGreeting(SocketGuildUser user)
         {
             ServerGreeting shouldGreet = await GetGreetingAsync(user);
-                if (shouldGreet != null && shouldGreet.GreetUsers == true)
+            if (shouldGreet == null || shouldGreet.GreetUsers != true) return;
+
+            var sb = new StringBuilder();
+            ISocketMessageChannel messageChannel = null;
+            try
+            {
+                if (shouldGreet.GreetingChannelId.HasValue && shouldGreet.GreetingChannelId.Value != 0)
                 {
-                    var sb = new StringBuilder();   
-                    ISocketMessageChannel messageChannel = null;
-                    try
-                    {                                             
-                        if (shouldGreet.GreetingChannelId != 0)
-                        {
-                            messageChannel = user.Guild.GetChannel((ulong)shouldGreet.GreetingChannelId) as ISocketMessageChannel;
-                        }
-                        else
-                        {
-                            messageChannel = user.Guild.DefaultChannel as ISocketMessageChannel;
-                        }
-                        var embed = new EmbedBuilder();
-                        embed.Title = $"[{user.Username}] has joined [**{user.Guild.Name}**]!";
-                        if (string.IsNullOrEmpty(shouldGreet.Greeting))
-                        {
-                            sb.AppendLine($"Welcome them! :hugging:");
-                            sb.AppendLine($"(or not, :shrug:)");
-                        }
-                        else
-                        {
-                            var expandedGreeting = ExpandPlaceholders(shouldGreet.Greeting, user);
-                            sb.AppendLine(expandedGreeting);
-                        }
-                        embed.Description = sb.ToString();
-                        embed.ThumbnailUrl = user.GetAvatarUrl() ?? user.GetDefaultAvatarUrl();
-                        embed.WithColor(new Color(0, 255, 0));
-                        await messageChannel.SendMessageAsync("", false, embed.Build());
-                    }
-                    catch (Exception ex)
-                    {
-                        if (messageChannel != null)
-                        {
-                            _logger.LogError($"Error with channel -> [{messageChannel.Name}] on [{user.Guild.Name}] -> [{user.Guild.Id}] -> [{ex.Message}]");
-                        }
-                        else
-                        {
-                            _logger.LogError($"Error with no channel -> [{user.Guild.Name}] -> [{user.Guild.Id}] -> [{ex.Message}]");
-                        }
-                    }
+                    messageChannel = user.Guild.GetChannel((ulong)shouldGreet.GreetingChannelId.Value) as ISocketMessageChannel;
                 }
+                else
+                {
+                    messageChannel = user.Guild.DefaultChannel as ISocketMessageChannel;
+                }
+
+                if (messageChannel == null) return;
+
+                var embed = new EmbedBuilder();
+                embed.Title = $"[{user.Username}] has joined [**{user.Guild.Name}**]!";
+                if (string.IsNullOrEmpty(shouldGreet.Greeting))
+                {
+                    sb.AppendLine($"Welcome them! :hugging:");
+                    sb.AppendLine($"(or not, :shrug:)");
+                }
+                else
+                {
+                    var expandedGreeting = ExpandPlaceholders(shouldGreet.Greeting, user);
+                    sb.AppendLine(expandedGreeting);
+                }
+                embed.Description = sb.ToString();
+                try
+                {
+                    embed.ThumbnailUrl = user.GetAvatarUrl() ?? user.GetDefaultAvatarUrl();
+                }
+                catch (Exception)
+                {
+                    // Avatar URL resolution can fail — safe to skip
+                }
+                embed.WithColor(new Color(0, 255, 0));
+                await messageChannel.SendMessageAsync("", false, embed.Build());
+            }
+            catch (Exception ex)
+            {
+                var channelName = messageChannel?.Name ?? "no channel";
+                _logger.LogError(ex, "Error posting greeting for {UserId} in guild [{GuildName}] -> [{GuildId}] on channel [{Channel}]",
+                    user.Id, user.Guild.Name, user.Guild.Id, channelName);
+            }
         }
 
         private async Task<ServerGreeting> GetGreetingAsync(SocketGuildUser user)
