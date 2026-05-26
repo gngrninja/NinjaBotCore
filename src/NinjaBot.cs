@@ -130,7 +130,9 @@ namespace NinjaBotCore
                 .AddSingleton<IRaiderIOApi>(sp => sp.GetRequiredService<RaiderIOApi>())
                 .AddSingleton<ClassicRaiderIOApi>()
                 .AddSingleton<IClassicRaiderIOApi>(sp => sp.GetRequiredService<ClassicRaiderIOApi>())
-                .AddSingleton<AudioService>()       
+                .AddSingleton<PushGroupWizardState>()
+                .AddSingleton<PushGroupCoordinator>()
+                .AddSingleton<AudioService>()
                 .AddWarcraftClients(_config["WoWClient"], _config["WoWSecret"])         
                 .AddSingleton<LoggingService>();                   
                         
