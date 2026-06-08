@@ -132,6 +132,7 @@ namespace NinjaBotCore
                 .AddSingleton<IClassicRaiderIOApi>(sp => sp.GetRequiredService<ClassicRaiderIOApi>())
                 .AddSingleton<PushGroupWizardState>()
                 .AddSingleton<PushGroupCoordinator>()
+                .AddSingleton<MythicPlusDungeonService>()
                 .AddSingleton<AudioService>()
                 .AddWarcraftClients(_config["WoWClient"], _config["WoWSecret"])         
                 .AddSingleton<LoggingService>();                   
@@ -183,6 +184,9 @@ namespace NinjaBotCore
             // Start Craft Ticket Expiration Service
             var craftExpirationService = serviceProvider.GetRequiredService<CraftTicketExpirationService>();
             await craftExpirationService.StartAsync(CancellationToken.None);
+
+            var mythicPlusDungeonService = serviceProvider.GetRequiredService<MythicPlusDungeonService>();
+            await mythicPlusDungeonService.StartAsync(CancellationToken.None);
 
             // RealmWatcherService runs in separate NinjaBotHelpers container
 

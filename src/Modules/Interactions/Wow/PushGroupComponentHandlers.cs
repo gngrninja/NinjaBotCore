@@ -244,13 +244,22 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         [ComponentInteraction("pushgroup_bringkey~*")]
         public async Task OnOpenBringKey(string groupIdStr)
         {
-            if (!long.TryParse(groupIdStr, out _)) { await RespondAsync("Bad group id.", ephemeral: true); return; }
+            if (!long.TryParse(groupIdStr, out var groupId)) { await RespondAsync("Bad group id.", ephemeral: true); return; }
+
+            // The group is already pinned to one dungeon, so we don't ask for it again — just the
+            // key level. Pre-fill the group's target (your actual key may be a level off) so the
+            // user only confirms or tweaks it.
+            var group = await WithDbAsync(async db =>
+                await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions
+                    .FirstOrDefaultAsync(db.PushGroups, g => g.Id == groupId));
+            if (group == null) { await RespondAsync("That group no longer exists.", ephemeral: true); return; }
 
             var modal = new ModalBuilder()
                 .WithTitle("Bring a key")
                 .WithCustomId($"{ModalConstants.PushGroupBringKeyModalPrefix}{groupIdStr}")
-                .AddTextInput("Key level", "level", TextInputStyle.Short, placeholder: "e.g., 14", required: true, maxLength: 2)
-                .AddTextInput("Dungeon (display name)", "dungeon", TextInputStyle.Short, placeholder: "e.g., Darkflame Cleft", required: true, maxLength: 60);
+                .AddTextInput("Key level", "level", TextInputStyle.Short,
+                    placeholder: "e.g., 14", required: true, maxLength: 2,
+                    value: group.TargetKeyLevel.ToString());
 
             await Context.Interaction.RespondWithModalAsync(modal.Build());
         }
@@ -268,7 +277,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             }
 
             var name = (Context.User as IGuildUser)?.DisplayName ?? Context.User.GlobalName ?? Context.User.Username;
-            var msg = await _coordinator.SetKeyHolderAsync(groupId, Context.User.Id, name, lvl, modal.Dungeon?.Trim() ?? string.Empty);
+            var msg = await _coordinator.SetKeyHolderAsync(groupId, Context.User.Id, name, lvl);
             await FollowupAsync(msg, ephemeral: true);
         }
 
@@ -334,9 +343,5 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         [InputLabel("Key level")]
         [ModalTextInput("level", TextInputStyle.Short, "e.g., 14", 1, 2)]
         public string? Level { get; set; }
-
-        [InputLabel("Dungeon")]
-        [ModalTextInput("dungeon", TextInputStyle.Short, "e.g., Darkflame Cleft", 1, 60)]
-        public string? Dungeon { get; set; }
     }
 }

@@ -291,7 +291,7 @@ namespace NinjaBotCore.Services
             }
         }
 
-        public async Task<string> SetKeyHolderAsync(long groupId, ulong userId, string userName, int keyLevel, string dungeonName)
+        public async Task<string> SetKeyHolderAsync(long groupId, ulong userId, string userName, int keyLevel)
         {
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
@@ -311,7 +311,7 @@ namespace NinjaBotCore.Services
 
             group.KeyHolderUserId = (long)userId;
             group.KeyHolderKeyLevel = keyLevel;
-            group.KeyHolderDungeonName = dungeonName;
+            group.KeyHolderDungeonName = group.DungeonName;   // group is pinned to one dungeon
             group.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
 
@@ -319,7 +319,7 @@ namespace NinjaBotCore.Services
                 .Where(s => s.PushGroupId == groupId && s.WithdrewAt == null)
                 .ToListAsync();
             await RebuildLivePostAsync(group, current);
-            return $"Set you as key holder with +{keyLevel} {dungeonName}.";
+            return $"Set you as key holder with +{keyLevel} {group.DungeonName}.";
         }
 
         public async Task<string> CloseAsync(long groupId, ulong actorUserId)

@@ -165,5 +165,11 @@ namespace NinjaBotCore.Modules.Wow
             return JsonConvert.DeserializeObject<RaiderIOModels.RioMythicPlusChar>(response);
         }
 
+        public async Task<RaiderIOModels.MythicPlusStaticData> GetMythicPlusStaticDataAsync(int expansionId, CancellationToken cancellationToken = default)
+        {
+            string url = $"/mythic-plus/static-data?expansion_id={expansionId}";
+            var response = await GetApiRequestAsync(url, cancellationToken);
+            return JsonConvert.DeserializeObject<RaiderIOModels.MythicPlusStaticData>(response);
+        }
     }
 }
