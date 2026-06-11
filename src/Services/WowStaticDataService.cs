@@ -137,7 +137,7 @@ namespace NinjaBotCore.Services
             using (var scope = _scopeFactory.CreateScope())
             {
                 // Check if realm/class/race data is empty (fast, low overhead)
-                var realmRepo = new Repository<WowRealms>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+                await using var realmRepo = new Repository<WowRealms>(_scopeFactory);
                 var realmCount = (await realmRepo.GetAllAsync()).Count();
 
                 if (realmCount == 0)
@@ -155,7 +155,7 @@ namespace NinjaBotCore.Services
                     await ImportAllClassicRealmsAsync(cancellationToken);
                 }
 
-                var classRepo = new Repository<WowPlayableClass>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+                await using var classRepo = new Repository<WowPlayableClass>(_scopeFactory);
                 var classCount = (await classRepo.GetAllAsync()).Count();
 
                 if (classCount == 0)
@@ -164,7 +164,7 @@ namespace NinjaBotCore.Services
                     await ImportAllClassesAsync(cancellationToken);
                 }
 
-                var raceRepo = new Repository<WowRaces>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+                await using var raceRepo = new Repository<WowRaces>(_scopeFactory);
                 var raceCount = (await raceRepo.GetAllAsync()).Count();
 
                 if (raceCount == 0)
@@ -442,8 +442,7 @@ namespace NinjaBotCore.Services
                     _logger.LogWarning(ex, "Failed to extract extended details for item {ItemId}", itemId);
                 }
 
-                using var scope = _scopeFactory.CreateScope();
-                var repo = new Repository<WowItems>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+                await using var repo = new Repository<WowItems>(_scopeFactory);
 
                 await repo.UpsertAsync(
                     findPredicate: i => i.Id == itemId,
@@ -468,7 +467,7 @@ namespace NinjaBotCore.Services
                 // Upsert item details if we have extended data
                 if (itemDetails != null)
                 {
-                    var detailsRepo = new Repository<WowItemDetails>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+                    await using var detailsRepo = new Repository<WowItemDetails>(_scopeFactory);
 #pragma warning disable CA2016 // Forward the 'cancellationToken' parameter
                     await detailsRepo.UpsertAsync(
                         findPredicate: d => d.ItemId == itemId,
@@ -518,8 +517,7 @@ namespace NinjaBotCore.Services
             // Check cache first - Note: WowCacheService uses IMemoryCache internally
             // For now, skip caching and search database directly
 
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowItems>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowItems>(_scopeFactory);
 
             // Try exact match first
             var exactMatch = await repo.FirstOrDefaultAsync(i => i.Name.ToLower() == itemNameLower);
@@ -561,8 +559,7 @@ namespace NinjaBotCore.Services
                 int imported = 0;
                 int failed = 0;
 
-                using var scope = _scopeFactory.CreateScope();
-                var repo = new Repository<WowMounts>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+                await using var repo = new Repository<WowMounts>(_scopeFactory);
 
                 foreach (var mountEntry in mountIndex.Mounts)
                 {
@@ -1005,8 +1002,7 @@ namespace NinjaBotCore.Services
                     _logger.LogWarning("Mount {MountId} ({Name}) has no creature display ID", mountId, mount.Name);
                 }
 
-                using var scope = _scopeFactory.CreateScope();
-                var repo = new Repository<WowMounts>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+                await using var repo = new Repository<WowMounts>(_scopeFactory);
 
                 await repo.UpsertAsync(
                     findPredicate: m => m.Id == mountId,
@@ -1058,8 +1054,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<List<WowMounts>> GetAllMountsAsync()
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowMounts>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowMounts>(_scopeFactory);
             return await repo.GetAllAsync();
         }
 
@@ -1070,8 +1065,7 @@ namespace NinjaBotCore.Services
         {
             var mountNameLower = mountName.ToLower();
 
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowMounts>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowMounts>(_scopeFactory);
 
             var allMounts = await repo.GetAllAsync();
             return allMounts.Where(m => m.Name.ToLower().Contains(mountNameLower)).ToList();
@@ -1087,8 +1081,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<List<HousingDecor>> GetAllHousingDecorAsync()
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<HousingDecor>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<HousingDecor>(_scopeFactory);
             return await repo.GetAllAsync();
         }
 
@@ -1109,8 +1102,7 @@ namespace NinjaBotCore.Services
         {
             var decorNameLower = decorName.ToLower();
 
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<HousingDecor>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<HousingDecor>(_scopeFactory);
 
             var allDecor = await repo.GetAllAsync();
             return allDecor.Where(d => d.Name.ToLower().Contains(decorNameLower)).ToList();
@@ -1174,8 +1166,7 @@ namespace NinjaBotCore.Services
                 _logger.LogInformation("Loaded {Count} mounts from JSON (scanned: {Timestamp})",
                     scrapedData.Mounts.Count, scrapedData.Metadata?.ScanTimestamp);
 
-                using var scope = _scopeFactory.CreateScope();
-                var repo = new Repository<WowMounts>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+                await using var repo = new Repository<WowMounts>(_scopeFactory);
 
                 // Get all mounts from database
                 var dbMounts = await repo.GetAllAsync();
@@ -1273,8 +1264,7 @@ namespace NinjaBotCore.Services
             {
                 _logger.LogInformation("Starting mount expansion recalculation");
 
-                using var scope = _scopeFactory.CreateScope();
-                var repo = new Repository<WowMounts>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+                await using var repo = new Repository<WowMounts>(_scopeFactory);
 
                 var allMounts = await repo.GetAllAsync();
                 _logger.LogInformation("Recalculating expansions for {Count} mounts", allMounts.Count);
@@ -1387,8 +1377,7 @@ namespace NinjaBotCore.Services
 
                 _logger.LogInformation("Found {Count} realms for region {Region}", realmData.realms.Length, region);
 
-                using var scope = _scopeFactory.CreateScope();
-                var repo = new Repository<WowRealms>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+                await using var repo = new Repository<WowRealms>(_scopeFactory);
 
                 int imported = 0;
                 foreach (var realm in realmData.realms)
@@ -1449,8 +1438,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<List<WowRealms>> GetAllRealmsAsync()
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowRealms>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowRealms>(_scopeFactory);
             return await repo.GetAllAsync();
         }
 
@@ -1459,8 +1447,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<List<WowRealms>> GetRealmsByRegionAsync(string region)
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowRealms>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowRealms>(_scopeFactory);
             var allRealms = await repo.GetAllAsync();
             return allRealms.Where(r => r.Region.Equals(region, StringComparison.OrdinalIgnoreCase)).ToList();
         }
@@ -1472,8 +1459,7 @@ namespace NinjaBotCore.Services
         {
             var queryLower = query.ToLower();
 
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowRealms>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowRealms>(_scopeFactory);
             var allRealms = await repo.GetAllAsync();
 
             var results = allRealms.Where(r => r.Name.ToLower().Contains(queryLower) || r.Slug.ToLower().Contains(queryLower));
@@ -1491,8 +1477,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<List<WowRealms>> GetRetailRealmsByRegionAsync(string region)
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowRealms>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowRealms>(_scopeFactory);
             var allRealms = await repo.GetAllAsync();
             return allRealms.Where(r => r.Region.Equals(region, StringComparison.OrdinalIgnoreCase)
                 && r.GameVersion != "Classic").ToList();
@@ -1503,8 +1488,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<WowRealms> GetRealmBySlugAsync(string slug, string region = null)
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowRealms>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowRealms>(_scopeFactory);
             var allRealms = await repo.GetAllAsync();
 
             var query = allRealms.Where(r => r.Slug.Equals(slug, StringComparison.OrdinalIgnoreCase));
@@ -1570,8 +1554,7 @@ namespace NinjaBotCore.Services
 
                 _logger.LogInformation("Found {Count} Classic realms for region {Region}", realmData.realms.Length, region);
 
-                using var scope = _scopeFactory.CreateScope();
-                var repo = new Repository<WowRealms>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+                await using var repo = new Repository<WowRealms>(_scopeFactory);
 
                 int imported = 0;
                 foreach (var realm in realmData.realms)
@@ -1638,8 +1621,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<List<WowRealms>> GetClassicRealmsByRegionAsync(string region)
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowRealms>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowRealms>(_scopeFactory);
             var allRealms = await repo.GetAllAsync();
             return allRealms
                 .Where(r => r.GameVersion == "Classic" &&
@@ -1674,8 +1656,7 @@ namespace NinjaBotCore.Services
 
                 _logger.LogInformation("Found {Count} playable classes", classData.classes.Length);
 
-                using var scope = _scopeFactory.CreateScope();
-                var repo = new Repository<WowPlayableClass>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+                await using var repo = new Repository<WowPlayableClass>(_scopeFactory);
 
                 foreach (var wowClass in classData.classes)
                 {
@@ -1722,8 +1703,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<List<WowPlayableClass>> GetAllClassesAsync()
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowPlayableClass>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowPlayableClass>(_scopeFactory);
             return await repo.GetAllAsync();
         }
 
@@ -1732,8 +1712,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<WowPlayableClass> GetClassByIdAsync(long classId)
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowPlayableClass>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowPlayableClass>(_scopeFactory);
             return await repo.FirstOrDefaultAsync(c => c.Id == classId);
         }
 
@@ -1743,8 +1722,7 @@ namespace NinjaBotCore.Services
         public async Task<WowPlayableClass> GetClassByNameAsync(string name)
         {
             var nameLower = name.ToLower();
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowPlayableClass>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowPlayableClass>(_scopeFactory);
             var allClasses = await repo.GetAllAsync();
             return allClasses.FirstOrDefault(c => c.Name.ToLower() == nameLower);
         }
@@ -1774,8 +1752,7 @@ namespace NinjaBotCore.Services
 
                 _logger.LogInformation("Found {Count} playable races", raceData.races.Length);
 
-                using var scope = _scopeFactory.CreateScope();
-                var repo = new Repository<WowRaces>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+                await using var repo = new Repository<WowRaces>(_scopeFactory);
 
                 foreach (var race in raceData.races)
                 {
@@ -1834,8 +1811,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<List<WowRaces>> GetAllRacesAsync()
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowRaces>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowRaces>(_scopeFactory);
             return await repo.GetAllAsync();
         }
 
@@ -1844,8 +1820,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<List<WowRaces>> GetRacesByFactionAsync(string faction)
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowRaces>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowRaces>(_scopeFactory);
             var allRaces = await repo.GetAllAsync();
             return allRaces.Where(r => r.Faction.Equals(faction, StringComparison.OrdinalIgnoreCase)).ToList();
         }
@@ -1855,8 +1830,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<WowRaces> GetRaceByIdAsync(long raceId)
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowRaces>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowRaces>(_scopeFactory);
             return await repo.FirstOrDefaultAsync(r => r.Id == raceId);
         }
 
@@ -1866,8 +1840,7 @@ namespace NinjaBotCore.Services
         public async Task<WowRaces> GetRaceByNameAsync(string name)
         {
             var nameLower = name.ToLower();
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowRaces>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowRaces>(_scopeFactory);
             var allRaces = await repo.GetAllAsync();
             return allRaces.FirstOrDefault(r => r.Name.ToLower() == nameLower);
         }
@@ -1899,8 +1872,7 @@ namespace NinjaBotCore.Services
                 _logger.LogInformation("Found {Count} achievements to import", totalCount);
 
                 // Load existing achievement IDs to skip API calls for already-imported achievements
-                using var scope = _scopeFactory.CreateScope();
-                var repo = new Repository<WowAchievements>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+                await using var repo = new Repository<WowAchievements>(_scopeFactory);
                 var existingAchievements = await repo.GetAllAsync();
                 var existingIds = new HashSet<long>(existingAchievements.Select(a => a.Id));
                 _logger.LogInformation("Found {Count} existing achievements in database, will skip those", existingIds.Count);
@@ -2056,8 +2028,7 @@ namespace NinjaBotCore.Services
                     LastUpdated = DateTime.UtcNow
                 };
 
-                using var scope = _scopeFactory.CreateScope();
-                var repo = new Repository<WowAchievements>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+                await using var repo = new Repository<WowAchievements>(_scopeFactory);
 
                 await repo.UpsertAsync(
                     findPredicate: a => a.Id == achievementId,
@@ -2108,8 +2079,7 @@ namespace NinjaBotCore.Services
         {
             try
             {
-                using var scope = _scopeFactory.CreateScope();
-                var repo = new Repository<WowAchievementCriteria>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+                await using var repo = new Repository<WowAchievementCriteria>(_scopeFactory);
 
                 // Handle single criterion or child_criteria array
                 if (criteriaData.child_criteria != null)
@@ -2196,8 +2166,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<List<WowAchievements>> GetAllAchievementsAsync()
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowAchievements>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowAchievements>(_scopeFactory);
             return await repo.GetAllAsync();
         }
 
@@ -2206,8 +2175,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<WowAchievements> GetAchievementByIdAsync(long achievementId)
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowAchievements>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowAchievements>(_scopeFactory);
             return await repo.FirstOrDefaultAsync(a => a.Id == achievementId);
         }
 
@@ -2218,8 +2186,7 @@ namespace NinjaBotCore.Services
         {
             var queryLower = query.ToLower();
 
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowAchievements>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowAchievements>(_scopeFactory);
             var allAchievements = await repo.GetAllAsync();
 
             return allAchievements.Where(a => a.Name.ToLower().Contains(queryLower)).ToList();
@@ -2230,8 +2197,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<List<WowAchievements>> GetAchievementsByCategoryAsync(string category)
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowAchievements>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowAchievements>(_scopeFactory);
             var allAchievements = await repo.GetAllAsync();
 
             return allAchievements.Where(a => a.Category != null && a.Category.Equals(category, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -2242,8 +2208,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<List<WowAchievementCriteria>> GetAchievementCriteriaAsync(long achievementId)
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowAchievementCriteria>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowAchievementCriteria>(_scopeFactory);
             var allCriteria = await repo.GetAllAsync();
 
             return allCriteria.Where(c => c.AchievementId == achievementId).OrderBy(c => c.OrderIndex).ToList();
@@ -2276,8 +2241,7 @@ namespace NinjaBotCore.Services
                 _logger.LogInformation("Found {Count} pets to import", totalCount);
 
                 // Load existing pet IDs to skip API calls for already-imported pets
-                using var scope = _scopeFactory.CreateScope();
-                var repo = new Repository<WowPets>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+                await using var repo = new Repository<WowPets>(_scopeFactory);
                 var existingPets = await repo.GetAllAsync();
                 var existingIds = new HashSet<long>(existingPets.Select(p => p.Id));
                 _logger.LogInformation("Found {Count} existing pets in database, will skip those", existingIds.Count);
@@ -2434,8 +2398,7 @@ namespace NinjaBotCore.Services
                     LastUpdated = DateTime.UtcNow
                 };
 
-                using var scope = _scopeFactory.CreateScope();
-                var repo = new Repository<WowPets>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+                await using var repo = new Repository<WowPets>(_scopeFactory);
 
                 await repo.UpsertAsync(
                     findPredicate: p => p.Id == petId,
@@ -2479,8 +2442,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<List<WowPets>> GetAllPetsAsync()
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowPets>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowPets>(_scopeFactory);
             return await repo.GetAllAsync();
         }
 
@@ -2489,8 +2451,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<WowPets> GetPetByIdAsync(long petId)
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowPets>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowPets>(_scopeFactory);
             return await repo.FirstOrDefaultAsync(p => p.Id == petId);
         }
 
@@ -2501,8 +2462,7 @@ namespace NinjaBotCore.Services
         {
             var queryLower = query.ToLower();
 
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowPets>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowPets>(_scopeFactory);
             var allPets = await repo.GetAllAsync();
 
             return allPets.Where(p => p.Name.ToLower().Contains(queryLower)).ToList();
@@ -2513,8 +2473,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<List<WowPets>> GetPetsByTypeAsync(string petType)
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowPets>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowPets>(_scopeFactory);
             var allPets = await repo.GetAllAsync();
 
             return allPets.Where(p => p.PetType != null && p.PetType.Equals(petType, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -2525,8 +2484,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<List<WowPets>> GetCapturablePetsAsync()
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowPets>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowPets>(_scopeFactory);
             var allPets = await repo.GetAllAsync();
 
             return allPets.Where(p => p.IsCapturable).ToList();
