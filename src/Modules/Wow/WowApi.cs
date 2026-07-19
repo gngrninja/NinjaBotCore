@@ -429,12 +429,13 @@ namespace NinjaBotCore.Modules.Wow
             return await _httpResiliencePipeline.ExecuteAsync(
                 async ct =>
                 {
-                    // Create new request for each retry attempt
+                    // Create new request for each retry attempt. No explicit timeout here —
+                    // the 100s HttpClient default preserves pre-rewrite tolerance for slow
+                    // Blizzard responses on all data calls (only the token POST fails fast).
                     using var request = new HttpRequestMessage(HttpMethod.Get, url);
                     request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                     request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
                     using var client = _httpClientFactory.CreateClient();
-                    client.Timeout = TimeSpan.FromSeconds(30);
                     return await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
                 },
                 cancellationToken);

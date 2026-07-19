@@ -34,6 +34,7 @@ namespace NinjaBotCore.Services
 
         private Timer _timer;
         private readonly CancellationTokenSource _cts = new();
+        private readonly SemaphoreSlim _tickGate = new(1, 1);
         private bool _loadedFromCache;
         private bool _disposed;
 
@@ -59,6 +60,7 @@ namespace NinjaBotCore.Services
         private async Task TickAsync(CancellationToken ct)
         {
             if (_disposed || ct.IsCancellationRequested) return;
+            if (!await _tickGate.WaitAsync(0, ct)) return; // previous tick still running
             try
             {
                 // Populate from the DB cache once (fast + a fallback if the API is unreachable),
@@ -73,6 +75,10 @@ namespace NinjaBotCore.Services
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "M+ dungeon pool refresh failed — keeping existing pool");
+            }
+            finally
+            {
+                _tickGate.Release();
             }
         }
 
@@ -138,7 +144,10 @@ namespace NinjaBotCore.Services
             }
 
             // Two-phase replace so re-inserting an identical slug (same season) doesn't trip
-            // EF's change tracker on a duplicate key.
+            // EF's change tracker on a duplicate key — wrapped in one transaction so a crash
+            // between the phases can't leave the cache empty.
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+
             db.MythicPlusDungeonCache.RemoveRange(existing);
             await db.SaveChangesAsync(ct);
 
@@ -155,6 +164,8 @@ namespace NinjaBotCore.Services
                 });
             }
             await db.SaveChangesAsync(ct);
+
+            await tx.CommitAsync(ct);
 
             _logger.LogInformation("Refreshed M+ dungeon pool from Raider.IO: {Count} dungeons (season {Season})",
                 dungeons.Count, seasonSlug);
@@ -209,8 +220,12 @@ namespace NinjaBotCore.Services
         {
             if (_disposed) return;
             _disposed = true;
+            // Cancel before disposing so an in-flight tick observes cancellation instead of
+            // hitting disposed scopes/semaphores during provider teardown.
+            try { _cts.Cancel(); } catch { /* already disposed */ }
             _timer?.Dispose();
             _cts?.Dispose();
+            _tickGate?.Dispose();
         }
     }
 }

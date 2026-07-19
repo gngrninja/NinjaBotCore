@@ -235,11 +235,13 @@ namespace NinjaBotCore
 
             try
             {
-                // Stop pushgroup background services before the client goes away so an
-                // in-flight sweep/refresh can finish its Discord/DB work cleanly.
+                // Stop timer-based background services before the client goes away so an
+                // in-flight sweep/refresh can finish its Discord/DB work cleanly (the dungeon
+                // service especially — killing it mid cache-replace can empty the M+ pool cache).
                 Log.Information("Stopping pushgroup background services...");
                 await pushGroupMaintenance.StopAsync(CancellationToken.None);
                 await weeklyKeyHistoryService.StopAsync(CancellationToken.None);
+                await mythicPlusDungeonService.StopAsync(CancellationToken.None);
             }
             catch (Exception ex)
             {

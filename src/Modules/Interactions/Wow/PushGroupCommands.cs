@@ -64,7 +64,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             [Summary("role", "Your role")]
             [Choice("Tank", "Tank"), Choice("Healer", "Healer"), Choice("DPS", "DPS")] string role = "DPS",
             [Summary("time", "When (e.g., 'in 90m', '8pm UTC', '8pm -5', or skip)")] string? time = null,
-            [Summary("notes", "Anything to add (optional)")] string? notes = null)
+            [Summary("notes", "Anything to add (optional)")][MaxLength(200)] string? notes = null)
         {
             await DeferAsync(ephemeral: true);
 

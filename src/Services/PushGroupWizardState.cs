@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Concurrent;
 using NinjaBotCore.Common;
+using NinjaBotCore.Models.Wow;
 
 namespace NinjaBotCore.Services
 {
@@ -29,6 +30,10 @@ namespace NinjaBotCore.Services
             public string? CharacterClass { get; set; }
             public string? CharacterSpec { get; set; }
             public decimal? IoRating { get; set; }
+
+            /// <summary>Weekly runs captured during prefill so posting doesn't re-fetch raider.io.</summary>
+            public RaiderIOModels.MythicPlusRun[]? WeeklyRuns { get; set; }
+            public DateTime? WeeklyRunsFetchedAt { get; set; }
             public DateTime? ScheduledForUtc { get; set; }
             public string? Notes { get; set; }
 

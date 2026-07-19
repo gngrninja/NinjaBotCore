@@ -217,25 +217,15 @@ namespace NinjaBotCore.Services
             _logger.LogInformation("Pruned {Count} keystone(s) from previous reset windows", stale.Count);
         }
 
-        private static string RealmSlugFor(WowCharAssociation main)
-        {
-            var source = !string.IsNullOrWhiteSpace(main.LocalRealmSlug) ? main.LocalRealmSlug! : main.WowRealm ?? string.Empty;
-            var trimmed = source.Trim();
-            if (trimmed.All(ch => char.IsLower(ch) || ch == '-' || char.IsDigit(ch))) return trimmed;
-            return new string(trimmed.ToLowerInvariant()
-                .Select(ch => ch switch { ' ' => '-', '\'' => '\0', _ => ch })
-                .Where(ch => ch != '\0').ToArray());
-        }
+        private static string RealmSlugFor(WowCharAssociation main) =>
+            WowRealmSlug.From(!string.IsNullOrWhiteSpace(main.LocalRealmSlug) ? main.LocalRealmSlug : main.WowRealm);
 
         private static string SlugForRun(RaiderIOModels.MythicPlusRun run)
         {
             var match = MythicPlusRotation.Current.FirstOrDefault(d =>
                 string.Equals(d.Name, run.Dungeon, StringComparison.OrdinalIgnoreCase)
                 || (!string.IsNullOrWhiteSpace(run.ShortName) && string.Equals(d.ShortName, run.ShortName, StringComparison.OrdinalIgnoreCase)));
-            if (match != null) return match.Slug;
-            return new string(run.Dungeon.Trim().ToLowerInvariant()
-                .Select(ch => ch switch { ' ' => '-', '\'' => '\0', _ => ch })
-                .Where(ch => ch != '\0').ToArray());
+            return match?.Slug ?? WowRealmSlug.From(run.Dungeon);
         }
 
         public Task StopAsync(CancellationToken cancellationToken)

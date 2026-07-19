@@ -37,7 +37,10 @@ namespace NinjaBotCore.Services
                 .WithMinValues(1).WithMaxValues(1);
             foreach (var d in MythicPlusRotation.Current)
             {
-                menu.AddOption(d.Name, d.Slug, description: d.ShortName, isDefault: d.Slug == state.DungeonSlug);
+                // Discord rejects empty-string option descriptions (50035) — omit when blank.
+                menu.AddOption(d.Name, d.Slug,
+                    description: string.IsNullOrWhiteSpace(d.ShortName) ? null : d.ShortName,
+                    isDefault: d.Slug == state.DungeonSlug);
             }
             container.AddComponent(new ActionRowBuilder().WithSelectMenu(menu));
 

@@ -70,6 +70,9 @@ namespace NinjaBotCore.Services
                 state.CharacterClass = cls;
                 state.CharacterSpec = spec;
                 state.IoRating = io;
+                // Capture the weekly runs so PostGroupAsync doesn't re-fetch the same profile.
+                state.WeeklyRuns = info?.MythicPlusWeeklyHighestLevelRuns;
+                state.WeeklyRunsFetchedAt = info != null ? DateTime.UtcNow : null;
             }
             catch (Exception ex)
             {
@@ -115,9 +118,14 @@ namespace NinjaBotCore.Services
             var now = DateTime.UtcNow;
 
             // Creator stats come first — nothing is persisted yet, so a slow or failing
-            // raider.io call can't leave half-created rows behind.
+            // raider.io call can't leave half-created rows behind. Prefill already fetched the
+            // profile; reuse its weekly runs when fresh instead of a second identical request.
             int? creatorBestThisWeek = null;
-            if (!string.IsNullOrWhiteSpace(state.CharacterName) && !string.IsNullOrWhiteSpace(state.CharacterRealm))
+            if (state.WeeklyRuns != null && state.WeeklyRunsFetchedAt > DateTime.UtcNow.AddMinutes(-5))
+            {
+                creatorBestThisWeek = BestKeyFromRuns(state.WeeklyRuns, state.DungeonSlug!);
+            }
+            else if (!string.IsNullOrWhiteSpace(state.CharacterName) && !string.IsNullOrWhiteSpace(state.CharacterRealm))
             {
                 var info = await TryFetchRioCharAsync(
                     state.CharacterName!, SlugForRio(state.CharacterRealm!), state.CharacterRegion ?? "us");
@@ -477,11 +485,16 @@ namespace NinjaBotCore.Services
 
             // Key board is scoped by Discord guild membership (client cache), NOT by linked
             // character — /keys board set works without /set-main, so the board must too.
+            // UserKeystones has no guild key (a key is real in every shared guild), so this
+            // reads bot-wide current-week rows; weekly pruning + the Take cap bound it. If
+            // registrant volume ever makes this hot, add a per-guild registration key.
             var guild = _client.GetGuild((ulong)guildId);
             var keyRows = guild == null
                 ? new List<PushGroupStatsCards.KeystoneRow>()
                 : (await db.UserKeystones
                         .Where(k => k.WeekStartUtc > weekFloor)
+                        .OrderByDescending(k => k.KeyLevel)
+                        .Take(200)
                         .ToListAsync())
                     .Where(k => guild.GetUser((ulong)k.UserId) != null)
                     .Select(k => new PushGroupStatsCards.KeystoneRow(k.UserId, k.DungeonName, k.KeyLevel, k.UpdatedAt))
@@ -639,12 +652,12 @@ namespace NinjaBotCore.Services
             // Mention guild members with a linked main. Default-on; per-user opt-out via
             // /keys pings (UserPushGroupSettings.DmOnRosterPing). No IO filtering yet, so
             // the message must not claim any — future: filter by cached IO inside the window.
-            var assocs = await db.WowCharAssociation
+            var userIds = await db.WowCharAssociation
                 .Where(a => a.ServerId == group.GuildId && a.IsMain && a.UserId != null && a.UserId != group.CreatorUserId)
+                .Select(a => a.UserId!.Value)
+                .Distinct()
                 .ToListAsync();
-            if (assocs.Count == 0) return null;
-
-            var userIds = assocs.Select(a => a.UserId!.Value).ToList();
+            if (userIds.Count == 0) return null;
             var skipSet = (await db.UserPushGroupSettings
                 .Where(s => userIds.Contains(s.UserId) && !s.DmOnRosterPing)
                 .Select(s => s.UserId)
@@ -701,17 +714,20 @@ namespace NinjaBotCore.Services
             return (info.Class, info.ActiveSpecName, io);
         }
 
-        private static int? BestKeyThisWeekFrom(RaiderIOModels.RioMythicPlusChar? info, string dungeonSlug)
+        private static int? BestKeyThisWeekFrom(RaiderIOModels.RioMythicPlusChar? info, string dungeonSlug) =>
+            BestKeyFromRuns(info?.MythicPlusWeeklyHighestLevelRuns, dungeonSlug);
+
+        private static int? BestKeyFromRuns(RaiderIOModels.MythicPlusRun[]? runs, string dungeonSlug)
         {
-            if (info?.MythicPlusWeeklyHighestLevelRuns == null) return null;
+            if (runs == null) return null;
             var dungeon = MythicPlusRotation.FindBySlug(dungeonSlug);
             if (dungeon == null) return null;
-            var runs = info.MythicPlusWeeklyHighestLevelRuns
+            var best = runs
                 .Where(r => string.Equals(r.Dungeon, dungeon.Name, StringComparison.OrdinalIgnoreCase)
                          || string.Equals(r.ShortName, dungeon.ShortName, StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(r => r.MythicLevel)
                 .FirstOrDefault();
-            return runs == null ? null : (int)runs.MythicLevel;
+            return best == null ? null : (int)best.MythicLevel;
         }
     }
 }
