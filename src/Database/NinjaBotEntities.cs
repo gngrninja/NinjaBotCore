@@ -66,12 +66,19 @@ namespace NinjaBotCore.Database
         public virtual DbSet<RealmStatusCache> RealmStatusCache { get; set; }
         public virtual DbSet<ApiUsageLog> ApiUsageLogs { get; set; }
         public virtual DbSet<ItemMediaCache> ItemMediaCache { get; set; }
+        public virtual DbSet<MythicPlusDungeonCache> MythicPlusDungeonCache { get; set; }
         public virtual DbSet<StaticDataSyncRequest> StaticDataSyncRequests { get; set; }
         public virtual DbSet<StaticDataSyncStatus> StaticDataSyncStatus { get; set; }
         public virtual DbSet<CraftTicket> CraftTickets { get; set; }
         public virtual DbSet<ServerCraftSettings> ServerCraftSettings { get; set; }
         public virtual DbSet<CraftableItem> CraftableItems { get; set; }
         public virtual DbSet<CraftProfessionRoleMapping> CraftProfessionRoleMappings { get; set; }
+        public virtual DbSet<PushGroup> PushGroups { get; set; }
+        public virtual DbSet<PushGroupSignup> PushGroupSignups { get; set; }
+        public virtual DbSet<WeeklyKeyHistory> WeeklyKeyHistory { get; set; }
+        public virtual DbSet<UserKeystone> UserKeystones { get; set; }
+        public virtual DbSet<UserPushGroupSettings> UserPushGroupSettings { get; set; }
+        public virtual DbSet<ServerPushGroupSettings> ServerPushGroupSettings { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -92,6 +99,40 @@ namespace NinjaBotCore.Database
                 entity.HasIndex(e => new { e.GuildId, e.Profession })
                     .IsUnique()
                     .HasDatabaseName("IX_CraftProfessionRoleMappings_GuildId_Profession");
+            });
+
+            modelBuilder.Entity<PushGroup>(entity =>
+            {
+                entity.HasIndex(e => new { e.GuildId, e.Status })
+                    .HasDatabaseName("IX_PushGroups_GuildId_Status");
+
+                entity.HasIndex(e => new { e.Status, e.ScheduledForUtc })
+                    .HasDatabaseName("IX_PushGroups_Status_ScheduledForUtc");
+            });
+
+            modelBuilder.Entity<PushGroupSignup>(entity =>
+            {
+                entity.HasOne(e => e.PushGroup)
+                    .WithMany(g => g.Signups)
+                    .HasForeignKey(e => e.PushGroupId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasIndex(e => new { e.PushGroupId, e.UserId })
+                    .HasDatabaseName("IX_PushGroupSignups_PushGroupId_UserId");
+
+                // Belt-and-braces behind the in-process per-group semaphore: two concurrent
+                // signups can never persist the same active slot.
+                entity.HasIndex(e => new { e.PushGroupId, e.RoleSlot, e.SlotIndex })
+                    .IsUnique()
+                    .HasFilter("\"WithdrewAt\" IS NULL")
+                    .HasDatabaseName("IX_PushGroupSignups_ActiveSlot");
+            });
+
+            modelBuilder.Entity<WeeklyKeyHistory>(entity =>
+            {
+                entity.HasIndex(e => new { e.UserId, e.WeekStartUtc, e.DungeonSlug })
+                    .IsUnique()
+                    .HasDatabaseName("IX_WeeklyKeyHistory_UserId_WeekStartUtc_DungeonSlug");
             });
         }
 

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NinjaBotCore.Database;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace NinjaBotCore.Migrations
 {
     [DbContext(typeof(NinjaBotEntities))]
-    partial class NinjaBotEntitiesModelSnapshot : ModelSnapshot
+    [Migration("20260604012458_AddMythicPlusDungeonCache")]
+    partial class AddMythicPlusDungeonCache
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -943,9 +946,6 @@ namespace NinjaBotCore.Migrations
                         .HasMaxLength(10)
                         .HasColumnType("character varying(10)");
 
-                    b.Property<DateTime?>("ReminderSentAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<DateTime?>("ScheduledForUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -1030,11 +1030,6 @@ namespace NinjaBotCore.Migrations
 
                     b.HasIndex("PushGroupId", "UserId")
                         .HasDatabaseName("IX_PushGroupSignups_PushGroupId_UserId");
-
-                    b.HasIndex("PushGroupId", "RoleSlot", "SlotIndex")
-                        .IsUnique()
-                        .HasDatabaseName("IX_PushGroupSignups_ActiveSlot")
-                        .HasFilter("\"WithdrewAt\" IS NULL");
 
                     b.ToTable("PushGroupSignups");
                 });
@@ -1415,12 +1410,6 @@ namespace NinjaBotCore.Migrations
                     b.Property<int>("DefaultIoWindow")
                         .HasColumnType("integer");
 
-                    b.Property<long?>("HubChannelId")
-                        .HasColumnType("bigint");
-
-                    b.Property<long?>("HubMessageId")
-                        .HasColumnType("bigint");
-
                     b.Property<int?>("MaxOpenGroups")
                         .HasColumnType("integer");
 
@@ -1624,42 +1613,6 @@ namespace NinjaBotCore.Migrations
                     b.ToTable("TriviaQuestionChoices");
                 });
 
-            modelBuilder.Entity("NinjaBotCore.Database.UserKeystone", b =>
-                {
-                    b.Property<long>("UserId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("UserId"));
-
-                    b.Property<string>("CharacterName")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("DungeonName")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("DungeonSlug")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<int>("KeyLevel")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("WeekStartUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("UserId");
-
-                    b.ToTable("UserKeystones");
-                });
-
             modelBuilder.Entity("NinjaBotCore.Database.UserPushGroupSettings", b =>
                 {
                     b.Property<long>("UserId")
@@ -1796,9 +1749,6 @@ namespace NinjaBotCore.Migrations
 
                     b.Property<DateTime>("LastRefreshedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("RunCount")
-                        .HasColumnType("integer");
 
                     b.Property<long>("UserId")
                         .HasColumnType("bigint");

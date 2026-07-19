@@ -6,8 +6,52 @@ using Newtonsoft.Json.Linq;
 
 namespace NinjaBotCore.Models.Wow
 {
-    public class RaiderIOModels 
+    public class RaiderIOModels
     {
+        // --- Mythic+ static-data (dungeon rotation), from /mythic-plus/static-data ---
+        public class MythicPlusStaticData
+        {
+            [JsonProperty("seasons")]
+            public List<MythicPlusSeason> Seasons { get; set; }
+        }
+
+        public class MythicPlusSeason
+        {
+            [JsonProperty("slug")]
+            public string Slug { get; set; }
+
+            [JsonProperty("name")]
+            public string Name { get; set; }
+
+            [JsonProperty("short_name")]
+            public string ShortName { get; set; }
+
+            // true = canonical numbered season; false = event variant (break-the-meta, cutoffs, etc.)
+            [JsonProperty("is_main_season")]
+            public bool IsMainSeason { get; set; }
+
+            [JsonProperty("starts")]
+            public Dictionary<string, DateTimeOffset?> Starts { get; set; }
+
+            [JsonProperty("ends")]
+            public Dictionary<string, DateTimeOffset?> Ends { get; set; }
+
+            [JsonProperty("dungeons")]
+            public List<MythicPlusStaticDungeon> Dungeons { get; set; }
+        }
+
+        public class MythicPlusStaticDungeon
+        {
+            [JsonProperty("slug")]
+            public string Slug { get; set; }
+
+            [JsonProperty("name")]
+            public string Name { get; set; }
+
+            [JsonProperty("short_name")]
+            public string ShortName { get; set; }
+        }
+
         public partial class Affix
         {
             [JsonProperty("region")]

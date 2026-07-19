@@ -87,6 +87,33 @@ namespace NinjaBotCore.Common
         public const string CraftProfessionSelectPrefix = "craft_prof_select~";
         public const string CraftJoinRolePrefix = "craft_join_role~";
         public const string CraftGotItPrefix = "craft_gotit~";
+
+        /// <summary>
+        /// PushGroup component/modal IDs - handlers in PushGroupComponentHandlers.cs
+        /// Wizard custom IDs are keyed by the wizard's owner user id.
+        /// Live-post custom IDs are keyed by the PushGroup row id.
+        /// </summary>
+        // Wizard (ephemeral, edited in-place)
+        public const string PushGroupWizardDungeonPrefix = "pushgroup_wiz_dungeon~";    // pushgroup_wiz_dungeon~{userId}
+        public const string PushGroupWizardKeyPrefix = "pushgroup_wiz_key~";            // pushgroup_wiz_key~{userId}~{level}
+        public const string PushGroupWizardKeyModalPrefix = "pushgroup_wiz_keymodal~";  // pushgroup_wiz_keymodal~{userId} (custom-level modal)
+        public const string PushGroupWizardRolePrefix = "pushgroup_wiz_role~";          // pushgroup_wiz_role~{userId}~{role}
+        public const string PushGroupWizardCharPrefix = "pushgroup_wiz_char~";          // pushgroup_wiz_char~{userId}
+        public const string PushGroupWizardTimeModalPrefix = "pushgroup_wiz_timemodal~";// pushgroup_wiz_timemodal~{userId}
+        public const string PushGroupWizardSkipTimePrefix = "pushgroup_wiz_skiptime~";  // pushgroup_wiz_skiptime~{userId}
+        public const string PushGroupWizardPostPrefix = "pushgroup_wiz_post~";          // pushgroup_wiz_post~{userId}
+        public const string PushGroupWizardCancelPrefix = "pushgroup_wiz_cancel~";      // pushgroup_wiz_cancel~{userId}
+        public const string PushGroupWizardBackPrefix = "pushgroup_wiz_back~";          // pushgroup_wiz_back~{userId}~{step}
+
+        // Live post buttons (keyed by PushGroup id)
+        public const string PushGroupSignupPrefix = "pushgroup_signup~";       // pushgroup_signup~{groupId}~{role}
+        public const string PushGroupWithdrawPrefix = "pushgroup_withdraw~";   // pushgroup_withdraw~{groupId}
+        public const string PushGroupBringKeyPrefix = "pushgroup_bringkey~";   // pushgroup_bringkey~{groupId}~{targetKeyLevel}
+        public const string PushGroupBringKeyModalPrefix = "pushgroup_bringkeymodal~"; // pushgroup_bringkeymodal~{groupId}
+        public const string PushGroupClosePrefix = "pushgroup_close~";         // pushgroup_close~{groupId}
+        public const string PushGroupRerunPrefix = "pushgroup_rerun~";         // pushgroup_rerun~{groupId} ("run it back" on closed cards)
+        public const string PushGroupKeyGoPrefix = "pushgroup_keygo~";         // pushgroup_keygo~{userId}~{role} (post group from registered key)
+        public const string PushGroupHubNewId = "pushgroup_hubnew";            // fixed id on the hub card's ➕ button
     }
 
     /// <summary>
@@ -97,5 +124,31 @@ namespace NinjaBotCore.Common
         public static readonly string[] ActiveStatuses = { "Open", "Claimed", "Crafted" };
 
         public static readonly string[] GatheringProfessions = { "Mining", "Herbalism", "Skinning", "Fishing" };
+    }
+
+    /// <summary>
+    /// Shared constants for the /keys system.
+    /// </summary>
+    public static class PushGroupConstants
+    {
+        public const string StatusOpen = "Open";
+        public const string StatusFull = "Full";
+        public const string StatusInProgress = "InProgress";
+        public const string StatusCompleted = "Completed";
+        public const string StatusCancelled = "Cancelled";
+
+        public const string RoleTank = "Tank";
+        public const string RoleHealer = "Healer";
+        public const string RoleDps = "DPS";
+
+        public const int DefaultDpsSlots = 3;
+        public const int DefaultIoWindow = 200;
+        public const int WizardTtlMinutes = 5;
+
+        /// <summary>
+        /// WeeklyKeyHistory sentinel slug for "character refreshed, zero runs this week" —
+        /// keeps freshness tracking working without fake dungeons; exclude via RunCount > 0.
+        /// </summary>
+        public const string NoRunsSentinelSlug = "__none__";
     }
 }

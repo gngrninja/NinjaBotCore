@@ -130,7 +130,12 @@ namespace NinjaBotCore
                 .AddSingleton<IRaiderIOApi>(sp => sp.GetRequiredService<RaiderIOApi>())
                 .AddSingleton<ClassicRaiderIOApi>()
                 .AddSingleton<IClassicRaiderIOApi>(sp => sp.GetRequiredService<ClassicRaiderIOApi>())
-                .AddSingleton<AudioService>()       
+                .AddSingleton<PushGroupWizardState>()
+                .AddSingleton<PushGroupCoordinator>()
+                .AddSingleton<MythicPlusDungeonService>()
+                .AddSingleton<WeeklyKeyHistoryRefreshService>()
+                .AddSingleton<PushGroupMaintenanceService>()
+                .AddSingleton<AudioService>()
                 .AddWarcraftClients(_config["WoWClient"], _config["WoWSecret"])         
                 .AddSingleton<LoggingService>();                   
                         
@@ -182,6 +187,15 @@ namespace NinjaBotCore
             var craftExpirationService = serviceProvider.GetRequiredService<CraftTicketExpirationService>();
             await craftExpirationService.StartAsync(CancellationToken.None);
 
+            var mythicPlusDungeonService = serviceProvider.GetRequiredService<MythicPlusDungeonService>();
+            await mythicPlusDungeonService.StartAsync(CancellationToken.None);
+
+            var weeklyKeyHistoryService = serviceProvider.GetRequiredService<WeeklyKeyHistoryRefreshService>();
+            await weeklyKeyHistoryService.StartAsync(CancellationToken.None);
+
+            var pushGroupMaintenance = serviceProvider.GetRequiredService<PushGroupMaintenanceService>();
+            await pushGroupMaintenance.StartAsync(CancellationToken.None);
+
             // RealmWatcherService runs in separate NinjaBotHelpers container
 
             //Setup graceful shutdown
@@ -217,6 +231,21 @@ namespace NinjaBotCore
             catch (Exception ex)
             {
                 Log.Error(ex, "Error stopping Commands API");
+            }
+
+            try
+            {
+                // Stop timer-based background services before the client goes away so an
+                // in-flight sweep/refresh can finish its Discord/DB work cleanly (the dungeon
+                // service especially — killing it mid cache-replace can empty the M+ pool cache).
+                Log.Information("Stopping pushgroup background services...");
+                await pushGroupMaintenance.StopAsync(CancellationToken.None);
+                await weeklyKeyHistoryService.StopAsync(CancellationToken.None);
+                await mythicPlusDungeonService.StopAsync(CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error stopping pushgroup background services");
             }
 
             try

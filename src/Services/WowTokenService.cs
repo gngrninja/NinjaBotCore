@@ -101,8 +101,7 @@ namespace NinjaBotCore.Services
                 {
                     long price = tokenData.price;
 
-                    using var scope = _scopeFactory.CreateScope();
-                    var repo = new Repository<WowTokenPrices>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+                    await using var repo = new Repository<WowTokenPrices>(_scopeFactory);
 
                     var tokenPrice = new WowTokenPrices
                     {
@@ -132,8 +131,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<WowTokenPrices> GetCurrentPriceAsync(string region = "us")
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowTokenPrices>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowTokenPrices>(_scopeFactory);
 
             var allPrices = await repo.WhereAsync(t => t.Region == region);
             var recentPrice = allPrices.OrderByDescending(t => t.Timestamp).FirstOrDefault();
@@ -146,8 +144,7 @@ namespace NinjaBotCore.Services
         /// </summary>
         public async Task<long?> GetPriceTrendAsync(string region = "us")
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repo = new Repository<WowTokenPrices>(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>());
+            await using var repo = new Repository<WowTokenPrices>(_scopeFactory);
 
             var dayAgo = DateTime.UtcNow.AddHours(-24);
 

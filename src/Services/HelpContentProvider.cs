@@ -145,9 +145,16 @@ namespace NinjaBotCore.Services
 
             foreach (var moduleType in interactionModules)
             {
-                // Check if module has a group prefix (e.g., [Group("poll", "...")])
-                var groupAttr = moduleType.GetCustomAttribute<GroupAttribute>();
-                var groupPrefix = groupAttr?.Name;
+                // Compose the group prefix from the module AND any declaring modules —
+                // nested [Group] classes (e.g. keys → board) must produce "keys board",
+                // not just "board".
+                var groupParts = new List<string>();
+                for (var t = moduleType; t != null; t = t.DeclaringType)
+                {
+                    var ga = t.GetCustomAttribute<GroupAttribute>();
+                    if (!string.IsNullOrEmpty(ga?.Name)) groupParts.Insert(0, ga!.Name);
+                }
+                var groupPrefix = groupParts.Count > 0 ? string.Join(" ", groupParts) : null;
 
                 var methods = moduleType.GetMethods(BindingFlags.Public | BindingFlags.Instance);
 
