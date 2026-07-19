@@ -157,6 +157,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 row: 0);
 
             builder.WithButton(
+                label: "Upgrades",
+                customId: $"char_view_upgrades~{userId}~{charParam}",
+                style: hasArmoryData ? ButtonStyle.Primary : ButtonStyle.Secondary,
+                emote: new Emoji("⬆️"),
+                disabled: !hasArmoryData,
+                row: 0);
+
+            builder.WithButton(
                 label: "Raider.IO",
                 customId: $"char_view_mplus~{userId}~{charParam}",
                 style: hasRioData ? ButtonStyle.Primary : ButtonStyle.Secondary,
@@ -258,6 +266,13 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 customId: $"char_view_gear~{userId}~{charParam}",
                 style: currentView == "gear" ? ButtonStyle.Success : ButtonStyle.Primary,
                 emote: new Emoji("🛡️"),
+                row: 0);
+
+            builder.WithButton(
+                label: "Upgrades",
+                customId: $"char_view_upgrades~{userId}~{charParam}",
+                style: currentView == "upgrades" ? ButtonStyle.Success : ButtonStyle.Primary,
+                emote: new Emoji("⬆️"),
                 row: 0);
 
             builder.WithButton(

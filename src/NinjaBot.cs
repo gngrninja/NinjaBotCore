@@ -10,6 +10,7 @@ using NinjaBotCore.Modules.Interactions.Wow;
 using NinjaBotCore.Modules.Admin;
 using Microsoft.Extensions.Configuration;
 using NinjaBotCore.Services;
+using NinjaBotCore.Services.Gearing;
 using NinjaBotCore.Common;
 using Serilog;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -111,6 +112,7 @@ namespace NinjaBotCore
                 .AddSingleton<CharacterResolver>()
                 .AddSingleton<WowTokenService>()
                 .AddSingleton<WowStaticDataService>()
+                .AddSingleton<GearAssessmentService>()
                 .AddSingleton(x => new InteractionService(
                     x.GetRequiredService<DiscordShardedClient>(),
                     new InteractionServiceConfig

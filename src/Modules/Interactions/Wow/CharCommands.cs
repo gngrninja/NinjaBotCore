@@ -9,6 +9,7 @@ using NinjaBotCore.Models.Wow;
 using NinjaBotCore.Modules.Interactions.Wow.CharViews;
 using NinjaBotCore.Modules.Wow;
 using NinjaBotCore.Services;
+using NinjaBotCore.Services.Gearing;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -30,6 +31,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private readonly WowUtilities _wowUtils;
         private readonly WowCacheService _wowCache;
         private readonly WowStaticDataService _wowStaticData;
+        private readonly GearAssessmentService _gearAssessment;
 
         public CharCommands(
             IServiceScopeFactory scopeFactory,
@@ -40,7 +42,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             WarcraftLogsV2Client wclV2Api,
             WowUtilities wowUtils,
             WowCacheService wowCache,
-            WowStaticDataService wowStaticData)
+            WowStaticDataService wowStaticData,
+            GearAssessmentService gearAssessment)
             : base(scopeFactory)
         {
             _logger = logger;
@@ -51,6 +54,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             _wowUtils = wowUtils;
             _wowCache = wowCache;
             _wowStaticData = wowStaticData;
+            _gearAssessment = gearAssessment;
         }
 
         [SlashCommand("char", "View character profile with gear, M+, and logs")]
@@ -225,6 +229,47 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             {
                 components.WithSelectMenu(selectMenu, 2);
             }
+
+            await ModifyOriginalResponseAsync(msg =>
+            {
+                msg.Embed = embed.Build();
+                msg.Components = components.Build();
+            });
+        }
+
+        [ComponentInteraction("char_view_upgrades~*~*")]
+        public async Task HandleViewUpgrades(string userIdStr, string charParam)
+        {
+            if (!ValidateUser(userIdStr, out var errorMsg))
+            {
+                await RespondAsync(errorMsg, ephemeral: true);
+                return;
+            }
+
+            await DeferAsync();
+
+            var charInfo = ParseCharParam(charParam);
+            if (charInfo == null)
+            {
+                await FollowupAsync("Invalid character data.", ephemeral: true);
+                return;
+            }
+
+            var (armorySummary, armoryEquipment, armoryMedia) = await FetchArmoryDataAsync(charInfo);
+            if (armoryEquipment == null)
+            {
+                await FollowupAsync("Could not load gear data for this character.", ephemeral: true);
+                return;
+            }
+
+            var assessment = _gearAssessment.Analyze(armorySummary, armoryEquipment);
+            var isAlreadySaved = await IsCharacterSavedAsync(charInfo, Context.User.Id);
+            var embed = CharUpgradeView.Build(charInfo, armorySummary, armoryMedia, assessment);
+            var components = CharOverviewView.BuildDetailViewComponents(
+                Context.User.Id,
+                charInfo,
+                "upgrades",
+                isAlreadySaved);
 
             await ModifyOriginalResponseAsync(msg =>
             {
