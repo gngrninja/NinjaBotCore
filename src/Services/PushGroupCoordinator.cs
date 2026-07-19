@@ -15,12 +15,13 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NinjaBotCore.Common;
 using NinjaBotCore.Database;
+using NinjaBotCore.Models.Wow;
 using NinjaBotCore.Modules.Wow;
 
 namespace NinjaBotCore.Services
 {
     /// <summary>
-    /// Heavy-lifting service for the /pushgroup feature. Owns:
+    /// Heavy-lifting service for the /keys feature. Owns:
     /// - Character prefill from WoW associations + Raider.IO
     /// - Posting new groups, signups/withdrawals, key-holder updates, close
     /// - Auto-ping follow-up for roster members within ±IO window
@@ -64,8 +65,10 @@ namespace NinjaBotCore.Services
                 state.CharacterRegion = main.WowRegion ?? "us";
 
                 var slug = SlugForRio(main.LocalRealmSlug ?? main.WowRealm);
-                var (cls, io) = await TryFetchCharSnapshotAsync(main.CharName, slug, state.CharacterRegion);
+                var info = await TryFetchRioCharAsync(main.CharName, slug, state.CharacterRegion);
+                var (cls, spec, io) = SnapshotFrom(info);
                 state.CharacterClass = cls;
+                state.CharacterSpec = spec;
                 state.IoRating = io;
             }
             catch (Exception ex)
@@ -74,40 +77,53 @@ namespace NinjaBotCore.Services
             }
         }
 
-        /// <summary>
-        /// Returns a Raider.IO-compatible realm slug. If the input already looks like a slug
-        /// (lowercase + dashes), pass through; otherwise lowercase and replace whitespace with `-`.
-        /// </summary>
-        private static string SlugForRio(string? realm)
-        {
-            if (string.IsNullOrWhiteSpace(realm)) return string.Empty;
-            var trimmed = realm.Trim();
-            if (trimmed.All(ch => char.IsLower(ch) || ch == '-' || char.IsDigit(ch)))
-                return trimmed;
-            return new string(trimmed.ToLowerInvariant()
-                .Select(ch => ch switch { ' ' => '-', '\'' => '\0', _ => ch })
-                .Where(ch => ch != '\0').ToArray());
-        }
+        private static string SlugForRio(string? realm) => WowRealmSlug.From(realm);
 
-        /// <summary>Persists a new push group, posts the live message, runs the auto-ping follow-up.</summary>
-        public async Task<PushGroup?> PostGroupAsync(PushGroupWizardState.State state, ulong guildId, ulong channelId, ulong creatorUserId, string creatorUserName, int ioWindow)
+        /// <summary>
+        /// Persists a new push group, posts the live message, runs the auto-ping follow-up.
+        /// Returns the group, or (null, user-facing reason) on failure.
+        /// </summary>
+        public async Task<(PushGroup? Group, string? Error)> PostGroupAsync(PushGroupWizardState.State state, ulong guildId, ulong channelId, ulong creatorUserId, string creatorUserName, int ioWindow)
         {
             if (string.IsNullOrWhiteSpace(state.DungeonSlug) || string.IsNullOrWhiteSpace(state.DungeonName) || state.KeyLevel == null)
             {
-                return null;
+                return (null, "The composer is missing a dungeon or key level — pick them and try again.");
             }
 
             var channel = _client.GetChannel(channelId) as IMessageChannel;
             if (channel == null)
             {
                 _logger.LogWarning("PostGroup: channel {ChannelId} not resolvable", channelId);
-                return null;
+                return (null, "I can't see this channel — check my permissions.");
             }
 
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
 
+            // Per-guild open-group cap (ServerPushGroupSettings.MaxOpenGroups, null = unlimited).
+            var settings = await db.ServerPushGroupSettings.FindAsync((long)guildId);
+            if (settings?.MaxOpenGroups is int cap)
+            {
+                var openCount = await db.PushGroups.CountAsync(g => g.GuildId == (long)guildId
+                    && (g.Status == PushGroupConstants.StatusOpen || g.Status == PushGroupConstants.StatusFull));
+                if (openCount >= cap)
+                {
+                    return (null, $"This server caps open key groups at **{cap}** — close one first (`/keys list`).");
+                }
+            }
+
             var now = DateTime.UtcNow;
+
+            // Creator stats come first — nothing is persisted yet, so a slow or failing
+            // raider.io call can't leave half-created rows behind.
+            int? creatorBestThisWeek = null;
+            if (!string.IsNullOrWhiteSpace(state.CharacterName) && !string.IsNullOrWhiteSpace(state.CharacterRealm))
+            {
+                var info = await TryFetchRioCharAsync(
+                    state.CharacterName!, SlugForRio(state.CharacterRealm!), state.CharacterRegion ?? "us");
+                creatorBestThisWeek = BestKeyThisWeekFrom(info, state.DungeonSlug!);
+            }
+
             var group = new PushGroup
             {
                 GuildId = (long)guildId,
@@ -131,20 +147,12 @@ namespace NinjaBotCore.Services
                 UpdatedAt = now,
             };
 
-            db.PushGroups.Add(group);
-            await db.SaveChangesAsync();
-
-            // Add the creator as the first signup in their chosen role.
-            int? creatorBestThisWeek = null;
-            if (!string.IsNullOrWhiteSpace(state.CharacterName) && !string.IsNullOrWhiteSpace(state.CharacterRealm))
-            {
-                creatorBestThisWeek = await TryFetchBestKeyThisWeekAsync(
-                    state.CharacterName!, SlugForRio(state.CharacterRealm!), state.CharacterRegion ?? "us", state.DungeonSlug!);
-            }
-
+            // Add the creator as the first signup in their chosen role. Group + signup go in
+            // one SaveChangesAsync (linked via the navigation property) so creation is atomic —
+            // no window where an Open group exists without its creator.
             var creatorSignup = new PushGroupSignup
             {
-                PushGroupId = group.Id,
+                PushGroup = group,
                 UserId = (long)creatorUserId,
                 UserName = creatorUserName,
                 RoleSlot = state.Role ?? PushGroupConstants.RoleDps,
@@ -152,15 +160,38 @@ namespace NinjaBotCore.Services
                 WowCharacterName = state.CharacterName,
                 WowCharacterRealm = state.CharacterRealm,
                 WowClass = state.CharacterClass,
+                WowSpec = state.CharacterSpec,
                 IoRating = state.IoRating,
                 IoBestThisWeek = creatorBestThisWeek,
                 SignedUpAt = now,
             };
+            db.PushGroups.Add(group);
             db.PushGroupSignups.Add(creatorSignup);
             await db.SaveChangesAsync();
 
+            // AllowedMentions.None: the card renders user-typed Notes and <@id> roster mentions —
+            // none of it may notify. The intentional pings live in the AutoPing follow-up message.
             var built = PushGroupPostBuilder.Build(group, new[] { creatorSignup });
-            var posted = await channel.SendMessageAsync(components: built.Components.Build(), flags: built.Flags);
+            IUserMessage posted;
+            try
+            {
+                posted = await channel.SendMessageAsync(
+                    components: built.Components.Build(),
+                    flags: built.Flags,
+                    allowedMentions: AllowedMentions.None);
+            }
+            catch (Exception ex)
+            {
+                // Cancel rather than delete: a timeout can throw AFTER Discord actually created
+                // the message, and buttons on such a zombie card should resolve to "isn't
+                // accepting signups" — not "no longer exists".
+                _logger.LogWarning(ex, "Failed to post push group {GroupId} in channel {ChannelId}; marking cancelled", group.Id, channelId);
+                group.Status = PushGroupConstants.StatusCancelled;
+                group.ArchivedAt = DateTime.UtcNow;
+                group.UpdatedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+                return (null, "Couldn't post the group — check that I have permission to send messages in this channel.");
+            }
 
             group.MessageId = (long)posted.Id;
             await db.SaveChangesAsync();
@@ -180,7 +211,8 @@ namespace NinjaBotCore.Services
                 _logger.LogWarning(ex, "Auto-ping failed for push group {GroupId}", group.Id);
             }
 
-            return group;
+            await UpdateHubAsync((long)guildId);
+            return (group, null);
         }
 
         /// <summary>Adds a signup row (if room) and rebuilds the live post. Returns user-facing message.</summary>
@@ -194,6 +226,7 @@ namespace NinjaBotCore.Services
                 var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
 
                 var group = await db.PushGroups.FirstOrDefaultAsync(g => g.Id == groupId);
+                EvictLockIfTerminal(groupId, group);
                 if (group == null) return "That group no longer exists.";
                 if (group.Status != PushGroupConstants.StatusOpen && group.Status != PushGroupConstants.StatusFull)
                     return "That group isn't accepting signups anymore.";
@@ -212,18 +245,19 @@ namespace NinjaBotCore.Services
 
                 var main = await _wowCache.GetUserMainCharacterAsync((long)userId);
                 string? cls = null;
+                string? spec = null;
                 decimal? io = null;
                 int? bestThisWeek = null;
                 string? charName = main?.CharName;
                 string? charRealm = main?.WowRealm;
                 if (main != null)
                 {
+                    // One raider.io call serves class/spec/IO and this week's best run.
                     var slug = SlugForRio(main.LocalRealmSlug ?? main.WowRealm);
                     var region = main.WowRegion ?? "us";
-                    var (c, i) = await TryFetchCharSnapshotAsync(main.CharName, slug, region);
-                    cls = c;
-                    io = i;
-                    bestThisWeek = await TryFetchBestKeyThisWeekAsync(main.CharName, slug, region, group.DungeonSlug);
+                    var info = await TryFetchRioCharAsync(main.CharName, slug, region);
+                    (cls, spec, io) = SnapshotFrom(info);
+                    bestThisWeek = BestKeyThisWeekFrom(info, group.DungeonSlug);
                 }
 
                 var signup = new PushGroupSignup
@@ -236,6 +270,7 @@ namespace NinjaBotCore.Services
                     WowCharacterName = charName,
                     WowCharacterRealm = charRealm,
                     WowClass = cls,
+                    WowSpec = spec,
                     IoRating = io,
                     IoBestThisWeek = bestThisWeek,
                     SignedUpAt = DateTime.UtcNow,
@@ -249,6 +284,7 @@ namespace NinjaBotCore.Services
                 await db.SaveChangesAsync();
 
                 await RebuildLivePostAsync(group, afterAdd);
+                await UpdateHubAsync(group.GuildId);
                 return $"Signed up as **{role}**.";
             }
             finally
@@ -267,6 +303,7 @@ namespace NinjaBotCore.Services
                 var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
 
                 var group = await db.PushGroups.FirstOrDefaultAsync(g => g.Id == groupId);
+                EvictLockIfTerminal(groupId, group);
                 if (group == null) return "That group no longer exists.";
 
                 var signup = await db.PushGroupSignups
@@ -283,6 +320,7 @@ namespace NinjaBotCore.Services
                     .Where(s => s.PushGroupId == groupId && s.WithdrewAt == null)
                     .ToListAsync();
                 await RebuildLivePostAsync(group, current);
+                await UpdateHubAsync(group.GuildId);
                 return "Withdrew you from the group.";
             }
             finally
@@ -297,7 +335,10 @@ namespace NinjaBotCore.Services
             var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
 
             var group = await db.PushGroups.FirstOrDefaultAsync(g => g.Id == groupId);
+            EvictLockIfTerminal(groupId, group);
             if (group == null) return "That group no longer exists.";
+            if (group.Status != PushGroupConstants.StatusOpen && group.Status != PushGroupConstants.StatusFull)
+                return "That group isn't active anymore.";
 
             // Only the creator or an active signup can take the key — prevents random users from
             // hijacking the key holder field.
@@ -319,6 +360,7 @@ namespace NinjaBotCore.Services
                 .Where(s => s.PushGroupId == groupId && s.WithdrewAt == null)
                 .ToListAsync();
             await RebuildLivePostAsync(group, current);
+            await UpdateHubAsync(group.GuildId);
             return $"Set you as key holder with +{keyLevel} {group.DungeonName}.";
         }
 
@@ -328,6 +370,7 @@ namespace NinjaBotCore.Services
             var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
 
             var group = await db.PushGroups.FirstOrDefaultAsync(g => g.Id == groupId);
+            EvictLockIfTerminal(groupId, group);
             if (group == null) return "That group no longer exists.";
             if (group.CreatorUserId != (long)actorUserId) return "Only the creator can close this group.";
 
@@ -340,7 +383,226 @@ namespace NinjaBotCore.Services
                 .Where(s => s.PushGroupId == groupId && s.WithdrewAt == null)
                 .ToListAsync();
             await RebuildLivePostAsync(group, current);
+
+            // The group is done — drop its lock. Together with EvictLockIfTerminal this bounds
+            // the dictionary to groups still being interacted with; groups abandoned without any
+            // further clicks keep their entry until restart (an expiration sweep is the real fix).
+            // A racing signup that re-creates the entry is harmless (status checks reject it).
+            _groupLocks.TryRemove(groupId, out _);
+            await UpdateHubAsync(group.GuildId);
             return "Closed the group.";
+        }
+
+        // --- hub -------------------------------------------------------------
+
+        /// <summary>
+        /// Re-renders the guild's persistent hub card, if one is configured. Best-effort:
+        /// failures are logged, a vanished card clears itself so /keys hub can re-post.
+        /// </summary>
+        public async Task UpdateHubAsync(long guildId)
+        {
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                var settings = await db.ServerPushGroupSettings.FindAsync(guildId);
+                if (settings?.HubChannelId == null || settings.HubMessageId == null) return;
+
+                var (groups, keys, top) = await LoadHubDataAsync(db, guildId);
+                var components = PushGroupStatsCards.BuildHub(guildId, groups, keys, top);
+
+                var channel = _client.GetChannel((ulong)settings.HubChannelId.Value) as IMessageChannel;
+                if (channel == null)
+                {
+                    // Cache miss (startup / guild-unavailable window) — transient, keep the
+                    // registration and let a later update catch up.
+                    _logger.LogDebug("Hub channel {ChannelId} not resolvable for guild {GuildId}; skipping update",
+                        settings.HubChannelId, guildId);
+                    return;
+                }
+
+                var msg = await channel.GetMessageAsync((ulong)settings.HubMessageId.Value) as IUserMessage;
+                if (msg == null)
+                {
+                    // Channel is fine but the card is gone — someone deleted it. Forget it so
+                    // the next /keys hub re-posts.
+                    settings.HubMessageId = null;
+                    await db.SaveChangesAsync();
+                    return;
+                }
+
+                await msg.ModifyAsync(p =>
+                {
+                    p.Components = components.Build();
+                    p.Flags = MessageFlags.ComponentsV2;
+                    p.AllowedMentions = AllowedMentions.None;
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Hub update failed for guild {GuildId}", guildId);
+            }
+        }
+
+        /// <summary>Open groups + current-week key board + weekly top runs for a guild.</summary>
+        public async Task<(List<PushGroupStatsCards.OpenGroupRow> Groups, List<PushGroupStatsCards.KeystoneRow> Keys, List<PushGroupStatsCards.LeaderboardRow> Top)>
+            LoadHubDataAsync(NinjaBotEntities db, long guildId)
+        {
+            var open = await db.PushGroups
+                .Where(g => g.GuildId == guildId
+                    && (g.Status == PushGroupConstants.StatusOpen || g.Status == PushGroupConstants.StatusFull))
+                .OrderBy(g => g.ScheduledForUtc ?? g.CreatedAt)
+                .ToListAsync();
+
+            var ids = open.Select(g => g.Id).ToList();
+            var counts = await db.PushGroupSignups
+                .Where(s => ids.Contains(s.PushGroupId) && s.WithdrewAt == null)
+                .GroupBy(s => s.PushGroupId)
+                .Select(g => new { g.Key, Count = g.Count() })
+                .ToListAsync();
+            var capacity = 2 + PushGroupConstants.DefaultDpsSlots;
+            var groupRows = open
+                .Select(g => new PushGroupStatsCards.OpenGroupRow(
+                    g, counts.FirstOrDefault(c => c.Key == g.Id)?.Count ?? 0, capacity))
+                .ToList();
+
+            var memberIds = await db.WowCharAssociation
+                .Where(a => a.ServerId == guildId && a.IsMain && a.UserId != null)
+                .Select(a => a.UserId!.Value)
+                .Distinct()
+                .ToListAsync();
+
+            var weekFloor = MythicPlusWeekly.CurrentWeekFloorUtc(DateTime.UtcNow);
+
+            // Key board is scoped by Discord guild membership (client cache), NOT by linked
+            // character — /keys board set works without /set-main, so the board must too.
+            var guild = _client.GetGuild((ulong)guildId);
+            var keyRows = guild == null
+                ? new List<PushGroupStatsCards.KeystoneRow>()
+                : (await db.UserKeystones
+                        .Where(k => k.WeekStartUtc > weekFloor)
+                        .ToListAsync())
+                    .Where(k => guild.GetUser((ulong)k.UserId) != null)
+                    .Select(k => new PushGroupStatsCards.KeystoneRow(k.UserId, k.DungeonName, k.KeyLevel, k.UpdatedAt))
+                    .ToList();
+
+            var top = (await db.WeeklyKeyHistory
+                    .Where(h => memberIds.Contains(h.UserId) && h.WeekStartUtc > weekFloor && h.RunCount > 0)
+                    .ToListAsync())
+                .GroupBy(h => h.UserId)
+                .Select(g => g.OrderByDescending(h => h.BestKeyLevel).First())
+                .OrderByDescending(h => h.BestKeyLevel)
+                .Take(10)
+                .Select(h => new PushGroupStatsCards.LeaderboardRow(
+                    h.UserId, MythicPlusRotation.FindBySlug(h.DungeonSlug)?.Name ?? h.DungeonSlug, h.BestKeyLevel))
+                .ToList();
+
+            return (groupRows, keyRows, top);
+        }
+
+        // --- maintenance sweep -------------------------------------------------
+
+        /// <summary>
+        /// One pass of scheduled maintenance: T-15min start reminders and auto-closing
+        /// stale groups (2h past their start, or 24h old with no schedule).
+        /// </summary>
+        public async Task RunMaintenanceSweepAsync(CancellationToken ct = default)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+            var now = DateTime.UtcNow;
+
+            // Reminders — only for starts still ahead (or barely past) to avoid necro-pings
+            // after downtime; ReminderSentAt is set even on failure so we never spam retries.
+            var remindCeil = now.AddMinutes(15);
+            var remindFloor = now.AddMinutes(-5);
+            var toRemind = await db.PushGroups
+                .Where(g => (g.Status == PushGroupConstants.StatusOpen || g.Status == PushGroupConstants.StatusFull)
+                    && g.ScheduledForUtc != null && g.ReminderSentAt == null
+                    && g.ScheduledForUtc <= remindCeil && g.ScheduledForUtc > remindFloor)
+                .ToListAsync(ct);
+
+            foreach (var g in toRemind)
+            {
+                try
+                {
+                    var signups = await db.PushGroupSignups
+                        .Where(s => s.PushGroupId == g.Id && s.WithdrewAt == null)
+                        .ToListAsync(ct);
+                    var channel = _client.GetChannel((ulong)g.ChannelId) as IMessageChannel;
+                    if (channel != null && signups.Count > 0)
+                    {
+                        var unix = new DateTimeOffset(g.ScheduledForUtc!.Value, TimeSpan.Zero).ToUnixTimeSeconds();
+                        var mentions = string.Join(" ", signups.Select(s => $"<@{s.UserId}>"));
+                        await channel.SendMessageAsync(
+                            $"⏰ **+{g.TargetKeyLevel} {g.DungeonName}** starts <t:{unix}:R> — {mentions}",
+                            allowedMentions: new AllowedMentions(AllowedMentionTypes.Users));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Start reminder failed for push group {GroupId}", g.Id);
+                }
+                g.ReminderSentAt = now;
+                g.UpdatedAt = now;
+            }
+            if (toRemind.Count > 0) await db.SaveChangesAsync(ct);
+
+            // Auto-close stale groups.
+            var scheduledCutoff = now.AddHours(-2);
+            var unscheduledCutoff = now.AddHours(-24);
+            var toClose = await db.PushGroups
+                .Where(g => (g.Status == PushGroupConstants.StatusOpen || g.Status == PushGroupConstants.StatusFull)
+                    && ((g.ScheduledForUtc != null && g.ScheduledForUtc < scheduledCutoff)
+                        || (g.ScheduledForUtc == null && g.CreatedAt < unscheduledCutoff)))
+                .ToListAsync(ct);
+
+            var touchedGuilds = new HashSet<long>();
+            var closed = 0;
+            foreach (var g in toClose)
+            {
+                if (ct.IsCancellationRequested) return;
+
+                // Serialize against in-flight signups/withdrawals via the same per-group lock,
+                // and re-read from a fresh context inside it — the outer query's tracked entity
+                // may be stale by the time we get here.
+                var sem = _groupLocks.GetOrAdd(g.Id, _ => new SemaphoreSlim(1, 1));
+                await sem.WaitAsync(ct);
+                try
+                {
+                    using var closeScope = _scopeFactory.CreateScope();
+                    var closeDb = closeScope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+
+                    var fresh = await closeDb.PushGroups.FirstOrDefaultAsync(x => x.Id == g.Id, ct);
+                    if (fresh == null) continue;
+                    if (fresh.Status != PushGroupConstants.StatusOpen && fresh.Status != PushGroupConstants.StatusFull) continue;
+
+                    var active = await closeDb.PushGroupSignups
+                        .Where(s => s.PushGroupId == fresh.Id && s.WithdrewAt == null)
+                        .ToListAsync(ct);
+                    fresh.Status = IsRosterFull(active) ? PushGroupConstants.StatusCompleted : PushGroupConstants.StatusCancelled;
+                    fresh.ArchivedAt = now;
+                    fresh.UpdatedAt = now;
+                    await closeDb.SaveChangesAsync(ct);
+                    await RebuildLivePostAsync(fresh, active);
+                    touchedGuilds.Add(fresh.GuildId);
+                    closed++;
+                }
+                finally
+                {
+                    sem.Release();
+                }
+                _groupLocks.TryRemove(g.Id, out _);
+            }
+            if (closed > 0)
+            {
+                _logger.LogInformation("Auto-closed {Count} stale push group(s)", closed);
+            }
+            foreach (var gid in touchedGuilds)
+            {
+                await UpdateHubAsync(gid);
+            }
         }
 
         // --- internals -----------------------------------------------------
@@ -360,6 +622,8 @@ namespace NinjaBotCore.Services
                 {
                     p.Components = built.Components.Build();
                     p.Flags = built.Flags;
+                    // Same as the initial send: Notes are user-typed, nothing here may notify.
+                    p.AllowedMentions = AllowedMentions.None;
                 });
             }
             catch (Exception ex)
@@ -372,8 +636,9 @@ namespace NinjaBotCore.Services
         {
             if (!group.IoRatingMin.HasValue || !group.IoRatingMax.HasValue) return null;
 
-            // Mention guild members with a linked main, default-on (per-user opt-out via
-            // UserPushGroupSettings.DmOnRosterPing). Future: filter by cached IO inside the window.
+            // Mention guild members with a linked main. Default-on; per-user opt-out via
+            // /keys pings (UserPushGroupSettings.DmOnRosterPing). No IO filtering yet, so
+            // the message must not claim any — future: filter by cached IO inside the window.
             var assocs = await db.WowCharAssociation
                 .Where(a => a.ServerId == group.GuildId && a.IsMain && a.UserId != null && a.UserId != group.CreatorUserId)
                 .ToListAsync();
@@ -389,11 +654,23 @@ namespace NinjaBotCore.Services
             if (pingable.Count == 0) return null;
 
             var sb = new StringBuilder();
-            sb.AppendLine("📣 Push group up — pinging roster (IO-window auto-ping):");
-            sb.Append(string.Join(" ", pingable.Select(uid => $"<@{uid}>")));
+            sb.AppendLine("📣 Key group up — pinging members with linked characters:");
+            sb.AppendLine(string.Join(" ", pingable.Select(uid => $"<@{uid}>")));
+            sb.Append("-# Don't want these pings? `/keys pings` turns them off.");
 
             var msg = await channel.SendMessageAsync(sb.ToString());
             return msg.Id;
+        }
+
+        /// <summary>Drops a group's semaphore once the group is gone or terminal.</summary>
+        private static void EvictLockIfTerminal(long groupId, PushGroup? group)
+        {
+            if (group == null
+                || group.Status == PushGroupConstants.StatusCancelled
+                || group.Status == PushGroupConstants.StatusCompleted)
+            {
+                _groupLocks.TryRemove(groupId, out _);
+            }
         }
 
         private static bool IsRosterFull(IReadOnlyList<PushGroupSignup> signups)
@@ -403,41 +680,38 @@ namespace NinjaBotCore.Services
                 && signups.Count(s => s.RoleSlot == PushGroupConstants.RoleDps && s.WithdrewAt == null) >= PushGroupConstants.DefaultDpsSlots;
         }
 
-        private async Task<(string? cls, decimal? io)> TryFetchCharSnapshotAsync(string name, string realm, string region)
+        /// <summary>Single raider.io profile fetch; SnapshotFrom/BestKeyThisWeekFrom read off it.</summary>
+        private async Task<RaiderIOModels.RioMythicPlusChar?> TryFetchRioCharAsync(string name, string realm, string region)
         {
             try
             {
-                var info = await _rio.GetCharMythicPlusInfoAsync(name, realm, region);
-                if (info == null) return (null, null);
-                var io = (decimal?)info.MythicPlusScores?.FirstOrDefault()?.Scores?.All;
-                return (info.Class, io);
+                return await _rio.GetCharMythicPlusInfoAsync(name, realm, region);
             }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "IO fetch failed for {Name}-{Realm}-{Region}", name, realm, region);
-                return (null, null);
+                return null;
             }
         }
 
-        private async Task<int?> TryFetchBestKeyThisWeekAsync(string name, string realm, string region, string dungeonSlug)
+        private static (string? cls, string? spec, decimal? io) SnapshotFrom(RaiderIOModels.RioMythicPlusChar? info)
         {
-            try
-            {
-                var info = await _rio.GetCharMythicPlusInfoAsync(name, realm, region);
-                if (info?.MythicPlusWeeklyHighestLevelRuns == null) return null;
-                var dungeon = MythicPlusRotation.FindBySlug(dungeonSlug);
-                if (dungeon == null) return null;
-                var runs = info.MythicPlusWeeklyHighestLevelRuns
-                    .Where(r => string.Equals(r.Dungeon, dungeon.Name, StringComparison.OrdinalIgnoreCase)
-                             || string.Equals(r.ShortName, dungeon.ShortName, StringComparison.OrdinalIgnoreCase))
-                    .OrderByDescending(r => r.MythicLevel)
-                    .FirstOrDefault();
-                return runs == null ? null : (int)runs.MythicLevel;
-            }
-            catch
-            {
-                return null;
-            }
+            if (info == null) return (null, null, null);
+            var io = (decimal?)info.MythicPlusScores?.FirstOrDefault()?.Scores?.All;
+            return (info.Class, info.ActiveSpecName, io);
+        }
+
+        private static int? BestKeyThisWeekFrom(RaiderIOModels.RioMythicPlusChar? info, string dungeonSlug)
+        {
+            if (info?.MythicPlusWeeklyHighestLevelRuns == null) return null;
+            var dungeon = MythicPlusRotation.FindBySlug(dungeonSlug);
+            if (dungeon == null) return null;
+            var runs = info.MythicPlusWeeklyHighestLevelRuns
+                .Where(r => string.Equals(r.Dungeon, dungeon.Name, StringComparison.OrdinalIgnoreCase)
+                         || string.Equals(r.ShortName, dungeon.ShortName, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(r => r.MythicLevel)
+                .FirstOrDefault();
+            return runs == null ? null : (int)runs.MythicLevel;
         }
     }
 }

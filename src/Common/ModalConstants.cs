@@ -108,9 +108,12 @@ namespace NinjaBotCore.Common
         // Live post buttons (keyed by PushGroup id)
         public const string PushGroupSignupPrefix = "pushgroup_signup~";       // pushgroup_signup~{groupId}~{role}
         public const string PushGroupWithdrawPrefix = "pushgroup_withdraw~";   // pushgroup_withdraw~{groupId}
-        public const string PushGroupBringKeyPrefix = "pushgroup_bringkey~";   // pushgroup_bringkey~{groupId}
+        public const string PushGroupBringKeyPrefix = "pushgroup_bringkey~";   // pushgroup_bringkey~{groupId}~{targetKeyLevel}
         public const string PushGroupBringKeyModalPrefix = "pushgroup_bringkeymodal~"; // pushgroup_bringkeymodal~{groupId}
         public const string PushGroupClosePrefix = "pushgroup_close~";         // pushgroup_close~{groupId}
+        public const string PushGroupRerunPrefix = "pushgroup_rerun~";         // pushgroup_rerun~{groupId} ("run it back" on closed cards)
+        public const string PushGroupKeyGoPrefix = "pushgroup_keygo~";         // pushgroup_keygo~{userId}~{role} (post group from registered key)
+        public const string PushGroupHubNewId = "pushgroup_hubnew";            // fixed id on the hub card's ➕ button
     }
 
     /// <summary>
@@ -124,7 +127,7 @@ namespace NinjaBotCore.Common
     }
 
     /// <summary>
-    /// Shared constants for the /pushgroup system.
+    /// Shared constants for the /keys system.
     /// </summary>
     public static class PushGroupConstants
     {
@@ -141,5 +144,11 @@ namespace NinjaBotCore.Common
         public const int DefaultDpsSlots = 3;
         public const int DefaultIoWindow = 200;
         public const int WizardTtlMinutes = 5;
+
+        /// <summary>
+        /// WeeklyKeyHistory sentinel slug for "character refreshed, zero runs this week" —
+        /// keeps freshness tracking working without fake dungeons; exclude via RunCount > 0.
+        /// </summary>
+        public const string NoRunsSentinelSlug = "__none__";
     }
 }

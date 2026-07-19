@@ -7,7 +7,7 @@ using NinjaBotCore.Common;
 namespace NinjaBotCore.Services
 {
     /// <summary>
-    /// In-memory wizard state for the /pushgroup guided creation flow.
+    /// In-memory wizard state for the /keys guided creation flow.
     /// Keyed by (UserId, ChannelId) so the same user can have one wizard per channel.
     /// Auto-expires after PushGroupConstants.WizardTtlMinutes minutes of inactivity.
     /// </summary>
@@ -27,6 +27,7 @@ namespace NinjaBotCore.Services
             public string? CharacterRealm { get; set; }
             public string? CharacterRegion { get; set; }
             public string? CharacterClass { get; set; }
+            public string? CharacterSpec { get; set; }
             public decimal? IoRating { get; set; }
             public DateTime? ScheduledForUtc { get; set; }
             public string? Notes { get; set; }

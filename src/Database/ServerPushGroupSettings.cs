@@ -25,6 +25,12 @@ namespace NinjaBotCore.Database
         /// </summary>
         public int DefaultIoWindow { get; set; } = 200;
 
+        /// <summary>Channel hosting the persistent hub card (null = no hub posted).</summary>
+        public long? HubChannelId { get; set; }
+
+        /// <summary>The hub card message; cleared automatically if the message vanishes.</summary>
+        public long? HubMessageId { get; set; }
+
         public long? SetById { get; set; }
 
         [MaxLength(100)]

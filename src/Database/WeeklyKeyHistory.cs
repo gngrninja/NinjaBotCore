@@ -28,6 +28,13 @@ namespace NinjaBotCore.Database
 
         public int BestKeyLevel { get; set; }
 
+        /// <summary>
+        /// How many completed runs of this dungeon appear in the character's weekly top-10
+        /// list. Summed across dungeons this gives Great Vault progress (thresholds 1/4/8
+        /// all sit inside the top-10 window raider.io exposes).
+        /// </summary>
+        public int RunCount { get; set; }
+
         public DateTime LastRefreshedAt { get; set; }
     }
 }

@@ -50,6 +50,9 @@ namespace NinjaBotCore.Database
 
         public DateTime? ScheduledForUtc { get; set; }
 
+        /// <summary>Set once the T-15min start reminder has been sent (dedupe guard).</summary>
+        public DateTime? ReminderSentAt { get; set; }
+
         [Required]
         [MaxLength(30)]
         public string Status { get; set; } = "Open";

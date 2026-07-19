@@ -26,8 +26,15 @@ namespace NinjaBotCore.Modules.Wow
     public class WowApi : IWowApi
     {
         private static string _token;
+        private static DateTime _tokenExpiresUtc = DateTime.MinValue;
+        private static DateTime _lastRenewAttemptUtc = DateTime.MinValue;
         private static readonly object _tokenLock = new();
-        private readonly TimeSpan _tokenRefreshInterval = TimeSpan.FromHours(12);
+        private static readonly SemaphoreSlim _renewLock = new(1, 1);
+        // Blizzard client-credentials tokens live ~24h; used when expires_in is absent.
+        private const long DefaultTokenLifetimeSeconds = 86400;
+        // During an oauth outage, per-request refreshes fail fast for this long after a failed
+        // attempt instead of each queuing its own 30s fetch behind _renewLock.
+        private static readonly TimeSpan RenewAttemptCooldown = TimeSpan.FromSeconds(30);
         private CancellationTokenSource _tokenRefreshCancellation;
         private Task _tokenRefreshTask;
         private readonly TaskCompletionSource<bool> _initializationComplete = new();
@@ -75,6 +82,9 @@ namespace NinjaBotCore.Modules.Wow
                         OnRetry = args =>
                         {
                             var statusCode = args.Outcome.Result?.StatusCode.ToString() ?? "Exception";
+                            // The rejected attempt's response is never read — dispose it so its
+                            // pooled connection is returned instead of waiting for the finalizer.
+                            args.Outcome.Result?.Dispose();
                             _logger.LogWarning(
                                 "Retry attempt {AttemptNumber} for WoW API request. Status: {StatusCode}, Delay: {Delay}",
                                 args.AttemptNumber,
@@ -246,11 +256,20 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
-        private static void SetCurrentToken(string token)
+        private static bool IsTokenMissingOrStale()
+        {
+            lock (_tokenLock)
+            {
+                return string.IsNullOrEmpty(_token) || DateTime.UtcNow >= _tokenExpiresUtc - TimeSpan.FromMinutes(1);
+            }
+        }
+
+        private static void SetCurrentToken(string token, long expiresInSeconds)
         {
             lock (_tokenLock)
             {
                 _token = token;
+                _tokenExpiresUtc = DateTime.UtcNow.AddSeconds(expiresInSeconds > 0 ? expiresInSeconds : DefaultTokenLifetimeSeconds);
             }
         }
 
@@ -280,27 +299,32 @@ namespace NinjaBotCore.Modules.Wow
 
         public async Task<string> GetWowToken(string username, string password)
         {
-            string token = string.Empty;
             try
             {
-                var content = new FormUrlEncodedContent(new[]
-                {
-                    new KeyValuePair<string, string>("grant_type", "client_credentials"),
-                    new KeyValuePair<string, string>("client_id", username),
-                    new KeyValuePair<string, string>("client_secret", password)
-                });
-                using var client = _httpClientFactory.CreateClient();
-                var result =  await client.PostAsync("https://us.battle.net/oauth/token", content);
-                var contentString = await result.Content.ReadAsStringAsync();
-                ApiResponse response = JsonConvert.DeserializeObject<ApiResponse>(contentString);
-                token = response.AccessToken;
+                var response = await FetchTokenResponseAsync(username, password, CancellationToken.None);
+                return response?.AccessToken ?? string.Empty;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error while getting WoW API token");
+                return string.Empty;
             }
-            _logger.LogInformation("Received new WoW API auth token.");
-            return token;
+        }
+
+        private async Task<ApiResponse> FetchTokenResponseAsync(string clientId, string clientSecret, CancellationToken cancellationToken)
+        {
+            var content = new FormUrlEncodedContent(new[]
+            {
+                new KeyValuePair<string, string>("grant_type", "client_credentials"),
+                new KeyValuePair<string, string>("client_id", clientId),
+                new KeyValuePair<string, string>("client_secret", clientSecret)
+            });
+            using var client = _httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(30);
+            using var result = await client.PostAsync("https://oauth.battle.net/token", content, cancellationToken);
+            result.EnsureSuccessStatusCode();
+            var contentString = await result.Content.ReadAsStringAsync(cancellationToken);
+            return JsonConvert.DeserializeObject<ApiResponse>(contentString);
         }
 
         private static string GetRegionFromString(string regionName)
@@ -344,13 +368,19 @@ namespace NinjaBotCore.Modules.Wow
 
         private async Task<string> SendAuthorizedGetAsync(string url, CancellationToken cancellationToken = default)
         {
+            if (IsTokenMissingOrStale())
+            {
+                // Recover in-line instead of failing every call until the background loop's
+                // next attempt (a failed boot-time fetch used to mean up to 12h of dead calls).
+                await ForceTokenRefreshAsync(GetCurrentToken(), cancellationToken);
+            }
+
             var token = GetCurrentToken();
             if (string.IsNullOrEmpty(token))
             {
                 throw new InvalidOperationException("Blizzard API access token has not been initialized.");
             }
 
-            // Use request factory to create new request for each retry attempt
             return await SendRequestAsync(url, token, cancellationToken);
         }
 
@@ -358,20 +388,29 @@ namespace NinjaBotCore.Modules.Wow
         {
             try
             {
-                var response = await _httpResiliencePipeline.ExecuteAsync(
-                    async ct =>
+                var response = await ExecuteRequestAsync(url, token, cancellationToken);
+                try
+                {
+                    if (response.StatusCode == HttpStatusCode.Unauthorized)
                     {
-                        // Create new request for each retry attempt
-                        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-                        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                        using var client = _httpClientFactory.CreateClient();
-                        return await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-                    },
-                    cancellationToken);
+                        // Token revoked or expired early — re-auth once and retry the request.
+                        _logger.LogWarning("WoW API returned 401 for {RequestUrl}; refreshing token and retrying once", url);
+                        if (await ForceTokenRefreshAsync(token, cancellationToken))
+                        {
+                            response.Dispose();
+                            response = await ExecuteRequestAsync(url, GetCurrentToken(), cancellationToken);
+                        }
+                    }
 
-                response.EnsureSuccessStatusCode();
-                return await response.Content.ReadAsStringAsync(cancellationToken);
+                    response.EnsureSuccessStatusCode();
+                    return await response.Content.ReadAsStringAsync(cancellationToken);
+                }
+                finally
+                {
+                    // ResponseHeadersRead + abandoned response = a pooled connection stranded
+                    // until finalization; dispose on every path, not just the happy one.
+                    response.Dispose();
+                }
             }
             catch (HttpRequestException ex)
             {
@@ -382,6 +421,54 @@ namespace NinjaBotCore.Modules.Wow
             {
                 _logger.LogError(ex, "WoW API request timed out for {RequestUrl}", url);
                 throw;
+            }
+        }
+
+        private async Task<HttpResponseMessage> ExecuteRequestAsync(string url, string token, CancellationToken cancellationToken)
+        {
+            return await _httpResiliencePipeline.ExecuteAsync(
+                async ct =>
+                {
+                    // Create new request for each retry attempt
+                    using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                    using var client = _httpClientFactory.CreateClient();
+                    client.Timeout = TimeSpan.FromSeconds(30);
+                    return await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+                },
+                cancellationToken);
+        }
+
+        /// <summary>
+        /// Refreshes the token unless another caller already refreshed while we waited on the
+        /// lock, or a refresh attempt just failed (cooldown) — then fail fast so a battle.net
+        /// outage doesn't stack every command behind serialized 30s token fetches.
+        /// </summary>
+        private async Task<bool> ForceTokenRefreshAsync(string staleToken, CancellationToken cancellationToken)
+        {
+            await _renewLock.WaitAsync(cancellationToken);
+            try
+            {
+                var current = GetCurrentToken();
+                if (!string.IsNullOrEmpty(current) && current != staleToken && !IsTokenMissingOrStale())
+                {
+                    return true;
+                }
+
+                lock (_tokenLock)
+                {
+                    if (DateTime.UtcNow - _lastRenewAttemptUtc < RenewAttemptCooldown)
+                    {
+                        return false;
+                    }
+                }
+
+                return await RenewTokenAsync(cancellationToken) > 0;
+            }
+            finally
+            {
+                _renewLock.Release();
             }
         }
 
@@ -397,11 +484,26 @@ namespace NinjaBotCore.Modules.Wow
 
         private async Task RunTokenRefreshLoopAsync(CancellationToken token)
         {
-            // Perform initial token fetch immediately
-            await RenewTokenAsync(token);
+            // Initial acquisition: a few quick retries so a transient battle.net blip doesn't
+            // stall startup; afterwards the adaptive loop below (plus per-request recovery in
+            // SendAuthorizedGetAsync) keeps trying.
+            long expiresIn = 0;
+            for (var attempt = 1; attempt <= 3 && !token.IsCancellationRequested; attempt++)
+            {
+                expiresIn = await RenewTokenAsync(token);
+                if (expiresIn > 0 || attempt == 3) break; // no pointless sleep after the last try
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(30 * attempt), token);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+            }
 
             // After first successful token fetch, preload WoW data
-            if (!string.IsNullOrEmpty(GetCurrentToken()))
+            if (expiresIn > 0)
             {
                 try
                 {
@@ -422,13 +524,28 @@ namespace NinjaBotCore.Modules.Wow
                 _initializationComplete.TrySetResult(false);
             }
 
-            // Then continue with periodic refresh
-            using var timer = new PeriodicTimer(_tokenRefreshInterval);
+            // Refresh at 75% of the token's lifetime (~18h for Blizzard's 24h tokens). On failure
+            // retry on a short backoff — the old fixed 12h interval meant one missed refresh
+            // could leave a dead token for up to 12h.
+            var failures = 0;
             try
             {
-                while (await timer.WaitForNextTickAsync(token))
+                while (!token.IsCancellationRequested)
                 {
-                    await RenewTokenAsync(token);
+                    TimeSpan delay;
+                    if (expiresIn > 0)
+                    {
+                        failures = 0;
+                        delay = TimeSpan.FromSeconds(Math.Max(300, expiresIn * 3 / 4));
+                    }
+                    else
+                    {
+                        failures++;
+                        delay = TimeSpan.FromMinutes(Math.Min(15, 2 * failures));
+                    }
+
+                    await Task.Delay(delay, token);
+                    expiresIn = await RenewTokenAsync(token);
                 }
             }
             catch (OperationCanceledException)
@@ -441,30 +558,39 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
-        private async Task RenewTokenAsync(CancellationToken token)
+        /// <summary>
+        /// Fetches and installs a fresh token. Returns its lifetime in seconds, or 0 on failure.
+        /// </summary>
+        private async Task<long> RenewTokenAsync(CancellationToken token)
         {
             if (token.IsCancellationRequested)
             {
-                return;
+                return 0;
+            }
+
+            lock (_tokenLock)
+            {
+                _lastRenewAttemptUtc = DateTime.UtcNow;
             }
 
             try
             {
                 _logger.LogInformation("Refreshing WoW API auth token.");
-                var newToken = await GetWowToken(_config["WoWClient"], _config["WoWSecret"]);
-                if (!string.IsNullOrEmpty(newToken))
+                var response = await FetchTokenResponseAsync(_config["WoWClient"], _config["WoWSecret"], token);
+                if (!string.IsNullOrEmpty(response?.AccessToken))
                 {
-                    SetCurrentToken(newToken);
-                    _logger.LogInformation("WoW API auth token refreshed successfully.");
+                    SetCurrentToken(response.AccessToken, response.ExpiresIn);
+                    _logger.LogInformation("WoW API auth token refreshed successfully; expires in {ExpiresIn}s.", response.ExpiresIn);
+                    return response.ExpiresIn > 0 ? response.ExpiresIn : DefaultTokenLifetimeSeconds;
                 }
-                else
-                {
-                    _logger.LogWarning("Received empty WoW API auth token while refreshing credentials.");
-                }
+
+                _logger.LogWarning("Received empty WoW API auth token while refreshing credentials.");
+                return 0;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to refresh WoW API auth token.");
+                return 0;
             }
         }
 

@@ -76,6 +76,7 @@ namespace NinjaBotCore.Database
         public virtual DbSet<PushGroup> PushGroups { get; set; }
         public virtual DbSet<PushGroupSignup> PushGroupSignups { get; set; }
         public virtual DbSet<WeeklyKeyHistory> WeeklyKeyHistory { get; set; }
+        public virtual DbSet<UserKeystone> UserKeystones { get; set; }
         public virtual DbSet<UserPushGroupSettings> UserPushGroupSettings { get; set; }
         public virtual DbSet<ServerPushGroupSettings> ServerPushGroupSettings { get; set; }
 
@@ -118,6 +119,13 @@ namespace NinjaBotCore.Database
 
                 entity.HasIndex(e => new { e.PushGroupId, e.UserId })
                     .HasDatabaseName("IX_PushGroupSignups_PushGroupId_UserId");
+
+                // Belt-and-braces behind the in-process per-group semaphore: two concurrent
+                // signups can never persist the same active slot.
+                entity.HasIndex(e => new { e.PushGroupId, e.RoleSlot, e.SlotIndex })
+                    .IsUnique()
+                    .HasFilter("\"WithdrewAt\" IS NULL")
+                    .HasDatabaseName("IX_PushGroupSignups_ActiveSlot");
             });
 
             modelBuilder.Entity<WeeklyKeyHistory>(entity =>

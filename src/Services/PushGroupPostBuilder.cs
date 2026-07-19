@@ -29,7 +29,7 @@ namespace NinjaBotCore.Services
 
             // Header
             container.AddComponent(new TextDisplayBuilder().WithContent(
-                $"# 🗝️ +{group.TargetKeyLevel} {group.DungeonName} — Push Group\n" +
+                $"# 🗝️ +{group.TargetKeyLevel} {group.DungeonName} — Key Group\n" +
                 $"Hosted by <@{group.CreatorUserId}> · IO window: {FormatIoWindow(group)}"));
 
             container.AddComponent(new SeparatorBuilder()
@@ -96,13 +96,20 @@ namespace NinjaBotCore.Services
             var manageRow = new ActionRowBuilder();
             if (isActive)
             {
-                manageRow.WithButton("Bring Key", $"{ModalConstants.PushGroupBringKeyPrefix}{group.Id}",
+                manageRow.WithButton("Bring Key", $"{ModalConstants.PushGroupBringKeyPrefix}{group.Id}~{group.TargetKeyLevel}",
                     ButtonStyle.Secondary, new Emoji("🗝️"));
             }
             if (group.Status != PushGroupConstants.StatusCancelled && group.Status != PushGroupConstants.StatusCompleted)
             {
                 manageRow.WithButton("Close Group", $"{ModalConstants.PushGroupClosePrefix}{group.Id}",
                     ButtonStyle.Secondary, new Emoji("🔒"));
+            }
+            else
+            {
+                // Finished cards get a one-click restart: opens the composer pre-filled
+                // from this group (most M+ groups are "same again, one higher").
+                manageRow.WithButton("Run it back", $"{ModalConstants.PushGroupRerunPrefix}{group.Id}",
+                    ButtonStyle.Primary, new Emoji("🔁"));
             }
             if (manageRow.Components.Count > 0)
             {
