@@ -52,7 +52,8 @@ pipeline {
       }
       steps {
         catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-          timeout(time: 2, unit: 'MINUTES') {
+          // The Pi rebuilds two images; cold base-image pulls can exceed two minutes.
+          timeout(time: 15, unit: 'MINUTES') {
             sh 'sudo -n -u ninja ssh gnja@rpi /home/gnja/scripts/ninjabot/bot.sh'
           }
         }
