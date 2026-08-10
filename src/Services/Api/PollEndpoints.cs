@@ -283,17 +283,29 @@ namespace NinjaBotCore.Services.Api
                     return Results.BadRequest(new { success = false, error = "Poll is already closed" });
                 }
 
-                // Check permissions - creator OR moderators (ManageMessages) can close
-                var isCreator = poll.CreatedById == userId;
-                var isModerator = false;
-
+                // Check permissions against the poll's actual guild. Creators must still
+                // be current members; creating a poll does not grant permanent authority.
                 var client = deps.ServiceProvider.GetService<DiscordShardedClient>();
                 var guild = client?.GetGuild((ulong)poll.GuildId);
-                var member = guild?.GetUser((ulong)userId);
-                if (member != null)
+                IGuildUser member = guild?.GetUser((ulong)userId);
+                if (guild != null && member == null)
                 {
-                    isModerator = member.GuildPermissions.ManageMessages;
+                    // The cache can be incomplete briefly after startup. Query only this
+                    // member rather than downloading the entire guild roster.
+                    member = await ((IGuild)guild).GetUserAsync(
+                        (ulong)userId,
+                        CacheMode.AllowDownload);
                 }
+
+                if (member == null)
+                {
+                    return Results.Json(
+                        new { success = false, error = "User is no longer a member of this guild" },
+                        statusCode: 403);
+                }
+
+                var isCreator = poll.CreatedById == userId;
+                var isModerator = member.GuildPermissions.ManageMessages;
 
                 if (!isCreator && !isModerator)
                 {

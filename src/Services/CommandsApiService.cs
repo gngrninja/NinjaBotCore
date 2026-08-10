@@ -51,6 +51,11 @@ namespace NinjaBotCore.Services
             var port = _config.GetValue<int>("CommandsApi:Port", 5100);
             var host = _config.GetValue<string>("CommandsApi:Host") ?? "0.0.0.0";
             var apiKey = _config.GetValue<string>("CommandsApi:ApiKey") ?? "";
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                throw new InvalidOperationException(
+                    "Commands API is enabled but its API key is missing or blank.");
+            }
 
             try
             {

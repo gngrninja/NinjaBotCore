@@ -131,6 +131,50 @@ namespace NinjaBotCore.Tests
         }
     }
 
+    public class CommandsApiConfigurationTests
+    {
+        [Fact]
+        public async Task StartAsync_WhenEnabledWithoutApiKey_FailsClosed()
+        {
+            var config = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["CommandsApi:Enabled"] = "true",
+                    ["CommandsApi:Host"] = "127.0.0.1",
+                    ["CommandsApi:Port"] = Random.Shared.Next(15901, 16000).ToString(),
+                    ["CommandsApi:ApiKey"] = " "
+                })
+                .Build();
+            using var provider = new ServiceCollection().BuildServiceProvider();
+            var helpProvider = new HelpContentProvider(
+                NullLogger<HelpContentProvider>.Instance,
+                config);
+            using var service = new CommandsApiService(
+                NullLogger<CommandsApiService>.Instance,
+                config,
+                helpProvider,
+                null!,
+                provider);
+
+            Exception? error = null;
+            try
+            {
+                await service.StartAsync(CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                error = ex;
+            }
+            finally
+            {
+                await service.StopAsync(CancellationToken.None);
+            }
+
+            var invalid = Assert.IsType<InvalidOperationException>(error);
+            Assert.Contains("API key", invalid.Message, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     /// <summary>
     /// Integration tests for CommandsApiService endpoints.
     /// These tests verify routing, authentication, DB operations, and response structure.
@@ -293,6 +337,47 @@ namespace NinjaBotCore.Tests
             var response = await _client.GetAsync("/api/polls/999999");
 
             Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task ClosePoll_CreatorWithoutCurrentGuildMembership_ReturnsForbidden()
+        {
+            const long pollGuildId = 200008;
+            const long creatorId = 50008;
+            long pollId;
+            var (scope, db) = _fixture.CreateDbScope();
+            using (scope)
+            {
+                var poll = new DbPoll
+                {
+                    Question = "Guild-bound poll?",
+                    PollType = "SingleChoice",
+                    CreatedAt = DateTime.UtcNow,
+                    CreatedById = creatorId,
+                    CreatedByName = "Creator",
+                    GuildId = pollGuildId,
+                    ChannelId = 100,
+                    MessageId = 100
+                };
+                db.Polls.Add(poll);
+                await db.SaveChangesAsync();
+                pollId = poll.Id;
+            }
+
+            var response = await _client.PostAsJsonAsync($"/api/polls/{pollId}/close", new
+            {
+                UserId = creatorId.ToString()
+            });
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+
+            var (verifyScope, verifyDb) = _fixture.CreateDbScope();
+            using (verifyScope)
+            {
+                var poll = await verifyDb.Polls.FindAsync(pollId);
+                Assert.NotNull(poll);
+                Assert.False(poll.IsClosed);
+            }
         }
 
         [Fact]
