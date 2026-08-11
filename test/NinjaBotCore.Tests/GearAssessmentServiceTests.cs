@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Newtonsoft.Json;
 using NinjaBotCore.Models.Wow;
 using NinjaBotCore.Services.Gearing;
 using Xunit;
@@ -31,6 +32,156 @@ namespace NinjaBotCore.Tests
             Assert.Equal("Weathered Bracers", result.OverallRecommendation.CurrentItemName);
             Assert.Equal(11, result.OverallRecommendation.ItemLevelGap);
             Assert.Contains("Great Vault", result.OverallRecommendation.NextAction);
+            Assert.DoesNotContain("current weekly caches", result.OverallRecommendation.NextAction);
+        }
+
+        [Fact]
+        public void Analyze_ResolvesCurrentSeasonTrackFromOfficialBonusList()
+        {
+            var heroChest = Item("CHEST", "Season Chest", 308, itemId: 1101, enchanted: true);
+            heroChest.BonusList = new List<int> { 13662, 12842 };
+
+            var result = _service.Analyze(Summary(308, 308), CompleteEquipment(heroChest));
+
+            var chest = Assert.Single(result.PrioritySlots, slot => slot.SlotType == "CHEST");
+            Assert.Equal("Hero", chest.TrackName);
+            Assert.Equal(2, chest.TrackRank);
+            Assert.Equal(6, chest.TrackMaxRank);
+            Assert.Equal(321, chest.TrackCeilingItemLevel);
+            Assert.Equal(13, chest.UpgradeItemLevelsRemaining);
+            Assert.True(chest.IsCurrentSeasonTrack);
+            Assert.Equal("Hero 2/6", chest.TrackLabel);
+        }
+
+        [Fact]
+        public void Analyze_PrioritizesLowerTrackCeilingOverLowerCurrentItemLevel()
+        {
+            var championChest = Item("CHEST", "Capped Champion Chest", 308, itemId: 1201, enchanted: true);
+            championChest.BonusList = new List<int> { 13662, 12838 };
+            var heroWrist = Item("WRIST", "Upgradeable Hero Wrist", 305, itemId: 1202, enchanted: true);
+            heroWrist.BonusList = new List<int> { 13662, 12841 };
+            var equipment = CompleteEquipment(championChest, heroWrist);
+            foreach (var item in equipment.EquippedItems.Where(item => item != championChest && item != heroWrist))
+            {
+                item.Level.Value = 334;
+            }
+
+            var result = _service.Analyze(
+                Summary(308, 308),
+                equipment);
+
+            Assert.Equal("Chest", result.OverallRecommendation.SlotLabel);
+            Assert.Contains("higher track", result.OverallRecommendation.NextAction.ToLowerInvariant());
+            Assert.Equal("Wrist", result.UpgradeInPlaceSlots[0].SlotLabel);
+            Assert.Contains("Hero 6/6", result.UpgradeInPlaceSlots[0].UpgradeAction);
+        }
+
+        [Fact]
+        public void Analyze_DoesNotApplyCurrentSeasonCeilingToLegacyTrackItem()
+        {
+            var legacyChest = Item("CHEST", "Legacy Hero Chest", 619, itemId: 1301, enchanted: true);
+            legacyChest.BonusList = new List<int> { 13577, 12806 };
+
+            var result = _service.Analyze(Summary(619, 619), CompleteEquipment(legacyChest));
+
+            var chest = Assert.Single(result.PrioritySlots, slot => slot.SlotType == "CHEST");
+            Assert.Null(chest.TrackLabel);
+            Assert.False(chest.IsCurrentSeasonTrack);
+            Assert.Null(chest.TrackCeilingItemLevel);
+            Assert.Equal("Legacy or special track", chest.TrackStatus);
+        }
+
+        [Fact]
+        public void Analyze_WithExceptionalCurrentSeasonBonus_DoesNotInventAStandardTrackRank()
+        {
+            var exceptional = Item("CHEST", "Exceptional Raid Chest", 337, itemId: 1302, enchanted: true);
+            exceptional.BonusList = new List<int> { 13662, 12855 };
+
+            var result = _service.Analyze(Summary(337, 337), CompleteEquipment(exceptional));
+
+            var chest = Assert.Single(result.PrioritySlots, slot => slot.SlotType == "CHEST");
+            Assert.Equal("Myth", chest.TrackName);
+            Assert.Equal("Myth-equivalent 337", chest.TrackLabel);
+            Assert.Equal("Special item level", chest.TrackStatus);
+            Assert.False(chest.IsCurrentSeasonTrack);
+            Assert.Null(chest.TrackCeilingItemLevel);
+        }
+
+        [Fact]
+        public void Analyze_WithCurrentAndLegacySeasonMarkers_FailsClosed()
+        {
+            var item = Item("CHEST", "Conflicting Season Chest", 308, itemId: 1303, enchanted: true);
+            item.BonusList = new List<int> { 13662, 13577, 12842 };
+
+            var result = _service.Analyze(Summary(308, 308), CompleteEquipment(item));
+
+            AssertUnresolvedTrack(result, "CHEST", "Conflicting season markers");
+        }
+
+        [Fact]
+        public void Analyze_WithMultipleExceptionalAndStandardBonuses_FailsClosed()
+        {
+            var item = Item("CHEST", "Conflicting Exceptional Chest", 308, itemId: 1304, enchanted: true);
+            item.BonusList = new List<int> { 13662, 12855, 12856, 12842 };
+
+            var result = _service.Analyze(Summary(308, 308), CompleteEquipment(item));
+
+            AssertUnresolvedTrack(result, "CHEST", "Track unresolved");
+        }
+
+        [Fact]
+        public void Analyze_WithExceptionalAndStandardBonus_FailsClosed()
+        {
+            var item = Item("CHEST", "Mixed Exceptional Chest", 308, itemId: 1305, enchanted: true);
+            item.BonusList = new List<int> { 13662, 12855, 12842 };
+
+            var result = _service.Analyze(Summary(308, 308), CompleteEquipment(item));
+
+            AssertUnresolvedTrack(result, "CHEST", "Track unresolved");
+        }
+
+        [Fact]
+        public void Analyze_WithExceptionalBonusItemLevelMismatch_FailsClosed()
+        {
+            var item = Item("CHEST", "Mismatched Exceptional Chest", 340, itemId: 1306, enchanted: true);
+            item.BonusList = new List<int> { 13662, 12855 };
+
+            var result = _service.Analyze(Summary(340, 340), CompleteEquipment(item));
+
+            AssertUnresolvedTrack(result, "CHEST", "Track unresolved");
+        }
+
+        [Fact]
+        public void Analyze_WithDuplicateRankBonus_FailsClosed()
+        {
+            var item = Item("CHEST", "Duplicate Rank Chest", 308, itemId: 1307, enchanted: true);
+            item.BonusList = new List<int> { 13662, 12842, 12842 };
+
+            var result = _service.Analyze(Summary(308, 308), CompleteEquipment(item));
+
+            AssertUnresolvedTrack(result, "CHEST", "Track unresolved");
+        }
+
+        [Fact]
+        public void ArmoryEquippedItem_DeserializesOfficialTrackEvidence()
+        {
+            const string json = """
+                {
+                  "name": "Season Chest",
+                  "bonus_list": [13662, 12842],
+                  "context": 6,
+                  "name_description": {
+                    "display_string": "Mythic+",
+                    "color": { "r": 163, "g": 53, "b": 238, "a": 255 }
+                  }
+                }
+                """;
+
+            var item = JsonConvert.DeserializeObject<ArmoryEquippedItem>(json);
+
+            Assert.Equal(new[] { 13662, 12842 }, item.BonusList);
+            Assert.Equal(6, item.Context);
+            Assert.Equal("Mythic+", item.NameDescription.DisplayString);
         }
 
         [Fact]
@@ -149,6 +300,16 @@ namespace NinjaBotCore.Tests
             CharacterClass = new ArmoryType { Name = "Warrior", Type = "WARRIOR" },
             ActiveSpec = new ArmoryType { Name = "Arms", Type = "ARMS" }
         };
+
+        private static void AssertUnresolvedTrack(GearAssessment assessment, string slotType, string expectedStatus)
+        {
+            var slot = Assert.Single(assessment.PrioritySlots, candidate => candidate.SlotType == slotType);
+            Assert.False(slot.IsCurrentSeasonTrack);
+            Assert.Null(slot.TrackLabel);
+            Assert.Null(slot.TrackCeilingItemLevel);
+            Assert.Null(slot.UpgradeAction);
+            Assert.Equal(expectedStatus, slot.TrackStatus);
+        }
 
         private static ArmoryEquipment Equipment(params ArmoryEquippedItem[] items) => new()
         {

@@ -67,8 +67,80 @@ namespace NinjaBotCore.Tests
                 new GearAssessment());
 
             Assert.Contains(
-                "https://www.raidbots.com/simbot/quick?region=us&realm=area-52&name=Test%20Char",
+                "https://www.raidbots.com/simbot/topgear?region=us&realm=area-52&name=Test%20Char",
                 embed.Description);
+        }
+
+        [Fact]
+        public void Build_ShowsTrackDetailsUpgradeActionsAndSpecResources()
+        {
+            var assessment = new GearAssessment
+            {
+                EquippedItemLevel = 308,
+                AverageItemLevel = 308,
+                PrioritySlots = new List<GearSlotAssessment>
+                {
+                    new()
+                    {
+                        SlotType = "CHEST",
+                        SlotLabel = "Chest",
+                        ItemName = "Capped Champion Chest",
+                        ItemLevel = 308,
+                        TrackLabel = "Champion 6/6",
+                        TrackCeilingItemLevel = 308,
+                        IsCurrentSeasonTrack = true
+                    }
+                },
+                UpgradeInPlaceSlots = new List<GearSlotAssessment>
+                {
+                    new()
+                    {
+                        SlotType = "WRIST",
+                        SlotLabel = "Wrist",
+                        ItemName = "Upgradeable Hero Wrist",
+                        ItemLevel = 305,
+                        TrackLabel = "Hero 1/6",
+                        TrackCeilingItemLevel = 321,
+                        IsCurrentSeasonTrack = true,
+                        UpgradeAction = "Upgrade Hero 1/6 toward Hero 6/6 (321)."
+                    }
+                },
+                OverallRecommendation = new GearRecommendation
+                {
+                    SlotLabel = "Chest",
+                    CurrentItemName = "Capped Champion Chest",
+                    CurrentItemLevel = 308,
+                    TrackLabel = "Champion 6/6",
+                    NextAction = "Target a higher track replacement."
+                }
+            };
+
+            var embed = CharUpgradeView.Build(Character, Summary(), new ArmoryMedia(), assessment);
+
+            Assert.Contains("Champion 6/6", embed.Description);
+            Assert.Contains("Upgrade in Place", embed.Description);
+            Assert.Contains("Hero 1/6", embed.Description);
+            Assert.Contains("Hero 6/6", embed.Description);
+            Assert.Contains("https://www.wowhead.com/guide/classes/warrior/arms/overview-pve-dps", embed.Description);
+            Assert.Contains("https://www.wowhead.com/guide/classes/warrior/arms/bis-gear", embed.Description);
+            Assert.Contains("https://www.archon.gg/wow/builds/arms/warrior/mythic-plus/overview/10/all-dungeons/this-week", embed.Description);
+            Assert.Contains("Raidbots Top Gear", embed.Description);
+            Assert.Contains("12.1.0.69214", embed.Footer.Text);
+            Assert.Contains("Exact only on bonus match", embed.Footer.Text);
+        }
+
+        [Fact]
+        public void BuildWowheadOverviewUrl_UsesStableClassSpecTypesAndRole()
+        {
+            var summary = new ArmorySummary
+            {
+                CharacterClass = new ArmoryType { Type = "DEATH_KNIGHT", Name = "Death Knight" },
+                ActiveSpec = new ArmoryType { Type = "BLOOD", Name = "Blood" }
+            };
+
+            Assert.Equal(
+                "https://www.wowhead.com/guide/classes/death-knight/blood/overview-pve-tank",
+                CharUpgradeView.BuildWowheadOverviewUrl(summary));
         }
 
         [Fact]
@@ -116,8 +188,8 @@ namespace NinjaBotCore.Tests
             Name = "Test Char",
             EquippedItemLevel = 274,
             AverageItemLevel = 278,
-            CharacterClass = new ArmoryType { Name = "Warrior" },
-            ActiveSpec = new ArmoryType { Name = "Arms" }
+            CharacterClass = new ArmoryType { Name = "Warrior", Type = "WARRIOR" },
+            ActiveSpec = new ArmoryType { Name = "Arms", Type = "ARMS" }
         };
     }
 }

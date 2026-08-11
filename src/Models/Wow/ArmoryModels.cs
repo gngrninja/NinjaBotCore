@@ -111,6 +111,15 @@ namespace NinjaBotCore.Models.Wow
         [JsonProperty("quality")]
         public ArmoryType Quality { get; set; }
 
+        [JsonProperty("name_description")]
+        public ArmoryNameDescription NameDescription { get; set; }
+
+        [JsonProperty("bonus_list")]
+        public List<int> BonusList { get; set; }
+
+        [JsonProperty("context")]
+        public int Context { get; set; }
+
         [JsonProperty("media")]
         public ArmoryMediaRef Media { get; set; }
 
@@ -131,6 +140,12 @@ namespace NinjaBotCore.Models.Wow
 
         [JsonProperty("weapon")]
         public ArmoryWeapon Weapon { get; set; }
+    }
+
+    public class ArmoryNameDescription
+    {
+        [JsonProperty("display_string")]
+        public string DisplayString { get; set; }
     }
 
     public class ArmoryItemRef
