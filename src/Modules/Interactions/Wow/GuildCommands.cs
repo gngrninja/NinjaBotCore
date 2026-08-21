@@ -91,8 +91,13 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             title = $"{guildObject.guildName} on {guildObject.realmName}'s Raider.IO Stats";
 
-            var currentProg = CharViewHelpers.GetCurrentRaid(guildStats.RaidProgression);
-            var currentRank = CharViewHelpers.GetCurrentRaid(guildStats.RaidRankings);
+            var currentRaidName = await WithDbAsync(async db =>
+                await db.CurrentRaidTier
+                    .AsNoTracking()
+                    .Select(tier => tier.RaidName)
+                    .FirstOrDefaultAsync());
+            var currentProg = CharViewHelpers.GetCurrentRaid(guildStats.RaidProgression, currentRaidName);
+            var currentRank = CharViewHelpers.GetCurrentRaid(guildStats.RaidRankings, currentRaidName);
 
             if (currentProg != null)
             {

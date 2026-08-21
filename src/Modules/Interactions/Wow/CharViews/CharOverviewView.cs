@@ -22,7 +22,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             ArmorySummary armorySummary,
             ArmoryMedia armoryMedia,
             List<LogCharRankings> wclRankings = null,
-            ArmoryAchievementsSummary achievements = null)
+            ArmoryAchievementsSummary achievements = null,
+            string currentRaidName = null)
         {
             var embed = new EmbedBuilder();
             var sb = new StringBuilder();
@@ -63,7 +64,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             }
 
             // Raid Progression
-            var currentRaid = CharViewHelpers.GetCurrentRaid(rioData?.RaidProgression);
+            var currentRaid = CharViewHelpers.GetCurrentRaid(rioData?.RaidProgression, currentRaidName);
             var raidProg = currentRaid?.Value;
             if (raidProg != null && raidProg.TotalBosses > 0)
             {

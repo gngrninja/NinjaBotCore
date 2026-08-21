@@ -93,16 +93,19 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
                 var charInfo = resolution.Character;
 
-                // Fetch data from RIO, Armory, and Achievements in parallel (WCL is lazy-loaded on button click)
+                // Fetch data from RIO, Armory, Achievements, and the configured raid tier in parallel
+                // (WCL rankings are lazy-loaded on button click).
                 var rioTask = FetchRioDataAsync(charInfo);
                 var armoryTask = FetchArmoryDataAsync(charInfo);
                 var achievementsTask = FetchAchievementsAsync(charInfo);
+                var currentRaidNameTask = FetchCurrentRaidNameAsync();
 
-                await Task.WhenAll(rioTask, armoryTask, achievementsTask);
+                await Task.WhenAll(rioTask, armoryTask, achievementsTask, currentRaidNameTask);
 
                 var rioData = await rioTask;
                 var (armorySummary, armoryEquipment, armoryMedia) = await armoryTask;
                 var achievements = await achievementsTask;
+                var currentRaidName = await currentRaidNameTask;
 
                 // Log API usage (~4-5 calls: RIO, summary, equipment, media, achievements)
                 _ = LogCharLookupAsync(charInfo);
@@ -123,7 +126,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
                 // Build overview embed (WCL rankings null - lazy loaded)
                 var embed = CharOverviewView.Build(
-                    charInfo, rioData, armoryEquipment, armorySummary, armoryMedia, null, achievements);
+                    charInfo, rioData, armoryEquipment, armorySummary, armoryMedia, null, achievements,
+                    currentRaidName);
 
                 // Build components (WCL button always enabled for lazy loading)
                 var components = CharOverviewView.BuildComponents(
@@ -163,20 +167,25 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 return;
             }
 
-            // Fetch RIO, Armory, and Achievements data (WCL is lazy-loaded)
+            // Fetch RIO, Armory, Achievements, and the configured raid tier
+            // (WCL rankings are lazy-loaded).
             var rioTask = FetchRioDataAsync(charInfo);
             var armoryTask = FetchArmoryDataAsync(charInfo);
             var achievementsTask = FetchAchievementsAsync(charInfo);
-            await Task.WhenAll(rioTask, armoryTask, achievementsTask);
+            var currentRaidNameTask = FetchCurrentRaidNameAsync();
+            await Task.WhenAll(rioTask, armoryTask, achievementsTask, currentRaidNameTask);
 
             var rioData = await rioTask;
             var (armorySummary, armoryEquipment, armoryMedia) = await armoryTask;
             var achievements = await achievementsTask;
+            var currentRaidName = await currentRaidNameTask;
 
             // Check if character is already saved
             var isAlreadySaved = await IsCharacterSavedAsync(charInfo, Context.User.Id);
 
-            var embed = CharOverviewView.Build(charInfo, rioData, armoryEquipment, armorySummary, armoryMedia, null, achievements);
+            var embed = CharOverviewView.Build(
+                charInfo, rioData, armoryEquipment, armorySummary, armoryMedia, null, achievements,
+                currentRaidName);
             var components = CharOverviewView.BuildComponents(
                 Context.User.Id, charInfo,
                 hasRioData: rioData != null,
@@ -296,7 +305,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 return;
             }
 
-            var rioData = await FetchRioDataAsync(charInfo);
+            var rioTask = FetchRioDataAsync(charInfo);
+            var currentRaidNameTask = FetchCurrentRaidNameAsync();
+            await Task.WhenAll(rioTask, currentRaidNameTask);
+
+            var rioData = await rioTask;
+            var currentRaidName = await currentRaidNameTask;
 
             if (rioData == null)
             {
@@ -307,7 +321,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             // Check if character is already saved
             var isAlreadySaved = await IsCharacterSavedAsync(charInfo, Context.User.Id);
 
-            var embed = CharMythicPlusView.Build(charInfo, rioData, _wowUtils);
+            var embed = CharMythicPlusView.Build(charInfo, rioData, _wowUtils, currentRaidName);
             var components = CharOverviewView.BuildDetailViewComponents(Context.User.Id, charInfo, "mplus", isAlreadySaved);
 
             await ModifyOriginalResponseAsync(msg =>
@@ -962,16 +976,20 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             // Re-fetch RIO and Armory data (WCL is lazy-loaded)
             var rioTask = FetchRioDataAsync(charInfo);
             var armoryTask = FetchArmoryDataAsync(charInfo);
+            var currentRaidNameTask = FetchCurrentRaidNameAsync();
 
-            await Task.WhenAll(rioTask, armoryTask);
+            await Task.WhenAll(rioTask, armoryTask, currentRaidNameTask);
 
             var rioData = await rioTask;
             var (armorySummary, armoryEquipment, armoryMedia) = await armoryTask;
+            var currentRaidName = await currentRaidNameTask;
 
             // Check if character is already saved
             var isAlreadySaved = await IsCharacterSavedAsync(charInfo, Context.User.Id);
 
-            var embed = CharOverviewView.Build(charInfo, rioData, armoryEquipment, armorySummary, armoryMedia);
+            var embed = CharOverviewView.Build(
+                charInfo, rioData, armoryEquipment, armorySummary, armoryMedia,
+                currentRaidName: currentRaidName);
             var components = CharOverviewView.BuildComponents(
                 Context.User.Id, charInfo,
                 hasRioData: rioData != null,
@@ -1006,12 +1024,16 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             // Fetch RIO and Armory data (WCL not included in shared overview)
             var rioTask = FetchRioDataAsync(charInfo);
             var armoryTask = FetchArmoryDataAsync(charInfo);
-            await Task.WhenAll(rioTask, armoryTask);
+            var currentRaidNameTask = FetchCurrentRaidNameAsync();
+            await Task.WhenAll(rioTask, armoryTask, currentRaidNameTask);
 
             var rioData = await rioTask;
             var (armorySummary, armoryEquipment, armoryMedia) = await armoryTask;
+            var currentRaidName = await currentRaidNameTask;
 
-            var embed = CharOverviewView.Build(charInfo, rioData, armoryEquipment, armorySummary, armoryMedia);
+            var embed = CharOverviewView.Build(
+                charInfo, rioData, armoryEquipment, armorySummary, armoryMedia,
+                currentRaidName: currentRaidName);
 
             // Send as new public message (no components for shared version)
             await Context.Channel.SendMessageAsync(
@@ -1249,6 +1271,15 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 _logger.LogDebug(ex, "Failed to fetch mount collection for {Character}", charInfo.Name);
                 return null;
             }
+        }
+
+        private async Task<string> FetchCurrentRaidNameAsync()
+        {
+            return await WithDbAsync(async db =>
+                await db.CurrentRaidTier
+                    .AsNoTracking()
+                    .Select(tier => tier.RaidName)
+                    .FirstOrDefaultAsync());
         }
 
         /// <summary>

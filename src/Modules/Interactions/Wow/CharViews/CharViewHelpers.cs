@@ -152,14 +152,39 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
         }
 
         /// <summary>
-        /// Get the current (latest) raid from a Raider.IO raid dictionary.
-        /// Raider.IO returns raids chronologically, so the last entry is the current tier.
+        /// Get the configured current raid from a Raider.IO raid dictionary.
+        /// Raider.IO does not guarantee consistent object ordering across endpoints, so prefer
+        /// the raid tier name stored by /refresh-raid-tier and only fall back to the last entry.
         /// </summary>
-        public static KeyValuePair<string, T>? GetCurrentRaid<T>(Dictionary<string, T> raidDict) where T : class
+        public static KeyValuePair<string, T>? GetCurrentRaid<T>(
+            Dictionary<string, T> raidDict,
+            string currentRaidName = null) where T : class
         {
             if (raidDict == null || raidDict.Count == 0)
                 return null;
+
+            var normalizedCurrentRaid = NormalizeRaidIdentity(currentRaidName);
+            if (!string.IsNullOrEmpty(normalizedCurrentRaid))
+            {
+                foreach (var raid in raidDict)
+                {
+                    if (NormalizeRaidIdentity(raid.Key) == normalizedCurrentRaid)
+                        return raid;
+                }
+            }
+
             return raidDict.Last();
+        }
+
+        private static string NormalizeRaidIdentity(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            return new string(value
+                .Where(char.IsLetterOrDigit)
+                .Select(char.ToLowerInvariant)
+                .ToArray());
         }
 
         /// <summary>

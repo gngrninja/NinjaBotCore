@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
 using NinjaBotCore.Models.Wow;
+using NinjaBotCore.Modules.Interactions.Wow;
 using NinjaBotCore.Modules.Interactions.Wow.CharViews;
 using Xunit;
 
@@ -190,6 +191,110 @@ namespace NinjaBotCore.Tests
             Assert.NotNull(result);
             Assert.Equal("manaforge-omega", result.Value.Key);
             Assert.Equal(5, result.Value.Value.NormalBossesKilled);
+        }
+
+        [Fact]
+        public void GetCurrentRaid_PrefersNamedTier_WhenCharacterPayloadOrderIsNotChronological()
+        {
+            var dict = new Dictionary<string, RaiderIOModels.RaidProgressionEntry>
+            {
+                ["the-tidebound-grotto"] = new RaiderIOModels.RaidProgressionEntry { TotalBosses = 1 },
+                ["the-venomous-abyss"] = new RaiderIOModels.RaidProgressionEntry { TotalBosses = 8, HeroicBossesKilled = 3 },
+                ["sporefall"] = new RaiderIOModels.RaidProgressionEntry { TotalBosses = 1 },
+                ["tier-mn-1"] = new RaiderIOModels.RaidProgressionEntry { TotalBosses = 9, MythicBossesKilled = 9 }
+            };
+
+            var result = CharViewHelpers.GetCurrentRaid(dict, "The Venomous Abyss");
+
+            Assert.NotNull(result);
+            Assert.Equal("the-venomous-abyss", result.Value.Key);
+            Assert.Equal(3, result.Value.Value.HeroicBossesKilled);
+        }
+
+        [Fact]
+        public void GetCurrentRaid_PrefersNamedTier_ForRankingsToo()
+        {
+            var dict = new Dictionary<string, RaiderIOModels.RaidRankingsEntry>
+            {
+                ["the-venomous-abyss"] = new RaiderIOModels.RaidRankingsEntry
+                {
+                    Heroic = new RaiderIOModels.Heroic { World = 25 }
+                },
+                ["tier-mn-1"] = new RaiderIOModels.RaidRankingsEntry
+                {
+                    Heroic = new RaiderIOModels.Heroic { World = 1 }
+                }
+            };
+
+            var result = CharViewHelpers.GetCurrentRaid(dict, "The Venomous Abyss");
+
+            Assert.NotNull(result);
+            Assert.Equal("the-venomous-abyss", result.Value.Key);
+            Assert.Equal(25, result.Value.Value.Heroic.World);
+        }
+
+        [Fact]
+        public void GetCurrentRaid_FallsBackToLastEntry_WhenConfiguredTierIsUnavailable()
+        {
+            var dict = new Dictionary<string, RaiderIOModels.RaidProgressionEntry>
+            {
+                ["older-raid"] = new RaiderIOModels.RaidProgressionEntry { TotalBosses = 8 },
+                ["available-raid"] = new RaiderIOModels.RaidProgressionEntry { TotalBosses = 9 }
+            };
+
+            var result = CharViewHelpers.GetCurrentRaid(dict, "Not Yet Returned By Raider IO");
+
+            Assert.NotNull(result);
+            Assert.Equal("available-raid", result.Value.Key);
+        }
+
+        [Fact]
+        public void CharacterViews_RenderNamedCurrentTier_WhenRaiderIoOrderIsStale()
+        {
+            var character = new CharacterInfo
+            {
+                Name = "Testchar",
+                Realm = "Area 52",
+                RealmSlug = "area-52",
+                Region = "us"
+            };
+            var rio = new RaiderIOModels.RioMythicPlusChar
+            {
+                Name = "Testchar",
+                Class = "Warrior",
+                ActiveSpecName = "Arms",
+                RaidProgression = new Dictionary<string, RaiderIOModels.RaidProgressionEntry>
+                {
+                    ["the-venomous-abyss"] = new RaiderIOModels.RaidProgressionEntry
+                    {
+                        TotalBosses = 8,
+                        HeroicBossesKilled = 3
+                    },
+                    ["tier-mn-1"] = new RaiderIOModels.RaidProgressionEntry
+                    {
+                        TotalBosses = 9,
+                        MythicBossesKilled = 9
+                    }
+                }
+            };
+
+            var overview = CharOverviewView.Build(
+                character,
+                rio,
+                armoryEquipment: null,
+                armorySummary: null,
+                armoryMedia: null,
+                currentRaidName: "The Venomous Abyss");
+            var mythicPlus = CharMythicPlusView.Build(
+                character,
+                rio,
+                wowUtils: null,
+                currentRaidName: "The Venomous Abyss");
+
+            Assert.Contains("3/8H The Venomous Abyss", overview.Description);
+            Assert.DoesNotContain("Midnight Season 1", overview.Description);
+            Assert.Contains("The Venomous Abyss", mythicPlus.Description);
+            Assert.DoesNotContain("Midnight Season 1", mythicPlus.Description);
         }
 
         [Fact]

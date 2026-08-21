@@ -18,7 +18,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
         public static EmbedBuilder Build(
             CharacterInfo charInfo,
             RaiderIOModels.RioMythicPlusChar mPlusInfo,
-            WowUtilities wowUtils = null)
+            WowUtilities wowUtils = null,
+            string currentRaidName = null)
         {
             var embed = new EmbedBuilder();
             var sb = new StringBuilder();
@@ -55,7 +56,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             }
 
             // Raid Progression
-            var currentRaid = CharViewHelpers.GetCurrentRaid(mPlusInfo.RaidProgression);
+            var currentRaid = CharViewHelpers.GetCurrentRaid(mPlusInfo.RaidProgression, currentRaidName);
             if (currentRaid != null)
             {
                 var raid = currentRaid.Value.Value;
