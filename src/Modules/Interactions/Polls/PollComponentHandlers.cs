@@ -544,6 +544,17 @@ namespace NinjaBotCore.Modules.Interactions.Polls
 
             try
             {
+                if (Context.Guild == null
+                    || Context.User is not IGuildUser guildUser
+                    || Context.Channel is not IGuildChannel guildChannel
+                    || !PollAuthorization.CanCreatePoll(Context.Guild.OwnerId, guildUser, guildChannel))
+                {
+                    await FollowupAsync(
+                        "You no longer have View Channel, Send Messages, and Create Polls permissions in a standard text channel, or Manage Messages permission.",
+                        ephemeral: true);
+                    return;
+                }
+
                 // Validate question
                 if (string.IsNullOrWhiteSpace(modal.Question))
                 {

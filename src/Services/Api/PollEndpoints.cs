@@ -901,7 +901,7 @@ namespace NinjaBotCore.Services.Api
                     return Results.BadRequest(new { success = false, error = "Invalid guild_id, channel_id, or user_id" });
                 }
 
-                // Check admin permission via Discord API
+                // Check the user's effective permission in the requested Discord channel.
                 var discordClient = scope.ServiceProvider.GetRequiredService<DiscordShardedClient>();
                 try
                 {
@@ -919,23 +919,21 @@ namespace NinjaBotCore.Services.Api
                             statusCode: 403);
                     }
 
-                    // Check for Administrator or ManageMessages permission
-                    var isOwner = guild.OwnerId == (ulong)userId;
-                    var isAdmin = guildUser.GuildPermissions.Administrator;
-                    var canManageMessages = guildUser.GuildPermissions.ManageMessages;
-
-                    if (!isOwner && !isAdmin && !canManageMessages)
-                    {
-                        return Results.Json(new { success = false, error = "You need Administrator or Manage Messages permission to create polls" },
-                            statusCode: 403);
-                    }
-
-                    // Verify channel exists and is accessible
-                    var channel = guild.GetChannel((ulong)channelId) as ISocketMessageChannel;
-                    if (channel == null)
+                    var guildChannel = guild.GetChannel((ulong)channelId) as SocketGuildChannel;
+                    var channel = guildChannel as ISocketMessageChannel;
+                    if (guildChannel == null || channel == null)
                     {
                         return Results.Json(new { success = false, error = "Channel not found or not a text channel" },
                             statusCode: 404);
+                    }
+
+                    if (!PollAuthorization.CanCreatePoll(guild.OwnerId, guildUser, guildChannel))
+                    {
+                        return Results.Json(new
+                        {
+                            success = false,
+                            error = "You need View Channel, Send Messages, and Create Polls permissions in a standard text channel, or Manage Messages permission"
+                        }, statusCode: 403);
                     }
 
                     // Parse options

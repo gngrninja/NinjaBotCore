@@ -21,7 +21,6 @@ using DbServerPollSettings = NinjaBotCore.Database.ServerPollSettings;
 namespace NinjaBotCore.Modules.Interactions.Polls
 {
     [Group("poll", "Poll management commands")]
-    [DefaultMemberPermissions(GuildPermission.ManageMessages)]
     public class PollCommands : NinjaBotBaseModule
     {
         private readonly DiscordShardedClient _client;
@@ -38,12 +37,20 @@ namespace NinjaBotCore.Modules.Interactions.Polls
         }
 
         [SlashCommand("create", "Create a new poll")]
-        [RequireUserPermission(GuildPermission.ManageMessages)]
         public async Task PollCreate()
         {
-            // Note: Modal is handled by UserInteractions.HandleModal event handler (not Discord.Interactions framework)
-            // This ensures immediate response timing to avoid "Unknown interaction" errors
-            // We use ModalBuilder since the IModal class isn't cached by Discord.Interactions anymore
+            if (Context.Guild == null
+                || Context.User is not IGuildUser guildUser
+                || Context.Channel is not IGuildChannel guildChannel
+                || !PollAuthorization.CanCreatePoll(Context.Guild.OwnerId, guildUser, guildChannel))
+            {
+                await RespondAsync(
+                    "You need View Channel, Send Messages, and Create Polls permissions in a standard text channel, or Manage Messages permission.",
+                    ephemeral: true);
+                return;
+            }
+
+            // Modal submission is handled by PollComponentHandlers so the interaction is deferred immediately.
             var modal = new ModalBuilder()
                 .WithTitle("Create a Poll")
                 .WithCustomId("poll_create_modal")
