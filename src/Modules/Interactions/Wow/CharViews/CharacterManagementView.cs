@@ -1,5 +1,7 @@
 using Discord;
 using NinjaBotCore.Database;
+using NinjaBotCore.Modules.Interactions.Wow;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -51,6 +53,130 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
 
             embed.ThumbnailUrl = user?.GetAvatarUrl();
             return embed;
+        }
+
+        public static ComponentBuilderV2 BuildSelectedCard(
+            ulong userId,
+            WowCharAssociation character,
+            string avatarUrl = null)
+        {
+            if (character == null)
+            {
+                throw new ArgumentNullException(nameof(character));
+            }
+
+            var characterName = BoundDisplay(character.CharName, 80, "Unknown Character");
+            var realm = BoundDisplay(character.WowRealm, 100, "Unknown Realm");
+            var region = BoundDisplay(character.WowRegion, 12, "us").ToLowerInvariant();
+            var mainIndicator = character.IsMain ? "⭐ Main character" : "Alt character";
+
+            var controls = new ComponentBuilder()
+                .WithButton(
+                    label: "Set as Main",
+                    customId: $"char_set_main~{character.Id}",
+                    style: ButtonStyle.Success,
+                    emote: new Emoji("⭐"),
+                    disabled: character.IsMain)
+                .WithButton(
+                    label: "Remove",
+                    customId: $"char_remove~{character.Id}",
+                    style: ButtonStyle.Danger,
+                    emote: new Emoji("🗑️"))
+                .WithButton(
+                    label: "View Profile",
+                    customId: $"char_view_saved~{userId}~{character.Id}",
+                    style: ButtonStyle.Primary,
+                    emote: new Emoji("📊"))
+                .WithButton(
+                    label: "Back to List",
+                    customId: "char_back_to_list",
+                    style: ButtonStyle.Secondary,
+                    emote: new Emoji("↩️"));
+
+            var embed = new EmbedBuilder()
+                .WithTitle($"📋 {characterName}")
+                .WithDescription(
+                    $"**{realm} ({region.ToUpperInvariant()})**\n" +
+                    $"{mainIndicator}\n\nChoose an action below.")
+                .WithColor(character.IsMain
+                    ? new Color(255, 215, 0)
+                    : new Color(0, 200, 150));
+
+            if (!string.IsNullOrWhiteSpace(avatarUrl))
+            {
+                embed.WithThumbnailUrl(avatarUrl);
+            }
+
+            return WowCardV2.FromEmbed(embed, controls.Build());
+        }
+
+        public static bool TryBuildCharacterInfo(
+            WowCharAssociation character,
+            out CharacterInfo charInfo)
+        {
+            charInfo = null;
+            if (character == null)
+            {
+                return false;
+            }
+
+            var name = character.CharName?.Trim();
+            var realm = character.WowRealm?.Trim();
+            var region = character.WowRegion?.Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(name)
+                || string.IsNullOrWhiteSpace(realm)
+                || region is not ("us" or "eu" or "kr" or "tw" or "cn")
+                || name.Contains('~')
+                || realm.Contains('~'))
+            {
+                return false;
+            }
+
+            // Every downstream /char control embeds Name~Realm~Region. Keeping that
+            // payload bounded ensures even the longest current retail route stays
+            // below Discord's 100-character custom_id limit.
+            var charParam = $"{name}~{realm}~{region}";
+            if (charParam.Length > 48)
+            {
+                return false;
+            }
+
+            var realmSlug = character.LocalRealmSlug?.Trim();
+            if (string.IsNullOrWhiteSpace(realmSlug)
+                || realmSlug.Length > 64
+                || realmSlug.Contains('~'))
+            {
+                realmSlug = CharViewHelpers.ToRealmSlug(realm);
+            }
+
+            charInfo = new CharacterInfo
+            {
+                Name = name,
+                Realm = realm,
+                RealmSlug = realmSlug,
+                Region = region,
+                Locale = character.Locale
+            };
+            return true;
+        }
+
+        private static string BoundDisplay(string value, int maxLength, string fallback)
+        {
+            var display = string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+            if (display.Length <= maxLength)
+            {
+                return display;
+            }
+
+            var cutAt = maxLength - 1;
+            if (cutAt > 0
+                && char.IsHighSurrogate(display[cutAt - 1])
+                && char.IsLowSurrogate(display[cutAt]))
+            {
+                cutAt--;
+            }
+
+            return display.Substring(0, cutAt) + "…";
         }
 
         /// <summary>

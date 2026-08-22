@@ -4,8 +4,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using NinjaBotCore.Common;
 using NinjaBotCore.Database;
 using NinjaBotCore.Models.Wow;
+using NinjaBotCore.Modules.Interactions.Wow.CharViews;
 using NinjaBotCore.Modules.Wow;
 using NinjaBotCore.Services;
 using System;
@@ -183,7 +185,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     embed.Title = "No Realm Specified";
                     embed.WithColor(new Color(255, 165, 0));
                     embed.Description = "Please specify a realm using the `realm` parameter or set a guild association with `/setguild`.";
-                    await FollowupAsync(embed: embed.Build(), ephemeral: true);
+                    await Context.Interaction.ModifyToV2Async(WowCardV2.FromEmbed(embed).Build());
                     return;
                 }
             }
@@ -197,41 +199,35 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 var singleRealmInfo = await _wowApi.GetSingleRealmInfoAsync(realmSlug, regionName);
                 var connectedRealmInfo = await _wowApi.GetConnectedRealmInfoAsync(singleRealmInfo.ConnectedRealm.Href.ToString(), regionName);
 
-                // Use the official name from the API response
-                string realmName = connectedRealmInfo.Realms[0].Name;
+                // Use the official name and metadata from the connected-realm response.
+                var realmData = connectedRealmInfo.Realms[0];
+                var realmName = realmData.Name;
+                var isUp = string.Equals(connectedRealmInfo.Status.Name, "Up", StringComparison.OrdinalIgnoreCase);
+                var statusEmoji = isUp ? "🟢" : "🔴";
 
-                // Build embed
-                embed.Title = $"Realm: {realmName}";
-                embed.WithColor(connectedRealmInfo.Status.Name == "Up" ? new Color(0, 255, 0) : new Color(255, 0, 0));
-
-                // Status indicator
-                string statusEmoji = connectedRealmInfo.Status.Name == "Up" ? ":green_circle:" : ":red_circle:";
+                embed.Title = $"{statusEmoji} {realmName}";
+                embed.WithColor(isUp ? new Color(46, 204, 113) : new Color(231, 76, 60));
 
                 var sb = new StringBuilder();
-                sb.AppendLine($"## {statusEmoji} Status: **{connectedRealmInfo.Status.Name}**\n");
+                sb.AppendLine($"**{regionName.ToUpper()}** • **{realmData.Type.Name}** realm");
+                sb.AppendLine();
+                sb.AppendLine("## Realm Status");
+                sb.AppendLine($"**{connectedRealmInfo.Status.Name}** • Population **{connectedRealmInfo.Population.Name}** • Queue **{(connectedRealmInfo.HasQueue ? "Active" : "None")}**");
+                sb.AppendLine($"`Locale` {realmData.Locale}   `Timezone` {realmData.Timezone}");
 
-                // Basic info
-                sb.AppendLine($"**Region:** {regionName.ToUpper()}");
-                sb.AppendLine($"**Type:** {connectedRealmInfo.Realms[0].Type.Name}");
-                sb.AppendLine($"**Locale:** {connectedRealmInfo.Realms[0].Locale}");
-                sb.AppendLine($"**Timezone:** {connectedRealmInfo.Realms[0].Timezone}");
-                sb.AppendLine($"**Population:** {connectedRealmInfo.Population.Name}");
-                sb.AppendLine($"**Queue:** {(connectedRealmInfo.HasQueue ? "Yes" : "No")}\n");
-
-                // Connected realms
                 if (connectedRealmInfo.Realms.Length > 1)
                 {
-                    sb.AppendLine($"**Connected Realms ({connectedRealmInfo.Realms.Length}):**");
-                    foreach (var connectedRealm in connectedRealmInfo.Realms.OrderBy(r => r.Name))
-                    {
-                        sb.AppendLine($"• {connectedRealm.Name}");
-                    }
+                    sb.AppendLine();
+                    sb.AppendLine($"## Connected Realms — {connectedRealmInfo.Realms.Length}");
+                    sb.AppendLine(string.Join(" • ", connectedRealmInfo.Realms
+                        .OrderBy(connectedRealm => connectedRealm.Name)
+                        .Select(connectedRealm => connectedRealm.Name)));
                 }
 
                 embed.Description = sb.ToString();
-                embed.WithFooter($"Realm ID: {connectedRealmInfo.Id}");
+                embed.WithFooter($"Realm ID {connectedRealmInfo.Id} • Live Blizzard realm data");
 
-                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+                await Context.Interaction.ModifyToV2Async(WowCardV2.FromEmbed(embed).Build());
             }
             catch (HttpRequestException ex)
             {
@@ -244,7 +240,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     "• Wrong region selected\n" +
                     "• Blizzard API is temporarily unavailable\n\n" +
                     "Use autocomplete to select a valid realm.";
-                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+                await Context.Interaction.ModifyToV2Async(WowCardV2.FromEmbed(embed).Build());
             }
             catch (Exception ex)
             {
@@ -252,7 +248,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 embed.Title = "Error";
                 embed.WithColor(new Color(255, 0, 0));
                 embed.Description = "An error occurred while fetching realm information. Please try again later.";
-                await FollowupAsync(embed: embed.Build(), ephemeral: true);
+                await Context.Interaction.ModifyToV2Async(WowCardV2.FromEmbed(embed).Build());
             }
         }
 

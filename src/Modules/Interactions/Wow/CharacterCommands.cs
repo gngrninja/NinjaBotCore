@@ -3,6 +3,7 @@ using Discord.Interactions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using NinjaBotCore.Common;
 using NinjaBotCore.Database;
 using NinjaBotCore.Modules.Interactions.Wow.CharViews;
 using NinjaBotCore.Modules.Wow;
@@ -254,6 +255,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         [SlashCommand("getchars", "List your saved WoW characters")]
         public async Task GetChars()
         {
+            await DeferAsync(ephemeral: true);
             var savedChars = await _wowCache.GetUserCharactersAsync((long)Context.User.Id);
             savedChars = savedChars?
                 .OrderByDescending(c => c.IsMain)
@@ -263,7 +265,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var embed = CharacterManagementView.Build(Context.User, savedChars);
             var components = CharacterManagementView.BuildComponents(savedChars);
 
-            await RespondAsync(embed: embed.Build(), components: components.Build(), ephemeral: true);
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed, components.Build()).Build());
         }
 
         /// <summary>
@@ -288,50 +291,11 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     return;
                 }
 
-                // Build action buttons for the selected character
-                var builder = new ComponentBuilder()
-                    .WithButton(
-                        label: "Set as Main",
-                        customId: $"char_set_main~{characterId}",
-                        style: ButtonStyle.Success,
-                        emote: new Emoji("⭐"),
-                        disabled: character.IsMain // Disable if already main
-                    )
-                    .WithButton(
-                        label: "Remove Character",
-                        customId: $"char_remove~{characterId}",
-                        style: ButtonStyle.Danger,
-                        emote: new Emoji("🗑️")
-                    )
-                    .WithButton(
-                        label: "View RIO Profile",
-                        customId: $"char_view_rio~{characterId}",
-                        style: ButtonStyle.Primary,
-                        emote: new Emoji("📊")
-                    )
-                    .WithButton(
-                        label: "← Back to List",
-                        customId: "char_back_to_list",
-                        style: ButtonStyle.Secondary,
-                        emote: new Emoji("↩️")
-                    );
-
-                var mainIndicator = character.IsMain ? "★ [MAIN]" : "";
-                var realm = !string.IsNullOrEmpty(character.WowRealm) ? character.WowRealm : "Unknown Realm";
-                var region = !string.IsNullOrEmpty(character.WowRegion) ? character.WowRegion.ToUpper() : "US";
-
-                var embed = new EmbedBuilder()
-                    .WithTitle("Character Management")
-                    .WithDescription($"**Selected:** {mainIndicator} **{character.CharName}** - {realm} ({region})\n\nChoose an action below:")
-                    .WithColor(character.IsMain ? new Color(255, 215, 0) : new Color(0, 200, 150))
-                    .WithThumbnailUrl(Context.User.GetAvatarUrl())
-                    .Build();
-
-                await ModifyOriginalResponseAsync(msg =>
-                {
-                    msg.Embed = embed;
-                    msg.Components = builder.Build();
-                });
+                var selectedCard = CharacterManagementView.BuildSelectedCard(
+                    Context.User.Id,
+                    character,
+                    Context.User.GetAvatarUrl());
+                await Context.Interaction.ModifyToV2Async(selectedCard.Build());
             }
             catch (Exception ex)
             {
@@ -481,11 +445,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 var embed = CharacterManagementView.Build(Context.User, savedChars);
                 var components = CharacterManagementView.BuildComponents(savedChars);
 
-                await ModifyOriginalResponseAsync(msg =>
-                {
-                    msg.Embed = embed.Build();
-                    msg.Components = components.Build();
-                });
+                await Context.Interaction.ModifyToV2Async(
+                    WowCardV2.FromEmbed(embed, components.Build()).Build());
             }
             catch (Exception ex)
             {

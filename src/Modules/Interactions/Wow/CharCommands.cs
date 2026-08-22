@@ -85,9 +85,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     var errorEmbed = new EmbedBuilder()
                         .WithTitle(resolution.ErrorTitle)
                         .WithDescription(resolution.ErrorMessage)
-                        .WithColor(new Color(255, 0, 0))
-                        .Build();
-                    await FollowupAsync(embed: errorEmbed, ephemeral: true);
+                        .WithColor(new Color(255, 0, 0));
+                    await Context.Interaction.ModifyToV2Async(
+                        WowCardV2.FromEmbed(errorEmbed).Build());
                     return;
                 }
 
@@ -138,16 +138,63 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     isAlreadySaved: isAlreadySaved,
                     hasAchievements: achievements?.RecentEvents?.Any() == true);
 
-                await FollowupAsync(embed: embed.Build(), components: components.Build());
+                await Context.Interaction.ModifyToV2Async(
+                    WowCardV2.FromEmbed(embed, components.Build()).Build());
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in GetCharacterProfile command");
-                await FollowupAsync("An error occurred while fetching character data. Please try again.", ephemeral: true);
+                await Context.Interaction.ModifyToV2Async(
+                    WowCardV2.Notice(
+                        "Character Data Unavailable",
+                        "An error occurred while fetching character data. Please try again.",
+                        Color.Red,
+                        "❌").Build());
             }
         }
 
         #region Component Handlers - View Navigation
+
+        [ComponentInteraction("char_view_saved~*~*")]
+        public async Task HandleViewSavedCharacter(string userIdStr, string characterIdStr)
+        {
+            if (!ValidateUser(userIdStr, out var errorMsg))
+            {
+                await RespondAsync(errorMsg, ephemeral: true);
+                return;
+            }
+
+            if (!long.TryParse(characterIdStr, out var characterId))
+            {
+                await RespondAsync("Invalid saved character.", ephemeral: true);
+                return;
+            }
+
+            await DeferAsync();
+
+            var savedCharacter = await WithDbAsync(async db =>
+                await db.WowCharAssociation
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(character =>
+                        character.Id == characterId
+                        && character.UserId == (long)Context.User.Id));
+
+            if (savedCharacter == null)
+            {
+                await FollowupAsync("Saved character not found.", ephemeral: true);
+                return;
+            }
+
+            if (!CharacterManagementView.TryBuildCharacterInfo(savedCharacter, out var charInfo))
+            {
+                await FollowupAsync(
+                    "This saved character contains invalid legacy data. Remove it and add it again before opening the profile.",
+                    ephemeral: true);
+                return;
+            }
+
+            await RenderOverviewAsync(charInfo);
+        }
 
         [ComponentInteraction("char_view_overview~*~*")]
         public async Task HandleViewOverview(string userIdStr, string charParam)
@@ -167,6 +214,11 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 return;
             }
 
+            await RenderOverviewAsync(charInfo);
+        }
+
+        private async Task RenderOverviewAsync(CharacterInfo charInfo)
+        {
             // Fetch RIO, Armory, Achievements, and the configured raid tier
             // (WCL rankings are lazy-loaded).
             var rioTask = FetchRioDataAsync(charInfo);
@@ -193,11 +245,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 isAlreadySaved: isAlreadySaved,
                 hasAchievements: achievements?.RecentEvents?.Any() == true);
 
-            await ModifyOriginalResponseAsync(msg =>
-            {
-                msg.Embed = embed.Build();
-                msg.Components = components.Build();
-            });
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed, components.Build()).Build());
         }
 
         [ComponentInteraction("char_view_gear~*~*")]
@@ -239,11 +288,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 components.WithSelectMenu(selectMenu, 2);
             }
 
-            await ModifyOriginalResponseAsync(msg =>
-            {
-                msg.Embed = embed.Build();
-                msg.Components = components.Build();
-            });
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed, components.Build()).Build());
         }
 
         [ComponentInteraction("char_view_upgrades~*~*")]
@@ -280,11 +326,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 "upgrades",
                 isAlreadySaved);
 
-            await ModifyOriginalResponseAsync(msg =>
-            {
-                msg.Embed = embed.Build();
-                msg.Components = components.Build();
-            });
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed, components.Build()).Build());
         }
 
         [ComponentInteraction("char_view_mplus~*~*")]
@@ -324,11 +367,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var embed = CharMythicPlusView.Build(charInfo, rioData, _wowUtils, currentRaidName);
             var components = CharOverviewView.BuildDetailViewComponents(Context.User.Id, charInfo, "mplus", isAlreadySaved);
 
-            await ModifyOriginalResponseAsync(msg =>
-            {
-                msg.Embed = embed.Build();
-                msg.Components = components.Build();
-            });
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed, components.Build()).Build());
         }
 
         [ComponentInteraction("char_view_logs~*~*~*~*")]
@@ -396,11 +436,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 components.WithSelectMenu(encounterMenu, 3);
             }
 
-            await ModifyOriginalResponseAsync(msg =>
-            {
-                msg.Embed = embed.Build();
-                msg.Components = components.Build();
-            });
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed, components.Build()).Build());
         }
 
         [ComponentInteraction("char_logs_difficulty~*~*~*~*~*")]
@@ -481,11 +518,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 components.WithSelectMenu(encounterMenu, 3);
             }
 
-            await ModifyOriginalResponseAsync(msg =>
-            {
-                msg.Embed = embed.Build();
-                msg.Components = components.Build();
-            });
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed, components.Build()).Build());
         }
 
         [ComponentInteraction("char_logs_encounter_v2~*~*~*~*~*~*")]
@@ -557,11 +591,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 components.WithSelectMenu(encounterMenu, 3);
             }
 
-            await ModifyOriginalResponseAsync(msg =>
-            {
-                msg.Embed = embed.Build();
-                msg.Components = components.Build();
-            });
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed, components.Build()).Build());
         }
 
         [ComponentInteraction("char_gear_select~*~*")]
@@ -624,11 +655,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var embed = CharGearView.BuildItemDetail(selectedItem, charInfo, itemMedia);
             var components = CharGearView.BuildItemDetailComponents(Context.User.Id, charInfo, armoryEquipment);
 
-            await ModifyOriginalResponseAsync(msg =>
-            {
-                msg.Embed = embed.Build();
-                msg.Components = components.Build();
-            });
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed, components.Build()).Build());
         }
 
         [ComponentInteraction("char_view_achievements~*~*")]
@@ -670,11 +698,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var embed = CharViews.CharAchievementsView.Build(charInfo, achievements, armoryMedia, 0);
             var components = CharViews.CharAchievementsView.BuildComponents(Context.User.Id, charInfo, 0, totalPages, isAlreadySaved);
 
-            await ModifyOriginalResponseAsync(msg =>
-            {
-                msg.Embed = embed.Build();
-                msg.Components = components.Build();
-            });
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed, components.Build()).Build());
         }
 
         [ComponentInteraction("char_achievements_page~*~*~*")]
@@ -723,11 +748,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var embed = CharViews.CharAchievementsView.Build(charInfo, achievements, armoryMedia, page);
             var components = CharViews.CharAchievementsView.BuildComponents(Context.User.Id, charInfo, page, totalPages, isAlreadySaved);
 
-            await ModifyOriginalResponseAsync(msg =>
-            {
-                msg.Embed = embed.Build();
-                msg.Components = components.Build();
-            });
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed, components.Build()).Build());
         }
 
         [ComponentInteraction("char_view_pvp~*~*")]
@@ -776,11 +798,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
                 var noDataComponents = CharOverviewView.BuildDetailViewComponents(Context.User.Id, charInfo, "pvp", isAlreadySavedNoData);
 
-                await ModifyOriginalResponseAsync(msg =>
-                {
-                    msg.Embed = noDataEmbed;
-                    msg.Components = noDataComponents.Build();
-                });
+                await Context.Interaction.ModifyToV2Async(
+                    WowCardV2.FromEmbed(noDataEmbed, noDataComponents.Build()).Build());
                 return;
             }
 
@@ -793,11 +812,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var embed = CharPvPView.Build(charInfo, pvpSummary, bracketDetails, summary, media);
             var components = CharOverviewView.BuildDetailViewComponents(Context.User.Id, charInfo, "pvp", isAlreadySaved);
 
-            await ModifyOriginalResponseAsync(msg =>
-            {
-                msg.Embed = embed.Build();
-                msg.Components = components.Build();
-            });
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed, components.Build()).Build());
         }
 
         [ComponentInteraction("char_view_mounts~*~*")]
@@ -844,11 +860,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
                 var noDataComponents = CharOverviewView.BuildDetailViewComponents(Context.User.Id, charInfo, "mounts", isAlreadySaved);
 
-                await ModifyOriginalResponseAsync(msg =>
-                {
-                    msg.Embed = noDataEmbed;
-                    msg.Components = noDataComponents.Build();
-                });
+                await Context.Interaction.ModifyToV2Async(
+                    WowCardV2.FromEmbed(noDataEmbed, noDataComponents.Build()).Build());
                 return;
             }
 
@@ -864,22 +877,16 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
                 var noDbComponents = CharOverviewView.BuildDetailViewComponents(Context.User.Id, charInfo, "mounts", isAlreadySaved);
 
-                await ModifyOriginalResponseAsync(msg =>
-                {
-                    msg.Embed = noDbEmbed;
-                    msg.Components = noDbComponents.Build();
-                });
+                await Context.Interaction.ModifyToV2Async(
+                    WowCardV2.FromEmbed(noDbEmbed, noDbComponents.Build()).Build());
                 return;
             }
 
             var embed = CharMountsView.Build(charInfo, mountCollection, allMounts, media);
             var components = CharOverviewView.BuildDetailViewComponents(Context.User.Id, charInfo, "mounts", isAlreadySaved);
 
-            await ModifyOriginalResponseAsync(msg =>
-            {
-                msg.Embed = embed.Build();
-                msg.Components = components.Build();
-            });
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed, components.Build()).Build());
         }
 
         #endregion
@@ -996,11 +1003,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 hasArmoryData: armoryEquipment != null,
                 isAlreadySaved: isAlreadySaved);
 
-            await ModifyOriginalResponseAsync(msg =>
-            {
-                msg.Embed = embed.Build();
-                msg.Components = components.Build();
-            });
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed, components.Build()).Build());
         }
 
         [ComponentInteraction("char_share~*~*")]
@@ -1035,10 +1039,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 charInfo, rioData, armoryEquipment, armorySummary, armoryMedia,
                 currentRaidName: currentRaidName);
 
-            // Send as new public message (no components for shared version)
+            // Send as a public Components V2 card with mentions rendered but never notified.
+            var sharedCard = WowCardV2.FromEmbed(
+                embed,
+                preface: $"*Shared by {Context.User.Mention}*");
             await Context.Channel.SendMessageAsync(
-                text: $"*Shared by {Context.User.Mention}*",
-                embed: embed.Build());
+                components: sharedCard.Build(),
+                flags: MessageFlags.ComponentsV2,
+                allowedMentions: AllowedMentions.None);
 
             await FollowupAsync("Character profile shared!", ephemeral: true);
         }
@@ -1066,11 +1074,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var embed = CharacterManagementView.Build(Context.User, savedChars);
             var components = CharacterManagementView.BuildComponents(savedChars, Context.User.Id, returnCharParam);
 
-            await ModifyOriginalResponseAsync(msg =>
-            {
-                msg.Embed = embed.Build();
-                msg.Components = components.Build();
-            });
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed, components.Build()).Build());
         }
 
         [ComponentInteraction("char_manage~*")]
@@ -1093,11 +1098,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var embed = CharacterManagementView.Build(Context.User, savedChars);
             var components = CharacterManagementView.BuildComponents(savedChars);
 
-            await ModifyOriginalResponseAsync(msg =>
-            {
-                msg.Embed = embed.Build();
-                msg.Components = components.Build();
-            });
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed, components.Build()).Build());
         }
 
         #endregion

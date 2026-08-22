@@ -53,43 +53,37 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         {
             await DeferAsync(ephemeral: true);
 
-            var embed = new EmbedBuilder();
-            var sb = new StringBuilder();
             var guildInfo = Context.Guild;
-
-            string title = string.Empty;
-            string discordGuildName = string.Empty;
-            string thumbUrl = string.Empty;
-            string region = string.Empty;
-
-            if (guildInfo == null)
-            {
-                discordGuildName = Context.User.Username;
-                thumbUrl = Context.User.GetAvatarUrl();
-            }
-            else
-            {
-                discordGuildName = Context.Guild.Name;
-                thumbUrl = Context.Guild.IconUrl;
-            }
-
+            var discordGuildName = guildInfo?.Name ?? Context.User.Username;
+            var thumbUrl = guildInfo?.IconUrl ?? Context.User.GetAvatarUrl();
             var guildObject = await _wowUtils.GetGuildName(Context);
 
             if (string.IsNullOrEmpty(guildObject.guildName))
             {
-                await FollowupAsync($"No guild association found for **{discordGuildName}**. Use `/setguild` to associate a WoW guild first.", ephemeral: true);
+                await Context.Interaction.ModifyToV2Async(
+                    WowCardV2.Notice(
+                        "No Guild Association",
+                        $"No guild association was found for **{discordGuildName}**. Use `/setguild` to associate a WoW guild first.",
+                        Color.Orange,
+                        "⚠️").Build());
                 return;
             }
 
-            var guildStats = await _rioApi.GetRioGuildInfoAsync(guildName: guildObject.guildName, realmName: guildObject.realmSlug, region: guildObject.regionName);
+            var guildStats = await _rioApi.GetRioGuildInfoAsync(
+                guildName: guildObject.guildName,
+                realmName: guildObject.realmSlug,
+                region: guildObject.regionName);
 
             if (guildStats == null)
             {
-                await FollowupAsync($"Could not retrieve Raider.IO data for **{guildObject.guildName}**.", ephemeral: true);
+                await Context.Interaction.ModifyToV2Async(
+                    WowCardV2.Notice(
+                        "Raider.IO Data Unavailable",
+                        $"Could not retrieve Raider.IO data for **{guildObject.guildName}**. Please try again shortly.",
+                        Color.Red,
+                        "❌").Build());
                 return;
             }
-
-            title = $"{guildObject.guildName} on {guildObject.realmName}'s Raider.IO Stats";
 
             var currentRaidName = await WithDbAsync(async db =>
                 await db.CurrentRaidTier
@@ -98,42 +92,59 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     .FirstOrDefaultAsync());
             var currentProg = CharViewHelpers.GetCurrentRaid(guildStats.RaidProgression, currentRaidName);
             var currentRank = CharViewHelpers.GetCurrentRaid(guildStats.RaidRankings, currentRaidName);
+            var sb = new StringBuilder();
+
+            sb.AppendLine($"**{guildObject.realmName}** • **{guildObject.regionName?.ToUpper()}** • Raider.IO");
 
             if (currentProg != null)
             {
                 var prog = currentProg.Value.Value;
                 var raidName = CharViewHelpers.FormatRaidName(currentProg.Value.Key);
-                string normalKilled = _wowUtils.GetNumberEmojiFromString((int)prog.NormalBossesKilled);
-                string heroicKilled = _wowUtils.GetNumberEmojiFromString((int)prog.HeroicBossesKilled);
-                string mythicKilled = _wowUtils.GetNumberEmojiFromString((int)prog.MythicBossesKilled);
-                string totalBosses = _wowUtils.GetNumberEmojiFromString((int)prog.TotalBosses);
-
-                sb.AppendLine($"**__Raid Progression ({raidName}):__**");
-                sb.AppendLine($"\t **normal** [{normalKilled} / {totalBosses}]");
-                sb.AppendLine($"\t **heroic** [{heroicKilled} / {totalBosses}]");
-                sb.AppendLine($"\t **mythic** [{mythicKilled} / {totalBosses}]");
                 sb.AppendLine();
+                sb.AppendLine($"## 🐍 Raid Progression — {raidName}");
+                sb.AppendLine($"`Normal ` **{prog.NormalBossesKilled}/{prog.TotalBosses}** {CharViewHelpers.GetProgressBar(prog.NormalBossesKilled, prog.TotalBosses)}");
+                sb.AppendLine($"`Heroic` **{prog.HeroicBossesKilled}/{prog.TotalBosses}** {CharViewHelpers.GetProgressBar(prog.HeroicBossesKilled, prog.TotalBosses)}");
+                sb.AppendLine($"`Mythic` **{prog.MythicBossesKilled}/{prog.TotalBosses}** {CharViewHelpers.GetProgressBar(prog.MythicBossesKilled, prog.TotalBosses)}");
             }
 
             if (currentRank != null)
             {
                 var rank = currentRank.Value.Value;
                 var raidName = CharViewHelpers.FormatRaidName(currentRank.Value.Key);
-                sb.AppendLine($"**__Raid Rankings ({raidName}):__**");
-                sb.AppendLine($"\t **normal** [ realm [**{rank.Normal.Realm}**] world [**{rank.Normal.World}**] region [**{rank.Normal.Region}**] ]");
-                sb.AppendLine($"\t **heroic** [ realm [**{rank.Heroic.Realm}**] world [**{rank.Heroic.World}**] region [**{rank.Heroic.Region}**] ]");
-                sb.AppendLine($"\t **mythic** [ realm [**{rank.Mythic.Realm}**] world [**{rank.Mythic.World}**] region [**{rank.Mythic.Region}**] ]");
                 sb.AppendLine();
+                sb.AppendLine($"## 🏆 Raid Rankings — {raidName}");
+                sb.AppendLine($"**Normal** — Realm `{rank.Normal.Realm}` • Region `{rank.Normal.Region}` • World `{rank.Normal.World}`");
+                sb.AppendLine($"**Heroic** — Realm `{rank.Heroic.Realm}` • Region `{rank.Heroic.Region}` • World `{rank.Heroic.World}`");
+                sb.AppendLine($"**Mythic** — Realm `{rank.Mythic.Realm}` • Region `{rank.Mythic.Region}` • World `{rank.Mythic.World}`");
             }
 
-            sb.AppendLine($"[{guildObject.guildName} Profile]({guildStats.ProfileUrl.AbsoluteUri})");
+            if (currentProg == null && currentRank == null)
+            {
+                sb.AppendLine();
+                sb.AppendLine("*No current-tier progression or ranking data is available yet.*");
+            }
 
-            embed.Title = title;
-            embed.ThumbnailUrl = thumbUrl;
-            embed.WithColor(new Color(0, 0, 255));
-            embed.Description = sb.ToString();
+            var embed = new EmbedBuilder()
+                .WithTitle($"🏰 {guildObject.guildName}")
+                .WithDescription(sb.ToString())
+                .WithThumbnailUrl(thumbUrl)
+                .WithColor(new Color(65, 105, 225))
+                .WithFooter("Current raid tier • Data from Raider.IO");
 
-            await FollowupAsync(embed: embed.Build(), ephemeral: true);
+            MessageComponent controls = null;
+            if (guildStats.ProfileUrl != null)
+            {
+                controls = new ComponentBuilder()
+                    .WithButton(
+                        label: "Open Raider.IO Profile",
+                        style: ButtonStyle.Link,
+                        emote: new Emoji("🔗"),
+                        url: guildStats.ProfileUrl.AbsoluteUri)
+                    .Build();
+            }
+
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed, controls).Build());
         }
 
         [SlashCommand("setguild", "Associate a WoW guild with this Discord server")]
