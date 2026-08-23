@@ -1,18 +1,119 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using Discord;
 using NinjaBotCore.Common;
 using NinjaBotCore.Database;
+using NinjaBotCore.Modules.Interactions.Wow.CharViews;
 
 namespace NinjaBotCore.Modules.Interactions.Crafting
 {
     public static class CraftEmbedBuilder
     {
+        public const int MaxItemNameLength = 256;
+
+        public static bool IsValidItemName(string itemName) =>
+            !string.IsNullOrWhiteSpace(itemName)
+            && itemName.Trim().Length <= MaxItemNameLength;
         private static readonly Color OpenColor = Color.Blue;
         private static readonly Color ClaimedColor = new Color(255, 165, 0);
         private static readonly Color CraftedColor = new Color(144, 238, 144);
         private static readonly Color CompleteColor = Color.Green;
         private static readonly Color CancelledColor = Color.Red;
         private static readonly Color ExpiredColor = Color.LightGrey;
+
+        public static ComponentBuilderV2 BuildTicketCard(CraftTicket ticket, string preface = null)
+        {
+            if (ticket == null)
+            {
+                throw new ArgumentNullException(nameof(ticket));
+            }
+
+            return WowCardV2.FromEmbed(
+                BuildTicketEmbed(ticket),
+                BuildComponents(ticket).Build(),
+                preface);
+        }
+
+        public static ComponentBuilderV2 BuildTicketListCard(
+            IReadOnlyCollection<CraftTicket> tickets,
+            string title,
+            MessageComponent controls = null)
+        {
+            var allRows = (tickets ?? Array.Empty<CraftTicket>()).ToList();
+            var rows = allRows.Take(10).ToList();
+            var embed = new EmbedBuilder()
+                .WithTitle(title)
+                .WithColor(Color.Blue)
+                .WithFooter($"Showing {rows.Count} of {allRows.Count} ticket(s)")
+                .WithCurrentTimestamp();
+
+            if (rows.Count == 0)
+            {
+                embed.WithDescription("*No crafting requests match this filter.*");
+            }
+            else if (allRows.Count > rows.Count)
+            {
+                embed.WithDescription(
+                    $"*Showing the first {rows.Count} requests. Use the profession filter to narrow {allRows.Count} active tickets.*");
+            }
+
+            foreach (var ticket in rows)
+            {
+                var statusEmoji = ticket.Status switch
+                {
+                    "Open" => "\uD83D\uDFE2",
+                    "Claimed" => "\uD83D\uDD35",
+                    "Crafted" => "\uD83D\uDFE1",
+                    "Complete" => "\u2705",
+                    "Expired" => "\u23F0",
+                    "Cancelled" => "\u274C",
+                    _ => "\u26AA"
+                };
+
+                var createdUnix = ((DateTimeOffset)ticket.CreatedAt).ToUnixTimeSeconds();
+                var details = $"Status: {ticket.Status} | Requester: <@{(ulong)ticket.RequesterId}> | <t:{createdUnix}:R>";
+                if (ticket.CrafterId.HasValue)
+                {
+                    details += $" | Crafter: <@{(ulong)ticket.CrafterId.Value}>";
+                }
+
+                var itemName = string.IsNullOrWhiteSpace(ticket.ItemName) ? "Unknown item" : ticket.ItemName.Trim();
+                var fieldName = BoundDisplay(
+                    $"{statusEmoji} #{ticket.Id} — {itemName}",
+                    80,
+                    $"{statusEmoji} #{ticket.Id} — Unknown item");
+
+                embed.AddField(fieldName, details, inline: false);
+            }
+
+            return WowCardV2.FromEmbed(embed, controls);
+        }
+
+        public static string BuildThreadPreface(CraftTicket ticket, long? professionRoleId = null)
+        {
+            if (ticket == null)
+            {
+                throw new ArgumentNullException(nameof(ticket));
+            }
+
+            var requester = $"<@{(ulong)ticket.RequesterId}>";
+            var crafter = ticket.CrafterId.HasValue
+                ? $"<@{(ulong)ticket.CrafterId.Value}>"
+                : "unassigned";
+            var role = professionRoleId.HasValue
+                ? $" · <@&{(ulong)professionRoleId.Value}>"
+                : string.Empty;
+            return ticket.Status switch
+            {
+                "Claimed" => $"**In progress** · Requester {requester} · Crafter {crafter}",
+                "Crafted" => $"**Awaiting trade** · Requester {requester} · Crafter {crafter}",
+                "Complete" => $"**Complete** · Requester {requester} · Crafter {crafter}",
+                "Cancelled" => $"**Cancelled** · Requester {requester}",
+                "Expired" => $"**Expired** · Requester {requester}",
+                _ => $"{requester} is looking for a crafter.{role}"
+            };
+        }
 
         public static EmbedBuilder BuildTicketEmbed(CraftTicket ticket)
         {
@@ -123,7 +224,7 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 : "";
 
             var embed = new EmbedBuilder()
-                .WithTitle(ticket.ItemName)
+                .WithTitle(BoundDisplay(ticket.ItemName, 256, "Unknown item"))
                 .WithColor(color)
                 .WithFooter($"Ticket #{ticket.Id} | Requested by {ticket.RequesterName}{footerHint}")
                 .WithTimestamp(ticket.CreatedAt);
@@ -221,10 +322,31 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
 
         private static void AddWowheadButton(ComponentBuilder builder, CraftTicket ticket)
         {
-            var encodedName = Uri.EscapeDataString(ticket.ItemName);
-            builder.WithButton("Search on Wowhead",
-                url: $"https://www.wowhead.com/search?q={encodedName}",
+            var url = ticket.BlizzardItemId is > 0
+                ? $"https://www.wowhead.com/item={ticket.BlizzardItemId.Value}"
+                : $"https://www.wowhead.com/search?q={Uri.EscapeDataString(BoundDisplay(ticket.ItemName, 50, "Unknown item"))}";
+            builder.WithButton("Open on Wowhead",
+                url: url,
                 style: ButtonStyle.Link, row: 1);
+        }
+
+        private static string BoundDisplay(string value, int maxLength, string fallback)
+        {
+            var display = string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+            if (display.Length <= maxLength)
+            {
+                return display;
+            }
+
+            var cutAt = maxLength - 1;
+            if (cutAt > 0
+                && char.IsHighSurrogate(display[cutAt - 1])
+                && char.IsLowSurrogate(display[cutAt]))
+            {
+                cutAt--;
+            }
+
+            return display[..cutAt] + "…";
         }
 
         private static void AddJoinRoleButton(ComponentBuilder builder, CraftTicket ticket)

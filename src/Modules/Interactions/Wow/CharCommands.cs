@@ -92,6 +92,16 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 }
 
                 var charInfo = resolution.Character;
+                if (!CharacterManagementView.IsComponentSafe(charInfo))
+                {
+                    await Context.Interaction.ModifyToV2Async(
+                        WowCardV2.Notice(
+                            "Character Input Too Long",
+                            "That character or realm cannot be represented safely in Discord controls. Use realm autocomplete and a normal in-game character name.",
+                            Color.Orange,
+                            "⚠️").Build());
+                    return;
+                }
 
                 // Fetch data from RIO, Armory, Achievements, and the configured raid tier in parallel
                 // (WCL rankings are lazy-loaded on button click).
@@ -247,6 +257,271 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             await Context.Interaction.ModifyToV2Async(
                 WowCardV2.FromEmbed(embed, components.Build()).Build());
+        }
+
+        [ComponentInteraction("pushgroup_hubinsights")]
+        public async Task HandleOpenMainInsights()
+        {
+            // The shared hub must remain untouched; create a separate ephemeral response.
+            await ((IComponentInteraction)Context.Interaction).DeferLoadingAsync(ephemeral: true);
+            var main = await _wowCache.GetUserMainCharacterAsync((long)Context.User.Id);
+            if (main == null)
+            {
+                await Context.Interaction.ModifyToV2Async(
+                    WowCardV2.Notice(
+                        "No Main Character",
+                        "Set a main character with `/setchar` or save one from `/char` before opening Insights.",
+                        Color.Orange,
+                        "⚠️").Build());
+                return;
+            }
+
+            if (!CharacterManagementView.TryBuildCharacterInfo(main, out var charInfo))
+            {
+                await Context.Interaction.ModifyToV2Async(
+                    WowCardV2.Notice(
+                        "Saved Character Needs Attention",
+                        "Your main character contains invalid legacy data. Remove it and add it again before opening Insights.",
+                        Color.Orange,
+                        "⚠️").Build());
+                return;
+            }
+
+            await RenderInsightAsync(charInfo, "coach");
+        }
+
+        [ComponentInteraction("char_view_insights~*~*")]
+        public async Task HandleViewInsights(string userIdStr, string charParam)
+        {
+            if (!ValidateUser(userIdStr, out var errorMsg))
+            {
+                await RespondAsync(errorMsg, ephemeral: true);
+                return;
+            }
+
+            await DeferAsync();
+            var charInfo = ParseCharParam(charParam);
+            if (charInfo == null)
+            {
+                await FollowupAsync("Invalid character data.", ephemeral: true);
+                return;
+            }
+
+            await RenderInsightAsync(charInfo, "coach");
+        }
+
+        [ComponentInteraction("char_insights~*~*")]
+        public async Task HandleInsightSelect(
+            string userIdStr,
+            string charParam,
+            string[] selections)
+        {
+            if (!ValidateUser(userIdStr, out var errorMsg))
+            {
+                await RespondAsync(errorMsg, ephemeral: true);
+                return;
+            }
+
+            var insight = selections?.FirstOrDefault();
+            if (insight is not ("coach" or "talents" or "rivals" or "cutoffs"))
+            {
+                await RespondAsync("Invalid insight selection.", ephemeral: true);
+                return;
+            }
+
+            await DeferAsync();
+            var charInfo = ParseCharParam(charParam);
+            if (charInfo == null)
+            {
+                await FollowupAsync("Invalid character data.", ephemeral: true);
+                return;
+            }
+
+            await RenderInsightAsync(charInfo, insight);
+        }
+
+        [ComponentInteraction("char_rivals_scope~*~*")]
+        public async Task HandleRivalsScopeSelect(
+            string userIdStr,
+            string charParam,
+            string[] selections)
+        {
+            if (!ValidateUser(userIdStr, out var errorMsg))
+            {
+                await RespondAsync(errorMsg, ephemeral: true);
+                return;
+            }
+
+            var scope = selections?.FirstOrDefault();
+            if (scope is not ("realm" or "region" or "world"))
+            {
+                await RespondAsync("Invalid leaderboard scope.", ephemeral: true);
+                return;
+            }
+
+            await DeferAsync();
+            var charInfo = ParseCharParam(charParam);
+            if (charInfo == null)
+            {
+                await FollowupAsync("Invalid character data.", ephemeral: true);
+                return;
+            }
+
+            await RenderInsightAsync(charInfo, "rivals", scope);
+        }
+
+        [ComponentInteraction("char_run_review~*~*")]
+        public async Task HandleRunReviewSelect(
+            string userIdStr,
+            string charParam,
+            string[] selections)
+        {
+            if (!ValidateUser(userIdStr, out var errorMsg))
+            {
+                await RespondAsync(errorMsg, ephemeral: true);
+                return;
+            }
+
+            if (!long.TryParse(selections?.FirstOrDefault(), out var runId) || runId <= 0)
+            {
+                await RespondAsync("Invalid run selection.", ephemeral: true);
+                return;
+            }
+
+            await DeferAsync();
+            var charInfo = ParseCharParam(charParam);
+            if (charInfo == null)
+            {
+                await FollowupAsync("Invalid character data.", ephemeral: true);
+                return;
+            }
+
+            try
+            {
+                var rio = await FetchRioInsightsDataAsync(charInfo);
+                var run = rio?.MythicPlusRecentRuns?
+                    .FirstOrDefault(candidate => candidate.KeystoneRunId == runId);
+                if (run == null)
+                {
+                    await FollowupAsync(
+                        "That run is no longer in the recent-run window. Reopen M+ Coach and select it again.",
+                        ephemeral: true);
+                    return;
+                }
+
+                var review = await _rioApi.GetRunReviewAsync(
+                    charInfo.Name,
+                    charInfo.RealmSlug,
+                    charInfo.Region,
+                    run);
+                var isAlreadySaved = await IsCharacterSavedAsync(charInfo, Context.User.Id);
+                var embed = CharInsightsView.BuildRunReview(charInfo, run, review);
+                var components = CharInsightsView.BuildInsightComponents(
+                    Context.User.Id,
+                    charInfo,
+                    "review",
+                    isAlreadySaved);
+                await Context.Interaction.ModifyToV2Async(
+                    WowCardV2.FromEmbed(embed, components.Build()).Build());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to review Raider.IO run {RunId}", runId);
+                await Context.Interaction.ModifyToV2Async(
+                    WowCardV2.Notice(
+                        "Run Review Unavailable",
+                        "Raider.IO could not review that run right now. Please try again shortly.",
+                        Color.Red,
+                        "❌").Build());
+            }
+        }
+
+        private async Task RenderInsightAsync(
+            CharacterInfo charInfo,
+            string insight,
+            string rivalsScope = "region")
+        {
+            try
+            {
+                var rio = await FetchRioInsightsDataAsync(charInfo);
+                if (rio == null)
+                {
+                    await Context.Interaction.ModifyToV2Async(
+                        WowCardV2.Notice(
+                            "Raider.IO Data Unavailable",
+                            "No current Raider.IO character data was returned. Refresh the character on Raider.IO and try again.",
+                            Color.Orange,
+                            "⚠️").Build());
+                    return;
+                }
+
+                var isAlreadySaved = await IsCharacterSavedAsync(charInfo, Context.User.Id);
+                EmbedBuilder embed;
+                switch (insight)
+                {
+                    case "talents":
+                        embed = CharInsightsView.BuildTalents(charInfo, rio);
+                        break;
+                    case "rivals":
+                        var specId = rio.TalentLoadout?.LoadoutSpecId
+                            ?? rio.MythicPlusBestRuns?.FirstOrDefault()?.Spec?.Id;
+                        var rivals = await _rioApi.GetCharacterRivalsAsync(
+                            charInfo.Name,
+                            charInfo.RealmSlug,
+                            charInfo.Region,
+                            rivalsScope,
+                            specId);
+                        embed = CharInsightsView.BuildRivals(charInfo, rivals, rivalsScope);
+                        break;
+                    case "cutoffs":
+                        var season = CharInsightsView.GetCurrentSeasonSlug(rio);
+                        if (string.IsNullOrWhiteSpace(season))
+                        {
+                            await Context.Interaction.ModifyToV2Async(
+                                WowCardV2.Notice(
+                                    "Season Data Unavailable",
+                                    "Raider.IO did not return the character's current Mythic+ season. Refresh the character and try again.",
+                                    Color.Orange,
+                                    "⚠️").Build());
+                            return;
+                        }
+                        var cutoffsTask = _rioApi.GetSeasonCutoffsAsync(charInfo.Region, season);
+                        var capacityTask = _rioApi.GetLeaderboardCapacityAsync(
+                            charInfo.Region,
+                            charInfo.RealmSlug);
+                        await Task.WhenAll(cutoffsTask, capacityTask);
+                        embed = CharInsightsView.BuildCutoffs(
+                            charInfo,
+                            rio,
+                            await cutoffsTask,
+                            await capacityTask);
+                        break;
+                    default:
+                        insight = "coach";
+                        embed = CharInsightsView.BuildCoach(charInfo, rio);
+                        break;
+                }
+
+                var components = CharInsightsView.BuildInsightComponents(
+                    Context.User.Id,
+                    charInfo,
+                    insight,
+                    isAlreadySaved,
+                    insight == "coach" ? rio.MythicPlusRecentRuns : null,
+                    rivalsScope);
+                await Context.Interaction.ModifyToV2Async(
+                    WowCardV2.FromEmbed(embed, components.Build()).Build());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to render Raider.IO insight {Insight}", insight);
+                await Context.Interaction.ModifyToV2Async(
+                    WowCardV2.Notice(
+                        "Character Insight Unavailable",
+                        "Raider.IO could not load this insight right now. Please try again shortly.",
+                        Color.Red,
+                        "❌").Build());
+            }
         }
 
         [ComponentInteraction("char_view_gear~*~*")]
@@ -909,6 +1184,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 return;
             }
 
+            await DeferAsync(ephemeral: true);
+
             try
             {
                 await WithScopedUnitOfWorkAsync(async uow =>
@@ -927,7 +1204,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
                     if (existing != null)
                     {
-                        await RespondAsync($"**{charInfo.Name}** on **{charInfo.Realm}** is already saved!", ephemeral: true);
+                        await FollowupAsync($"**{charInfo.Name}** on **{charInfo.Realm}** is already saved!", ephemeral: true);
                         return;
                     }
 
@@ -952,13 +1229,13 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     _wowCache.InvalidateUserCharacters((long)Context.User.Id);
 
                     var mainText = newChar.IsMain ? " (set as main)" : "";
-                    await RespondAsync($"Saved **{charInfo.Name}** on **{charInfo.Realm}**{mainText}!", ephemeral: true);
+                    await FollowupAsync($"Saved **{charInfo.Name}** on **{charInfo.Realm}**{mainText}!", ephemeral: true);
                 });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error saving character");
-                await RespondAsync("Failed to save character. Please try again.", ephemeral: true);
+                await FollowupAsync("Failed to save character. Please try again.", ephemeral: true);
             }
         }
 
@@ -1096,8 +1373,63 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 .ToList();
 
             var embed = CharacterManagementView.Build(Context.User, savedChars);
-            var components = CharacterManagementView.BuildComponents(savedChars);
+            var components = CharacterManagementView.BuildComponents(savedChars, Context.User.Id);
 
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed, components.Build()).Build());
+        }
+
+        [ComponentInteraction("char_mpage~*~*")]
+        public async Task HandleManageCharactersPage(string userIdStr, string pageStr)
+        {
+            if (!ValidateUser(userIdStr, out var errorMsg)
+                || !int.TryParse(pageStr, out var page)
+                || page < 0)
+            {
+                await RespondAsync(errorMsg ?? "Invalid character page.", ephemeral: true);
+                return;
+            }
+
+            await DeferAsync();
+            await RenderCharacterManagementPageAsync(page, null);
+        }
+
+        [ComponentInteraction("char_mpage_ret~*~*~*~*~*")]
+        public async Task HandleManageCharactersPageWithReturn(
+            string userIdStr,
+            string pageStr,
+            string charName,
+            string charRealm,
+            string charRegion)
+        {
+            if (!ValidateUser(userIdStr, out var errorMsg)
+                || !int.TryParse(pageStr, out var page)
+                || page < 0)
+            {
+                await RespondAsync(errorMsg ?? "Invalid character page.", ephemeral: true);
+                return;
+            }
+
+            await DeferAsync();
+            await RenderCharacterManagementPageAsync(
+                page,
+                $"{charName}~{charRealm}~{charRegion}");
+        }
+
+        private async Task RenderCharacterManagementPageAsync(int page, string returnCharParam)
+        {
+            var savedChars = await _wowCache.GetUserCharactersAsync((long)Context.User.Id);
+            savedChars = savedChars?
+                .OrderByDescending(character => character.IsMain)
+                .ThenBy(character => character.CharName)
+                .ToList();
+
+            var embed = CharacterManagementView.Build(Context.User, savedChars, page);
+            var components = CharacterManagementView.BuildComponents(
+                savedChars,
+                Context.User.Id,
+                returnCharParam,
+                page);
             await Context.Interaction.ModifyToV2Async(
                 WowCardV2.FromEmbed(embed, components.Build()).Build());
         }
@@ -1158,12 +1490,28 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             {
                 return await _rioApi.GetCharMythicPlusInfoAsync(
                     charInfo.Name,
-                    charInfo.RealmEncoded,
+                    charInfo.RealmSlug,
                     charInfo.Region);
             }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Failed to fetch RIO data for {Character}", charInfo.Name);
+                return null;
+            }
+        }
+
+        private async Task<RaiderIOModels.RioMythicPlusChar> FetchRioInsightsDataAsync(CharacterInfo charInfo)
+        {
+            try
+            {
+                return await _rioApi.GetCharInsightsInfoAsync(
+                    charInfo.Name,
+                    charInfo.RealmSlug,
+                    charInfo.Region);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to fetch Raider.IO insights for {Character}", charInfo.Name);
                 return null;
             }
         }

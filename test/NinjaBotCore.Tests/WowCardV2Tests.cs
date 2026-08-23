@@ -112,6 +112,52 @@ namespace NinjaBotCore.Tests
         }
 
         [Fact]
+        public void CharacterManagementPaginatesSavedCharactersAtDiscordLimit()
+        {
+            var characters = Enumerable.Range(1, 26)
+                .Select(index => new WowCharAssociation
+                {
+                    Id = index,
+                    CharName = $"Character{index}",
+                    WowRealm = "Area 52",
+                    WowRegion = "us",
+                    IsMain = index == 26
+                })
+                .ToList();
+
+            var built = CharacterManagementView.BuildComponents(characters).Build();
+            var select = Assert.Single(built.Components
+                .OfType<ActionRowComponent>()
+                .SelectMany(row => row.Components)
+                .OfType<SelectMenuComponent>());
+
+            Assert.Equal(25, select.Options.Count);
+            Assert.Contains(select.Options, option => option.Label.StartsWith("★ "));
+
+            var secondPage = CharacterManagementView.BuildComponents(characters, page: 1).Build();
+            var secondSelect = Assert.Single(secondPage.Components
+                .OfType<ActionRowComponent>()
+                .SelectMany(row => row.Components)
+                .OfType<SelectMenuComponent>());
+            Assert.Single(secondSelect.Options);
+            var secondEmbed = CharacterManagementView.Build(null, characters, page: 1).Build();
+            Assert.Contains("Character25", secondEmbed.Description);
+            Assert.DoesNotContain("Character1**", secondEmbed.Description);
+
+            var returnComponents = CharacterManagementView.BuildComponents(
+                characters,
+                ulong.MaxValue,
+                new string('x', 48),
+                page: 1).Build();
+            Assert.All(
+                returnComponents.Components
+                    .OfType<ActionRowComponent>()
+                    .SelectMany(row => row.Components)
+                    .OfType<ButtonComponent>(),
+                button => Assert.True(button.CustomId.Length <= 100));
+        }
+
+        [Fact]
         public void CharacterManagementSelectedCard_RoutesViewProfileToLiveCharHandler()
         {
             var character = new WowCharAssociation
@@ -214,10 +260,11 @@ namespace NinjaBotCore.Tests
                 .OfType<ButtonComponent>()
                 .ToList();
 
-            Assert.Equal(11, buttons.Count);
+            Assert.Equal(12, buttons.Count);
             Assert.Contains(buttons, button => button.CustomId?.StartsWith("char_view_gear~") == true);
             Assert.Contains(buttons, button => button.CustomId?.StartsWith("char_view_logs~") == true);
             Assert.Contains(buttons, button => button.CustomId?.StartsWith("char_view_achievements~") == true);
+            Assert.Contains(buttons, button => button.CustomId?.StartsWith("char_view_insights~") == true);
             Assert.Contains(buttons, button => button.CustomId?.StartsWith("char_manage_ret~") == true);
             Assert.True(CountComponents(built.Components) <= 40);
         }
@@ -281,27 +328,61 @@ namespace NinjaBotCore.Tests
         }
 
         [Fact]
-        public void FromEmbed_LongUnicodeTextSplitsWithoutBreakingSurrogatePairs()
+        public void CharacterComponentSafetyRejectsOverlongOrDelimitedDirectInput()
+        {
+            var safe = new CharacterInfo { Name = "Testchar", Realm = "Area 52", Region = "us" };
+            var tooLong = new CharacterInfo { Name = new string('x', 40), Realm = new string('y', 40), Region = "us" };
+            var delimited = new CharacterInfo { Name = "Bad~Name", Realm = "Area 52", Region = "us" };
+
+            Assert.True(CharacterManagementView.IsComponentSafe(safe));
+            Assert.False(CharacterManagementView.IsComponentSafe(tooLong));
+            Assert.False(CharacterManagementView.IsComponentSafe(delimited));
+        }
+
+        [Fact]
+        public void FromEmbed_LongUnicodeTextFitsSharedMessageBudgetWithoutBrokenSurrogates()
         {
             var description = "  " + new string('x', 3897) + "🚀" + new string('y', 100) + "  ";
             var built = WowCardV2.FromEmbed(new EmbedBuilder()
                     .WithTitle("Long card")
-                    .WithDescription(description))
+                    .WithDescription(description)
+                    .AddField("Extra", new string('z', 900))
+                    .WithFooter("Footer must share the same message budget"))
                 .Build();
-            var container = Assert.IsType<ContainerComponent>(Assert.Single(built.Components));
-            var body = container.Components
-                .OfType<TextDisplayComponent>()
-                .Where(display => !display.Content.StartsWith("# "))
-                .Select(display => display.Content)
-                .ToList();
+            var text = FlattenText(built.Components).ToList();
 
-            Assert.Equal(description, string.Concat(body));
-            Assert.All(body, chunk =>
+            Assert.True(text.Sum(value => value.Length) <= 4000);
+            Assert.Contains(text, value => value.Contains('…'));
+            Assert.All(text, value =>
             {
-                Assert.False(char.IsHighSurrogate(chunk[^1]));
-                Assert.False(char.IsLowSurrogate(chunk[0]));
-                Assert.True(chunk.Length <= 4000);
+                Assert.False(char.IsHighSurrogate(value[^1]));
+                Assert.False(char.IsLowSurrogate(value[0]));
+                for (var index = 0; index < value.Length; index++)
+                {
+                    if (!char.IsHighSurrogate(value[index])) continue;
+                    Assert.True(index + 1 < value.Length && char.IsLowSurrogate(value[index + 1]));
+                    index++;
+                }
             });
+        }
+
+        private static IEnumerable<string> FlattenText(IEnumerable<IMessageComponent> components)
+        {
+            foreach (var component in components)
+            {
+                switch (component)
+                {
+                    case TextDisplayComponent text:
+                        yield return text.Content;
+                        break;
+                    case ContainerComponent container:
+                        foreach (var value in FlattenText(container.Components)) yield return value;
+                        break;
+                    case SectionComponent section:
+                        foreach (var value in FlattenText(section.Components)) yield return value;
+                        break;
+                }
+            }
         }
 
         private static int CountComponents(IEnumerable<IMessageComponent> components)

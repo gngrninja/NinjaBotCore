@@ -263,7 +263,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 .ToList();
 
             var embed = CharacterManagementView.Build(Context.User, savedChars);
-            var components = CharacterManagementView.BuildComponents(savedChars);
+            var components = CharacterManagementView.BuildComponents(savedChars, Context.User.Id);
 
             await Context.Interaction.ModifyToV2Async(
                 WowCardV2.FromEmbed(embed, components.Build()).Build());
@@ -443,7 +443,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         .ToListAsync());
 
                 var embed = CharacterManagementView.Build(Context.User, savedChars);
-                var components = CharacterManagementView.BuildComponents(savedChars);
+                var components = CharacterManagementView.BuildComponents(savedChars, Context.User.Id);
 
                 await Context.Interaction.ModifyToV2Async(
                     WowCardV2.FromEmbed(embed, components.Build()).Build());

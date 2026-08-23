@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NinjaBotCore.Common;
 using NinjaBotCore.Database;
+using NinjaBotCore.Modules.Interactions.Wow.CharViews;
 using NinjaBotCore.Services;
 
 namespace NinjaBotCore.Modules.Interactions.Crafting
@@ -24,6 +25,11 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
         private readonly WowCacheService _wowCache;
 
         private static string[] ActiveStatuses => CraftConstants.ActiveStatuses;
+
+        private static string WithReconciliationStatus(string successMessage, bool cardUpdated) =>
+            cardUpdated
+                ? successMessage
+                : $"{successMessage} The ticket state was saved, but I couldn't refresh its public card; reopen the crafting list before taking another action.";
 
         public CraftCommands(
             IServiceScopeFactory scopeFactory,
@@ -44,13 +50,16 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             [Summary("item", "Start typing to search, or enter any item name")]
             [Autocomplete(typeof(CraftableItemAutocomplete))] string itemName)
         {
-            if (string.IsNullOrWhiteSpace(itemName))
+            if (!CraftEmbedBuilder.IsValidItemName(itemName))
             {
-                await RespondAsync("Please type an item name in the autocomplete field first.", ephemeral: true);
+                await RespondAsync(
+                    $"Please enter an item name between 1 and {CraftEmbedBuilder.MaxItemNameLength} characters.",
+                    ephemeral: true);
                 return;
             }
 
             var trimmedName = itemName.Trim();
+            await DeferAsync(ephemeral: true);
 
             // Check if item is from autocomplete (known profession) or freeform
             var craftableItem = await WithDbAsync(async db =>
@@ -59,7 +68,6 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             if (craftableItem != null)
             {
                 // Known item — create ticket immediately with profession
-                await DeferAsync(ephemeral: true);
                 await CreateCraftTicketAsync(trimmedName, craftableItem.Profession);
             }
             else
@@ -76,7 +84,6 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 if (!professions.Any())
                 {
                     // No professions in DB — just create without profession
-                    await DeferAsync(ephemeral: true);
                     await CreateCraftTicketAsync(trimmedName, null);
                     return;
                 }
@@ -108,7 +115,12 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
 
                 if (pendingTicket == null)
                 {
-                    await RespondAsync("A crafting channel has not been configured. Ask an admin to run `/craft setup`.", ephemeral: true);
+                    await Context.Interaction.ModifyToV2Async(
+                        WowCardV2.Notice(
+                            "Crafting Channel Not Configured",
+                            "Ask an admin to run `/craft setup` before creating requests.",
+                            Color.Orange,
+                            "⚠️").Build());
                     return;
                 }
 
@@ -122,10 +134,14 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                         "Which profession crafts this item?")
                     .Build();
 
-                await RespondAsync(
-                    $"**{trimmedName}** isn't in the recipe database. Select the crafting profession:",
-                    components: component,
-                    ephemeral: true);
+                var prompt = new EmbedBuilder()
+                    .WithTitle("Choose a Crafting Profession")
+                    .WithDescription(
+                        $"**{trimmedName}** isn't in the recipe database. " +
+                        "Select the profession that crafts it to continue.")
+                    .WithColor(new Color(88, 101, 242));
+                await Context.Interaction.ModifyToV2Async(
+                    WowCardV2.FromEmbed(prompt, component).Build());
             }
         }
 
@@ -290,9 +306,11 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             IUserMessage message;
             try
             {
-                var embed = CraftEmbedBuilder.BuildTicketEmbed(ticket);
-                var components = CraftEmbedBuilder.BuildComponents(ticket);
-                message = await channel.SendMessageAsync(embed: embed.Build(), components: components.Build());
+                var ticketCard = CraftEmbedBuilder.BuildTicketCard(ticket);
+                message = await channel.SendMessageAsync(
+                    components: ticketCard.Build(),
+                    flags: MessageFlags.ComponentsV2,
+                    allowedMentions: AllowedMentions.None);
             }
             catch (Exception ex)
             {
@@ -320,27 +338,26 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
 
                 ticket.ThreadId = (long)thread.Id;
 
-                // Look up profession role for auto-ping
-                var rolePing = "";
-                AllowedMentions? allowedMentions = null;
+                // Look up profession role for one explicit auto-ping.
+                long? professionRoleId = null;
                 if (!string.IsNullOrEmpty(ticket.Profession))
                 {
                     var roleMapping = await WithDbAsync(async db =>
                         await db.CraftProfessionRoleMappings
                             .FirstOrDefaultAsync(m => m.GuildId == (long)Context.Guild.Id
                                 && m.Profession == ticket.Profession));
-                    if (roleMapping != null)
-                    {
-                        rolePing = $"\n<@&{(ulong)roleMapping.RoleId}>";
-                        allowedMentions = new AllowedMentions(AllowedMentionTypes.Users | AllowedMentionTypes.Roles);
-                    }
+                    professionRoleId = roleMapping?.RoleId;
                 }
 
-                var threadComponents = CraftEmbedBuilder.BuildComponents(ticket);
+                var threadCard = CraftEmbedBuilder.BuildTicketCard(
+                    ticket,
+                    CraftEmbedBuilder.BuildThreadPreface(ticket, professionRoleId));
                 var threadMessage = await thread.SendMessageAsync(
-                    $"<@{Context.User.Id}> is looking for a crafter for **{ticket.ItemName}**!{rolePing}",
-                    components: threadComponents.Build(),
-                    allowedMentions: allowedMentions);
+                    components: threadCard.Build(),
+                    flags: MessageFlags.ComponentsV2,
+                    allowedMentions: CraftTicketUpdater.BuildInitialThreadAllowedMentions(
+                        Context.User.Id,
+                        professionRoleId.HasValue ? (ulong)professionRoleId.Value : null));
                 ticket.ThreadMessageId = (long)threadMessage.Id;
             }
             catch (Exception ex)
@@ -430,7 +447,8 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 .WithCurrentTimestamp()
                 .Build();
 
-            await FollowupAsync(embed: embed, ephemeral: true);
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed).Build());
         }
 
         [SlashCommand("roles-setup", "Auto-create roles for all crafting professions")]
@@ -517,7 +535,8 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 .WithCurrentTimestamp()
                 .Build();
 
-            await FollowupAsync(embed: embed, ephemeral: true);
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed).Build());
         }
 
         [SlashCommand("roles-add", "Map a crafting profession to a Discord role")]
@@ -648,7 +667,8 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 .WithCurrentTimestamp()
                 .Build();
 
-            await FollowupAsync(embed: embed, ephemeral: true);
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed).Build());
         }
 
         [SlashCommand("roster", "View the guild's crafting roster")]
@@ -720,7 +740,8 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 .WithCurrentTimestamp()
                 .Build();
 
-            await FollowupAsync(embed: embed, ephemeral: true);
+            await Context.Interaction.ModifyToV2Async(
+                WowCardV2.FromEmbed(embed).Build());
         }
 
         [SlashCommand("roles-join", "Join or leave a crafting profession role")]
@@ -804,15 +825,18 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             }
 
             var isUnclaim = ticket.Status == "Open"; // CancelTicketAsync sets back to Open for crafter unclaim
-            await CraftTicketUpdater.UpdateTicketAsync(_client, ticket, _logger,
+            var cardUpdated = await CraftTicketUpdater.UpdateTicketAsync(_client, ticket, _logger,
                 threadNotification: isUnclaim
                     ? $"The crafter has released this ticket. It's open for a new crafter!"
                     : $"This crafting request has been cancelled by {cancelledBy}.",
                 archiveThread: !isUnclaim);
 
-            await FollowupAsync(isUnclaim
+            var successMessage = isUnclaim
                 ? "You've released this crafting request. It's back open for others."
-                : "Your crafting request has been cancelled.", ephemeral: true);
+                : "Your crafting request has been cancelled.";
+            await FollowupAsync(
+                WithReconciliationStatus(successMessage, cardUpdated),
+                ephemeral: true);
         }
 
         [SlashCommand("list", "View your active crafting requests")]
@@ -849,21 +873,15 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 return;
             }
 
-            var embed = BuildTicketListEmbed(tickets, scope == "mine" ? "Your Crafting Requests" : "Open Crafting Requests");
-
-            // Look up professions for these tickets via CraftableItems table
-            var itemNames = tickets.Select(t => t.ItemName).Distinct().ToList();
-            var professions = await WithDbAsync(async db =>
-                await db.CraftableItems
-                    .Where(c => itemNames.Contains(c.RecipeName))
-                    .Select(c => c.Profession)
-                    .Distinct()
-                    .OrderBy(p => p)
-                    .ToListAsync());
+            var professions = CraftTicketFilters.AvailableProfessions(tickets);
 
             var components = BuildListFilterComponents(professions, (long)Context.User.Id, scope);
+            var card = CraftEmbedBuilder.BuildTicketListCard(
+                tickets,
+                scope == "mine" ? "Your Crafting Requests" : "Open Crafting Requests",
+                components);
 
-            await FollowupAsync(embed: embed, components: components, ephemeral: true);
+            await Context.Interaction.ModifyToV2Async(card.Build());
         }
 
         [SlashCommand("board", "Admin view of all crafting requests")]
@@ -887,45 +905,13 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 return;
             }
 
-            var embed = BuildTicketListEmbed(tickets, "Crafting Request Board");
             var components = BuildBoardFilterComponents((long)Context.User.Id);
+            var card = CraftEmbedBuilder.BuildTicketListCard(
+                tickets,
+                "Crafting Request Board",
+                components);
 
-            await FollowupAsync(embed: embed, components: components, ephemeral: true);
-        }
-
-        internal static Embed BuildTicketListEmbed(List<CraftTicket> tickets, string title)
-        {
-            var embed = new EmbedBuilder()
-                .WithTitle(title)
-                .WithColor(Color.Blue)
-                .WithFooter($"{tickets.Count} ticket(s)")
-                .WithCurrentTimestamp();
-
-            foreach (var ticket in tickets)
-            {
-                var statusEmoji = ticket.Status switch
-                {
-                    "Open" => "\uD83D\uDFE2",
-                    "Claimed" => "\uD83D\uDD35",
-                    "Crafted" => "\uD83D\uDFE1",
-                    "Complete" => "\u2705",
-                    "Expired" => "\u23F0",
-                    "Cancelled" => "\u274C",
-                    _ => "\u26AA"
-                };
-
-                var createdUnix = ((DateTimeOffset)ticket.CreatedAt).ToUnixTimeSeconds();
-                var details = $"Status: {ticket.Status} | Requester: <@{(ulong)ticket.RequesterId}> | <t:{createdUnix}:R>";
-                if (ticket.CrafterId.HasValue)
-                    details += $" | Crafter: <@{(ulong)ticket.CrafterId.Value}>";
-
-                var fieldName = $"{statusEmoji} #{ticket.Id} — {ticket.ItemName}";
-                if (fieldName.Length > 256) fieldName = fieldName[..253] + "...";
-
-                embed.AddField(fieldName, details, inline: false);
-            }
-
-            return embed.Build();
+            await Context.Interaction.ModifyToV2Async(card.Build());
         }
 
         internal static MessageComponent BuildListFilterComponents(List<string> professions, long userId, string scope)

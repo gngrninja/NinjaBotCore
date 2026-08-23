@@ -57,6 +57,11 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
 
         private static string[] ActiveStatuses => CraftConstants.ActiveStatuses;
 
+        private static string WithReconciliationStatus(string successMessage, bool cardUpdated) =>
+            cardUpdated
+                ? successMessage
+                : $"{successMessage} The ticket state was saved, but I couldn't refresh its public card; reopen the crafting list before taking another action.";
+
         public CraftComponentHandlers(
             IServiceScopeFactory scopeFactory,
             DiscordShardedClient client,
@@ -82,40 +87,13 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 return;
             }
 
-            // DB operation: atomic status check + update
             var (ticket, error) = await WithDbAsync(async db =>
-            {
-                // Optimistic concurrency: filter on Status = "Open" in the WHERE clause
-                // If another user claimed between our read and write, the update affects 0 rows
-                var t = await db.CraftTickets.FirstOrDefaultAsync(
-                    x => x.Id == ticketId && x.Status == "Open");
-
-                if (t == null)
-                {
-                    // Either ticket doesn't exist or was already claimed
-                    var exists = await db.CraftTickets.AnyAsync(x => x.Id == ticketId);
-                    return (null, exists
-                        ? "This ticket has already been claimed or is no longer open."
-                        : "Ticket not found.");
-                }
-
-                if (t.RequesterId == (long)Context.User.Id)
-                    return (null, "You can't claim your own crafting request.");
-
-                t.Status = "Claimed";
-                t.CrafterId = (long)Context.User.Id;
-                t.CrafterName = Context.User.Username;
-                t.ClaimedAt = DateTime.UtcNow;
-                // Extend expiration — give the crafter time to work on it
-                if (t.ExpiresAt.HasValue)
-                    t.ExpiresAt = DateTime.UtcNow.AddHours(72);
-                var rowsAffected = await db.SaveChangesAsync();
-
-                if (rowsAffected == 0)
-                    return (null, "This ticket has already been claimed by someone else.");
-
-                return (t, (string)null);
-            });
+                await CraftTicketUpdater.ClaimTicketAsync(
+                    db,
+                    ticketId,
+                    (long)Context.User.Id,
+                    Context.User.Username,
+                    DateTime.UtcNow));
 
             if (error != null)
             {
@@ -124,12 +102,14 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             }
 
             // Discord operations: best-effort, outside DB scope
-            await CraftTicketUpdater.UpdateTicketAsync(_client, ticket, _logger,
+            var cardUpdated = await CraftTicketUpdater.UpdateTicketAsync(_client, ticket, _logger,
                 threadNotification: $"<@{Context.User.Id}> has claimed this crafting request! <@{(ulong)ticket.RequesterId}>, coordinate the trade here.\n\n" +
                 $"**Crafter:** Use the **Mark as Crafted** button when the item is ready.\n" +
                 $"**Requester:** Use **Item Received** once you've received the item.");
 
-            await FollowupAsync("You've claimed this crafting request! Head to the thread to coordinate.", ephemeral: true);
+            await FollowupAsync(
+                WithReconciliationStatus("You've claimed this crafting request! Head to the thread to coordinate.", cardUpdated),
+                ephemeral: true);
         }
 
         [ComponentInteraction("craft_crafted~*")]
@@ -144,27 +124,11 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             }
 
             var (ticket, error) = await WithDbAsync(async db =>
-            {
-                var t = await db.CraftTickets.FirstOrDefaultAsync(
-                    x => x.Id == ticketId && x.Status == "Claimed");
-
-                if (t == null)
-                {
-                    var exists = await db.CraftTickets.AnyAsync(x => x.Id == ticketId);
-                    return (null, exists
-                        ? "This ticket is not in a claimable state."
-                        : "Ticket not found.");
-                }
-
-                if (t.CrafterId != (long)Context.User.Id)
-                    return (null, "Only the crafter can mark this as crafted.");
-
-                t.Status = "Crafted";
-                t.CraftedAt = DateTime.UtcNow;
-                await db.SaveChangesAsync();
-
-                return (t, (string)null);
-            });
+                await CraftTicketUpdater.MarkCraftedAsync(
+                    db,
+                    ticketId,
+                    (long)Context.User.Id,
+                    DateTime.UtcNow));
 
             if (error != null)
             {
@@ -172,10 +136,12 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 return;
             }
 
-            await CraftTicketUpdater.UpdateTicketAsync(_client, ticket, _logger,
+            var cardUpdated = await CraftTicketUpdater.UpdateTicketAsync(_client, ticket, _logger,
                 threadNotification: $"<@{(ulong)ticket.RequesterId}> — the item has been crafted! Click **Item Received** once you've received it.");
 
-            await FollowupAsync("Marked as crafted! Waiting for the requester to confirm the trade.", ephemeral: true);
+            await FollowupAsync(
+                WithReconciliationStatus("Marked as crafted! Waiting for the requester to confirm the trade.", cardUpdated),
+                ephemeral: true);
         }
 
         [ComponentInteraction("craft_complete~*")]
@@ -190,27 +156,12 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             }
 
             var (ticket, error) = await WithDbAsync(async db =>
-            {
-                var t = await db.CraftTickets.FirstOrDefaultAsync(
-                    x => x.Id == ticketId && (x.Status == "Crafted" || x.Status == "Claimed"));
-
-                if (t == null)
-                {
-                    var exists = await db.CraftTickets.AnyAsync(x => x.Id == ticketId);
-                    return (null, exists
-                        ? "This ticket cannot be completed in its current state."
-                        : "Ticket not found.");
-                }
-
-                if (t.RequesterId != (long)Context.User.Id)
-                    return (null, "Only the requester can confirm trade completion.");
-
-                t.Status = "Complete";
-                t.CompletedAt = DateTime.UtcNow;
-                await db.SaveChangesAsync();
-
-                return (t, (string)null);
-            });
+                await CraftTicketUpdater.CompleteTicketAsync(
+                    db,
+                    ticketId,
+                    (long)Context.User.Id,
+                    DateTime.UtcNow,
+                    allowOpen: false));
 
             if (error != null)
             {
@@ -221,11 +172,13 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             var crafterMention = ticket.CrafterId.HasValue
                 ? $" Thanks to <@{(ulong)ticket.CrafterId.Value}> for crafting **{ticket.ItemName}**."
                 : "";
-            await CraftTicketUpdater.UpdateTicketAsync(_client, ticket, _logger,
+            var cardUpdated = await CraftTicketUpdater.UpdateTicketAsync(_client, ticket, _logger,
                 threadNotification: $"Item received!{crafterMention} This ticket is now closed.",
                 archiveThread: true);
 
-            await FollowupAsync("Item received! The ticket has been closed.", ephemeral: true);
+            await FollowupAsync(
+                WithReconciliationStatus("Item received! The ticket has been closed.", cardUpdated),
+                ephemeral: true);
         }
 
         [ComponentInteraction("craft_gotit~*")]
@@ -240,27 +193,12 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             }
 
             var (ticket, error) = await WithDbAsync(async db =>
-            {
-                var t = await db.CraftTickets.FirstOrDefaultAsync(
-                    x => x.Id == ticketId && x.Status == "Open");
-
-                if (t == null)
-                {
-                    var exists = await db.CraftTickets.AnyAsync(x => x.Id == ticketId);
-                    return (null, exists
-                        ? "This ticket is no longer open."
-                        : "Ticket not found.");
-                }
-
-                if (t.RequesterId != (long)Context.User.Id)
-                    return (null, "Only the requester can mark this as received.");
-
-                t.Status = "Complete";
-                t.CompletedAt = DateTime.UtcNow;
-                await db.SaveChangesAsync();
-
-                return (t, (string)null);
-            });
+                await CraftTicketUpdater.CompleteTicketAsync(
+                    db,
+                    ticketId,
+                    (long)Context.User.Id,
+                    DateTime.UtcNow,
+                    allowOpen: true));
 
             if (error != null)
             {
@@ -268,11 +206,13 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 return;
             }
 
-            await CraftTicketUpdater.UpdateTicketAsync(_client, ticket, _logger,
+            var cardUpdated = await CraftTicketUpdater.UpdateTicketAsync(_client, ticket, _logger,
                 threadNotification: "Item received! This ticket is now closed.",
                 archiveThread: true);
 
-            await FollowupAsync("Got it! The ticket has been closed.", ephemeral: true);
+            await FollowupAsync(
+                WithReconciliationStatus("Got it! The ticket has been closed.", cardUpdated),
+                ephemeral: true);
         }
 
         [ComponentInteraction("craft_cancel~*")]
@@ -296,15 +236,18 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             }
 
             var isUnclaim = ticket.Status == "Open"; // CancelTicketAsync sets back to Open for crafter unclaim
-            await CraftTicketUpdater.UpdateTicketAsync(_client, ticket, _logger,
+            var cardUpdated = await CraftTicketUpdater.UpdateTicketAsync(_client, ticket, _logger,
                 threadNotification: isUnclaim
                     ? $"The crafter has released this ticket. It's open for a new crafter!"
                     : $"This crafting request has been cancelled by {cancelledBy}.",
                 archiveThread: !isUnclaim);
 
-            await FollowupAsync(isUnclaim
+            var successMessage = isUnclaim
                 ? "You've released this crafting request. It's back open for others."
-                : "The crafting request has been cancelled.", ephemeral: true);
+                : "The crafting request has been cancelled.";
+            await FollowupAsync(
+                WithReconciliationStatus(successMessage, cardUpdated),
+                ephemeral: true);
         }
 
         #region Join Role Handler
@@ -366,7 +309,9 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
         {
             await DeferAsync(ephemeral: true);
 
-            if (!long.TryParse(ticketIdStr, out var ticketId) || selections.Length == 0)
+            if (!long.TryParse(ticketIdStr, out var ticketId)
+                || selections == null
+                || selections.Length != 1)
             {
                 await FollowupAsync("Invalid selection.", ephemeral: true);
                 return;
@@ -377,6 +322,12 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             // Finalize the pending ticket
             var (ticket, craftChannelId, error) = await WithDbAsync(async db =>
             {
+                var validProfession = await db.CraftableItems.AnyAsync(item =>
+                    item.Profession == selectedProfession
+                    && !CraftConstants.GatheringProfessions.Contains(item.Profession));
+                if (!validProfession)
+                    return (null, 0L, "That crafting profession is no longer available.");
+
                 var t = await db.CraftTickets.FirstOrDefaultAsync(x => x.Id == ticketId);
 
                 if (t == null)
@@ -398,19 +349,26 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
 
                 if (settings != null && openCount >= settings.MaxOpenTicketsPerUser)
                 {
-                    db.CraftTickets.Remove(t);
-                    await db.SaveChangesAsync();
-                    return (null, 0L, $"You already have {openCount} open crafting requests (max {settings.MaxOpenTicketsPerUser}). Complete or cancel existing requests first.");
+                    var deleted = await db.CraftTickets
+                        .Where(ticket =>
+                            ticket.Id == ticketId
+                            && ticket.Status == "PendingProfession"
+                            && ticket.RequesterId == (long)Context.User.Id)
+                        .ExecuteDeleteAsync();
+                    return deleted == 1
+                        ? (null, 0L, $"You already have {openCount} open crafting requests (max {settings.MaxOpenTicketsPerUser}). Complete or cancel existing requests first.")
+                        : (null, 0L, "This ticket has already been processed.");
                 }
 
-                t.Profession = selectedProfession;
-                t.Status = "Open";
-                t.ExpiresAt = DateTime.UtcNow.AddHours(
-                    (await db.ServerCraftSettings
-                        .FirstOrDefaultAsync(s => s.DiscordGuildId == t.GuildId))?.TicketExpirationHours ?? 48);
-                await db.SaveChangesAsync();
-
-                return (t, t.ChannelId, (string?)null);
+                var finalized = await CraftTicketUpdater.FinalizePendingProfessionAsync(
+                    db,
+                    ticketId,
+                    (long)Context.User.Id,
+                    selectedProfession,
+                    DateTime.UtcNow.AddHours(settings?.TicketExpirationHours ?? 48));
+                return finalized.Error == null
+                    ? (finalized.Ticket, finalized.Ticket.ChannelId, (string?)null)
+                    : (null, 0L, finalized.Error);
             });
 
             if (error != null)
@@ -467,9 +425,11 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             IUserMessage message;
             try
             {
-                var embed = CraftEmbedBuilder.BuildTicketEmbed(ticket);
-                var components = CraftEmbedBuilder.BuildComponents(ticket);
-                message = await channel.SendMessageAsync(embed: embed.Build(), components: components.Build());
+                var ticketCard = CraftEmbedBuilder.BuildTicketCard(ticket);
+                message = await channel.SendMessageAsync(
+                    components: ticketCard.Build(),
+                    flags: MessageFlags.ComponentsV2,
+                    allowedMentions: AllowedMentions.None);
             }
             catch (Exception ex)
             {
@@ -497,23 +457,21 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
 
                 ticket.ThreadId = (long)thread.Id;
 
-                var rolePing = "";
-                AllowedMentions? allowedMentions = null;
                 var roleMapping = await WithDbAsync(async db =>
                     await db.CraftProfessionRoleMappings
                         .FirstOrDefaultAsync(m => m.GuildId == (long)Context.Guild.Id
                             && m.Profession == selectedProfession));
-                if (roleMapping != null)
-                {
-                    rolePing = $"\n<@&{(ulong)roleMapping.RoleId}>";
-                    allowedMentions = new AllowedMentions(AllowedMentionTypes.Users | AllowedMentionTypes.Roles);
-                }
+                long? professionRoleId = roleMapping?.RoleId;
 
-                var threadComponents = CraftEmbedBuilder.BuildComponents(ticket);
+                var threadCard = CraftEmbedBuilder.BuildTicketCard(
+                    ticket,
+                    CraftEmbedBuilder.BuildThreadPreface(ticket, professionRoleId));
                 var threadMessage = await thread.SendMessageAsync(
-                    $"<@{Context.User.Id}> is looking for a crafter for **{ticket.ItemName}**!{rolePing}",
-                    components: threadComponents.Build(),
-                    allowedMentions: allowedMentions);
+                    components: threadCard.Build(),
+                    flags: MessageFlags.ComponentsV2,
+                    allowedMentions: CraftTicketUpdater.BuildInitialThreadAllowedMentions(
+                        Context.User.Id,
+                        professionRoleId.HasValue ? (ulong)professionRoleId.Value : null));
                 ticket.ThreadMessageId = (long)threadMessage.Id;
             }
             catch (Exception ex)
@@ -734,9 +692,11 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
             IUserMessage message;
             try
             {
-                var embed = CraftEmbedBuilder.BuildTicketEmbed(ticket);
-                var components = CraftEmbedBuilder.BuildComponents(ticket);
-                message = await channel.SendMessageAsync(embed: embed.Build(), components: components.Build());
+                var ticketCard = CraftEmbedBuilder.BuildTicketCard(ticket);
+                message = await channel.SendMessageAsync(
+                    components: ticketCard.Build(),
+                    flags: MessageFlags.ComponentsV2,
+                    allowedMentions: AllowedMentions.None);
             }
             catch (Exception ex)
             {
@@ -764,11 +724,15 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
 
                 ticket.ThreadId = (long)thread.Id;
 
-                // Post ping + working buttons inside the thread (buttons on the starter message don't work in threads)
-                var threadComponents = CraftEmbedBuilder.BuildComponents(ticket);
+                // Post a mention-safe V2 coordination card inside the thread.
+                var threadCard = CraftEmbedBuilder.BuildTicketCard(
+                    ticket,
+                    CraftEmbedBuilder.BuildThreadPreface(ticket));
                 var threadMessage = await thread.SendMessageAsync(
-                    $"<@{Context.User.Id}> is looking for a crafter for **{ticket.ItemName}**!",
-                    components: threadComponents.Build());
+                    components: threadCard.Build(),
+                    flags: MessageFlags.ComponentsV2,
+                    allowedMentions: CraftTicketUpdater.BuildInitialThreadAllowedMentions(
+                        Context.User.Id));
                 ticket.ThreadMessageId = (long)threadMessage.Id;
             }
             catch (Exception ex)
@@ -817,69 +781,67 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 return;
             }
 
+            if (selections == null || selections.Length != 1
+                || scope is not ("mine" or "all"))
+            {
+                await RespondAsync("Invalid crafting filter.", ephemeral: true);
+                return;
+            }
+
             await DeferAsync(ephemeral: true);
 
-            var professionFilter = selections.FirstOrDefault() ?? "all";
+            var professionFilter = selections[0];
             var guildId = (long)Context.Guild.Id;
 
-            var tickets = await WithDbAsync(async db =>
+            var (tickets, professions, validFilter) = await WithDbAsync(async db =>
             {
                 var query = db.CraftTickets
                     .Where(t => t.GuildId == guildId && ActiveStatuses.Contains(t.Status));
-
                 if (scope == "mine")
                     query = query.Where(t => t.RequesterId == userId);
 
-                var allTickets = await query
-                    .OrderBy(t => t.CreatedAt)
+                var available = await query
+                    .Where(ticket => ticket.Profession != null && ticket.Profession != "")
+                    .Select(ticket => ticket.Profession)
+                    .Distinct()
+                    .OrderBy(profession => profession)
+                    .ToListAsync();
+                var isValid = professionFilter == "all"
+                    || available.Any(profession => string.Equals(
+                        profession,
+                        professionFilter,
+                        StringComparison.OrdinalIgnoreCase));
+                if (!isValid)
+                {
+                    return (new List<CraftTicket>(), available, false);
+                }
+
+                if (professionFilter != "all")
+                {
+                    query = query.Where(ticket => ticket.Profession == professionFilter);
+                }
+
+                var filtered = await query
+                    .OrderBy(ticket => ticket.CreatedAt)
                     .Take(25)
                     .ToListAsync();
-
-                if (professionFilter == "all")
-                    return allTickets;
-
-                // Filter by profession: match item names against CraftableItems
-                var itemNames = allTickets.Select(t => t.ItemName).Distinct().ToList();
-                var matchingItems = await db.CraftableItems
-                    .Where(c => itemNames.Contains(c.RecipeName) && c.Profession == professionFilter)
-                    .Select(c => c.RecipeName)
-                    .ToListAsync();
-
-                return allTickets.Where(t => matchingItems.Contains(t.ItemName)).ToList();
+                return (filtered, available, true);
             });
+
+            if (!validFilter)
+            {
+                await FollowupAsync("That profession is no longer available in this ticket list.", ephemeral: true);
+                return;
+            }
 
             var title = professionFilter == "all"
                 ? (scope == "mine" ? "Your Crafting Requests" : "Open Crafting Requests")
                 : $"Crafting Requests — {professionFilter}";
 
-            var embed = CraftCommands.BuildTicketListEmbed(
-                tickets.Any() ? tickets : new List<CraftTicket>(), title);
-
-            // Rebuild profession list from all tickets (not filtered) for the dropdown
-            var allItemNames = await WithDbAsync(async db =>
-            {
-                var query = db.CraftTickets
-                    .Where(t => t.GuildId == guildId && ActiveStatuses.Contains(t.Status));
-                if (scope == "mine")
-                    query = query.Where(t => t.RequesterId == userId);
-                return await query.Select(t => t.ItemName).Distinct().ToListAsync();
-            });
-
-            var professions = await WithDbAsync(async db =>
-                await db.CraftableItems
-                    .Where(c => allItemNames.Contains(c.RecipeName))
-                    .Select(c => c.Profession)
-                    .Distinct()
-                    .OrderBy(p => p)
-                    .ToListAsync());
-
             var components = CraftCommands.BuildListFilterComponents(professions, userId, scope);
+            var card = CraftEmbedBuilder.BuildTicketListCard(tickets, title, components);
 
-            await ModifyOriginalResponseAsync(msg =>
-            {
-                msg.Embed = embed;
-                msg.Components = components;
-            });
+            await Context.Interaction.ModifyToV2Async(card.Build());
         }
 
         #endregion
@@ -895,9 +857,16 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 return;
             }
 
+            if (selections == null || selections.Length != 1
+                || selections[0] is not ("all" or "open" or "claimed" or "crafted" or "complete" or "expired" or "cancelled"))
+            {
+                await RespondAsync("Invalid status filter.", ephemeral: true);
+                return;
+            }
+
             await DeferAsync(ephemeral: true);
 
-            var statusFilter = selections.FirstOrDefault() ?? "all";
+            var statusFilter = selections[0];
             var guildId = (long)Context.Guild.Id;
 
             var tickets = await WithDbAsync(async db =>
@@ -929,16 +898,10 @@ namespace NinjaBotCore.Modules.Interactions.Crafting
                 ? "Crafting Request Board"
                 : $"Crafting Requests — {char.ToUpper(statusFilter[0])}{statusFilter[1..]}";
 
-            var embed = CraftCommands.BuildTicketListEmbed(
-                tickets.Any() ? tickets : new List<CraftTicket>(), title);
-
             var components = CraftCommands.BuildBoardFilterComponents(userId);
+            var card = CraftEmbedBuilder.BuildTicketListCard(tickets, title, components);
 
-            await ModifyOriginalResponseAsync(msg =>
-            {
-                msg.Embed = embed;
-                msg.Components = components;
-            });
+            await Context.Interaction.ModifyToV2Async(card.Build());
         }
 
         #endregion

@@ -12,7 +12,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
     /// </summary>
     public static class WowCardV2
     {
-        private const int TextDisplaySoftLimit = 3900;
+        private const int TotalTextDisplayLimit = 4000;
         private static readonly Color DefaultAccent = new(88, 101, 242);
 
         public static ComponentBuilderV2 FromEmbed(
@@ -35,18 +35,19 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
         {
             var container = new ContainerBuilder()
                 .WithAccentColor(embed.Color ?? DefaultAccent);
+            var textBudget = new TextDisplayBudget(TotalTextDisplayLimit);
 
-            AddHeader(container, embed.Title, embed.Thumbnail?.Url);
+            AddHeader(container, embed.Title, embed.Thumbnail?.Url, textBudget);
             AddDivider(container);
 
-            if (!string.IsNullOrWhiteSpace(preface))
+            if (!string.IsNullOrWhiteSpace(preface) && textBudget.HasRemaining)
             {
-                AddText(container, preface);
+                AddText(container, preface, textBudget);
                 AddDivider(container, isDivider: false);
             }
 
-            AddText(container, embed.Description);
-            AddFields(container, embed.Fields);
+            AddText(container, embed.Description, textBudget);
+            AddFields(container, embed.Fields, textBudget);
 
             var imageUrl = embed.Image?.Url;
             if (IsHttpMedia(imageUrl))
@@ -56,10 +57,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             }
 
             var footerText = embed.Footer?.Text;
-            if (!string.IsNullOrWhiteSpace(footerText))
+            if (!string.IsNullOrWhiteSpace(footerText) && textBudget.HasRemaining)
             {
                 AddDivider(container);
-                AddText(container, $"-# {footerText}");
+                AddText(container, $"-# {footerText}", textBudget);
             }
 
             AddControls(container, controls);
@@ -84,21 +85,34 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             return FromEmbed(embed, controls);
         }
 
-        private static void AddHeader(ContainerBuilder container, string title, string thumbnailUrl)
+        private static void AddHeader(
+            ContainerBuilder container,
+            string title,
+            string thumbnailUrl,
+            TextDisplayBudget textBudget)
         {
             var heading = $"# {SanitizeHeading(string.IsNullOrWhiteSpace(title) ? "NinjaBot" : title)}";
+            var budgetedHeading = textBudget.Take(heading);
+            if (string.IsNullOrEmpty(budgetedHeading))
+            {
+                return;
+            }
+
             if (IsHttpMedia(thumbnailUrl))
             {
                 container.AddComponent(new SectionBuilder(
                     new ThumbnailBuilder(new UnfurledMediaItemProperties(thumbnailUrl), title),
-                    new TextDisplayBuilder().WithContent(heading)));
+                    new TextDisplayBuilder().WithContent(budgetedHeading)));
                 return;
             }
 
-            container.AddComponent(new TextDisplayBuilder().WithContent(heading));
+            container.AddComponent(new TextDisplayBuilder().WithContent(budgetedHeading));
         }
 
-        private static void AddFields(ContainerBuilder container, IReadOnlyCollection<EmbedField> fields)
+        private static void AddFields(
+            ContainerBuilder container,
+            IReadOnlyCollection<EmbedField> fields,
+            TextDisplayBudget textBudget)
         {
             if (fields == null || fields.Count == 0)
             {
@@ -120,7 +134,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                     : $"**{field.Name}**\n{value}");
             }
 
-            AddText(container, string.Join("\n", lines));
+            AddText(container, string.Join("\n", lines), textBudget);
         }
 
         private static void AddControls(ContainerBuilder container, MessageComponent controls)
@@ -136,53 +150,64 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             }
         }
 
-        private static void AddText(ContainerBuilder container, string content)
+        private static void AddText(
+            ContainerBuilder container,
+            string content,
+            TextDisplayBudget textBudget)
         {
-            if (string.IsNullOrWhiteSpace(content))
+            if (string.IsNullOrWhiteSpace(content) || !textBudget.HasRemaining)
             {
                 return;
             }
 
-            foreach (var chunk in SplitText(content, TextDisplaySoftLimit))
+            var budgetedContent = textBudget.Take(content);
+            if (!string.IsNullOrEmpty(budgetedContent))
             {
-                container.AddComponent(new TextDisplayBuilder().WithContent(chunk));
+                container.AddComponent(new TextDisplayBuilder().WithContent(budgetedContent));
             }
         }
 
-        private static IEnumerable<string> SplitText(string text, int maxLength)
+        private sealed class TextDisplayBudget
         {
-            var remaining = text;
-            var preferredBreaks = new[] { '\n', '\r', ' ' };
-            while (remaining.Length > maxLength)
+            public TextDisplayBudget(int total)
             {
-                var splitAt = remaining.LastIndexOfAny(preferredBreaks, maxLength - 1, maxLength);
-                if (splitAt < maxLength / 2)
-                {
-                    splitAt = maxLength;
-                }
-                else
-                {
-                    // Keep the separator in one of the chunks so conversion is lossless.
-                    splitAt++;
-                }
-
-                // Never split a UTF-16 surrogate pair. A malformed pair can otherwise
-                // fail JSON serialization before Discord receives the response.
-                if (splitAt < remaining.Length
-                    && splitAt > 0
-                    && char.IsHighSurrogate(remaining[splitAt - 1])
-                    && char.IsLowSurrogate(remaining[splitAt]))
-                {
-                    splitAt--;
-                }
-
-                yield return remaining.Substring(0, splitAt);
-                remaining = remaining.Substring(splitAt);
+                Remaining = total;
             }
 
-            if (remaining.Length > 0)
+            public int Remaining { get; private set; }
+            public bool HasRemaining => Remaining > 0;
+
+            public string Take(string content)
             {
-                yield return remaining;
+                if (string.IsNullOrEmpty(content) || Remaining <= 0)
+                {
+                    return null;
+                }
+
+                if (content.Length <= Remaining)
+                {
+                    Remaining -= content.Length;
+                    return content;
+                }
+
+                if (Remaining == 1)
+                {
+                    Remaining = 0;
+                    return "…";
+                }
+
+                var cutAt = Remaining - 1;
+                if (cutAt > 0
+                    && cutAt < content.Length
+                    && char.IsHighSurrogate(content[cutAt - 1])
+                    && char.IsLowSurrogate(content[cutAt]))
+                {
+                    cutAt--;
+                }
+
+                var truncated = content.Substring(0, cutAt) + "…";
+                Remaining = 0;
+                return truncated;
             }
         }
 

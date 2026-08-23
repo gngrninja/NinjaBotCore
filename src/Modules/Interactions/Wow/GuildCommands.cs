@@ -131,20 +131,80 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 .WithColor(new Color(65, 105, 225))
                 .WithFooter("Current raid tier • Data from Raider.IO");
 
-            MessageComponent controls = null;
+            var controlBuilder = new ComponentBuilder()
+                .WithButton(
+                    label: "Live Raid",
+                    customId: $"guild_live_raid~{Context.User.Id}",
+                    style: ButtonStyle.Primary,
+                    emote: new Emoji("🔴"));
             if (guildStats.ProfileUrl != null)
             {
-                controls = new ComponentBuilder()
-                    .WithButton(
-                        label: "Open Raider.IO Profile",
-                        style: ButtonStyle.Link,
-                        emote: new Emoji("🔗"),
-                        url: guildStats.ProfileUrl.AbsoluteUri)
-                    .Build();
+                controlBuilder.WithButton(
+                    label: "Open Raider.IO Profile",
+                    style: ButtonStyle.Link,
+                    emote: new Emoji("🔗"),
+                    url: guildStats.ProfileUrl.AbsoluteUri);
             }
 
             await Context.Interaction.ModifyToV2Async(
-                WowCardV2.FromEmbed(embed, controls).Build());
+                WowCardV2.FromEmbed(embed, controlBuilder.Build()).Build());
+        }
+
+        [ComponentInteraction("guild_live_raid~*")]
+        public async Task HandleLiveRaid(string userIdStr)
+        {
+            if (!ulong.TryParse(userIdStr, out var userId) || userId != Context.User.Id)
+            {
+                await RespondAsync("This live raid panel belongs to another user.", ephemeral: true);
+                return;
+            }
+
+            await DeferAsync();
+            try
+            {
+                var guild = await _wowUtils.GetGuildName(Context);
+                if (string.IsNullOrWhiteSpace(guild.guildName))
+                {
+                    await Context.Interaction.ModifyToV2Async(
+                        WowCardV2.Notice(
+                            "No Guild Association",
+                            "Use `/setguild` before opening Live Raid.",
+                            Color.Orange,
+                            "⚠️").Build());
+                    return;
+                }
+
+                var live = await _rioApi.GetGuildLiveRaidProgressAsync(
+                    guild.guildName,
+                    guild.realmSlug,
+                    guild.regionName);
+                var controls = new ComponentBuilder()
+                    .WithButton(
+                        "Refresh",
+                        $"guild_live_raid~{Context.User.Id}",
+                        ButtonStyle.Primary,
+                        new Emoji("🔄"));
+                if (!string.IsNullOrWhiteSpace(live?.Guild?.Path))
+                {
+                    controls.WithButton(
+                        "Open Raider.IO",
+                        style: ButtonStyle.Link,
+                        emote: new Emoji("🔗"),
+                        url: RaiderIoLinks.FromRelativePath(live.Guild.Path));
+                }
+                await Context.Interaction.ModifyToV2Async(
+                    WowCardV2.FromEmbed(GuildLiveRaidView.Build(live), controls.Build()).Build());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to load Raider.IO Live Raid");
+                await Context.Interaction.ModifyToV2Async(
+                    WowCardV2.Notice(
+                        "Live Raid Unavailable",
+                        "No live pull data is available right now. A raider may need to upload logs with the Raider.IO Desktop App.",
+                        Color.Orange,
+                        "⚠️").Build());
+            }
         }
 
         [SlashCommand("setguild", "Associate a WoW guild with this Discord server")]

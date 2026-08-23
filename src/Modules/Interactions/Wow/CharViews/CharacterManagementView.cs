@@ -13,20 +13,39 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
     /// </summary>
     public static class CharacterManagementView
     {
+        public const int CharacterPageSize = 25;
+        private const int MaxComponentCharacterParamLength = 48;
         /// <summary>
         /// Build the character list embed
         /// </summary>
-        public static EmbedBuilder Build(IUser user, List<WowCharAssociation> characters)
+        public static EmbedBuilder Build(
+            IUser user,
+            List<WowCharAssociation> characters,
+            int page = 0)
         {
             var embed = new EmbedBuilder();
             var sb = new StringBuilder();
 
             if (characters != null && characters.Any())
             {
+                var orderedCharacters = characters
+                    .Select((character, index) => new { Character = character, Index = index })
+                    .OrderByDescending(item => item.Character.IsMain)
+                    .ThenBy(item => item.Index)
+                    .Select(item => item.Character)
+                    .ToList();
+                var pageCount = Math.Max(1, (int)Math.Ceiling(orderedCharacters.Count / (double)CharacterPageSize));
+                var currentPage = Math.Clamp(page, 0, pageCount - 1);
                 embed.Title = $"Your Saved Characters ({characters.Count})";
+                if (pageCount > 1)
+                {
+                    embed.Title += $" — Page {currentPage + 1}/{pageCount}";
+                }
                 embed.WithColor(new Color(0, 200, 150));
 
-                foreach (var character in characters)
+                foreach (var character in orderedCharacters
+                    .Skip(currentPage * CharacterPageSize)
+                    .Take(CharacterPageSize))
                 {
                     var mainIndicator = character.IsMain ? "★ [MAIN]" : "";
                     var realm = !string.IsNullOrEmpty(character.WowRealm) ? character.WowRealm : "Unknown Realm";
@@ -110,6 +129,24 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             return WowCardV2.FromEmbed(embed, controls.Build());
         }
 
+        public static bool IsComponentSafe(CharacterInfo character)
+        {
+            if (character == null)
+            {
+                return false;
+            }
+
+            var name = character.Name?.Trim();
+            var realm = character.Realm?.Trim();
+            var region = character.Region?.Trim().ToLowerInvariant();
+            return !string.IsNullOrWhiteSpace(name)
+                && !string.IsNullOrWhiteSpace(realm)
+                && region is "us" or "eu" or "kr" or "tw" or "cn"
+                && !name.Contains('~')
+                && !realm.Contains('~')
+                && $"{name}~{realm}~{region}".Length <= MaxComponentCharacterParamLength;
+        }
+
         public static bool TryBuildCharacterInfo(
             WowCharAssociation character,
             out CharacterInfo charInfo)
@@ -136,7 +173,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             // payload bounded ensures even the longest current retail route stays
             // below Discord's 100-character custom_id limit.
             var charParam = $"{name}~{realm}~{region}";
-            if (charParam.Length > 48)
+            if (charParam.Length > MaxComponentCharacterParamLength)
             {
                 return false;
             }
@@ -188,7 +225,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
         public static ComponentBuilder BuildComponents(
             List<WowCharAssociation> characters,
             ulong? userId = null,
-            string returnToCharParam = null)
+            string returnToCharParam = null,
+            int page = 0)
         {
             var builder = new ComponentBuilder();
 
@@ -209,14 +247,24 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 return builder;
             }
 
-            // Add select menu with all characters
             var selectMenuBuilder = new SelectMenuBuilder()
                 .WithPlaceholder("Select a character to manage...")
                 .WithCustomId("char_select")
                 .WithMinValues(1)
                 .WithMaxValues(1);
 
-            foreach (var character in characters)
+            var orderedCharacters = characters
+                .Select((character, index) => new { Character = character, Index = index })
+                .OrderByDescending(item => item.Character.IsMain)
+                .ThenBy(item => item.Index)
+                .Select(item => item.Character)
+                .ToList();
+            var pageCount = Math.Max(1, (int)Math.Ceiling(orderedCharacters.Count / (double)CharacterPageSize));
+            var currentPage = Math.Clamp(page, 0, pageCount - 1);
+
+            foreach (var character in orderedCharacters
+                .Skip(currentPage * CharacterPageSize)
+                .Take(CharacterPageSize))
             {
                 var mainIndicator = character.IsMain ? "★ " : "";
                 var realm = !string.IsNullOrEmpty(character.WowRealm) ? character.WowRealm : "Unknown Realm";
@@ -281,6 +329,35 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                     emote: new Emoji("↩️"),
                     row: 1
                 );
+            }
+
+            if (pageCount > 1 && userId.HasValue)
+            {
+                string PageCustomId(int targetPage) =>
+                    string.IsNullOrEmpty(returnToCharParam)
+                        ? $"char_mpage~{userId.Value}~{targetPage}"
+                        : $"char_mpage_ret~{userId.Value}~{targetPage}~{returnToCharParam}";
+
+                builder.WithButton(
+                    label: "Previous",
+                    customId: PageCustomId(Math.Max(0, currentPage - 1)),
+                    style: ButtonStyle.Secondary,
+                    emote: new Emoji("⬅️"),
+                    row: 2,
+                    disabled: currentPage == 0);
+                builder.WithButton(
+                    label: $"Page {currentPage + 1}/{pageCount}",
+                    customId: $"char_manage_page_label~{userId.Value}",
+                    style: ButtonStyle.Secondary,
+                    row: 2,
+                    disabled: true);
+                builder.WithButton(
+                    label: "Next",
+                    customId: PageCustomId(Math.Min(pageCount - 1, currentPage + 1)),
+                    style: ButtonStyle.Secondary,
+                    emote: new Emoji("➡️"),
+                    row: 2,
+                    disabled: currentPage == pageCount - 1);
             }
 
             return builder;

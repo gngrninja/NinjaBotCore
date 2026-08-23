@@ -4,7 +4,9 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using NinjaBotCore.Database;
+using NinjaBotCore.Modules.Interactions.Crafting;
 using NinjaBotCore.Repositories;
 using Xunit;
 
@@ -263,6 +265,17 @@ namespace NinjaBotCore.Tests
             Assert.Equal(191585, saved.BlizzardItemId);
             Assert.NotNull(saved.ItemIconUrl);
             Assert.Equal("Have all mats, will tip 1k gold", saved.Note);
+        }
+
+        [Fact]
+        public async Task DiscordUpdateReportsFailureWhenTheAuthoritativeCardCannotBeReached()
+        {
+            var updated = await CraftTicketUpdater.UpdateTicketAsync(
+                null,
+                CreateOpenTicket(),
+                NullLogger.Instance);
+
+            Assert.False(updated);
         }
 
         private static CraftTicket CreateOpenTicket(

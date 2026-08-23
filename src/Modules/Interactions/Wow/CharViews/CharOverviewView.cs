@@ -204,6 +204,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 disabled: !hasAchievements,
                 row: 1);
 
+            builder.WithButton(
+                label: "Insights",
+                customId: $"char_view_insights~{userId}~{charParam}",
+                style: hasRioData ? ButtonStyle.Primary : ButtonStyle.Secondary,
+                emote: new Emoji("🧭"),
+                disabled: !hasRioData,
+                row: 1);
+
             // Row 2: Action buttons
             if (isAlreadySaved)
             {
@@ -233,7 +241,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 row: 2);
 
             builder.WithButton(
-                label: "Share",
+                label: "Share Profile",
                 customId: $"char_share~{userId}~{charParam}",
                 style: ButtonStyle.Secondary,
                 emote: new Emoji("📢"),
@@ -312,6 +320,15 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
                 emote: new Emoji("🏆"),
                 row: 1);
 
+            builder.WithButton(
+                label: "Insights",
+                customId: $"char_view_insights~{userId}~{charParam}",
+                style: currentView is "coach" or "talents" or "rivals" or "cutoffs" or "review"
+                    ? ButtonStyle.Success
+                    : ButtonStyle.Primary,
+                emote: new Emoji("🧭"),
+                row: 1);
+
             // Row 2: Action buttons (no Refresh on detail views)
             if (isAlreadySaved)
             {
@@ -334,7 +351,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
             }
 
             builder.WithButton(
-                label: "Share",
+                label: "Share Profile",
                 customId: $"char_share~{userId}~{charParam}",
                 style: ButtonStyle.Secondary,
                 emote: new Emoji("📢"),

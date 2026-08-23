@@ -64,6 +64,13 @@ namespace NinjaBotCore.Common
         public const string HousingBack = "housing_back";             // Back to summary button
 
         /// <summary>
+        /// Retail character insight component IDs - handlers in CharCommands.cs.
+        /// </summary>
+        public const string CharInsightsSelect = "char_insights";
+        public const string CharRivalsScopeSelect = "char_rivals_scope";
+        public const string CharRunReviewSelect = "char_run_review";
+
+        /// <summary>
         /// Classic character component IDs - handlers in CharClassicCommands.cs
         /// Standard format: charclassic_{action}~{userId}~{name}~{realm}~{region}
         /// </summary>
@@ -114,6 +121,7 @@ namespace NinjaBotCore.Common
         public const string PushGroupRerunPrefix = "pushgroup_rerun~";         // pushgroup_rerun~{groupId} ("run it back" on closed cards)
         public const string PushGroupKeyGoPrefix = "pushgroup_keygo~";         // pushgroup_keygo~{userId}~{role} (post group from registered key)
         public const string PushGroupHubNewId = "pushgroup_hubnew";            // fixed id on the hub card's ➕ button
+        public const string PushGroupHubInsightsId = "pushgroup_hubinsights";  // fixed id: open caller's main character Insights privately
     }
 
     /// <summary>

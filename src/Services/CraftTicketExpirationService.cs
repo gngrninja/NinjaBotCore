@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -23,6 +24,8 @@ namespace NinjaBotCore.Services
         private bool _disposed;
 
         private static string[] ActiveStatuses => CraftConstants.ActiveStatuses;
+        private static readonly string[] ExpirationStatuses =
+            CraftConstants.ActiveStatuses.Append("PendingProfession").ToArray();
 
         public CraftTicketExpirationService(
             ILogger<CraftTicketExpirationService> logger,
@@ -58,7 +61,7 @@ namespace NinjaBotCore.Services
                 var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
 
                 var nextExpiration = await db.CraftTickets
-                    .Where(t => ActiveStatuses.Contains(t.Status) && t.ExpiresAt.HasValue)
+                    .Where(t => ExpirationStatuses.Contains(t.Status) && t.ExpiresAt.HasValue)
                     .OrderBy(t => t.ExpiresAt)
                     .Select(t => t.ExpiresAt.Value)
                     .FirstOrDefaultAsync(cancellationToken);
@@ -74,25 +77,34 @@ namespace NinjaBotCore.Services
 
                 if (timeUntilExpiration <= TimeSpan.Zero)
                 {
-                    var expiredTickets = await db.CraftTickets
+                    var now = DateTime.UtcNow;
+                    var expirationCandidates = await db.CraftTickets
+                        .AsNoTracking()
                         .Where(t => ActiveStatuses.Contains(t.Status)
                                     && t.ExpiresAt.HasValue
-                                    && t.ExpiresAt.Value <= DateTime.UtcNow)
+                                    && t.ExpiresAt.Value <= now)
                         .ToListAsync(cancellationToken);
+                    var expiredTickets = new List<CraftTicket>();
+                    foreach (var candidate in expirationCandidates)
+                    {
+                        var expired = await CraftTicketUpdater.ExpireTicketAsync(
+                            db,
+                            candidate.Id,
+                            candidate.Status,
+                            now,
+                            cancellationToken);
+                        if (expired != null)
+                        {
+                            expiredTickets.Add(expired);
+                        }
+                    }
 
                     if (expiredTickets.Any())
                     {
                         _logger.LogInformation("Found {Count} expired craft tickets to close", expiredTickets.Count);
 
-                        // Batch DB update first — all-or-nothing for persistence
-                        foreach (var ticket in expiredTickets)
-                        {
-                            ticket.Status = "Expired";
-                            ticket.CompletedAt = DateTime.UtcNow;
-                        }
-                        await db.SaveChangesAsync(cancellationToken);
-
-                        // Discord updates: best-effort per ticket
+                        // Discord updates: best-effort per ticket. Only successful
+                        // status-conditioned expirations are published.
                         foreach (var ticket in expiredTickets)
                         {
                             try
@@ -109,18 +121,17 @@ namespace NinjaBotCore.Services
                         }
                     }
 
-                    // Also clean up stale PendingProfession tickets (user never selected a profession)
-                    var stalePending = await db.CraftTickets
+                    // Also clean up stale PendingProfession tickets (user never selected a profession).
+                    // The status predicate remains in the DELETE so a concurrent finalization wins safely.
+                    var stalePendingCount = await db.CraftTickets
                         .Where(t => t.Status == "PendingProfession"
                                     && t.ExpiresAt.HasValue
-                                    && t.ExpiresAt.Value <= DateTime.UtcNow)
-                        .ToListAsync(cancellationToken);
+                                    && t.ExpiresAt.Value <= now)
+                        .ExecuteDeleteAsync(cancellationToken);
 
-                    if (stalePending.Any())
+                    if (stalePendingCount > 0)
                     {
-                        _logger.LogInformation("Cleaning up {Count} stale PendingProfession tickets", stalePending.Count);
-                        db.CraftTickets.RemoveRange(stalePending);
-                        await db.SaveChangesAsync(cancellationToken);
+                        _logger.LogInformation("Cleaned up {Count} stale PendingProfession tickets", stalePendingCount);
                     }
 
                     _timer?.Change(TimeSpan.Zero, Timeout.InfiniteTimeSpan);

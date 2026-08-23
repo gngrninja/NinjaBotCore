@@ -53,9 +53,10 @@ namespace NinjaBotCore.Services
                 container.AddComponent(new TextDisplayBuilder().WithContent($"🏆 **This week's best:** {top}"));
             }
 
-            container.AddComponent(Divider());
+            AddRaiderIoAttribution(container);
             container.AddComponent(new ActionRowBuilder()
-                .WithButton("New Group", ModalConstants.PushGroupHubNewId, ButtonStyle.Success, new Emoji("➕")));
+                .WithButton("New Group", ModalConstants.PushGroupHubNewId, ButtonStyle.Success, new Emoji("➕"))
+                .WithButton("My Insights", ModalConstants.PushGroupHubInsightsId, ButtonStyle.Primary, new Emoji("🧭")));
 
             return new ComponentBuilderV2().AddComponent(container);
         }
@@ -140,6 +141,7 @@ namespace NinjaBotCore.Services
                 container.AddComponent(new TextDisplayBuilder().WithContent(sb.ToString().TrimEnd()));
             }
 
+            AddRaiderIoAttribution(container);
             return new ComponentBuilderV2().AddComponent(container);
         }
 
@@ -176,6 +178,7 @@ namespace NinjaBotCore.Services
                 container.AddComponent(new TextDisplayBuilder().WithContent(sb.ToString()));
             }
 
+            AddRaiderIoAttribution(container);
             return new ComponentBuilderV2().AddComponent(container);
         }
 
@@ -207,6 +210,7 @@ namespace NinjaBotCore.Services
             }
 
             container.AddComponent(new TextDisplayBuilder().WithContent(sb.ToString()));
+            AddRaiderIoAttribution(container);
             return new ComponentBuilderV2().AddComponent(container);
         }
 
@@ -236,6 +240,7 @@ namespace NinjaBotCore.Services
                 container.AddComponent(new TextDisplayBuilder().WithContent(sb.ToString().TrimEnd()));
             }
 
+            AddRaiderIoAttribution(container);
             return new ComponentBuilderV2().AddComponent(container);
         }
 
@@ -246,6 +251,13 @@ namespace NinjaBotCore.Services
             return backingLevel.HasValue
                 ? $"🟩 **Slot {slot}** ({threshold} run{(threshold == 1 ? "" : "s")}) — unlocked, from your **+{backingLevel.Value}**"
                 : $"⬜ **Slot {slot}** ({threshold} run{(threshold == 1 ? "" : "s")}) — {Math.Max(0, threshold - runCount)} more run{(threshold - runCount == 1 ? "" : "s")}";
+        }
+
+        private static void AddRaiderIoAttribution(ContainerBuilder container)
+        {
+            container.AddComponent(Divider());
+            container.AddComponent(new TextDisplayBuilder().WithContent(
+                "-# Mythic+ data from [Raider.IO](https://raider.io)"));
         }
 
         private static SeparatorBuilder Divider() =>

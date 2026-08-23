@@ -147,7 +147,7 @@ namespace NinjaBotCore.Models.Wow
             [JsonProperty("realm")]
             public long Realm { get; set; }
         }
-        
+
         public partial class Mythic
         {
             [JsonProperty("world")]
@@ -213,6 +213,9 @@ namespace NinjaBotCore.Models.Wow
             [JsonProperty("profile_url")]
             public Uri ProfileUrl { get; set; }
 
+            [JsonProperty("last_crawled_at")]
+            public DateTimeOffset? LastCrawledAt { get; set; }
+
             [JsonProperty("gear")]
             public Gear Gear { get; set; }
 
@@ -227,6 +230,15 @@ namespace NinjaBotCore.Models.Wow
 
             [JsonProperty("mythic_plus_best_runs")]
             public MythicPlusRun[] MythicPlusBestRuns { get; set; }
+
+            [JsonProperty("mythic_plus_alternate_runs")]
+            public MythicPlusRun[] MythicPlusAlternateRuns { get; set; }
+
+            [JsonProperty("mythic_plus_dungeon_run_counts")]
+            public MythicPlusDungeonRunCount[] MythicPlusDungeonRunCounts { get; set; }
+
+            [JsonProperty("talentLoadout")]
+            public TalentLoadout TalentLoadout { get; set; }
 
             [JsonProperty("mythic_plus_highest_level_runs")]
             public MythicPlusRun[] MythicPlusHighestLevelRuns { get; set; }
@@ -266,11 +278,32 @@ namespace NinjaBotCore.Models.Wow
             [JsonProperty("clear_time_ms")]
             public long ClearTimeMs { get; set; }
 
+            [JsonProperty("keystone_run_id")]
+            public long KeystoneRunId { get; set; }
+
+            [JsonProperty("par_time_ms")]
+            public long ParTimeMs { get; set; }
+
             [JsonProperty("num_keystone_upgrades")]
             public long NumKeystoneUpgrades { get; set; }
 
             [JsonProperty("map_challenge_mode_id")]
             public long MapChallengeModeId { get; set; }
+
+            [JsonProperty("zone_id")]
+            public long ZoneId { get; set; }
+
+            [JsonProperty("icon_url")]
+            public string IconUrl { get; set; }
+
+            [JsonProperty("background_image_url")]
+            public string BackgroundImageUrl { get; set; }
+
+            [JsonProperty("spec")]
+            public MythicPlusSpec Spec { get; set; }
+
+            [JsonProperty("role")]
+            public string Role { get; set; }
 
             [JsonProperty("score")]
             public double Score { get; set; }
@@ -280,6 +313,510 @@ namespace NinjaBotCore.Models.Wow
 
             [JsonProperty("url")]
             public Uri Url { get; set; }
+        }
+
+        public class MythicPlusDungeonRunCount
+        {
+            [JsonProperty("zone_id")]
+            public long ZoneId { get; set; }
+
+            [JsonProperty("dungeon")]
+            public string Dungeon { get; set; }
+
+            [JsonProperty("short_name")]
+            public string ShortName { get; set; }
+
+            [JsonProperty("season_runs_total")]
+            public int SeasonRunsTotal { get; set; }
+
+            [JsonProperty("season_runs_timed")]
+            public int SeasonRunsTimed { get; set; }
+        }
+
+        public class MythicPlusSpec
+        {
+            [JsonProperty("id")]
+            public long Id { get; set; }
+
+            [JsonProperty("name")]
+            public string Name { get; set; }
+
+            [JsonProperty("slug")]
+            public string Slug { get; set; }
+
+            [JsonProperty("class_id")]
+            public long ClassId { get; set; }
+
+            [JsonProperty("role")]
+            public string Role { get; set; }
+        }
+
+        public class TalentLoadout
+        {
+            [JsonProperty("loadout_spec_id")]
+            public long LoadoutSpecId { get; set; }
+
+            [JsonProperty("loadout_text")]
+            public string LoadoutText { get; set; }
+
+            [JsonProperty("class_talents")]
+            public TalentSelection[] ClassTalents { get; set; }
+
+            [JsonProperty("spec_talents")]
+            public TalentSelection[] SpecTalents { get; set; }
+
+            [JsonProperty("hero_talents")]
+            public TalentSelection[] HeroTalents { get; set; }
+
+            [JsonProperty("active_hero_tree")]
+            public HeroTalentTree ActiveHeroTree { get; set; }
+        }
+
+        public class TalentSelection
+        {
+            [JsonProperty("node")]
+            public TalentNode Node { get; set; }
+
+            [JsonProperty("entryIndex")]
+            public int EntryIndex { get; set; }
+
+            [JsonProperty("rank")]
+            public int Rank { get; set; }
+
+            [JsonProperty("grantedNode")]
+            public bool GrantedNode { get; set; }
+
+            [JsonProperty("includeInSummary")]
+            public bool IncludeInSummary { get; set; }
+        }
+
+        public class TalentNode
+        {
+            [JsonProperty("id")]
+            public long Id { get; set; }
+
+            [JsonProperty("important")]
+            public bool Important { get; set; }
+
+            [JsonProperty("entries")]
+            public TalentEntry[] Entries { get; set; }
+        }
+
+        public class TalentEntry
+        {
+            [JsonProperty("spell")]
+            public TalentSpell Spell { get; set; }
+        }
+
+        public class TalentSpell
+        {
+            [JsonProperty("id")]
+            public long Id { get; set; }
+
+            [JsonProperty("name")]
+            public string Name { get; set; }
+
+            [JsonProperty("icon")]
+            public string Icon { get; set; }
+        }
+
+        public class HeroTalentTree
+        {
+            [JsonProperty("id")]
+            public long Id { get; set; }
+
+            [JsonProperty("name")]
+            public string Name { get; set; }
+
+            [JsonProperty("slug")]
+            public string Slug { get; set; }
+
+            [JsonProperty("iconUrl")]
+            public string IconUrl { get; set; }
+        }
+
+        public class CharacterRivalsResponse
+        {
+            [JsonProperty("rivals")]
+            public RivalWindow Rivals { get; set; }
+        }
+
+        public class RivalWindow
+        {
+            [JsonProperty("scope")]
+            public string Scope { get; set; }
+
+            [JsonProperty("specId")]
+            public long? SpecId { get; set; }
+
+            [JsonProperty("selfRank")]
+            public long? SelfRank { get; set; }
+
+            [JsonProperty("fullRankingPath")]
+            public string FullRankingPath { get; set; }
+
+            [JsonProperty("entries")]
+            public RivalEntry[] Entries { get; set; }
+        }
+
+        public class RivalEntry
+        {
+            [JsonProperty("rank")]
+            public long Rank { get; set; }
+
+            [JsonProperty("name")]
+            public string Name { get; set; }
+
+            [JsonProperty("realm")]
+            public string Realm { get; set; }
+
+            [JsonProperty("realmSlug")]
+            public string RealmSlug { get; set; }
+
+            [JsonProperty("regionSlug")]
+            public string RegionSlug { get; set; }
+
+            [JsonProperty("score")]
+            public double Score { get; set; }
+
+            [JsonProperty("scoreColor")]
+            public string ScoreColor { get; set; }
+
+            [JsonProperty("isSelf")]
+            public bool IsSelf { get; set; }
+
+            [JsonProperty("classId")]
+            public long? ClassId { get; set; }
+
+            [JsonProperty("specId")]
+            public long? SpecId { get; set; }
+        }
+
+        public class RunReviewResponse
+        {
+            [JsonProperty("percentile")]
+            public double? Percentile { get; set; }
+
+            [JsonProperty("historicalPercentile")]
+            public double? HistoricalPercentile { get; set; }
+
+            [JsonProperty("historicalLocked")]
+            public bool HistoricalLocked { get; set; }
+
+            [JsonProperty("runScore")]
+            public double? RunScore { get; set; }
+
+            [JsonProperty("keystonePace")]
+            public KeystonePace KeystonePace { get; set; }
+
+            [JsonProperty("pastRuns")]
+            public PastDungeonRun[] PastRuns { get; set; }
+
+            [JsonProperty("rivals")]
+            public RivalWindow Rivals { get; set; }
+        }
+
+        public class KeystonePace
+        {
+            [JsonProperty("current")]
+            public PaceSnapshot Current { get; set; }
+
+            [JsonProperty("historical")]
+            public PaceSnapshot Historical { get; set; }
+
+            [JsonProperty("itemLevel")]
+            public ItemLevelPace ItemLevel { get; set; }
+        }
+
+        public class PaceSnapshot
+        {
+            [JsonProperty("percentile")]
+            public double? Percentile { get; set; }
+
+            [JsonProperty("populationCount")]
+            public long PopulationCount { get; set; }
+
+            [JsonProperty("generatedAt")]
+            public DateTimeOffset? GeneratedAt { get; set; }
+
+            [JsonProperty("period")]
+            public long? Period { get; set; }
+
+            [JsonProperty("locked")]
+            public bool Locked { get; set; }
+        }
+
+        public class ItemLevelPace
+        {
+            [JsonProperty("average")]
+            public double Average { get; set; }
+
+            [JsonProperty("min")]
+            public double Min { get; set; }
+
+            [JsonProperty("maxExclusive")]
+            public double MaxExclusive { get; set; }
+
+            [JsonProperty("current")]
+            public PaceSnapshot Current { get; set; }
+
+            [JsonProperty("historical")]
+            public PaceSnapshot Historical { get; set; }
+        }
+
+        public class PastDungeonRun
+        {
+            [JsonProperty("completedAt")]
+            public DateTimeOffset CompletedAt { get; set; }
+
+            [JsonProperty("keyLevel")]
+            public int KeyLevel { get; set; }
+
+            [JsonProperty("clearTimeMs")]
+            public long ClearTimeMs { get; set; }
+
+            [JsonProperty("timed")]
+            public bool Timed { get; set; }
+
+            [JsonProperty("score")]
+            public double? Score { get; set; }
+        }
+
+        public class SeasonCutoffsResponse
+        {
+            [JsonProperty("cutoffs")]
+            public SeasonCutoffs Cutoffs { get; set; }
+        }
+
+        public class SeasonCutoffs
+        {
+            [JsonProperty("updatedAt")]
+            public string UpdatedAt { get; set; }
+
+            [JsonProperty("region")]
+            public RegionSummary Region { get; set; }
+
+            [JsonProperty("keystoneExplorer")]
+            public CutoffThreshold KeystoneExplorer { get; set; }
+
+            [JsonProperty("keystoneConqueror")]
+            public CutoffThreshold KeystoneConqueror { get; set; }
+
+            [JsonProperty("keystoneMaster")]
+            public CutoffThreshold KeystoneMaster { get; set; }
+
+            [JsonProperty("keystoneHero")]
+            public CutoffThreshold KeystoneHero { get; set; }
+
+            [JsonProperty("keystoneLegend")]
+            public CutoffThreshold KeystoneLegend { get; set; }
+
+            [JsonProperty("keystoneMyth")]
+            public CutoffThreshold KeystoneMyth { get; set; }
+
+            [JsonProperty("p999")]
+            public CutoffThreshold P999 { get; set; }
+
+            [JsonProperty("p990")]
+            public CutoffThreshold P990 { get; set; }
+
+            [JsonProperty("p900")]
+            public CutoffThreshold P900 { get; set; }
+        }
+
+        public class CutoffThreshold
+        {
+            [JsonProperty("score")]
+            public double? Score { get; set; }
+
+            [JsonProperty("all")]
+            public CutoffPopulation All { get; set; }
+        }
+
+        public class CutoffPopulation
+        {
+            [JsonProperty("quantile")]
+            public double Quantile { get; set; }
+
+            [JsonProperty("quantileMinValue")]
+            public double QuantileMinValue { get; set; }
+
+            [JsonProperty("quantilePopulationCount")]
+            public long QuantilePopulationCount { get; set; }
+
+            [JsonProperty("totalPopulationCount")]
+            public long TotalPopulationCount { get; set; }
+        }
+
+        public class RegionSummary
+        {
+            [JsonProperty("name")]
+            public string Name { get; set; }
+
+            [JsonProperty("slug")]
+            public string Slug { get; set; }
+
+            [JsonProperty("short_name")]
+            public string ShortName { get; set; }
+        }
+
+        public class LeaderboardCapacityResponse
+        {
+            [JsonProperty("realmListing")]
+            public LeaderboardCapacityListing RealmListing { get; set; }
+        }
+
+        public class LeaderboardCapacityListing
+        {
+            [JsonProperty("region")]
+            public RegionSummary Region { get; set; }
+
+            [JsonProperty("realms")]
+            public LeaderboardCapacityRealm[] Realms { get; set; }
+        }
+
+        public class LeaderboardCapacityRealm
+        {
+            [JsonProperty("id")]
+            public long Id { get; set; }
+
+            [JsonProperty("connectedRealms")]
+            public CapacityRealmSummary[] ConnectedRealms { get; set; }
+
+            [JsonProperty("dungeons")]
+            public LeaderboardCapacityDungeon[] Dungeons { get; set; }
+        }
+
+        public class CapacityRealmSummary
+        {
+            [JsonProperty("name")]
+            public string Name { get; set; }
+
+            [JsonProperty("slug")]
+            public string Slug { get; set; }
+        }
+
+        public class LeaderboardCapacityDungeon
+        {
+            [JsonProperty("dungeon")]
+            public CapacityDungeonSummary Dungeon { get; set; }
+
+            [JsonProperty("lowest")]
+            public CapacityLowestRun Lowest { get; set; }
+        }
+
+        public class CapacityDungeonSummary
+        {
+            [JsonProperty("id")]
+            public long Id { get; set; }
+
+            [JsonProperty("name")]
+            public string Name { get; set; }
+
+            [JsonProperty("short_name")]
+            public string ShortName { get; set; }
+
+            [JsonProperty("slug")]
+            public string Slug { get; set; }
+        }
+
+        public class CapacityLowestRun
+        {
+            [JsonProperty("rank")]
+            public int Rank { get; set; }
+
+            [JsonProperty("mythicLevel")]
+            public int MythicLevel { get; set; }
+
+            [JsonProperty("timeInMilliseconds")]
+            public long TimeInMilliseconds { get; set; }
+        }
+
+        public class GuildLiveRaidResponse
+        {
+            [JsonProperty("guild")]
+            public LiveGuildSummary Guild { get; set; }
+
+            [JsonProperty("guildPrivacy")]
+            public LiveRaidPrivacy GuildPrivacy { get; set; }
+
+            [JsonProperty("raid")]
+            public LiveRaidSummary Raid { get; set; }
+
+            [JsonProperty("bosses")]
+            public LiveRaidBoss[] Bosses { get; set; }
+        }
+
+        public class LiveGuildSummary
+        {
+            [JsonProperty("id")]
+            public long Id { get; set; }
+
+            [JsonProperty("name")]
+            public string Name { get; set; }
+
+            [JsonProperty("path")]
+            public string Path { get; set; }
+        }
+
+        public class LiveRaidPrivacy
+        {
+            [JsonProperty("raidPulls")]
+            public bool RaidPulls { get; set; }
+
+            [JsonProperty("raidPercents")]
+            public bool RaidPercents { get; set; }
+
+            [JsonProperty("wereRaidPullsRestricted")]
+            public bool WereRaidPullsRestricted { get; set; }
+
+            [JsonProperty("wereRaidPercentsRestricted")]
+            public bool WereRaidPercentsRestricted { get; set; }
+        }
+
+        public class LiveRaidSummary
+        {
+            [JsonProperty("id")]
+            public long Id { get; set; }
+
+            [JsonProperty("slug")]
+            public string Slug { get; set; }
+
+            [JsonProperty("name")]
+            public string Name { get; set; }
+        }
+
+        public class LiveRaidBoss
+        {
+            [JsonProperty("boss")]
+            public LiveRaidEncounter Boss { get; set; }
+
+            [JsonProperty("bestPercent")]
+            public double? BestPercent { get; set; }
+
+            [JsonProperty("pullCount")]
+            public int? PullCount { get; set; }
+
+            [JsonProperty("pullEndedAt")]
+            public DateTimeOffset? PullEndedAt { get; set; }
+
+            [JsonProperty("isDefeated")]
+            public bool IsDefeated { get; set; }
+        }
+
+        public class LiveRaidEncounter
+        {
+            [JsonProperty("id")]
+            public long Id { get; set; }
+
+            [JsonProperty("slug")]
+            public string Slug { get; set; }
+
+            [JsonProperty("name")]
+            public string Name { get; set; }
+
+            [JsonProperty("ordinal")]
+            public int Ordinal { get; set; }
         }
 
         public partial class AffixInfo
