@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 
 namespace NinjaBotCore.Common
 {
@@ -15,6 +16,8 @@ namespace NinjaBotCore.Common
 
         private readonly TimeSpan _logInterval;
         private readonly ConcurrentDictionary<FailureKey, DateTimeOffset> _nextLogAt = new();
+
+        internal int RetainedKeyCount => _nextLogAt.Count;
 
         public DiscordDeliveryFailurePolicy(TimeSpan logInterval)
         {
@@ -37,6 +40,7 @@ namespace NinjaBotCore.Common
             string reason,
             DateTimeOffset observedAt)
         {
+            PruneExpired(observedAt);
             var key = new FailureKey(guildId, channelId, reason ?? string.Empty);
 
             while (true)
@@ -59,6 +63,22 @@ namespace NinjaBotCore.Common
                 if (_nextLogAt.TryUpdate(key, observedAt.Add(_logInterval), nextLogAt))
                 {
                     return true;
+                }
+            }
+        }
+
+        private void PruneExpired(DateTimeOffset observedAt)
+        {
+            var retentionCutoff = observedAt.Subtract(_logInterval);
+            var entries = (ICollection<KeyValuePair<FailureKey, DateTimeOffset>>)_nextLogAt;
+
+            foreach (var entry in _nextLogAt)
+            {
+                if (entry.Value <= retentionCutoff)
+                {
+                    // ICollection.Remove is key-and-value conditional for
+                    // ConcurrentDictionary, so a concurrent refresh is preserved.
+                    entries.Remove(entry);
                 }
             }
         }

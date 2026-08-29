@@ -65,5 +65,17 @@ namespace NinjaBotCore.Tests
             Assert.True(policy.ShouldLog(123, 457, "50001", now));
             Assert.True(policy.ShouldLog(123, 456, "50013", now));
         }
+
+        [Fact]
+        public void ShouldLog_NewObservation_PrunesKeysOlderThanTwoIntervals()
+        {
+            var policy = new DiscordDeliveryFailurePolicy(TimeSpan.FromHours(6));
+            var now = new DateTimeOffset(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
+
+            Assert.True(policy.ShouldLog(123, 456, "50001", now));
+            Assert.True(policy.ShouldLog(789, 987, "50013", now.AddHours(12)));
+
+            Assert.Equal(1, policy.RetainedKeyCount);
+        }
     }
 }
