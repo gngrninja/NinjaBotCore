@@ -7,6 +7,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Discord.WebSocket;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Caching.Memory;
@@ -16,6 +17,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NinjaBotCore.Database;
 using NinjaBotCore.Services;
+using NinjaBotCore.Services.Api;
 using Xunit;
 
 // Type aliases to avoid naming conflict with Discord.Poll
@@ -172,6 +174,43 @@ namespace NinjaBotCore.Tests
 
             var invalid = Assert.IsType<InvalidOperationException>(error);
             Assert.Contains("API key", invalid.Message, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    public class PollDiscordGuildResolverTests
+    {
+        [Fact]
+        public void Resolve_WithoutDiscordClient_ReturnsClientUnavailable()
+        {
+            using var provider = new ServiceCollection().BuildServiceProvider();
+
+            var result = PollDiscordGuildResolver.Resolve(provider, 123);
+
+            Assert.Equal(PollDiscordGuildLookupStatus.ClientUnavailable, result.Status);
+            Assert.Null(result.Guild);
+        }
+
+        [Fact]
+        public void Resolve_DisconnectedDiscordClient_ReturnsClientUnavailable()
+        {
+            using var provider = new ServiceCollection()
+                .AddSingleton(new DiscordShardedClient(
+                    new DiscordSocketConfig { TotalShards = 1 }))
+                .BuildServiceProvider();
+
+            var result = PollDiscordGuildResolver.Resolve(provider, 123);
+
+            Assert.Equal(PollDiscordGuildLookupStatus.ClientUnavailable, result.Status);
+            Assert.Null(result.Guild);
+        }
+
+        [Fact]
+        public void Resolve_ReadyClientWithoutGuild_ReturnsGuildUnavailable()
+        {
+            var result = PollDiscordGuildResolver.ResolveReadyGuild(null);
+
+            Assert.Equal(PollDiscordGuildLookupStatus.GuildUnavailable, result.Status);
+            Assert.Null(result.Guild);
         }
     }
 
@@ -340,7 +379,7 @@ namespace NinjaBotCore.Tests
         }
 
         [Fact]
-        public async Task ClosePoll_CreatorWithoutCurrentGuildMembership_ReturnsForbidden()
+        public async Task ClosePoll_WithoutDiscordClient_ReturnsServiceUnavailable()
         {
             const long pollGuildId = 200008;
             const long creatorId = 50008;
@@ -369,7 +408,9 @@ namespace NinjaBotCore.Tests
                 UserId = creatorId.ToString()
             });
 
-            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+            var error = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("Discord client unavailable", error.GetProperty("error").GetString());
 
             var (verifyScope, verifyDb) = _fixture.CreateDbScope();
             using (verifyScope)

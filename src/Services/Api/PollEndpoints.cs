@@ -285,10 +285,24 @@ namespace NinjaBotCore.Services.Api
 
                 // Check permissions against the poll's actual guild. Creators must still
                 // be current members; creating a poll does not grant permanent authority.
-                var client = deps.ServiceProvider.GetService<DiscordShardedClient>();
-                var guild = client?.GetGuild((ulong)poll.GuildId);
-                IGuildUser member = guild?.GetUser((ulong)userId);
-                if (guild != null && member == null)
+                var guildLookup = PollDiscordGuildResolver.Resolve(
+                    deps.ServiceProvider,
+                    poll.GuildId);
+                if (guildLookup.Status == PollDiscordGuildLookupStatus.ClientUnavailable)
+                {
+                    return Results.Json(
+                        new { success = false, error = "Discord client unavailable" },
+                        statusCode: 503);
+                }
+
+                if (guildLookup.Status == PollDiscordGuildLookupStatus.GuildUnavailable)
+                {
+                    return Results.NotFound(new { success = false, error = "Guild not found" });
+                }
+
+                var guild = guildLookup.Guild;
+                IGuildUser member = guild.GetUser((ulong)userId);
+                if (member == null)
                 {
                     // The cache can be incomplete briefly after startup. Query only this
                     // member rather than downloading the entire guild roster.
