@@ -1,0 +1,69 @@
+using System;
+using NinjaBotCore.Common;
+using Xunit;
+
+namespace NinjaBotCore.Tests
+{
+    public class DiscordDeliveryFailurePolicyTests
+    {
+        [Theory]
+        [InlineData(50001)] // Missing Access
+        [InlineData(50013)] // Missing Permissions
+        [InlineData(10003)] // Unknown Channel
+        public void IsExpectedConfigurationFailure_KnownDiscordCodes_ReturnsTrue(int code)
+        {
+            Assert.True(DiscordDeliveryFailurePolicy.IsExpectedConfigurationFailure(code));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData(0)]
+        [InlineData(500)]
+        [InlineData(10062)] // Unknown Interaction is unrelated to channel delivery
+        public void IsExpectedConfigurationFailure_OtherCodes_ReturnsFalse(int? code)
+        {
+            Assert.False(DiscordDeliveryFailurePolicy.IsExpectedConfigurationFailure(code));
+        }
+
+        [Fact]
+        public void ShouldLog_FirstOccurrenceForKey_ReturnsTrue()
+        {
+            var policy = new DiscordDeliveryFailurePolicy(TimeSpan.FromHours(6));
+            var now = new DateTimeOffset(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
+
+            Assert.True(policy.ShouldLog(123, 456, "50001", now));
+        }
+
+        [Fact]
+        public void ShouldLog_RepeatedOccurrenceInsideInterval_ReturnsFalse()
+        {
+            var policy = new DiscordDeliveryFailurePolicy(TimeSpan.FromHours(6));
+            var now = new DateTimeOffset(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
+
+            Assert.True(policy.ShouldLog(123, 456, "50001", now));
+            Assert.False(policy.ShouldLog(123, 456, "50001", now.AddHours(5)));
+        }
+
+        [Fact]
+        public void ShouldLog_OccurrenceAtIntervalBoundary_ReturnsTrue()
+        {
+            var policy = new DiscordDeliveryFailurePolicy(TimeSpan.FromHours(6));
+            var now = new DateTimeOffset(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
+
+            Assert.True(policy.ShouldLog(123, 456, "50001", now));
+            Assert.True(policy.ShouldLog(123, 456, "50001", now.AddHours(6)));
+        }
+
+        [Fact]
+        public void ShouldLog_DifferentGuildChannelOrReason_AreIndependent()
+        {
+            var policy = new DiscordDeliveryFailurePolicy(TimeSpan.FromHours(6));
+            var now = new DateTimeOffset(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
+
+            Assert.True(policy.ShouldLog(123, 456, "50001", now));
+            Assert.True(policy.ShouldLog(124, 456, "50001", now));
+            Assert.True(policy.ShouldLog(123, 457, "50001", now));
+            Assert.True(policy.ShouldLog(123, 456, "50013", now));
+        }
+    }
+}

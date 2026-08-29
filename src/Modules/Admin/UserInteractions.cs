@@ -26,6 +26,8 @@ namespace NinjaBotCore.Modules.Admin
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly IServiceProvider _services;
         private readonly WowCacheService _greetingCache;
+        private readonly DiscordDeliveryFailurePolicy _deliveryFailurePolicy =
+            new(TimeSpan.FromHours(6));
         private bool _disposed;
         private readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, byte> _handledInteractions = new();
 
@@ -395,23 +397,31 @@ namespace NinjaBotCore.Modules.Admin
 
             var sb = new StringBuilder();
             ISocketMessageChannel messageChannel = null;
+            ulong requestedChannelId = 0;
             try
             {
                 // Prefer parting channel, fall back to greeting channel, fall back to default
-                if (shouldGreet.PartingChannelId.HasValue && shouldGreet.PartingChannelId.Value != 0)
+                if (shouldGreet.PartingChannelId.HasValue && shouldGreet.PartingChannelId.Value > 0)
                 {
-                    messageChannel = guild.GetChannel((ulong)shouldGreet.PartingChannelId.Value) as ISocketMessageChannel;
+                    requestedChannelId = (ulong)shouldGreet.PartingChannelId.Value;
+                    messageChannel = guild.GetChannel(requestedChannelId) as ISocketMessageChannel;
                 }
-                else if (shouldGreet.GreetingChannelId.HasValue && shouldGreet.GreetingChannelId.Value != 0)
+                else if (shouldGreet.GreetingChannelId.HasValue && shouldGreet.GreetingChannelId.Value > 0)
                 {
-                    messageChannel = guild.GetChannel((ulong)shouldGreet.GreetingChannelId.Value) as ISocketMessageChannel;
+                    requestedChannelId = (ulong)shouldGreet.GreetingChannelId.Value;
+                    messageChannel = guild.GetChannel(requestedChannelId) as ISocketMessageChannel;
                 }
                 else
                 {
                     messageChannel = guild.DefaultChannel as ISocketMessageChannel;
+                    requestedChannelId = messageChannel?.Id ?? 0;
                 }
 
-                if (messageChannel == null) return;
+                if (messageChannel == null)
+                {
+                    LogUnavailableDeliveryChannel(guild.Id, requestedChannelId, "parting");
+                    return;
+                }
 
                 var embed = new EmbedBuilder();
                 embed.Title = $"[{user?.Username ?? "Unknown User"}] has left [**{guild.Name}**]!";
@@ -436,6 +446,17 @@ namespace NinjaBotCore.Modules.Admin
                 embed.WithColor(new Color(255, 0, 0));
                 await messageChannel.SendMessageAsync("", false, embed.Build());
             }
+            catch (Discord.Net.HttpException ex)
+                when (DiscordDeliveryFailurePolicy.IsExpectedConfigurationFailure(
+                    ex.DiscordCode.HasValue ? (int)ex.DiscordCode.Value : null))
+            {
+                LogExpectedDeliveryFailure(
+                    guild.Id,
+                    messageChannel?.Id ?? requestedChannelId,
+                    messageChannel?.Name,
+                    "parting",
+                    ex);
+            }
             catch (Exception ex)
             {
                 var channelName = messageChannel?.Name ?? "no channel";
@@ -451,18 +472,25 @@ namespace NinjaBotCore.Modules.Admin
 
             var sb = new StringBuilder();
             ISocketMessageChannel messageChannel = null;
+            ulong requestedChannelId = 0;
             try
             {
-                if (shouldGreet.GreetingChannelId.HasValue && shouldGreet.GreetingChannelId.Value != 0)
+                if (shouldGreet.GreetingChannelId.HasValue && shouldGreet.GreetingChannelId.Value > 0)
                 {
-                    messageChannel = user.Guild.GetChannel((ulong)shouldGreet.GreetingChannelId.Value) as ISocketMessageChannel;
+                    requestedChannelId = (ulong)shouldGreet.GreetingChannelId.Value;
+                    messageChannel = user.Guild.GetChannel(requestedChannelId) as ISocketMessageChannel;
                 }
                 else
                 {
                     messageChannel = user.Guild.DefaultChannel as ISocketMessageChannel;
+                    requestedChannelId = messageChannel?.Id ?? 0;
                 }
 
-                if (messageChannel == null) return;
+                if (messageChannel == null)
+                {
+                    LogUnavailableDeliveryChannel(user.Guild.Id, requestedChannelId, "greeting");
+                    return;
+                }
 
                 var embed = new EmbedBuilder();
                 embed.Title = $"[{user.Username}] has joined [**{user.Guild.Name}**]!";
@@ -488,6 +516,17 @@ namespace NinjaBotCore.Modules.Admin
                 embed.WithColor(new Color(0, 255, 0));
                 await messageChannel.SendMessageAsync("", false, embed.Build());
             }
+            catch (Discord.Net.HttpException ex)
+                when (DiscordDeliveryFailurePolicy.IsExpectedConfigurationFailure(
+                    ex.DiscordCode.HasValue ? (int)ex.DiscordCode.Value : null))
+            {
+                LogExpectedDeliveryFailure(
+                    user.Guild.Id,
+                    messageChannel?.Id ?? requestedChannelId,
+                    messageChannel?.Name,
+                    "greeting",
+                    ex);
+            }
             catch (Exception ex)
             {
                 var channelName = messageChannel?.Name ?? "no channel";
@@ -500,6 +539,58 @@ namespace NinjaBotCore.Modules.Admin
         {
             var guildId = user.Guild.Id;
             return await _greetingCache.GetServerGreetingAsync((long)guildId);
+        }
+
+        private void LogUnavailableDeliveryChannel(
+            ulong guildId,
+            ulong channelId,
+            string deliveryKind)
+        {
+            const string reason = "channel-unavailable";
+            if (!_deliveryFailurePolicy.ShouldLog(
+                    guildId,
+                    channelId,
+                    reason,
+                    DateTimeOffset.UtcNow))
+            {
+                return;
+            }
+
+            _logger.LogWarning(
+                "Skipping {DeliveryKind} message in guild {GuildId}: configured channel {ChannelId} is unavailable. Further identical warnings are suppressed for 6 hours",
+                deliveryKind,
+                guildId,
+                channelId);
+        }
+
+        private void LogExpectedDeliveryFailure(
+            ulong guildId,
+            ulong channelId,
+            string channelName,
+            string deliveryKind,
+            Discord.Net.HttpException exception)
+        {
+            var discordCode = exception.DiscordCode.HasValue
+                ? ((int)exception.DiscordCode.Value).ToString()
+                : "unknown";
+
+            if (!_deliveryFailurePolicy.ShouldLog(
+                    guildId,
+                    channelId,
+                    discordCode,
+                    DateTimeOffset.UtcNow))
+            {
+                return;
+            }
+
+            _logger.LogWarning(
+                "Skipping {DeliveryKind} message in guild {GuildId} on channel [{ChannelName}] ({ChannelId}): Discord rejected the configured channel (DiscordCode: {DiscordCode}, HTTP: {HttpStatus}). Check channel access and Send Messages/Embed Links permissions. Further identical warnings are suppressed for 6 hours",
+                deliveryKind,
+                guildId,
+                channelName ?? "unknown",
+                channelId,
+                discordCode,
+                exception.HttpCode);
         }
 
         /// <summary>
