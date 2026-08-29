@@ -556,11 +556,12 @@ namespace NinjaBotCore.Modules.Admin
                 return;
             }
 
+            var channelDescription = DeliveryChannelWarningFormatter.DescribeUnavailableChannel(channelId);
             _logger.LogWarning(
-                "Skipping {DeliveryKind} message in guild {GuildId}: configured channel {ChannelId} is unavailable. Further identical warnings are suppressed for 6 hours",
+                "Skipping {DeliveryKind} message in guild {GuildId}: {ChannelDescription}. Further identical warnings are suppressed for 6 hours",
                 deliveryKind,
                 guildId,
-                channelId);
+                channelDescription);
         }
 
         private void LogExpectedDeliveryFailure(

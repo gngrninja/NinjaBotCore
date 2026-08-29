@@ -25,6 +25,14 @@ namespace NinjaBotCore.Tests
             Assert.False(DiscordDeliveryFailurePolicy.IsExpectedConfigurationFailure(code));
         }
 
+        [Theory]
+        [InlineData(0UL, "no configured channel and no usable default text channel")]
+        [InlineData(123UL, "configured channel 123 is unavailable")]
+        public void DescribeUnavailableChannel_ExplainsConfigurationState(ulong channelId, string expected)
+        {
+            Assert.Equal(expected, DeliveryChannelWarningFormatter.DescribeUnavailableChannel(channelId));
+        }
+
         [Fact]
         public void ShouldLog_FirstOccurrenceForKey_ReturnsTrue()
         {
@@ -67,7 +75,23 @@ namespace NinjaBotCore.Tests
         }
 
         [Fact]
-        public void ShouldLog_NewObservation_PrunesKeysOlderThanTwoIntervals()
+        public void ShouldLog_NewObservation_ImmediatelyBeforePruneBoundary_RetainsOlderKey()
+        {
+            var policy = new DiscordDeliveryFailurePolicy(TimeSpan.FromHours(6));
+            var now = new DateTimeOffset(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
+
+            Assert.True(policy.ShouldLog(123, 456, "50001", now));
+            Assert.True(policy.ShouldLog(
+                789,
+                987,
+                "50013",
+                now.AddHours(12).AddTicks(-1)));
+
+            Assert.Equal(2, policy.RetainedKeyCount);
+        }
+
+        [Fact]
+        public void ShouldLog_NewObservation_AtPruneBoundary_RemovesOlderKey()
         {
             var policy = new DiscordDeliveryFailurePolicy(TimeSpan.FromHours(6));
             var now = new DateTimeOffset(2026, 8, 29, 12, 0, 0, TimeSpan.Zero);
