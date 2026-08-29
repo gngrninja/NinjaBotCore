@@ -84,7 +84,8 @@ namespace NinjaBotCore.Modules.Wow
                         continue;
                     }
 
-                    if (response.StatusCode == HttpStatusCode.NotFound)
+                    if (response.StatusCode == HttpStatusCode.NotFound ||
+                        IsCharacterNotFoundBadRequest(response.StatusCode, content))
                     {
                         throw new RaiderIONotFoundException(
                             "Raider.IO could not find the requested character, guild, or resource.");
@@ -135,6 +136,27 @@ namespace NinjaBotCore.Modules.Wow
                     LogRetry(attempt + 1, delay, null);
                     await Task.Delay(delay, cancellationToken);
                 }
+            }
+        }
+
+        private static bool IsCharacterNotFoundBadRequest(HttpStatusCode statusCode, string content)
+        {
+            if (statusCode != HttpStatusCode.BadRequest || string.IsNullOrWhiteSpace(content))
+            {
+                return false;
+            }
+
+            try
+            {
+                var error = JsonConvert.DeserializeObject<RaiderIOErrorResponse>(content);
+                return string.Equals(
+                    error?.Message,
+                    "Could not find requested character",
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch (JsonException)
+            {
+                return false;
             }
         }
 
@@ -464,6 +486,12 @@ namespace NinjaBotCore.Modules.Wow
                     return JsonConvert.DeserializeObject<RaiderIOModels.GuildLiveRaidResponse>(response);
                 },
                 cancellationToken);
+        }
+
+        private sealed class RaiderIOErrorResponse
+        {
+            [JsonProperty("message")]
+            public string Message { get; set; }
         }
 
         private static IReadOnlyCollection<KeyValuePair<string, string>> Params(

@@ -68,6 +68,39 @@ namespace NinjaBotCore.Tests
         }
 
         [Fact]
+        public async Task CharacterNotFoundBadRequest_ThrowsTypedExceptionWithoutWarning()
+        {
+            var logger = new CapturingLogger<RaiderIOApi>();
+            var handler = new SequenceHandler(
+                _ => Json(HttpStatusCode.BadRequest,
+                    "{\"statusCode\":400,\"error\":\"Bad Request\",\"message\":\"Could not find requested character\"}"));
+            var api = CreateApi(handler, logger: logger);
+
+            var error = await Assert.ThrowsAsync<RaiderIONotFoundException>(() =>
+                api.GetCharMythicPlusInfoAsync("Missing", "Area 52", "us"));
+
+            Assert.Equal(HttpStatusCode.NotFound, error.StatusCode);
+            Assert.Equal(1, handler.CallCount);
+            Assert.DoesNotContain("RaiderIO API rejected request", logger.StructuredState, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public async Task OtherBadRequest_RemainsNoisyGenericRejection()
+        {
+            var logger = new CapturingLogger<RaiderIOApi>();
+            var handler = new SequenceHandler(
+                _ => Json(HttpStatusCode.BadRequest, "{\"message\":\"invalid region\"}"));
+            var api = CreateApi(handler, logger: logger);
+
+            var error = await Assert.ThrowsAsync<RaiderIOApiException>(() =>
+                api.GetCharMythicPlusInfoAsync("Test", "Area 52", "invalid"));
+
+            Assert.IsNotType<RaiderIONotFoundException>(error);
+            Assert.Equal(HttpStatusCode.BadRequest, error.StatusCode);
+            Assert.Contains("RaiderIO API rejected request", logger.StructuredState, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public async Task QueryValuesAreEncodedAndEmptyAccessKeyIsOmitted()
         {
             Uri requested = null;
