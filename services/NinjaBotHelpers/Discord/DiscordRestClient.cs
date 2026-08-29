@@ -17,11 +17,13 @@ public class DiscordRestClient
     private readonly HttpClient _httpClient;
     private readonly ILogger<DiscordRestClient> _logger;
     private readonly ResiliencePipeline<HttpResponseMessage> _resiliencePipeline;
+    private readonly DiscordDeliveryWarningPolicy _deliveryWarningPolicy;
 
     public DiscordRestClient(HttpClient httpClient, ILogger<DiscordRestClient> logger)
     {
         _httpClient = httpClient;
         _logger = logger;
+        _deliveryWarningPolicy = new DiscordDeliveryWarningPolicy(TimeSpan.FromHours(6));
 
         // Configure resilience pipeline for Discord REST API calls
         _resiliencePipeline = new ResiliencePipelineBuilder<HttpResponseMessage>()
@@ -59,9 +61,21 @@ public class DiscordRestClient
     }
 
     /// <summary>
-    /// Send a message to a Discord channel
+    /// Send a message to a Discord channel.
     /// </summary>
-    public async Task<bool> SendChannelMessageAsync(ulong channelId, DiscordEmbed embed, CancellationToken cancellationToken = default)
+    public async Task<bool> SendChannelMessageAsync(
+        ulong channelId,
+        DiscordEmbed embed,
+        CancellationToken cancellationToken = default) =>
+        (await SendChannelMessageWithResultAsync(channelId, embed, cancellationToken)).Success;
+
+    /// <summary>
+    /// Send a message and preserve Discord's failure classification for callers.
+    /// </summary>
+    public async Task<DiscordDeliveryResult> SendChannelMessageWithResultAsync(
+        ulong channelId,
+        DiscordEmbed embed,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -85,19 +99,67 @@ public class DiscordRestClient
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogWarning("Failed to send channel message to {ChannelId}: {StatusCode} - {Error}",
-                    channelId, response.StatusCode, error);
-                return false;
+                var discordCode = ParseDiscordCode(error);
+                var expectedFailure = DiscordDeliveryWarningPolicy
+                    .IsExpectedConfigurationFailure(discordCode);
+
+                if (!expectedFailure ||
+                    _deliveryWarningPolicy.ShouldLog(
+                        channelId,
+                        discordCode!.Value,
+                        DateTimeOffset.UtcNow))
+                {
+                    _logger.LogWarning(
+                        "Failed to send channel message to {ChannelId}: {StatusCode} - {Error}",
+                        channelId,
+                        response.StatusCode,
+                        error);
+                }
+                else
+                {
+                    _logger.LogDebug(
+                        "Suppressed repeated expected Discord delivery failure for channel {ChannelId} (DiscordCode: {DiscordCode})",
+                        channelId,
+                        discordCode);
+                }
+
+                return DiscordDeliveryResult.Failed(
+                    response.StatusCode,
+                    discordCode,
+                    expectedFailure);
             }
 
             _logger.LogDebug("Sent message to channel {ChannelId}", channelId);
-            return true;
+            return DiscordDeliveryResult.Delivered();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error sending message to channel {ChannelId}", channelId);
-            return false;
+            return DiscordDeliveryResult.Failed(null, null, false);
         }
+    }
+
+    private static int? ParseDiscordCode(string error)
+    {
+        if (string.IsNullOrWhiteSpace(error))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonConvert.DeserializeObject<DiscordApiError>(error)?.Code;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private sealed class DiscordApiError
+    {
+        [JsonProperty("code")]
+        public int? Code { get; set; }
     }
 
     /// <summary>

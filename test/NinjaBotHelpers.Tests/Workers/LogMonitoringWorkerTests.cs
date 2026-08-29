@@ -23,6 +23,7 @@ public class LogMonitoringWorkerTests : IDisposable
     private readonly Mock<HttpMessageHandler> _mockHandler;
     private readonly WarcraftLogsClient _wclClient;
     private readonly DiscordRestClient _discordClient;
+    private readonly Mock<ILogger<LogMonitoringWorker>> _workerLogger;
     private readonly LogMonitoringWorker _worker;
     private readonly InMemoryDatabaseRoot _dbRoot;
 
@@ -71,8 +72,9 @@ public class LogMonitoringWorkerTests : IDisposable
         var httpClientFactory = new Mock<IHttpClientFactory>();
         httpClientFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(new HttpClient(_mockHandler.Object));
 
+        _workerLogger = new Mock<ILogger<LogMonitoringWorker>>();
         _worker = new LogMonitoringWorker(
-            NullLogger<LogMonitoringWorker>.Instance,
+            _workerLogger.Object,
             scopeFactory,
             _config,
             _discordClient,
@@ -158,7 +160,7 @@ public class LogMonitoringWorkerTests : IDisposable
             .ReturnsAsync(new HttpResponseMessage
             {
                 StatusCode = HttpStatusCode.Forbidden,
-                Content = new StringContent("{\"message\":\"Missing Access\"}")
+                Content = new StringContent("{\"message\":\"Missing Access\",\"code\":50001}")
             });
     }
 
@@ -704,6 +706,16 @@ public class LogMonitoringWorkerTests : IDisposable
         // RetailReportId should NOT be updated
         var updatedConfig = await db.LogMonitoring.FirstAsync(m => m.ServerId == 1001);
         Assert.Null(updatedConfig.RetailReportId);
+
+        _workerLogger.Verify(
+            logger => logger.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((value, _) =>
+                    value.ToString()!.Contains("[LogMonitoring] Failed to post log", StringComparison.Ordinal)),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Never);
     }
 
     [Fact]

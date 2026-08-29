@@ -397,10 +397,13 @@ public class LogMonitoringWorker : BackgroundService
                 $"[WoWAnalyzer](https://wowanalyzer.com/report/{report.Code}) | [WipeFest](https://www.wipefest.net/report/{report.Code})")
             .WithFooter("WarcraftLogs Monitor | NinjaBotHelpers");
 
-        // Send to Discord
-        var success = await _discordClient.SendChannelMessageAsync(channelId, embed, cancellationToken);
+        // Send to Discord. The client owns detailed/throttled failure logging.
+        var delivery = await _discordClient.SendChannelMessageWithResultAsync(
+            channelId,
+            embed,
+            cancellationToken);
 
-        if (success)
+        if (delivery.Success)
         {
             _logger.LogInformation("[LogMonitoring] Posted new {GameVersion} log for [{GuildName}]: {ReportCode}",
                 gameVersion, guild.GuildName, report.Code);
@@ -443,8 +446,12 @@ public class LogMonitoringWorker : BackgroundService
         }
         else
         {
-            _logger.LogWarning("[LogMonitoring] Failed to post log to channel {ChannelId} for {GuildName}",
-                channelId, guild.GuildName);
+            _logger.LogDebug(
+                "[LogMonitoring] Delivery failed for channel {ChannelId} and {GuildName} (DiscordCode: {DiscordCode}, HTTP: {HttpStatus})",
+                channelId,
+                guild.GuildName,
+                delivery.DiscordCode,
+                delivery.HttpStatusCode);
         }
     }
 
