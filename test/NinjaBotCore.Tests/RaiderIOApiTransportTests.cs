@@ -102,20 +102,30 @@ namespace NinjaBotCore.Tests
         }
 
         [Fact]
-        public async Task UnknownRequestedResourceBadRequest_RemainsNoisyGenericRejection()
+        public async Task UnknownRequestedResourceBadRequest_LogsDriftMessageOnceAndRemainsNoisy()
         {
+            const string providerMessage = "Could not find requested raid";
             var logger = new CapturingLogger<RaiderIOApi>();
-            var handler = new SequenceHandler(
+            Func<HttpRequestMessage, HttpResponseMessage> response =
                 _ => Json(HttpStatusCode.BadRequest,
-                    "{\"message\":\"Could not find requested raid\"}"));
+                    $"{{\"message\":\"{providerMessage}\"}}");
+            var handler = new SequenceHandler(response, response);
             var api = CreateApi(handler, logger: logger);
 
-            var error = await Assert.ThrowsAsync<RaiderIOApiException>(() =>
-                api.GetRioGuildInfoAsync("Test", "Area 52", "us"));
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                var error = await Assert.ThrowsAsync<RaiderIOApiException>(() =>
+                    api.GetRioGuildInfoAsync("Test", "Area 52", "us"));
 
-            Assert.IsNotType<RaiderIONotFoundException>(error);
-            Assert.Equal(HttpStatusCode.BadRequest, error.StatusCode);
+                Assert.IsNotType<RaiderIONotFoundException>(error);
+                Assert.Equal(HttpStatusCode.BadRequest, error.StatusCode);
+            }
+
+            Assert.Equal(2, handler.CallCount);
             Assert.Contains("RaiderIO API rejected request", logger.StructuredState, StringComparison.Ordinal);
+            Assert.Equal(1, logger.CountEntries(
+                Microsoft.Extensions.Logging.LogLevel.Information,
+                providerMessage));
         }
 
         [Fact]
@@ -339,8 +349,12 @@ namespace NinjaBotCore.Tests
         private sealed class CapturingLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
         {
             private readonly List<string> _state = new();
+            private readonly List<(Microsoft.Extensions.Logging.LogLevel Level, string Value)> _entries = new();
 
             public string StructuredState => string.Join("\n", _state);
+            public int CountEntries(Microsoft.Extensions.Logging.LogLevel level, string value) =>
+                _entries.Count(entry => entry.Level == level &&
+                                        string.Equals(entry.Value, value, StringComparison.Ordinal));
             public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
             public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
 
@@ -353,7 +367,11 @@ namespace NinjaBotCore.Tests
             {
                 if (state is IEnumerable<KeyValuePair<string, object>> values)
                 {
-                    _state.AddRange(values.Select(value => value.Value?.ToString() ?? string.Empty));
+                    foreach (var value in values.Select(entry => entry.Value?.ToString() ?? string.Empty))
+                    {
+                        _state.Add(value);
+                        _entries.Add((logLevel, value));
+                    }
                 }
             }
 

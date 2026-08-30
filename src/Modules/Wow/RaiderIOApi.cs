@@ -26,6 +26,7 @@ namespace NinjaBotCore.Modules.Wow
         private readonly ILogger _logger;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IMemoryCache _cache;
+        private int _unknownNotFoundMessageLogged;
         private readonly SemaphoreSlim[] _cacheGates = Enumerable.Range(0, 32)
             .Select(_ => new SemaphoreSlim(1, 1))
             .ToArray();
@@ -139,7 +140,7 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
-        private static bool IsProviderNotFoundBadRequest(HttpStatusCode statusCode, string content)
+        private bool IsProviderNotFoundBadRequest(HttpStatusCode statusCode, string content)
         {
             if (statusCode != HttpStatusCode.BadRequest || string.IsNullOrWhiteSpace(content))
             {
@@ -149,14 +150,24 @@ namespace NinjaBotCore.Modules.Wow
             try
             {
                 var message = JsonConvert.DeserializeObject<RaiderIOErrorResponse>(content)?.Message;
-                return string.Equals(
-                           message,
-                           "Could not find requested character",
-                           StringComparison.OrdinalIgnoreCase) ||
-                       string.Equals(
-                           message,
-                           "Could not find requested guild",
-                           StringComparison.OrdinalIgnoreCase);
+                var isKnownNotFound = string.Equals(
+                                          message,
+                                          "Could not find requested character",
+                                          StringComparison.OrdinalIgnoreCase) ||
+                                      string.Equals(
+                                          message,
+                                          "Could not find requested guild",
+                                          StringComparison.OrdinalIgnoreCase);
+                if (!isKnownNotFound &&
+                    message?.StartsWith("Could not find requested", StringComparison.OrdinalIgnoreCase) == true &&
+                    Interlocked.Exchange(ref _unknownNotFoundMessageLogged, 1) == 0)
+                {
+                    _logger.LogInformation(
+                        "Raider.IO returned unrecognized not-found message: {Message}",
+                        message);
+                }
+
+                return isKnownNotFound;
             }
             catch (JsonException)
             {
