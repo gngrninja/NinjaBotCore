@@ -85,7 +85,7 @@ namespace NinjaBotCore.Modules.Wow
                     }
 
                     if (response.StatusCode == HttpStatusCode.NotFound ||
-                        IsCharacterNotFoundBadRequest(response.StatusCode, content))
+                        IsProviderNotFoundBadRequest(response.StatusCode, content))
                     {
                         throw new RaiderIONotFoundException(
                             "Raider.IO could not find the requested character, guild, or resource.");
@@ -139,7 +139,7 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
-        private static bool IsCharacterNotFoundBadRequest(HttpStatusCode statusCode, string content)
+        private static bool IsProviderNotFoundBadRequest(HttpStatusCode statusCode, string content)
         {
             if (statusCode != HttpStatusCode.BadRequest || string.IsNullOrWhiteSpace(content))
             {
@@ -148,11 +148,15 @@ namespace NinjaBotCore.Modules.Wow
 
             try
             {
-                var error = JsonConvert.DeserializeObject<RaiderIOErrorResponse>(content);
+                var message = JsonConvert.DeserializeObject<RaiderIOErrorResponse>(content)?.Message;
                 return string.Equals(
-                    error?.Message,
-                    "Could not find requested character",
-                    StringComparison.OrdinalIgnoreCase);
+                           message,
+                           "Could not find requested character",
+                           StringComparison.OrdinalIgnoreCase) ||
+                       string.Equals(
+                           message,
+                           "Could not find requested guild",
+                           StringComparison.OrdinalIgnoreCase);
             }
             catch (JsonException)
             {

@@ -85,6 +85,40 @@ namespace NinjaBotCore.Tests
         }
 
         [Fact]
+        public async Task GuildNotFoundBadRequest_ThrowsTypedExceptionWithoutWarning()
+        {
+            var logger = new CapturingLogger<RaiderIOApi>();
+            var handler = new SequenceHandler(
+                _ => Json(HttpStatusCode.BadRequest,
+                    "{\"statusCode\":400,\"error\":\"Bad Request\",\"message\":\"Could not find requested guild\"}"));
+            var api = CreateApi(handler, logger: logger);
+
+            var error = await Assert.ThrowsAsync<RaiderIONotFoundException>(() =>
+                api.GetRioGuildInfoAsync("Missing", "Area 52", "us"));
+
+            Assert.Equal(HttpStatusCode.NotFound, error.StatusCode);
+            Assert.Equal(1, handler.CallCount);
+            Assert.DoesNotContain("RaiderIO API rejected request", logger.StructuredState, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public async Task UnknownRequestedResourceBadRequest_RemainsNoisyGenericRejection()
+        {
+            var logger = new CapturingLogger<RaiderIOApi>();
+            var handler = new SequenceHandler(
+                _ => Json(HttpStatusCode.BadRequest,
+                    "{\"message\":\"Could not find requested raid\"}"));
+            var api = CreateApi(handler, logger: logger);
+
+            var error = await Assert.ThrowsAsync<RaiderIOApiException>(() =>
+                api.GetRioGuildInfoAsync("Test", "Area 52", "us"));
+
+            Assert.IsNotType<RaiderIONotFoundException>(error);
+            Assert.Equal(HttpStatusCode.BadRequest, error.StatusCode);
+            Assert.Contains("RaiderIO API rejected request", logger.StructuredState, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public async Task OtherBadRequest_RemainsNoisyGenericRejection()
         {
             var logger = new CapturingLogger<RaiderIOApi>();
