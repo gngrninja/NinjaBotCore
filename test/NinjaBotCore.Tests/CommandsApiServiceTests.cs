@@ -234,6 +234,16 @@ namespace NinjaBotCore.Tests
         }
 
         [Fact]
+        public async Task ResolveUserAsync_CacheHit_WithNullDownloadDelegate_Throws()
+        {
+            var cachedUser = new Mock<IGuildUser>().Object;
+
+            var action = () => PollDiscordGuildResolver.ResolveUserAsync(cachedUser, null);
+
+            await Assert.ThrowsAsync<ArgumentNullException>(action);
+        }
+
+        [Fact]
         public async Task ResolveUserAsync_CacheHit_DoesNotDownloadUser()
         {
             var cachedUser = new Mock<IGuildUser>().Object;

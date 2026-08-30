@@ -52,12 +52,13 @@ internal static class PollDiscordGuildResolver
         IGuildUser cachedUser,
         Func<Task<IGuildUser>> downloadUser)
     {
+        ArgumentNullException.ThrowIfNull(downloadUser);
+
         if (cachedUser != null)
         {
             return cachedUser;
         }
 
-        ArgumentNullException.ThrowIfNull(downloadUser);
         return await downloadUser();
     }
 }
