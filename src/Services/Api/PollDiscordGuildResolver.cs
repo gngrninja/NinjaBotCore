@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Discord;
 using Discord.WebSocket;
 using Microsoft.Extensions.DependencyInjection;
@@ -40,5 +41,23 @@ internal static class PollDiscordGuildResolver
             : new PollDiscordGuildLookupResult(
                 PollDiscordGuildLookupStatus.Found,
                 guild);
+    }
+
+    internal static Task<IGuildUser> ResolveUserAsync(SocketGuild guild, ulong userId) =>
+        ResolveUserAsync(
+            guild.GetUser(userId),
+            () => ((IGuild)guild).GetUserAsync(userId, CacheMode.AllowDownload));
+
+    internal static async Task<IGuildUser> ResolveUserAsync(
+        IGuildUser cachedUser,
+        Func<Task<IGuildUser>> downloadUser)
+    {
+        if (cachedUser != null)
+        {
+            return cachedUser;
+        }
+
+        ArgumentNullException.ThrowIfNull(downloadUser);
+        return await downloadUser();
     }
 }

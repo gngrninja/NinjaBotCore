@@ -7,6 +7,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Discord;
 using Discord.WebSocket;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -15,6 +16,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using NinjaBotCore.Database;
 using NinjaBotCore.Services;
 using NinjaBotCore.Services.Api;
@@ -211,6 +213,36 @@ namespace NinjaBotCore.Tests
 
             Assert.Equal(PollDiscordGuildLookupStatus.GuildUnavailable, result.Status);
             Assert.Null(result.Guild);
+        }
+
+        [Fact]
+        public async Task ResolveUserAsync_CacheMiss_DownloadsOnlyRequestedUser()
+        {
+            var downloadedUser = new Mock<IGuildUser>().Object;
+            var downloadCalls = 0;
+
+            var result = await PollDiscordGuildResolver.ResolveUserAsync(
+                null,
+                () =>
+                {
+                    downloadCalls++;
+                    return Task.FromResult(downloadedUser);
+                });
+
+            Assert.Same(downloadedUser, result);
+            Assert.Equal(1, downloadCalls);
+        }
+
+        [Fact]
+        public async Task ResolveUserAsync_CacheHit_DoesNotDownloadUser()
+        {
+            var cachedUser = new Mock<IGuildUser>().Object;
+
+            var result = await PollDiscordGuildResolver.ResolveUserAsync(
+                cachedUser,
+                () => throw new InvalidOperationException("Download should not run"));
+
+            Assert.Same(cachedUser, result);
         }
     }
 
@@ -418,6 +450,117 @@ namespace NinjaBotCore.Tests
                 var poll = await verifyDb.Polls.FindAsync(pollId);
                 Assert.NotNull(poll);
                 Assert.False(poll.IsClosed);
+            }
+        }
+
+        [Fact]
+        public async Task DeletePoll_WithoutDiscordClient_ReturnsServiceUnavailableWithoutDeletingPoll()
+        {
+            const long guildId = 200009;
+            const long userId = 50009;
+            long pollId;
+            var (scope, db) = _fixture.CreateDbScope();
+            using (scope)
+            {
+                var poll = new DbPoll
+                {
+                    Question = "Delete safety poll?",
+                    PollType = "SingleChoice",
+                    CreatedAt = DateTime.UtcNow,
+                    CreatedById = userId,
+                    CreatedByName = "Admin",
+                    GuildId = guildId,
+                    ChannelId = 100,
+                    MessageId = 100
+                };
+                db.Polls.Add(poll);
+                await db.SaveChangesAsync();
+                pollId = poll.Id;
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/polls/{pollId}")
+            {
+                Content = JsonContent.Create(new
+                {
+                    UserId = userId.ToString(),
+                    GuildId = guildId.ToString()
+                })
+            };
+            var response = await _client.SendAsync(request);
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+            var error = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("Discord client unavailable", error.GetProperty("error").GetString());
+
+            var (verifyScope, verifyDb) = _fixture.CreateDbScope();
+            using (verifyScope)
+            {
+                Assert.NotNull(await verifyDb.Polls.FindAsync(pollId));
+            }
+        }
+
+        [Fact]
+        public async Task CleanupPolls_WithoutDiscordClient_ReturnsServiceUnavailableWithoutDeletingPolls()
+        {
+            const long guildId = 200010;
+            const long userId = 50010;
+            long pollId;
+            var (scope, db) = _fixture.CreateDbScope();
+            using (scope)
+            {
+                var poll = new DbPoll
+                {
+                    Question = "Cleanup safety poll?",
+                    PollType = "SingleChoice",
+                    CreatedAt = DateTime.UtcNow,
+                    CreatedById = userId,
+                    CreatedByName = "Admin",
+                    GuildId = guildId,
+                    ChannelId = 100,
+                    MessageId = 100,
+                    IsClosed = true
+                };
+                db.Polls.Add(poll);
+                await db.SaveChangesAsync();
+                pollId = poll.Id;
+            }
+
+            var response = await _client.PostAsJsonAsync(
+                $"/api/guilds/{guildId}/polls/cleanup",
+                new { UserId = userId.ToString() });
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+            var error = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("Discord client unavailable", error.GetProperty("error").GetString());
+
+            var (verifyScope, verifyDb) = _fixture.CreateDbScope();
+            using (verifyScope)
+            {
+                Assert.NotNull(await verifyDb.Polls.FindAsync(pollId));
+            }
+        }
+
+        [Fact]
+        public async Task CreatePoll_WithoutDiscordClient_ReturnsServiceUnavailableWithoutCreatingPoll()
+        {
+            const long guildId = 200011;
+
+            var response = await _client.PostAsJsonAsync("/api/polls/create", new
+            {
+                guild_id = guildId.ToString(),
+                channel_id = "100",
+                user_id = "50011",
+                question = "Should not be created?"
+            });
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+            var error = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("Discord client unavailable", error.GetProperty("error").GetString());
+
+            var (verifyScope, verifyDb) = _fixture.CreateDbScope();
+            using (verifyScope)
+            {
+                Assert.False(await verifyDb.Polls.AnyAsync(poll => poll.GuildId == guildId));
             }
         }
 

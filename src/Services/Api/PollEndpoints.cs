@@ -301,14 +301,21 @@ namespace NinjaBotCore.Services.Api
                 }
 
                 var guild = guildLookup.Guild;
-                IGuildUser member = guild.GetUser((ulong)userId);
-                if (member == null)
+                IGuildUser member;
+                try
                 {
-                    // The cache can be incomplete briefly after startup. Query only this
-                    // member rather than downloading the entire guild roster.
-                    member = await ((IGuild)guild).GetUserAsync(
-                        (ulong)userId,
-                        CacheMode.AllowDownload);
+                    member = await PollDiscordGuildResolver.ResolveUserAsync(
+                        guild,
+                        (ulong)userId);
+                }
+                catch (Exception ex)
+                {
+                    deps.Logger.LogWarning(ex,
+                        "Discord permission lookup failed while closing poll {PollId}",
+                        pollId);
+                    return Results.Json(
+                        new { success = false, error = "Discord client unavailable" },
+                        statusCode: 503);
                 }
 
                 if (member == null)
@@ -592,18 +599,27 @@ namespace NinjaBotCore.Services.Api
                     return Results.Forbid();
                 }
 
-                // Check admin permission via Discord API
-                var discordClient = scope.ServiceProvider.GetRequiredService<DiscordShardedClient>();
+                // Check admin permission via Discord API.
+                var guildLookup = PollDiscordGuildResolver.Resolve(deps.ServiceProvider, guildId);
+                if (guildLookup.Status == PollDiscordGuildLookupStatus.ClientUnavailable)
+                {
+                    return Results.Json(
+                        new { success = false, error = "Discord client unavailable" },
+                        statusCode: 503);
+                }
+
+                if (guildLookup.Status == PollDiscordGuildLookupStatus.GuildUnavailable)
+                {
+                    return Results.Json(new { success = false, error = "Guild not found" },
+                        statusCode: 404);
+                }
+
+                var guild = guildLookup.Guild;
                 try
                 {
-                    var guild = discordClient.GetGuild((ulong)guildId);
-                    if (guild == null)
-                    {
-                        return Results.Json(new { success = false, error = "Guild not found" },
-                            statusCode: 404);
-                    }
-
-                    var guildUser = guild.GetUser((ulong)userId);
+                    var guildUser = await PollDiscordGuildResolver.ResolveUserAsync(
+                        guild,
+                        (ulong)userId);
                     if (guildUser == null)
                     {
                         return Results.Json(new { success = false, error = "User not found in guild" },
@@ -620,11 +636,13 @@ namespace NinjaBotCore.Services.Api
                             statusCode: 403);
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // If we can't verify permissions, deny access
-                    return Results.Json(new { success = false, error = "Could not verify permissions" },
-                        statusCode: 403);
+                    deps.Logger.LogWarning(ex,
+                        "Discord permission lookup failed while deleting poll {PollId}",
+                        pollId);
+                    return Results.Json(new { success = false, error = "Discord client unavailable" },
+                        statusCode: 503);
                 }
 
                 // Delete votes first, then options, then poll
@@ -665,18 +683,27 @@ namespace NinjaBotCore.Services.Api
                     return Results.BadRequest(new { success = false, error = "Invalid user_id" });
                 }
 
-                // Check admin permission via Discord API
-                var discordClient = scope.ServiceProvider.GetRequiredService<DiscordShardedClient>();
+                // Check admin permission via Discord API.
+                var guildLookup = PollDiscordGuildResolver.Resolve(deps.ServiceProvider, guildIdLong);
+                if (guildLookup.Status == PollDiscordGuildLookupStatus.ClientUnavailable)
+                {
+                    return Results.Json(
+                        new { success = false, error = "Discord client unavailable" },
+                        statusCode: 503);
+                }
+
+                if (guildLookup.Status == PollDiscordGuildLookupStatus.GuildUnavailable)
+                {
+                    return Results.Json(new { success = false, error = "Guild not found" },
+                        statusCode: 404);
+                }
+
+                var guild = guildLookup.Guild;
                 try
                 {
-                    var guild = discordClient.GetGuild((ulong)guildIdLong);
-                    if (guild == null)
-                    {
-                        return Results.Json(new { success = false, error = "Guild not found" },
-                            statusCode: 404);
-                    }
-
-                    var guildUser = guild.GetUser((ulong)userId);
+                    var guildUser = await PollDiscordGuildResolver.ResolveUserAsync(
+                        guild,
+                        (ulong)userId);
                     if (guildUser == null)
                     {
                         return Results.Json(new { success = false, error = "User not found in guild" },
@@ -692,10 +719,13 @@ namespace NinjaBotCore.Services.Api
                             statusCode: 403);
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    return Results.Json(new { success = false, error = "Could not verify permissions" },
-                        statusCode: 403);
+                    deps.Logger.LogWarning(ex,
+                        "Discord permission lookup failed while cleaning up polls for guild {GuildId}",
+                        guildIdLong);
+                    return Results.Json(new { success = false, error = "Discord client unavailable" },
+                        statusCode: 503);
                 }
 
                 // Find closed or expired polls for this guild
@@ -916,17 +946,40 @@ namespace NinjaBotCore.Services.Api
                 }
 
                 // Check the user's effective permission in the requested Discord channel.
-                var discordClient = scope.ServiceProvider.GetRequiredService<DiscordShardedClient>();
+                var guildLookup = PollDiscordGuildResolver.Resolve(deps.ServiceProvider, guildId);
+                if (guildLookup.Status == PollDiscordGuildLookupStatus.ClientUnavailable)
+                {
+                    return Results.Json(
+                        new { success = false, error = "Discord client unavailable" },
+                        statusCode: 503);
+                }
+
+                if (guildLookup.Status == PollDiscordGuildLookupStatus.GuildUnavailable)
+                {
+                    return Results.Json(new { success = false, error = "Guild not found" },
+                        statusCode: 404);
+                }
+
+                var guild = guildLookup.Guild;
                 try
                 {
-                    var guild = discordClient.GetGuild((ulong)guildId);
-                    if (guild == null)
+                    IGuildUser guildUser;
+                    try
                     {
-                        return Results.Json(new { success = false, error = "Guild not found" },
-                            statusCode: 404);
+                        guildUser = await PollDiscordGuildResolver.ResolveUserAsync(
+                            guild,
+                            (ulong)userId);
+                    }
+                    catch (Exception ex)
+                    {
+                        deps.Logger.LogWarning(ex,
+                            "Discord permission lookup failed while creating a poll for guild {GuildId}",
+                            guildId);
+                        return Results.Json(
+                            new { success = false, error = "Discord client unavailable" },
+                            statusCode: 503);
                     }
 
-                    var guildUser = guild.GetUser((ulong)userId);
                     if (guildUser == null)
                     {
                         return Results.Json(new { success = false, error = "User not found in guild" },
