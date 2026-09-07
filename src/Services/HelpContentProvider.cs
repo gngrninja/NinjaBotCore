@@ -140,7 +140,8 @@ namespace NinjaBotCore.Services
             var assembly = Assembly.GetExecutingAssembly();
 
             var interactionModules = assembly.GetTypes()
-                .Where(t => t.IsSubclassOf(typeof(InteractionModuleBase<ShardedInteractionContext>)))
+                .Where(t => t.IsSubclassOf(typeof(InteractionModuleBase<ShardedInteractionContext>))
+                         || t.IsSubclassOf(typeof(InteractionModuleBase<IInteractionContext>)))
                 .ToList();
 
             foreach (var moduleType in interactionModules)

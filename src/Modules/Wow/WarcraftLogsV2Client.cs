@@ -28,7 +28,7 @@ namespace NinjaBotCore.Modules.Wow
         Vanilla
     }
 
-    public class WarcraftLogsV2Client
+    public partial class WarcraftLogsV2Client
     {
         private readonly ILogger _logger;
         private readonly IConfigurationRoot _config;

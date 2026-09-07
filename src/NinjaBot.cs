@@ -98,6 +98,7 @@ namespace NinjaBotCore
                 .AddSingleton<IWowApi>(sp => sp.GetRequiredService<WowApi>())
                 .AddSingleton<WowUtilities>()
                 .AddSingleton<WarcraftLogsV2Client>()
+                .AddRaidRecap()
                 .AddSingleton<UserInteraction>()
                 .AddSingleton<ModerationWatcherService>()
                 .AddSingleton<AwaySystemService>()
