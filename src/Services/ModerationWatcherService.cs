@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Discord;
+using Discord.Rest;
 using Discord.WebSocket;
 using NinjaBotCore.Database;
 using NinjaBotCore.Repositories;
@@ -22,6 +23,11 @@ namespace NinjaBotCore.Services
         private readonly HashSet<ulong> _recentBulkDeletes;
         private readonly object _bulkDeleteLock;
         private static readonly TimeSpan CacheExpiration = TimeSpan.FromMinutes(10);
+        private static readonly TimeSpan[] RoleAuditLookupDelays =
+        {
+            TimeSpan.FromMilliseconds(350),
+            TimeSpan.FromMilliseconds(850)
+        };
         private bool _disposed;
 
         public ModerationWatcherService(IServiceProvider services)
@@ -422,6 +428,7 @@ namespace NinjaBotCore.Services
         {
             if (after.IsBot) return;
 
+            var observedAt = DateTimeOffset.UtcNow;
             var settings = await GetSettingsAsync((long)after.Guild.Id);
                 if (settings == null) return;
 
@@ -434,20 +441,40 @@ namespace NinjaBotCore.Services
                 // Check for role changes
                 if (settings.WatchRoles == true)
                 {
-                    var addedRoles = after.Roles.Except(beforeUser.Roles).ToList();
-                    var removedRoles = beforeUser.Roles.Except(after.Roles).ToList();
+                    var addedRoles = after.Roles
+                        .Except(beforeUser.Roles)
+                        .Where(role => !role.IsEveryone)
+                        .ToList();
+                    var removedRoles = beforeUser.Roles
+                        .Except(after.Roles)
+                        .Where(role => !role.IsEveryone)
+                        .ToList();
+
+                    var auditCandidates = addedRoles.Count == 0 && removedRoles.Count == 0
+                        ? Array.Empty<RoleAuditCandidate>()
+                        : await GetRoleAuditCandidatesAsync(after.Guild);
 
                     foreach (var role in addedRoles)
                     {
-                        if (role.IsEveryone) continue;
-                        var embed = CreateRoleEmbed(after, role, true);
+                        var attribution = ModerationRoleAuditMatcher.Resolve(
+                            auditCandidates,
+                            after.Id,
+                            role.Id,
+                            added: true,
+                            observedAt);
+                        var embed = CreateRoleEmbed(after, role, true, attribution);
                         await PostNotification(notificationChannel, embed);
                     }
 
                     foreach (var role in removedRoles)
                     {
-                        if (role.IsEveryone) continue;
-                        var embed = CreateRoleEmbed(after, role, false);
+                        var attribution = ModerationRoleAuditMatcher.Resolve(
+                            auditCandidates,
+                            after.Id,
+                            role.Id,
+                            added: false,
+                            observedAt);
+                        var embed = CreateRoleEmbed(after, role, false, attribution);
                         await PostNotification(notificationChannel, embed);
                     }
                 }
@@ -460,16 +487,88 @@ namespace NinjaBotCore.Services
                 }
         }
 
-        private EmbedBuilder CreateRoleEmbed(SocketGuildUser user, SocketRole role, bool added)
+        private async Task<IReadOnlyCollection<RoleAuditCandidate>> GetRoleAuditCandidatesAsync(
+            SocketGuild guild)
+        {
+            if (guild?.CurrentUser?.GuildPermissions.ViewAuditLog != true)
+            {
+                _logger.LogDebug(
+                    "Role audit attribution unavailable in guild {GuildId}: View Audit Log permission is missing",
+                    guild?.Id);
+                return Array.Empty<RoleAuditCandidate>();
+            }
+
+            IReadOnlyCollection<RoleAuditCandidate> candidates = Array.Empty<RoleAuditCandidate>();
+            // Complete the bounded lookup window even when the first read matches.
+            // A later entry can make a rapid role change ambiguous, which must fail closed.
+            foreach (var delay in RoleAuditLookupDelays)
+            {
+                await Task.Delay(delay);
+
+                try
+                {
+                    var entries = await guild.GetAuditLogsAsync(
+                            limit: 25,
+                            actionType: ActionType.MemberRoleUpdated)
+                        .FlattenAsync();
+                    candidates = entries
+                        .Where(entry => entry.Data is MemberRoleAuditLogData)
+                        .Select(entry =>
+                        {
+                            var data = (MemberRoleAuditLogData)entry.Data;
+                            return new RoleAuditCandidate(
+                                data.Target.Id,
+                                entry.User?.Id,
+                                data.IntegrationType?.ToString(),
+                                entry.Reason,
+                                entry.CreatedAt,
+                                data.Roles
+                                    .Select(role => new RoleAuditRoleChange(
+                                        role.RoleId,
+                                        role.Added,
+                                        role.Removed))
+                                    .ToArray());
+                        })
+                        .ToArray();
+
+                }
+                catch (Discord.Net.HttpException ex)
+                    when (ex.HttpCode == System.Net.HttpStatusCode.Forbidden)
+                {
+                    candidates = Array.Empty<RoleAuditCandidate>();
+                    _logger.LogDebug(
+                        "Role audit attribution unavailable in guild {GuildId}: Discord denied audit log access",
+                        guild.Id);
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    candidates = Array.Empty<RoleAuditCandidate>();
+                    _logger.LogWarning(
+                        ex,
+                        "Role audit attribution lookup failed in guild {GuildId}; posting role change without attribution",
+                        guild.Id);
+                    break;
+                }
+            }
+
+            return candidates;
+        }
+
+        private EmbedBuilder CreateRoleEmbed(
+            SocketGuildUser user,
+            SocketRole role,
+            bool added,
+            ModerationRoleAttribution attribution)
         {
             var embed = new EmbedBuilder();
-            var sb = new StringBuilder();
 
             embed.Title = added ? "Role Added" : "Role Removed";
-            sb.AppendLine($"{user.Mention} ({user.Username})");
-            sb.AppendLine($"Role: {role.Mention}");
-
-            embed.Description = sb.ToString();
+            embed.Description = ModerationRoleAuditMatcher.BuildDescription(
+                user.Mention,
+                user.Username,
+                role.Mention,
+                attribution);
             embed.ThumbnailUrl = user.GetAvatarUrl() ?? user.GetDefaultAvatarUrl();
             embed.WithColor(added ? new Color(0, 255, 0) : new Color(255, 0, 0)); // Green/Red
             embed.WithCurrentTimestamp();
