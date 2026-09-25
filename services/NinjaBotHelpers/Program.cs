@@ -3,6 +3,7 @@ using NinjaBotHelpers.Blizzard;
 using NinjaBotHelpers.Configuration;
 using NinjaBotHelpers.Database;
 using NinjaBotHelpers.Discord;
+using NinjaBotHelpers.Retention;
 using NinjaBotHelpers.Wago;
 using NinjaBotHelpers.WarcraftLogs;
 using NinjaBotHelpers.Workers;
@@ -87,6 +88,7 @@ try
     builder.Services.AddHostedService<RealmWatcherWorker>();
     builder.Services.AddHostedService<StaticDataSyncWorker>();
     builder.Services.AddHostedService<LogMonitoringWorker>();
+    builder.Services.AddServerRetention(config);
 
     var host = builder.Build();
 
@@ -116,6 +118,7 @@ return 0;
 static HelpersConfiguration LoadConfiguration(IConfiguration configuration)
 {
     var config = new HelpersConfiguration();
+    config.ServerRetention = ServerRetentionSettings.Load(configuration);
 
     // Support both environment variables and appsettings.json
     // Uses same env var names as main NinjaBotCore for shared .env files

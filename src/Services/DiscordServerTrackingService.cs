@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Discord.WebSocket;
@@ -6,7 +7,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NinjaBotCore.Database;
-using NinjaBotCore.Repositories;
 
 namespace NinjaBotCore.Services
 {
@@ -21,12 +21,51 @@ namespace NinjaBotCore.Services
         private readonly DiscordShardedClient _client;
         private readonly IServiceScopeFactory _scopeFactory;
         private bool _disposed;
+        private readonly TimeProvider _clock;
+        private readonly object _observationLock = new();
+        private long _lastObservationTicks;
+        // Only presence not yet followed by an observed departure; remove on absence.
+        // Register the ENTIRE snapshot synchronously, including guilds late in the batch.
+        private readonly Dictionary<long, DateTime> _observedPresence = new();
+
+        private (List<SocketGuild> Guilds, DateTime At) ObservePresence(Func<IEnumerable<SocketGuild>> snapshot)
+        {
+            lock (_observationLock)
+            {
+                var at = ObserveNow();
+                var guilds = snapshot().ToList();
+                foreach (var guild in guilds) _observedPresence[(long)guild.Id] = at;
+                return (guilds, at);
+            }
+        }
+
+        private (DateTime At, DateTime? PresenceAt) ObserveDeparture(long serverId)
+        {
+            lock (_observationLock)
+            {
+                var at = ObserveNow();
+                return (at, _observedPresence.Remove(serverId, out var presenceAt) ? presenceAt : null);
+            }
+        }
+
+        // Strictly increasing at PostgreSQL's microsecond precision, even when the clock
+        // repeats or steps backwards. Capture BEFORE a snapshot/first await, never per write.
+        private DateTime ObserveNow()
+        {
+            lock (_observationLock)
+            {
+                var ticks = _clock.GetUtcNow().UtcDateTime.Ticks;
+                _lastObservationTicks = Math.Max(ticks - ticks % 10, _lastObservationTicks + 10);
+                return new DateTime(_lastObservationTicks, DateTimeKind.Utc);
+            }
+        }
 
         public DiscordServerTrackingService(IServiceProvider services)
         {
             _logger = services.GetRequiredService<ILogger<DiscordServerTrackingService>>();
             _client = services.GetRequiredService<DiscordShardedClient>();
             _scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
+            _clock = services.GetService<TimeProvider>() ?? TimeProvider.System;
 
             // Discord.NET uses "Guild" in event names, but we call them "Discord servers"
             // to avoid confusion with WoW guilds
@@ -54,40 +93,40 @@ namespace NinjaBotCore.Services
         {
             try
             {
-                var allGuilds = _client.Guilds.ToList();
+                var (allGuilds, observedAt) = ObservePresence(() => _client.Guilds);
 
                 _logger.LogInformation("Syncing {Count} Discord servers to database", allGuilds.Count);
 
-                await using var repo = new Repository<DiscordServer>(_scopeFactory);
+                using var scope = _scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
 
                 // Update/insert all current servers
                 foreach (var guild in allGuilds)
                 {
-                    await UpsertDiscordServerAsync(repo, guild, isJoining: true);
+                    await UpsertDiscordServerAsync(db, guild, observedAt);
                 }
 
-                // Cleanup: Mark servers we're no longer in as BotPresent = false
-                // Use database-side filtering for performance with large server counts
-                // This runs even if allGuilds.Count == 0 to clean up all stale records
+                // A disconnected/incomplete gateway cache is not evidence of departure.
+                // Only reconcile after every shard reports connected; REST is checked again at purge.
+                if (_client.Shards.Any(s => s.ConnectionState != Discord.ConnectionState.Connected)) return;
                 var currentGuildIds = allGuilds.Select(g => (long)g.Id).ToList();
-                var staleServers = await repo.Query
-                    .Where(s => s.BotPresent && !currentGuildIds.Contains(s.ServerId))
+                var staleServers = await db.DiscordServers.AsNoTracking()
+                    .Where(s => s.BotPresent && s.JoinedAt != null && !currentGuildIds.Contains(s.ServerId))
                     .ToListAsync();
-
                 foreach (var staleServer in staleServers)
                 {
-                    _logger.LogInformation(
-                        "Cleaning up stale server record: {ServerName} ({ServerId}) - bot no longer present",
-                        staleServer.ServerName, staleServer.ServerId);
-
-                    staleServer.BotPresent = false;
-                    staleServer.LeftAt = DateTime.UtcNow;
-                    repo.Update(staleServer);
+                    DateTime absentAt;
+                    lock (_observationLock)
+                    {
+                        if (_client.GetGuild((ulong)staleServer.ServerId) != null) continue;
+                        // A newer captured presence may still be queued for persistence.
+                        if (_observedPresence.TryGetValue(staleServer.ServerId, out var presenceAt)
+                            && presenceAt > staleServer.JoinedAt) continue;
+                        absentAt = ObserveDeparture(staleServer.ServerId).At;
+                    }
+                    await DiscordServerLifecycle.MarkAbsentAsync(db, staleServer.ServerId, absentAt, staleServer.JoinedAt);
                 }
-
                 int cleanedCount = staleServers.Count;
-
-                await repo.SaveChangesAsync();
 
                 if (cleanedCount > 0)
                 {
@@ -110,19 +149,19 @@ namespace NinjaBotCore.Services
         {
             try
             {
-                var guilds = shard.Guilds.ToList();
+                var (guilds, observedAt) = ObservePresence(() => shard.Guilds);
                 _logger.LogInformation(
                     "Shard {ShardId} ready - syncing {Count} Discord servers",
                     shard.ShardId, guilds.Count);
 
-                await using var repo = new Repository<DiscordServer>(_scopeFactory);
+                using var scope = _scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
 
                 foreach (var guild in guilds)
                 {
-                    await UpsertDiscordServerAsync(repo, guild, isJoining: true);
+                    await UpsertDiscordServerAsync(db, guild, observedAt);
                 }
 
-                await repo.SaveChangesAsync();
 
                 _logger.LogInformation(
                     "Shard {ShardId} - synced {Count} Discord servers to database",
@@ -143,13 +182,14 @@ namespace NinjaBotCore.Services
         {
             try
             {
+                var (_, observedAt) = ObservePresence(() => new[] { guild });
                 _logger.LogInformation(
                     "Bot joined Discord server: {ServerName} ({ServerId})",
                     guild.Name, guild.Id);
 
-                await using var repo = new Repository<DiscordServer>(_scopeFactory);
-                await UpsertDiscordServerAsync(repo, guild, isJoining: true);
-                await repo.SaveChangesAsync();
+                using var scope = _scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+                await UpsertDiscordServerAsync(db, guild, observedAt);
             }
             catch (Exception ex)
             {
@@ -166,20 +206,15 @@ namespace NinjaBotCore.Services
         {
             try
             {
+                var (observedAt, presenceAt) = ObserveDeparture((long)guild.Id);
                 _logger.LogInformation(
                     "Bot left Discord server: {ServerName} ({ServerId})",
                     guild.Name, guild.Id);
 
-                await using var repo = new Repository<DiscordServer>(_scopeFactory);
+                using var scope = _scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
 
-                var server = await repo.FirstOrDefaultAsync(s => s.ServerId == (long)guild.Id);
-                if (server != null)
-                {
-                    server.BotPresent = false;
-                    server.LeftAt = DateTime.UtcNow;
-                    repo.Update(server);
-                    await repo.SaveChangesAsync();
-                }
+                await DiscordServerLifecycle.MarkAbsentAsync(db, (long)guild.Id, observedAt, precedingPresenceAt: presenceAt);
             }
             catch (Exception ex)
             {
@@ -192,45 +227,14 @@ namespace NinjaBotCore.Services
         /// <summary>
         /// Upserts a Discord server record - creates if not exists, updates if exists
         /// </summary>
-        private async Task UpsertDiscordServerAsync(
-            Repository<DiscordServer> repo,
-            SocketGuild guild,
-            bool isJoining)
-        {
-            var server = await repo.FirstOrDefaultAsync(s => s.ServerId == (long)guild.Id);
-
-            if (server == null)
+        private static Task UpsertDiscordServerAsync(NinjaBotEntities db, SocketGuild guild, DateTime observedAt) =>
+            DiscordServerLifecycle.MarkPresentAsync(db, new DiscordServer
             {
-                // New server - create record
-                await repo.AddAsync(new DiscordServer
-                {
-                    ServerId = (long)guild.Id,
-                    ServerName = guild.Name,
-                    OwnerId = (long?)guild.OwnerId,
-                    OwnerName = guild.Owner?.Username,
-                    BotPresent = true,
-                    JoinedAt = DateTime.UtcNow,
-                    LeftAt = null
-                });
-            }
-            else
-            {
-                // Existing server - update record
-                server.ServerName = guild.Name;
-                server.OwnerId = (long?)guild.OwnerId;
-                server.OwnerName = guild.Owner?.Username;
-                server.BotPresent = true;
-                server.LeftAt = null;
-
-                // Only update JoinedAt if this is a rejoin (was previously marked as left)
-                if (isJoining && server.JoinedAt == null)
-                {
-                    server.JoinedAt = DateTime.UtcNow;
-                }
-
-                repo.Update(server);
-            }
-        }
+                ServerId = (long)guild.Id,
+                ServerName = guild.Name,
+                OwnerId = (long?)guild.OwnerId,
+                OwnerName = guild.Owner?.Username
+            }, observedAt);
 
         public void Dispose()
         {

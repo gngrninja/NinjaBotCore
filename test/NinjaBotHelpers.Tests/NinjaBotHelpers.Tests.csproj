@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\services\NinjaBotHelpers\NinjaBotHelpers.csproj" />
+    <ProjectReference Include="..\..\src\NinjaBotCore.csproj" />
   </ItemGroup>
 
 </Project>

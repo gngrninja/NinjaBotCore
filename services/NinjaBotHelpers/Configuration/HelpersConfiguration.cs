@@ -5,6 +5,7 @@ namespace NinjaBotHelpers.Configuration;
 /// </summary>
 public class HelpersConfiguration
 {
+    public ServerRetentionSettings ServerRetention { get; set; } = new();
     /// <summary>
     /// Discord bot token for REST API calls
     /// </summary>
