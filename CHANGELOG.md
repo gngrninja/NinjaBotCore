@@ -1,5 +1,19 @@
 # Changelog
 
+## [v3.2.7] - 2026-08-23
+
+### Raider.IO Insights
+
+- Added M+ Coach, Run Review, scoped Rivals, season-aware Score Goals, and Talents views to `/char`.
+- Added an ephemeral **My Insights** shortcut to `/keys` and Live Raid information to `/ginfo`.
+- Hardened Raider.IO requests with bounded retries, safe caching, origin-checked links, attribution, and secret-safe logging.
+
+### Crafting and Discord Reliability
+
+- Modernized crafting cards and interactions with Discord Components V2.
+- Made crafting claim, profession, crafted, completed, cancel, unclaim, and expiration transitions concurrency-safe.
+- Added character-management pagination, prompt interaction acknowledgement, bounded component content, and explicit mention controls.
+
 ## [v3.0.0] - Changes since v2.3.7
 
 ### New Commands
