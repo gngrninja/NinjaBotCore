@@ -45,7 +45,11 @@ public sealed class RaidRecapDiscord : IRaidRecapDiscord
         var bot=await guild.GetUserAsync(client.CurrentUser.Id);
         if(actor==null||bot==null) return new(false,false);
         var a=actor.GetPermissions(channel); var b=bot.GetPermissions(channel);
-        return Permissions(a.ViewChannel,b.ViewChannel,a.SendMessages,b.SendMessages);
+        // Discord.Net resolves roles/overwrites but does not apply communication_disabled_until.
+        // Preserve private viewing while refusing bot-mediated sends for a fresh active timeout.
+        var now=DateTimeOffset.UtcNow;
+        return Permissions(a.ViewChannel,b.ViewChannel,
+            a.SendMessages&&!(actor.TimedOutUntil>now),b.SendMessages&&!(bot.TimedOutUntil>now));
     }
     public async Task<RaidRecapGuild> GuildAsync(IInteractionContext context)
     {

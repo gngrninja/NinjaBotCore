@@ -63,11 +63,17 @@ public sealed class RaidRecapSession
     public IReadOnlyList<NinjaBotCore.Models.Wow.WclV2Report> Reports { get; set; } = Array.Empty<NinjaBotCore.Models.Wow.WclV2Report>();
     public int ReportPage { get; set; }
     public int BossPage { get; set; }
+    public int AttemptPage { get; set; }
     public int KillPage { get; set; }
     public int RankPage { get; set; }
     public int BossIndex { get; set; }
     public int KillIndex { get; set; }
     public IReadOnlyList<RaidRecapStanding> Performance { get; set; }
+    public int PullIndex { get; set; } = -1;
+    public int PullPage { get; set; }
+    public int AnalysisPage { get; set; }
+    public string AnalysisMetric { get; set; } = "deaths";
+    public RaidRecapAnalysis Analysis { get; set; }
     public string Notice { get; set; }
     public RaidRecapReport Report { get; set; }
     public string View { get; set; } = "overview";

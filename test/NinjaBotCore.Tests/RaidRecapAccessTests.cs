@@ -105,6 +105,63 @@ public class RaidRecapAccessTests
         Assert.Equal(Harness.AccessRequests.Concat(Harness.AccessRequests), h.Rest.Requests);
     }
 
+    [Theory]
+    [InlineData(300UL)]
+    [InlineData(400UL)]
+    public async Task ActiveFreshTimeoutAllowsViewingButDeniesPublicSend(ulong member)
+    {
+        using var h = new Harness();
+        h.Rest.Timeouts[member] = DateTimeOffset.UtcNow.AddHours(1);
+        var guild = await h.Client.GetShard(0).Rest.GetGuildAsync(Harness.GuildId);
+        var user = await guild.GetUserAsync(member);
+        var channel = await guild.GetTextChannelAsync(Harness.ChannelId);
+        Assert.True(user.TimedOutUntil > DateTimeOffset.UtcNow);
+        // Discord.Net 3.18 resolves role permissions without applying member timeout.
+        Assert.True(user.GetPermissions(channel).SendMessages);
+        Assert.Equal(new RaidRecapAccess(true, false), await h.Adapter.AccessAsync(h.Context));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => h.Adapter.PublishAsync(h.Context, PublicPayload(), () => true));
+        Assert.Equal(0, h.Rest.Writes);
+    }
+
+    [Theory]
+    [InlineData(300UL, false)]
+    [InlineData(300UL, true)]
+    [InlineData(400UL, false)]
+    [InlineData(400UL, true)]
+    public async Task AbsentOrExpiredTimeoutStillAllowsPublicSend(ulong member, bool expired)
+    {
+        using var h = new Harness();
+        h.Rest.Timeouts[member] = expired ? DateTimeOffset.UtcNow.AddHours(-1) : null;
+        Assert.Equal(new RaidRecapAccess(true, true), await h.Adapter.AccessAsync(h.Context));
+        Assert.Equal(700UL, await h.Adapter.PublishAsync(h.Context, PublicPayload(), () => true));
+        Assert.Equal(1, h.Rest.Writes);
+    }
+
+    [Fact]
+    public async Task TimeoutImposedDuringFinalMemberLookupPreventsPublicSend()
+    {
+        using var h = new Harness();
+        Assert.Equal(new RaidRecapAccess(true, true), await h.Adapter.AccessAsync(h.Context));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.Rest.BeforeMember = async id =>
+        {
+            if (id != Harness.ActorId) return;
+            entered.TrySetResult();
+            await release.Task;
+        };
+        var publish = h.Adapter.PublishAsync(h.Context, PublicPayload(), () => true);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        h.Rest.Timeouts[Harness.ActorId] = DateTimeOffset.UtcNow.AddHours(1);
+        release.SetResult();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => publish);
+        Assert.Equal(0, h.Rest.Writes);
+        Assert.Equal(Harness.AccessRequests.Concat(Harness.AccessRequests), h.Rest.Requests);
+    }
+
+    private static MessageComponent PublicPayload() =>
+        new ComponentBuilderV2().AddComponent(new TextDisplayBuilder("Offline timeout regression fixture")).Build();
+
     // The actual SDK context, REST deserializer, entities and permission resolver run offline.
     // Reflection only constructs gateway-owned identities and sets offline REST state; no login,
     // gateway connection, live token, HTTP client or replacement AccessAsync is involved.
@@ -170,10 +227,13 @@ public class RaidRecapAccessTests
         public ulong RolePermissions = 3072;
         public ulong? MissingMember;
         public int ChannelType;
+        public readonly Dictionary<ulong, DateTimeOffset?> Timeouts = new();
+        public Func<ulong, Task> BeforeMember;
+        public int Writes;
         public void Dispose() { }
         public void SetHeader(string key, string value) { }
         public void SetCancelToken(CancellationToken token) { }
-        public Task<RestResponse> SendAsync(string method, string endpoint, CancellationToken token, bool headerOnly = false,
+        public async Task<RestResponse> SendAsync(string method, string endpoint, CancellationToken token, bool headerOnly = false,
             string reason = null, IEnumerable<KeyValuePair<string, IEnumerable<string>>> requestHeaders = null)
         {
             Assert.Equal("GET", method);
@@ -203,6 +263,7 @@ public class RaidRecapAccessTests
                 case "guilds/100/members/300":
                 case "guilds/100/members/400":
                     var id = ulong.Parse(path.Split('/').Last());
+                    if (BeforeMember != null) await BeforeMember(id);
                     if (MissingMember == id)
                     {
                         status = HttpStatusCode.NotFound;
@@ -211,15 +272,25 @@ public class RaidRecapAccessTests
                     else json = new JObject
                     {
                         ["user"] = new JObject { ["id"] = id.ToString(), ["username"] = "synthetic-member", ["discriminator"] = "0000", ["bot"] = id == Harness.BotId },
+                        ["communication_disabled_until"] = Timeouts.GetValueOrDefault(id)?.ToString("O"),
                         ["roles"] = new JArray("101"), ["joined_at"] = "2026-01-01T00:00:00Z", ["deaf"] = false, ["mute"] = false
                     };
                     break;
                 default: throw new InvalidOperationException("Unexpected offline REST route: " + path);
             }
-            return Task.FromResult(new RestResponse(status, new Dictionary<string, string>(), new MemoryStream(Encoding.UTF8.GetBytes(json.ToString()))));
+            return new RestResponse(status, new Dictionary<string, string>(), new MemoryStream(Encoding.UTF8.GetBytes(json.ToString())));
         }
         public Task<RestResponse> SendAsync(string method, string endpoint, string json, CancellationToken token, bool headerOnly = false,
-            string reason = null, IEnumerable<KeyValuePair<string, IEnumerable<string>>> requestHeaders = null) => throw new InvalidOperationException("No writes in fixture");
+            string reason = null, IEnumerable<KeyValuePair<string, IEnumerable<string>>> requestHeaders = null)
+        {
+            Assert.Equal("POST", method);
+            Assert.Equal("channels/200/messages", endpoint.TrimStart('/'));
+            Writes++;
+            const string response = """
+                {"id":"700","channel_id":"200","author":{"id":"400","username":"fixture-bot","discriminator":"0000","bot":true},"content":"","timestamp":"2026-01-01T00:00:00Z","tts":false,"mention_everyone":false,"mentions":[],"mention_roles":[],"attachments":[],"embeds":[],"pinned":false,"type":0}
+                """;
+            return Task.FromResult(new RestResponse(HttpStatusCode.OK, new Dictionary<string, string>(), new MemoryStream(Encoding.UTF8.GetBytes(response))));
+        }
         public Task<RestResponse> SendAsync(string method, string endpoint, IReadOnlyDictionary<string, object> multipartParams, CancellationToken token,
             bool headerOnly = false, string reason = null, IEnumerable<KeyValuePair<string, IEnumerable<string>>> requestHeaders = null) => throw new InvalidOperationException("No writes in fixture");
     }

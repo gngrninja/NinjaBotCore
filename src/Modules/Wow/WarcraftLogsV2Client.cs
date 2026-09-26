@@ -2,13 +2,18 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
+using System.IO.Compression;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using NinjaBotCore.Models.Wow;
 
 namespace NinjaBotCore.Modules.Wow
@@ -33,14 +38,22 @@ namespace NinjaBotCore.Modules.Wow
         private readonly ILogger _logger;
         private readonly IConfigurationRoot _config;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly TimeProvider _clock;
         private WclV2TokenResponse _currentToken;
         private readonly string _clientId;
         private readonly string _clientSecret;
 
-        // Rate limit tracking
+        // Quota observations and rechecks are serialized, including recovery after a reset.
+        private readonly SemaphoreSlim _rateLimitGate = new(1, 1);
         private WclV2RateLimitData _lastRateLimitData;
-        private DateTime _lastRateLimitCheck = DateTime.MinValue;
+        private DateTimeOffset _lastRateLimitCheck = DateTimeOffset.MinValue;
+        private DateTimeOffset _rateLimitResetAt = DateTimeOffset.MinValue;
+        private DateTimeOffset _nextQuotaProbeAt = DateTimeOffset.MinValue;
+        private long _retryAfterUtcTicks;
         private int _requestCounter = 0;
+        private static readonly TimeSpan QuotaCheckTimeout = TimeSpan.FromSeconds(15);
+        private static readonly TimeSpan QuotaRetryDelay = TimeSpan.FromSeconds(30);
+        private const int MaxResponseBytes = 4 * 1024 * 1024;
 
         // Current raid tier cache (7 day TTL - boss encounters are static data that only changes when new raids release)
         // Using ConcurrentDictionary for thread-safety (singleton service, static cache)
@@ -67,7 +80,11 @@ namespace NinjaBotCore.Modules.Wow
         private const double CriticalThreshold = 95.0; // Stop at 95% usage
 
         public WarcraftLogsV2Client(IConfigurationRoot config, IHttpClientFactory httpClientFactory, ILogger<WarcraftLogsV2Client> logger)
+            : this(config, httpClientFactory, logger, TimeProvider.System) { }
+
+        internal WarcraftLogsV2Client(IConfigurationRoot config, IHttpClientFactory httpClientFactory, ILogger<WarcraftLogsV2Client> logger, TimeProvider clock)
         {
+            _clock = clock ?? throw new ArgumentNullException(nameof(clock));
             _config = config;
             _logger = logger;
             _httpClientFactory = httpClientFactory;
@@ -98,8 +115,9 @@ namespace NinjaBotCore.Modules.Wow
         /// <summary>
         /// Gets a valid OAuth access token, refreshing if necessary
         /// </summary>
-        private async Task<string> GetAccessTokenAsync()
+        private async Task<string> GetAccessTokenAsync(CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             // Return cached token if still valid
             if (_currentToken != null && !_currentToken.IsExpired)
             {
@@ -122,11 +140,16 @@ namespace NinjaBotCore.Modules.Wow
             try
             {
                 using var client = _httpClientFactory.CreateClient();
-                using var response = await client.SendAsync(request);
-                response.EnsureSuccessStatusCode();
+                // ResponseHeadersRead stops HttpClient's timeout at the headers; retain it for the body.
+                using var requestBudget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                requestBudget.CancelAfter(client.Timeout);
+                using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, requestBudget.Token);
+                EnsureWclSuccess(response, "OAuth");
 
-                var content = await response.Content.ReadAsStringAsync();
-                _currentToken = JsonConvert.DeserializeObject<WclV2TokenResponse>(content);
+                var content = await ReadResponseAsync(response, requestBudget.Token);
+                _currentToken = ParseResponse<WclV2TokenResponse>(content);
+                if (string.IsNullOrWhiteSpace(_currentToken.AccessToken))
+                    throw new InvalidOperationException("WCL OAuth response omitted the access token.");
                 _currentToken.ExpiresAt = DateTime.UtcNow.AddSeconds(_currentToken.ExpiresIn - 60); // 60s buffer
 
                 _logger.LogInformation($"WarcraftLogs v2 OAuth token acquired, expires in {_currentToken.ExpiresIn}s");
@@ -134,7 +157,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Failed to get WarcraftLogs v2 OAuth token: {ex.Message}");
+                _logger.LogError("Failed to get WarcraftLogs v2 OAuth token ({ErrorType})", ex.GetType().Name);
                 throw;
             }
         }
@@ -142,150 +165,262 @@ namespace NinjaBotCore.Modules.Wow
         /// <summary>
         /// Fetches current rate limit data from the API
         /// </summary>
-        private async Task<WclV2RateLimitData> GetRateLimitDataAsync(WowGameVersion gameVersion = WowGameVersion.Retail)
+        private async Task<WclV2RateLimitData> GetRateLimitDataAsync(CancellationToken cancellationToken)
         {
-            var query = @"
-                query {
-                    rateLimitData {
-                        limitPerHour
-                        pointsSpentThisHour
-                        pointsResetIn
-                    }
-                }
-            ";
-
+            const string query = "query { rateLimitData { limitPerHour pointsSpentThisHour pointsResetIn } }";
             try
             {
-                var result = await ExecuteGraphQLInternalAsync<WclV2RateLimitResponse>(query, null, gameVersion);
-                return result.Data?.RateLimitData;
+                // Validate field presence/types before mapping to the legacy nonnullable DTO: defaults
+                // such as zero limit/spend must never turn an unusable probe into a healthy budget.
+                var result = await ExecuteGraphQLInternalAsync<JObject>(query, cancellationToken: cancellationToken);
+                if (result.Errors?.Count > 0 || result.Data?["rateLimitData"] is not JObject data ||
+                    !TryQuotaNumber(data["limitPerHour"], out var limit) || limit <= 0 ||
+                    !TryQuotaNumber(data["pointsSpentThisHour"], out var spent) || spent < 0 ||
+                    data["pointsResetIn"]?.Type != JTokenType.Integer)
+                    throw new InvalidOperationException("Unusable WCL quota response.");
+                var reset = data.Value<long>("pointsResetIn");
+                if (reset < 0 || reset > int.MaxValue || !double.IsFinite(spent / limit * 100))
+                    throw new InvalidOperationException("Unusable WCL quota response.");
+                return new WclV2RateLimitData { LimitPerHour = limit, PointsSpentThisHour = spent, PointsResetIn = (int)reset };
             }
+            catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
-                _logger.LogWarning($"Failed to fetch rate limit data: {ex.Message}");
+                _logger.LogWarning("Failed to fetch rate limit data ({ErrorType})", ex.GetType().Name);
                 return null;
             }
         }
 
-        /// <summary>
-        /// Checks and logs rate limit status if needed
-        /// </summary>
-        private async Task CheckRateLimitAsync()
+        private static bool TryQuotaNumber(JToken token, out double value)
         {
-            _requestCounter++;
+            value = 0;
+            if (token?.Type is not (JTokenType.Integer or JTokenType.Float)) return false;
+            value = token.Value<double>();
+            return double.IsFinite(value);
+        }
 
-            // Check every N requests or if we haven't checked in 5 minutes
-            bool shouldCheck = _requestCounter % RateLimitCheckInterval == 0 ||
-                              (DateTime.UtcNow - _lastRateLimitCheck).TotalMinutes >= 5;
-
-            if (!shouldCheck)
+        // Caller holds _rateLimitGate. Failure/cancellation keeps the last known budget, never
+        // clears an exhausted observation, and prevents waiting callers from hot-looping probes.
+        private async Task RefreshQuotaAsync(bool recovery, CancellationToken cancellationToken)
+        {
+            _nextQuotaProbeAt = _clock.GetUtcNow() + QuotaRetryDelay;
+            var data = await GetRateLimitDataAsync(cancellationToken);
+            var now = _clock.GetUtcNow();
+            if (data == null)
+            {
+                _nextQuotaProbeAt = now + QuotaRetryDelay;
                 return;
-
-            var rateLimitData = await GetRateLimitDataAsync();
-            if (rateLimitData == null)
-                return;
-
-            _lastRateLimitData = rateLimitData;
-            _lastRateLimitCheck = DateTime.UtcNow;
-
-            // Log based on usage level
-            if (rateLimitData.UsagePercent >= CriticalThreshold)
-            {
-                _logger.LogError($"[WCL v2] CRITICAL: Rate limit at {rateLimitData.UsagePercent:F1}% ({rateLimitData.PointsSpentThisHour:F1}/{rateLimitData.LimitPerHour:F0}) - {rateLimitData.PointsRemaining:F1} points remaining, resets in {rateLimitData.PointsResetIn}s");
             }
-            else if (rateLimitData.UsagePercent >= WarningThreshold)
+            _lastRateLimitData = data;
+            _lastRateLimitCheck = now;
+            _rateLimitResetAt = now.AddSeconds(data.PointsResetIn);
+            _nextQuotaProbeAt = data.UsagePercent >= CriticalThreshold
+                ? (recovery && _rateLimitResetAt < now + QuotaRetryDelay ? now + QuotaRetryDelay : _rateLimitResetAt)
+                : now;
+            var level = data.UsagePercent >= CriticalThreshold ? LogLevel.Error :
+                data.UsagePercent >= WarningThreshold ? LogLevel.Warning : LogLevel.Information;
+            _logger.Log(level, "[WCL v2] Rate limit: {Usage:F1}% used ({Spent:F1}/{Limit:F0}); reset in {Reset}s",
+                data.UsagePercent, data.PointsSpentThisHour, data.LimitPerHour, data.PointsResetIn);
+        }
+
+        private DateTimeOffset RetryAfterUtc => new(Interlocked.Read(ref _retryAfterUtcTicks), TimeSpan.Zero);
+
+        private InvalidOperationException QuotaBlocked()
+        {
+            var retry = RetryAfterUtc;
+            if (_lastRateLimitData?.UsagePercent >= CriticalThreshold)
             {
-                _logger.LogWarning($"[WCL v2] Rate limit at {rateLimitData.UsagePercent:F1}% ({rateLimitData.PointsSpentThisHour:F1}/{rateLimitData.LimitPerHour:F0}) - {rateLimitData.PointsRemaining:F1} points remaining");
+                if (_rateLimitResetAt > retry) retry = _rateLimitResetAt;
+                if (_nextQuotaProbeAt > retry) retry = _nextQuotaProbeAt;
             }
-            else
+            var seconds = Math.Max(0, Math.Ceiling((retry - _clock.GetUtcNow()).TotalSeconds));
+            _logger.LogWarning("[WCL v2] Blocking request; retry quota check in {Seconds}s", seconds);
+            return new InvalidOperationException($"Warcraft Logs quota unavailable. Retry in {seconds:F0}s.");
+        }
+
+        private async Task EnsureQuotaAsync(CancellationToken cancellationToken)
+        {
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            budget.CancelAfter(QuotaCheckTimeout);
+            var acquired = false;
+            try
             {
-                _logger.LogInformation($"[WCL v2] Rate limit: {rateLimitData.UsagePercent:F1}% used ({rateLimitData.PointsSpentThisHour:F1}/{rateLimitData.LimitPerHour:F0})");
+                await _rateLimitGate.WaitAsync(budget.Token);
+                acquired = true;
+                var now = _clock.GetUtcNow();
+                if (now < RetryAfterUtc) throw QuotaBlocked();
+                if (_lastRateLimitData?.UsagePercent >= CriticalThreshold)
+                {
+                    if (now >= _rateLimitResetAt && now >= _nextQuotaProbeAt)
+                        await RefreshQuotaAsync(recovery: true, budget.Token);
+                    if (_lastRateLimitData.UsagePercent >= CriticalThreshold) throw QuotaBlocked();
+                }
             }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new InvalidOperationException("Warcraft Logs quota check timed out. Try again later.");
+            }
+            finally { if (acquired) _rateLimitGate.Release(); }
+        }
+
+        /// <summary>Best-effort periodic monitoring, separate from the fail-closed recovery gate.</summary>
+        private async Task CheckRateLimitAsync(CancellationToken cancellationToken)
+        {
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            budget.CancelAfter(QuotaCheckTimeout);
+            var acquired = false;
+            try
+            {
+                await _rateLimitGate.WaitAsync(budget.Token);
+                acquired = true;
+                _requestCounter++;
+                var now = _clock.GetUtcNow();
+                // Reports already in flight when exhaustion was observed cannot bypass its reset.
+                if (_lastRateLimitData?.UsagePercent >= CriticalThreshold || now < _nextQuotaProbeAt || now < RetryAfterUtc)
+                    return;
+                if (_requestCounter % RateLimitCheckInterval != 0 && (now - _lastRateLimitCheck).TotalMinutes < 5)
+                    return;
+                await RefreshQuotaAsync(recovery: false, budget.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning("[WCL v2] Periodic quota check timed out");
+            }
+            finally { if (acquired) _rateLimitGate.Release(); }
         }
 
         /// <summary>
         /// Internal GraphQL execution without rate limit checking (to avoid recursion)
         /// </summary>
-        private async Task<GraphQLResponse<T>> ExecuteGraphQLInternalAsync<T>(string query, object variables = null, WowGameVersion gameVersion = WowGameVersion.Retail)
+        private async Task<GraphQLResponse<T>> ExecuteGraphQLInternalAsync<T>(string query, object variables = null, WowGameVersion gameVersion = WowGameVersion.Retail, CancellationToken cancellationToken = default)
         {
-            var token = await GetAccessTokenAsync();
+            var token = await GetAccessTokenAsync(cancellationToken);
             var apiUrl = GetApiUrl(gameVersion);
 
             using var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-
-            var graphqlRequest = new GraphQLRequest
-            {
-                Query = query,
-                Variables = variables
-            };
-
-            var json = JsonConvert.SerializeObject(graphqlRequest);
+            var json = JsonConvert.SerializeObject(new GraphQLRequest { Query = query, Variables = variables });
             request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
             using var client = _httpClientFactory.CreateClient();
-            using var response = await client.SendAsync(request);
-            var content = await response.Content.ReadAsStringAsync();
-
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogError($"GraphQL request failed: {response.StatusCode} - {content}");
-                throw new HttpRequestException($"GraphQL request failed: {response.StatusCode}");
-            }
-
-            GraphQLResponse<T> result;
-            try
-            {
-                result = JsonConvert.DeserializeObject<GraphQLResponse<T>>(content);
-            }
-            catch (JsonException jsonEx)
-            {
-                // Log raw response for debugging API changes
-                _logger.LogError($"[WCL] JSON deserialization failed. Raw response (first 2000 chars): {content.Substring(0, Math.Min(content.Length, 2000))}");
-                throw new InvalidOperationException($"Failed to parse WCL response: {jsonEx.Message}", jsonEx);
-            }
-
-            if (result.Errors != null && result.Errors.Count > 0)
-            {
-                // Group errors by message for cleaner logging
-                var errorGroups = result.Errors
-                    .GroupBy(e => e.Message)
-                    .Select(g => new { Message = g.Key, Count = g.Count() })
-                    .ToList();
-
-                foreach (var group in errorGroups)
-                {
-                    _logger.LogWarning($"GraphQL error: {group.Message} (occurred {group.Count} time{(group.Count > 1 ? "s" : "")})");
-                }
-            }
-
+            using var requestBudget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            requestBudget.CancelAfter(client.Timeout);
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, requestBudget.Token);
+            EnsureWclSuccess(response, "GraphQL");
+            var content = await ReadResponseAsync(response, requestBudget.Token);
+            var result = ParseResponse<GraphQLResponse<T>>(content);
+            if (result.Errors?.Count > 0)
+                _logger.LogWarning("[WCL v2] GraphQL response contained {ErrorCount} errors", result.Errors.Count);
             return result;
         }
 
         /// <summary>
         /// Executes a GraphQL query against the WarcraftLogs v2 API with rate limit monitoring
         /// </summary>
-        private async Task<GraphQLResponse<T>> ExecuteGraphQLAsync<T>(string query, object variables = null, WowGameVersion gameVersion = WowGameVersion.Retail)
+        private async Task<GraphQLResponse<T>> ExecuteGraphQLAsync<T>(string query, object variables = null, WowGameVersion gameVersion = WowGameVersion.Retail, CancellationToken cancellationToken = default)
         {
-            // Check if we're approaching rate limits
-            if (_lastRateLimitData != null && _lastRateLimitData.UsagePercent >= CriticalThreshold)
-            {
-                _logger.LogError($"[WCL v2] Blocking request - rate limit at {_lastRateLimitData.UsagePercent:F1}%. Wait {_lastRateLimitData.PointsResetIn}s for reset.");
-                throw new InvalidOperationException($"Rate limit exceeded: {_lastRateLimitData.UsagePercent:F1}% used. Resets in {_lastRateLimitData.PointsResetIn}s.");
-            }
-
             try
             {
-                var result = await ExecuteGraphQLInternalAsync<T>(query, variables, gameVersion);
-
-                // Check rate limits after successful requests (not on every request to avoid spam)
-                await CheckRateLimitAsync();
-
+                await EnsureQuotaAsync(cancellationToken);
+                var result = await ExecuteGraphQLInternalAsync<T>(query, variables, gameVersion, cancellationToken);
+                await CheckRateLimitAsync(cancellationToken);
                 return result;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"GraphQL execution failed: {ex.Message}");
+                _logger.LogError("GraphQL execution failed ({ErrorType})", ex.GetType().Name);
                 throw;
+            }
+        }
+
+        private void EnsureWclSuccess(HttpResponseMessage response, string operation)
+        {
+            if (response.IsSuccessStatusCode) return;
+            // No error body or reason phrase is needed: both can contain private report/token data.
+            var now = _clock.GetUtcNow();
+            var retry = response.Headers.RetryAfter;
+            var delay = retry?.Delta ?? (retry?.Date - now) ??
+                (response.StatusCode == HttpStatusCode.TooManyRequests ? QuotaRetryDelay : TimeSpan.Zero);
+            if (delay > TimeSpan.Zero)
+            {
+                var until = now.UtcTicks + Math.Min(delay.Ticks, DateTimeOffset.MaxValue.UtcTicks - now.UtcTicks);
+                long previous;
+                do
+                {
+                    previous = Interlocked.Read(ref _retryAfterUtcTicks);
+                    if (previous >= until) break;
+                } while (Interlocked.CompareExchange(ref _retryAfterUtcTicks, until, previous) != previous);
+            }
+            _logger.LogError("[WCL v2] {Operation} request failed with HTTP {Status}", operation, (int)response.StatusCode);
+            throw new HttpRequestException($"WCL {operation} request failed with HTTP {(int)response.StatusCode}.", null, response.StatusCode);
+        }
+
+        private T ParseResponse<T>(string content) where T : class
+        {
+            try
+            {
+                return JsonConvert.DeserializeObject<T>(content) ?? throw new InvalidOperationException("WCL returned a null response.");
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError("[WCL v2] Response parsing failed ({ErrorType})", ex.GetType().Name);
+                // JsonException messages/paths and inner exceptions may themselves contain payloads.
+                throw new InvalidOperationException("Failed to parse WCL response.");
+            }
+        }
+
+        private T ParseNestedResponse<T>(JToken token)
+        {
+            try
+            {
+                return token.ToObject<T>();
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError("[WCL v2] Nested response parsing failed ({ErrorType})", ex.GetType().Name);
+                // Callers may log the escaping exception; discard provider values, paths and inner exceptions.
+                throw new InvalidOperationException("Failed to parse WCL response.");
+            }
+        }
+
+        private static async Task<string> ReadResponseAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+        {
+            using var raw = await response.Content.ReadAsStreamAsync(cancellationToken);
+            Stream decoded = raw;
+            var wrappers = new List<Stream>();
+            try
+            {
+                // Handler automatic decompression removes its encoding header. Decode remaining
+                // encodings before counting bytes, so compressed/chunked payloads cannot evade the cap.
+                foreach (var encoding in response.Content.Headers.ContentEncoding.Reverse())
+                {
+                    decoded = encoding.ToLowerInvariant() switch
+                    {
+                        "gzip" => new GZipStream(decoded, CompressionMode.Decompress, leaveOpen: true),
+                        "deflate" => new ZLibStream(decoded, CompressionMode.Decompress, leaveOpen: true),
+                        "br" => new BrotliStream(decoded, CompressionMode.Decompress, leaveOpen: true),
+                        "identity" => decoded,
+                        _ => throw new InvalidOperationException("Unsupported WCL response encoding.")
+                    };
+                    if (!encoding.Equals("identity", StringComparison.OrdinalIgnoreCase)) wrappers.Add(decoded);
+                }
+                using var body = new MemoryStream();
+                var buffer = new byte[8192];
+                while (true)
+                {
+                    var remaining = MaxResponseBytes + 1 - (int)body.Length;
+                    var read = await decoded.ReadAsync(buffer.AsMemory(0, Math.Min(buffer.Length, remaining)), cancellationToken);
+                    if (read == 0) break;
+                    if (body.Length + read > MaxResponseBytes)
+                        throw new InvalidOperationException("WCL response exceeds the 4 MiB limit.");
+                    body.Write(buffer, 0, read);
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                return Encoding.UTF8.GetString(body.GetBuffer(), 0, (int)body.Length);
+            }
+            finally
+            {
+                for (var i = wrappers.Count - 1; i >= 0; i--) wrappers[i].Dispose();
             }
         }
 
@@ -412,7 +547,7 @@ namespace NinjaBotCore.Modules.Wow
                                 if (!string.IsNullOrEmpty(aliasFromPath))
                                 {
                                     nonExistentAliases.Add(aliasFromPath);
-                                    _logger.LogDebug($"[v2 Batch] Identified non-existent guild at {aliasFromPath}");
+                                    _logger.LogDebug("[v2 Batch] Classified a non-existent guild from a GraphQL error");
                                 }
                             }
                         }
@@ -525,15 +660,15 @@ namespace NinjaBotCore.Modules.Wow
                     }
                     catch (JsonException jsonEx)
                     {
-                        var error = $"{guildIdentifier}: JSON parsing failed - {jsonEx.Message}";
+                        var error = $"JSON parsing failed ({jsonEx.GetType().Name})";
                         parseErrors.Add(error);
-                        uncategorizedGuilds.Add((guildKey, guildIdentifier, $"JSON exception: {jsonEx.Message}"));
+                        uncategorizedGuilds.Add((guildKey, guildIdentifier, $"JSON exception: {jsonEx.GetType().Name}"));
                         wasCategorized = true;  // Categorized as exception
                         _logger.LogError($"[v2 Batch] {error}");
                     }
                     catch (Exception ex)
                     {
-                        var error = $"{guildIdentifier}: {ex.GetType().Name} - {ex.Message}";
+                        var error = ex.GetType().Name;
                         parseErrors.Add(error);
                         uncategorizedGuilds.Add((guildKey, guildIdentifier, $"Exception: {ex.GetType().Name}"));
                         wasCategorized = true;  // Categorized as exception
@@ -625,17 +760,17 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (HttpRequestException httpEx)
             {
-                _logger.LogError($"[v2 Batch] HTTP request failed: {httpEx.Message}");
+                _logger.LogError("[v2 Batch] HTTP request failed ({ErrorType})", httpEx.GetType().Name);
                 throw;
             }
             catch (JsonException jsonEx)
             {
-                _logger.LogError($"[v2 Batch] Response parsing failed: {jsonEx.Message}");
+                _logger.LogError("[v2 Batch] Response parsing failed ({ErrorType})", jsonEx.GetType().Name);
                 throw;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"[v2 Batch] Unexpected error: {ex.GetType().Name} - {ex.Message}");
+                _logger.LogError("[v2 Batch] Unexpected error ({ErrorType})", ex.GetType().Name);
                 throw;
             }
         }
@@ -711,7 +846,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Failed to get guild reports: {ex.Message}");
+                _logger.LogError("Failed to get guild reports ({ErrorType})", ex.GetType().Name);
                 throw;
             }
         }
@@ -815,7 +950,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                _logger.LogError($"[v2] Failed to get encounter rankings: {ex.Message}");
+                _logger.LogError("[v2] Failed to get encounter rankings ({ErrorType})", ex.GetType().Name);
                 throw;
             }
         }
@@ -893,7 +1028,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                _logger.LogError($"[v2] Failed to get guild encounter rankings: {ex.Message}");
+                _logger.LogError("[v2] Failed to get guild encounter rankings ({ErrorType})", ex.GetType().Name);
                 throw;
             }
         }
@@ -971,7 +1106,7 @@ namespace NinjaBotCore.Modules.Wow
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning($"[v2] Error fetching page {page} of guild rankings: {ex.Message}");
+                    _logger.LogWarning("[v2] Error fetching guild rankings page {Page} ({ErrorType})", page, ex.GetType().Name);
                     break;
                 }
             }
@@ -1043,7 +1178,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                _logger.LogError($"[v2] Failed to get zones: {ex.Message}");
+                _logger.LogError("[v2] Failed to get zones ({ErrorType})", ex.GetType().Name);
                 throw;
             }
         }
@@ -1081,7 +1216,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                _logger.LogError($"[v2] Failed to get character classes: {ex.Message}");
+                _logger.LogError("[v2] Failed to get character classes ({ErrorType})", ex.GetType().Name);
                 throw;
             }
         }
@@ -1111,7 +1246,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                _logger.LogError($"[v2] Failed to get encounter {encounterId}: {ex.Message}");
+                _logger.LogError("[v2] Failed to get encounter {EncounterId} ({ErrorType})", encounterId, ex.GetType().Name);
                 throw;
             }
         }
@@ -1155,7 +1290,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[v2] Failed to get expansions");
+                _logger.LogError("[v2] Failed to get expansions ({ErrorType})", ex.GetType().Name);
                 throw;
             }
         }
@@ -1281,7 +1416,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[v2] Failed to get current raid tier");
+                _logger.LogError("[v2] Failed to get current raid tier ({ErrorType})", ex.GetType().Name);
                 throw;
             }
         }
@@ -1339,8 +1474,7 @@ namespace NinjaBotCore.Modules.Wow
                 // First get raw response to debug
                 var rawResult = await ExecuteGraphQLAsync<Newtonsoft.Json.Linq.JObject>(query, variables, gameVersion);
 
-                _logger.LogDebug("[v2] Raw zone rankings response: {Response}",
-                    rawResult.Data?.ToString(Newtonsoft.Json.Formatting.None) ?? "null");
+                _logger.LogDebug("[v2] Zone rankings response received");
 
                 if (rawResult.Data?["characterData"]?["character"] != null)
                 {
@@ -1357,12 +1491,10 @@ namespace NinjaBotCore.Modules.Wow
                         return null;
                     }
 
-                    // Log the raw zoneRankings data
-                    _logger.LogDebug("[v2] zoneRankings raw: {ZoneRankings}",
-                        zoneRankingsJson.ToString(Newtonsoft.Json.Formatting.None));
+                    _logger.LogDebug("[v2] Zone rankings payload type: {PayloadType}", zoneRankingsJson.Type);
 
                     // Parse the zoneRankings JSON
-                    var zoneRankings = zoneRankingsJson.ToObject<WclV2ZoneRankingsData>();
+                    var zoneRankings = ParseNestedResponse<WclV2ZoneRankingsData>(zoneRankingsJson);
 
                     if (zoneRankings != null)
                     {
@@ -1378,7 +1510,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[v2] Failed to get character zone rankings for {Name}-{Server}", name, serverSlug);
+                _logger.LogError("[v2] Failed to get character zone rankings ({ErrorType})", ex.GetType().Name);
                 throw;
             }
         }
@@ -1432,8 +1564,7 @@ namespace NinjaBotCore.Modules.Wow
                 // First get raw response to debug
                 var rawResult = await ExecuteGraphQLAsync<Newtonsoft.Json.Linq.JObject>(query, variables, gameVersion);
 
-                _logger.LogDebug("[v2] Raw encounter rankings response: {Response}",
-                    rawResult.Data?.ToString(Newtonsoft.Json.Formatting.None) ?? "null");
+                _logger.LogDebug("[v2] Encounter rankings response received");
 
                 if (rawResult.Data?["characterData"]?["character"] != null)
                 {
@@ -1450,12 +1581,10 @@ namespace NinjaBotCore.Modules.Wow
                         return null;
                     }
 
-                    // Log the raw encounterRankings data
-                    _logger.LogDebug("[v2] encounterRankings raw: {EncounterRankings}",
-                        encounterRankingsJson.ToString(Newtonsoft.Json.Formatting.None));
+                    _logger.LogDebug("[v2] Encounter rankings payload type: {PayloadType}", encounterRankingsJson.Type);
 
                     // Parse the encounterRankings JSON
-                    var encounterRankings = encounterRankingsJson.ToObject<WclV2EncounterRankingsData>();
+                    var encounterRankings = ParseNestedResponse<WclV2EncounterRankingsData>(encounterRankingsJson);
 
                     if (encounterRankings != null)
                     {
@@ -1471,7 +1600,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[v2] Failed to get character encounter rankings for {Name}-{Server}, encounter {EncounterId}", name, serverSlug, encounterId);
+                _logger.LogError("[v2] Failed to get character encounter rankings ({ErrorType})", ex.GetType().Name);
                 throw;
             }
         }
@@ -1554,7 +1683,7 @@ namespace NinjaBotCore.Modules.Wow
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[v2] Failed to batch fetch encounter rankings for {Name}-{Server}", name, serverSlug);
+                _logger.LogError("[v2] Failed to batch fetch encounter rankings ({ErrorType})", ex.GetType().Name);
                 return result;
             }
         }

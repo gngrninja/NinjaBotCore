@@ -1,5 +1,7 @@
 using System;
 using System.Threading.Tasks;
+using System.Threading;
+using System.Linq;
 using Newtonsoft.Json.Linq;
 
 namespace NinjaBotCore.Modules.Wow;
@@ -67,11 +69,74 @@ public partial class WarcraftLogsV2Client : IRaidRecapSource
         return (JObject)raw["table"];
     }
 
-    private async Task<JObject> RecapQueryAsync(string query, object variables)
+    public async Task<RaidRecapAnalysis> GetRaidRecapAnalysisAsync(RaidRecapReport report, RaidRecapFight fight, string metric, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (report?.Revision == null || report.EndTime == null || fight == null || !report.Fights.Contains(fight)
+            || !(fight.IsKill || fight.IsWipe) || fight.EncounterId <= 0 || fight.Id <= 0 || fight.DurationMs is not > 0
+            || !double.IsFinite(fight.DurationMs.Value) || metric is not ("deaths" or "incoming" or "interrupts" or "dispels"))
+            throw new ArgumentException("Analysis requires one completed boss pull with known duration and snapshot metadata.");
+        var code = RaidRecapRules.ReportCode(report.Code);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(30));
+        if (metric != "deaths")
+        {
+            var type = metric == "incoming" ? "DamageTaken" : metric == "interrupts" ? "Interrupts" : "Dispels";
+            var view = metric == "incoming" ? "Ability" : "Source";
+            var query = $$"""
+                query($code: String!, $fights: [Int]!, $start: Float!, $end: Float!) {
+                  reportData { report(code: $code) { code revision endTime
+                    table(dataType: {{type}}, fightIDs: $fights, startTime: $start, endTime: $end, killType: All, viewBy: {{view}})
+                  } }
+                }
+                """;
+            var data = await RecapQueryAsync(query, new { code, fights = new[] { fight.Id }, start = fight.StartMs.Value, end = fight.EndMs.Value }, deadline.Token);
+            var current = AnalysisSnapshot(data, report);
+            return RaidRecapAnalysisRules.Table(current["table"] as JObject, metric);
+        }
+
+        RaidRecapDeathCollector collector = null;
+        var start = fight.StartMs.Value;
+        for (var page = 0; page < 5; page++)
+        {
+            // Player identity/participation is only required for Deaths and is fetched lazily once.
+            var roster = page == 0 ? "fights(fightIDs: $fights) { id friendlyPlayers } masterData { actors(type: \"Player\") { id name type } }" : "";
+            var query = $$"""
+                query($code: String!, $fights: [Int]!, $start: Float!, $end: Float!) {
+                  reportData { report(code: $code) { code revision endTime
+                    {{roster}}
+                    events(dataType: Deaths, fightIDs: $fights, startTime: $start, endTime: $end, killType: All,
+                      limit: 100, useActorIDs: true, useAbilityIDs: false) { data nextPageTimestamp }
+                  } }
+                }
+                """;
+            JObject data;
+            try { data = await RecapQueryAsync(query, new { code, fights = new[] { fight.Id }, start, end = fight.EndMs.Value }, deadline.Token); }
+            catch (Exception ex) when (collector != null && !cancellationToken.IsCancellationRequested
+                && ex is InvalidOperationException or System.Net.Http.HttpRequestException or OperationCanceledException or Newtonsoft.Json.JsonException)
+            { return collector.Result(exhausted: true); }
+            // Drift is never a usable partial result: discard all pages and ask for a refresh.
+            var current = AnalysisSnapshot(data, report);
+            collector ??= new RaidRecapDeathCollector(fight, current);
+            if (!collector.AddPage(current["events"] as JObject, start, out var next)) return collector.Result();
+            start = next.Value; // exact provider cursor, original fight IDs and end remain unchanged
+        }
+        return collector.Result(exhausted: true);
+    }
+
+    private static JObject AnalysisSnapshot(JObject data, RaidRecapReport snapshot)
+    {
+        if (data?["report"] is not JObject current || current.Value<string>("code") != snapshot.Code
+            || RaidRecapRules.Number(current["revision"]) != snapshot.Revision || RaidRecapRules.Number(current["endTime"]) != snapshot.EndTime)
+            throw new InvalidOperationException("Report changed or is unavailable. Refresh this recap before viewing analysis.");
+        return current;
+    }
+
+    private async Task<JObject> RecapQueryAsync(string query, object variables, CancellationToken cancellationToken = default)
     {
         // Deliberately retain the existing OAuth / rate-limit execution path. Unlike legacy
         // callers, recap treats partial GraphQL errors as unavailable, never as zero activity.
-        var result = await ExecuteGraphQLAsync<JObject>(query, variables);
+        var result = await ExecuteGraphQLAsync<JObject>(query, variables, cancellationToken: cancellationToken);
         if (result == null || result.Errors?.Count > 0 || result.Data?["reportData"] is not JObject data)
             throw new InvalidOperationException("Warcraft Logs data is unavailable or access was denied. Try again later.");
         return data;

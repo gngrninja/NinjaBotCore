@@ -247,7 +247,7 @@ public class RaidRecapCommandTests
         await service.AddModuleAsync<RaidRecapCommands>(deps);
         Assert.Contains(service.SlashCommands,c=>c.Name=="raid-recap");
         var s=RaidRecapPanelTests.Session();s.Report=RaidRecapPanelTests.Report(true,26);
-        foreach(var view in new[]{"overview","bosses","damage","healing"})
+        foreach(var view in new[]{"overview","bosses","damage","healing","analysis"})
         {
             s.View=view;
             foreach(var component in RaidRecapPanelTests.Flatten(RaidRecapView.Build(s).Components))
@@ -260,6 +260,42 @@ public class RaidRecapCommandTests
             }
         }
     }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AnalysisProviderWaitRetainsDeferralAndExpiryGuards(bool expire)
+    {
+        var now=DateTimeOffset.UnixEpoch;var h=new Harness(()=>now);var s=h.Sessions.Create(1,2,3);
+        s.Report=RaidRecapPanelTests.Report(false);
+        var pending=new TaskCompletionSource<RaidRecapAnalysis>(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.Source.Setup(x=>x.GetRaidRecapAnalysisAsync(s.Report,s.Report.Fights[0],"deaths",It.IsAny<System.Threading.CancellationToken>()))
+            .Returns(()=>{Assert.True(h.Deferred);return pending.Task;});
+        var request=h.Module.NavigateAsync(s.Token,"0","analysis");Assert.False(request.IsCompleted);
+        if(expire) now+=TimeSpan.FromMinutes(11);
+        pending.SetResult(new RaidRecapAnalysis("deaths",true,null){Deaths=new[]{new RaidRecapDeath(1,"PrivateActor",1000,"Spell")}});
+        await request;
+        if(expire) Assert.Null(h.Edited);
+        else
+        {
+            Assert.Contains("PrivateActor",RaidRecapPanelTests.Text(h.Edited.Components.Value));
+            Assert.Equal(MessageFlags.ComponentsV2,h.Edited.Flags.Value);Assert.Same(AllowedMentions.None,h.Edited.AllowedMentions.Value);
+        }
+        h.Discord.Verify(x=>x.PublishAsync(It.IsAny<IInteractionContext>(),It.IsAny<MessageComponent>(),It.IsAny<Func<bool>>()),Times.Never);
+    }
+
+    [Fact]
+    public async Task AnalysisFailureKeepsSubviewAndPullPickerPrivate()
+    {
+        var h=new Harness();var s=h.Sessions.Create(1,2,3);s.Report=RaidRecapPanelTests.Report(false);
+        await h.Module.NavigateAsync(s.Token,"0","analysis");
+        var text=RaidRecapPanelTests.Text(h.Edited.Components.Value);
+        Assert.Contains("**Analysis**",text);Assert.Contains("unavailable",text);
+        Assert.Single(RaidRecapPanelTests.Flatten(h.Edited.Components.Value.Components).OfType<SelectMenuComponent>());
+        Assert.Equal(MessageFlags.ComponentsV2,h.Edited.Flags.Value);Assert.Equal("",h.Edited.Content.Value);Assert.Null(h.Edited.Embed.Value);
+        Assert.Same(AllowedMentions.None,h.Edited.AllowedMentions.Value);
+        h.Discord.Verify(x=>x.PublishAsync(It.IsAny<IInteractionContext>(),It.IsAny<MessageComponent>(),It.IsAny<Func<bool>>()),Times.Never);
+    }
+
     [Fact]
     public void PermissionPolicyRequiresOriginVisibilityAndBothSendRights()
     {
