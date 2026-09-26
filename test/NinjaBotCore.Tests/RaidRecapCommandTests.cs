@@ -297,6 +297,71 @@ public class RaidRecapCommandTests
     }
 
     [Fact]
+    public async Task ComparisonCommandErrorClearsPreviousPayloadAndKeepsBothPickers()
+    {
+        var h=new Harness();var s=h.Sessions.Create(1,2,3);
+        s.Report=RaidRecapPanelTests.Report() with {Fights=new[]{RaidRecapReviewTests.Pull(1),RaidRecapReviewTests.Pull(2)}};
+        h.Source.Setup(x=>x.GetRaidRecapAnalysisAsync(s.Report,It.IsAny<RaidRecapFight>(),"deaths",It.IsAny<System.Threading.CancellationToken>()))
+            .ReturnsAsync(new RaidRecapAnalysis("deaths",true,null));
+        await h.Module.NavigateAsync(s.Token,s.Generation.ToString(),"bosses");
+        await h.Module.NavigateAsync(s.Token,s.Generation.ToString(),"compare");
+        await h.Module.NavigateAsync(s.Token,s.Generation.ToString(),"compare_deaths");
+        Assert.Contains("A full pull:",RaidRecapPanelTests.Text(h.Edited.Components.Value));
+        await h.Module.SelectAsync(s.Token,s.Generation.ToString(),"compare_a",new[]{"999"});
+        var text=RaidRecapPanelTests.Text(h.Edited.Components.Value);Assert.DoesNotContain("A full pull:",text);Assert.Contains("unavailable",text);
+        Assert.Equal(2,RaidRecapPanelTests.Flatten(h.Edited.Components.Value.Components).OfType<SelectMenuComponent>().Count());
+        Assert.Equal(MessageFlags.ComponentsV2,h.Edited.Flags.Value);Assert.Same(AllowedMentions.None,h.Edited.AllowedMentions.Value);
+    }
+
+    [Theory]
+    [InlineData("current")] [InlineData("expired")] [InlineData("revoked")]
+    public async Task ComparisonWaitKeepsDeferralCurrentnessAndAccessChecks(string outcome)
+    {
+        var now=DateTimeOffset.UnixEpoch;var h=new Harness(()=>now);var s=h.Sessions.Create(1,2,3);
+        s.Report=RaidRecapPanelTests.Report() with {Fights=new[]{RaidRecapReviewTests.Pull(1),RaidRecapReviewTests.Pull(2)}};
+        var pending=new TaskCompletionSource<RaidRecapAnalysis>(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.Source.Setup(x=>x.GetRaidRecapAnalysisAsync(s.Report,It.IsAny<RaidRecapFight>(),"deaths",It.IsAny<System.Threading.CancellationToken>()))
+            .Returns<RaidRecapReport,RaidRecapFight,string,System.Threading.CancellationToken>((r,f,m,t)=>{
+                Assert.True(h.Deferred);return f.Id==1?Task.FromResult(new RaidRecapAnalysis("deaths",true,null)):pending.Task;});
+        await h.Module.NavigateAsync(s.Token,s.Generation.ToString(),"bosses");await h.Module.NavigateAsync(s.Token,s.Generation.ToString(),"compare");h.Edited=null;
+        var work=h.Module.NavigateAsync(s.Token,s.Generation.ToString(),"compare_deaths");Assert.False(work.IsCompleted);
+        if(outcome=="expired") now+=TimeSpan.FromMinutes(11);
+        if(outcome=="revoked") h.Discord.Setup(x=>x.AccessAsync(h.Context.Object)).ReturnsAsync(new RaidRecapAccess(false,false));
+        pending.SetResult(new RaidRecapAnalysis("deaths",true,null));await work;
+        if(outcome=="current") Assert.Contains("A full pull:",RaidRecapPanelTests.Text(h.Edited.Components.Value));
+        else Assert.Null(h.Edited);
+        h.Discord.Verify(x=>x.PublishAsync(It.IsAny<IInteractionContext>(),It.IsAny<MessageComponent>(),It.IsAny<Func<bool>>()),Times.Never);
+    }
+
+    [Theory]
+    [InlineData("current")] [InlineData("expired")] [InlineData("revoked")] [InlineData("failed")]
+    public async Task MechanicWaitKeepsPrivateDeferralAndCannotLeakOldResultAfterError(string outcome)
+    {
+        var now=DateTimeOffset.UnixEpoch;var h=new Harness(()=>now);var s=h.Sessions.Create(1,2,3);
+        s.Report=RaidRecapMechanicTransportTests.Report;s.View="analysis";s.PullIndex=0;s.AnalysisMetric=RaidRecapMechanicTransportTests.Spin;
+        var old=new RaidRecapMechanic(s.Report.SnapshotKey,2,5000,65000,"complete",new[]{new RaidRecapMechanicEvent(1,"PRIVATE OLD",1000,0,42)});
+        s.Analysis=new RaidRecapAnalysis(RaidRecapMechanicTransportTests.Spin,true,null){Mechanic=old};
+        var pending=new TaskCompletionSource<RaidRecapAnalysis>(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.Source.Setup(x=>x.GetRaidRecapAnalysisAsync(s.Report,It.IsAny<RaidRecapFight>(),RaidRecapMechanicTransportTests.Junk,It.IsAny<System.Threading.CancellationToken>()))
+            .Returns(()=>{Assert.True(h.Deferred);Assert.Null(s.Analysis);return pending.Task;});
+        var work=h.Module.NavigateAsync(s.Token,"0",RaidRecapMechanicTransportTests.Junk);Assert.False(work.IsCompleted);
+        if(outcome=="expired")now+=TimeSpan.FromMinutes(11);
+        if(outcome=="revoked")h.Discord.Setup(x=>x.AccessAsync(h.Context.Object)).ReturnsAsync(new RaidRecapAccess(false,false));
+        if(outcome=="failed")pending.SetException(new InvalidOperationException("synthetic"));
+        else pending.SetResult(new RaidRecapAnalysis(RaidRecapMechanicTransportTests.Junk,true,null){Mechanic=old with {Events=new[]{new RaidRecapMechanicEvent(2,"PRIVATE NEW",2000,0,42)}}});
+        await work;
+        if(outcome is "expired" or "revoked")Assert.Null(h.Edited);
+        else
+        {
+            var text=RaidRecapPanelTests.Text(h.Edited.Components.Value);Assert.DoesNotContain("PRIVATE OLD",text);
+            if(outcome=="failed"){Assert.DoesNotContain("PRIVATE NEW",text);Assert.Contains("Mechanic analysis unavailable",text);Assert.Null(s.Analysis);}
+            else Assert.Contains("PRIVATE NEW",text);
+            Assert.Equal(MessageFlags.ComponentsV2,h.Edited.Flags.Value);Assert.Same(AllowedMentions.None,h.Edited.AllowedMentions.Value);Assert.Equal("",h.Edited.Content.Value);Assert.Null(h.Edited.Embed.Value);
+        }
+        h.Discord.Verify(x=>x.PublishAsync(It.IsAny<IInteractionContext>(),It.IsAny<MessageComponent>(),It.IsAny<Func<bool>>()),Times.Never);
+    }
+
+    [Fact]
     public void PermissionPolicyRequiresOriginVisibilityAndBothSendRights()
     {
         Assert.Equal(new RaidRecapAccess(false,false),RaidRecapDiscord.Permissions(false,true,true,true));

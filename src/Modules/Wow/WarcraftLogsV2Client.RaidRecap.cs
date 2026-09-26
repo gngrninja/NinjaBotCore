@@ -72,6 +72,8 @@ public partial class WarcraftLogsV2Client : IRaidRecapSource
     public async Task<RaidRecapAnalysis> GetRaidRecapAnalysisAsync(RaidRecapReport report, RaidRecapFight fight, string metric, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (RaidRecapMechanics.IsMetric(metric))
+            return await GetRaidRecapMechanicAsync(report, fight, RaidRecapMechanics.Rule(metric), cancellationToken);
         if (report?.Revision == null || report.EndTime == null || fight == null || !report.Fights.Contains(fight)
             || !(fight.IsKill || fight.IsWipe) || fight.EncounterId <= 0 || fight.Id <= 0 || fight.DurationMs is not > 0
             || !double.IsFinite(fight.DurationMs.Value) || metric is not ("deaths" or "incoming" or "interrupts" or "dispels"))

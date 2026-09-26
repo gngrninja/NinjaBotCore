@@ -74,6 +74,19 @@ public sealed class RaidRecapSession
     public int AnalysisPage { get; set; }
     public string AnalysisMetric { get; set; } = "deaths";
     public RaidRecapAnalysis Analysis { get; set; }
+    // One pair, two option pages, and at most two existing bounded analyses per session.
+    public bool Comparing { get; set; }
+    public string CompareSnapshotKey { get; set; }
+    public int CompareAIndex { get; set; } = -1;
+    public int CompareBIndex { get; set; } = -1;
+    public int CompareAPage { get; set; }
+    public int CompareBPage { get; set; }
+    public RaidRecapComparison Comparison { get; set; }
+    public void ResetComparison()
+    {
+        Comparing = false; CompareSnapshotKey = null; Comparison = null;
+        CompareAIndex = CompareBIndex = -1; CompareAPage = CompareBPage = 0;
+    }
     public string Notice { get; set; }
     public RaidRecapReport Report { get; set; }
     public string View { get; set; } = "overview";

@@ -17,9 +17,11 @@ public sealed record RaidRecapAnalysis(string Metric, bool Complete, string Noti
     public IReadOnlyList<RaidRecapDeath> Deaths { get; init; } = Array.Empty<RaidRecapDeath>();
     public IReadOnlyList<RaidRecapIncoming> Incoming { get; init; } = Array.Empty<RaidRecapIncoming>();
     public IReadOnlyList<RaidRecapUtility> Utility { get; init; } = Array.Empty<RaidRecapUtility>();
+    public RaidRecapMechanic Mechanic { get; init; }
     public int DistinctPlayers => Deaths.Select(d => d.ActorId).Distinct().Count();
     // Utility attribution gets its own rows, so no participant is hidden behind a text cutoff.
-    public int DisplayRows => Metric == "deaths" ? Deaths.Count : Metric == "incoming" ? Incoming.Count
+    public int DisplayRows => RaidRecapMechanics.IsMetric(Metric) ? Mechanic?.Events.Count ?? 0
+        : Metric == "deaths" ? Deaths.Count : Metric == "incoming" ? Incoming.Count
         : Utility.Sum(u => 1 + u.Participants.Count);
 }
 

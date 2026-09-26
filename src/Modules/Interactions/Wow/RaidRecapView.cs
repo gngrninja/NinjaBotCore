@@ -48,10 +48,11 @@ public static class RaidRecapView
             var body=new StringBuilder();
             body.AppendLine($"**{Label(view)}**");
             if(!string.IsNullOrEmpty(s.Notice)&&!shared) body.AppendLine(RaidRecapRules.Text(s.Notice,300)+"\n");
-            if(view=="overview") body.Append(Overview(report));
+            if(view=="overview") body.Append(shared?Overview(report):PrivateSynopsis(report));
             else if(view=="bosses")
             {
-                if(report.Bosses.Count==0) body.AppendLine("No boss encounters are recorded yet. Trash is excluded.");
+                if(s.Comparing) ComparisonBody(c,body,controls,s);
+                else if(report.Bosses.Count==0) body.AppendLine("No boss encounters are recorded yet. Trash is excluded.");
                 else
                 {
                     var boss=report.Bosses[Math.Clamp(s.BossIndex,0,report.Bosses.Count-1)];
@@ -68,7 +69,7 @@ public static class RaidRecapView
                     Pages(controls,s,"bosses",s.BossPage,report.Bosses.Count,3);
                 }
             }
-            else if(view=="analysis") AnalysisBody(body,controls,s);
+            else if(view=="analysis") AnalysisBody(c,body,controls,s);
             else
             {
                 var kills=report.Fights.Where(f=>f.IsKill).ToArray();
@@ -96,14 +97,118 @@ public static class RaidRecapView
                     Pages(controls,s,"kills",s.KillPage,kills.Length,3);
                 }
             }
+            if(view=="overview" && !shared)
+            {
+                c.AddComponent(new TextDisplayBuilder(body.ToString())); body.Clear();
+                ReviewCards(c,s);
+            }
             body.AppendLine($"\n-# Warcraft Logs · as of <t:{report.AsOf.ToUnixTimeSeconds()}:f> · may still update. Snapshot, not a completion claim.");
             c.AddComponent(new TextDisplayBuilder(body.ToString()));
+            if(view=="bosses" && !s.Comparing)
+                c.AddComponent(new SectionBuilder(new ButtonBuilder("Compare",Nav(s,"compare"),ButtonStyle.Secondary),
+                    new TextDisplayBuilder("**Matched pulls**\nCompare two completed pulls of this encounter / difficulty. Choose the pair before loading deaths.")));
 
         }
         foreach(var row in controls.Build().Components.OfType<ActionRowComponent>()) c.AddComponent(new ActionRowBuilder(row));
         return new ComponentBuilderV2().AddComponent(c).Build();
     }
-    private static void AnalysisBody(StringBuilder body, ComponentBuilder controls, RaidRecapSession s)
+    private static string PrivateSynopsis(RaidRecapReport r) =>
+        $"{r.Bosses.Count(b=>b.Kills>0)} encounter/difficulty groups cleared across {r.Fights.Count} attempts.\n"
+        +$"**{r.Kills} kills · {r.Wipes} wipes · {r.Unfinished} live / unknown** · trash excluded.\n"
+        +(r.Bosses.Count==0?"No boss encounters are recorded yet.\n":"");
+
+    private static void ReviewCards(ContainerBuilder c,RaidRecapSession s)
+    {
+        c.AddComponent(new TextDisplayBuilder("## Review first\nObservations and questions from this snapshot, not grades or cause verdicts."));
+        var cards=RaidRecapReview.Cards(s.Report);
+        for(var i=0;i<cards.Count;i++)
+        {
+            var card=cards[i]; var boss=s.Report.Bosses[card.BossIndex];
+            var name=RaidRecapRules.Text(boss.Name,75)+" · "+Difficulty(boss.Difficulty);
+            string text;
+            if(card.B==null)
+            {
+                text=$"**Most-pulled unresolved · {name}**\n{boss.Attempts.Count} attempts · best recorded wipe boss health {Percent(boss.BestRemaining)} (not encounter completion).\n";
+                text+=card.A.IsWipe
+                    ?$"Next: [Review first deaths]({s.Report.Url}#fight={card.A.Id}&type=deaths) and their lead-up in Analysis. First death is not a cause verdict. Details opens these attempts."
+                    :$"[Latest attempt #{card.A.Id}]({s.Report.Url}#fight={card.A.Id}) has no completed wipe to review. Details opens the recorded attempts; no outcome is inferred.";
+            }
+            else
+                text=$"**Recommended matched pair · {name}**\nA: [{(card.A.IsKill?"Kill":"Wipe")} #{card.A.Id}]({s.Report.Url}#fight={card.A.Id}) → B: [{(card.B.IsKill?"Kill":"Wipe")} #{card.B.Id}]({s.Report.Url}#fight={card.B.Id}).\nNext: what changed within the same elapsed window? Details opens both selectors; Compare deaths loads observations only when requested.";
+            c.AddComponent(new SeparatorBuilder().WithIsDivider(true));
+            c.AddComponent(new SectionBuilder(new ButtonBuilder("Details",Nav(s,"review_"+i),ButtonStyle.Secondary),new TextDisplayBuilder(text)));
+        }
+        if(!cards.Any(card=>card.B!=null)) c.AddComponent(new TextDisplayBuilder(RaidRecapReview.NoPair+" Review recorded attempts in Bosses / Analysis."));
+    }
+
+    private static void ComparisonBody(ContainerBuilder c,StringBuilder body,ComponentBuilder controls,RaidRecapSession s)
+    {
+        controls.WithButton("All attempts",Nav(s,"attempts"),ButtonStyle.Secondary,row:1);
+        body.AppendLine("**Matched pulls** · A and B are explicit selections from one report snapshot.");
+        var (a,b)=RaidRecapReview.Selection(s);
+        if(a==null) { body.AppendLine(RaidRecapReview.NoPair); return; }
+        body.AppendLine($"**{RaidRecapRules.Text(a.Name,80)} · {Difficulty(a.Difficulty)}**");
+        c.AddComponent(new TextDisplayBuilder(body.ToString())); body.Clear();
+        foreach(var (label,fight) in new[]{("A",a),("B",b)})
+        {
+            c.AddComponent(new SeparatorBuilder().WithIsDivider(true));
+            c.AddComponent(new TextDisplayBuilder($"**{label} · {(fight.IsKill?"Kill":"Wipe")} #{fight.Id}** · elapsed {Duration(fight.DurationMs)}\n"
+                +$"active boss health {Percent(fight.Remaining)} (not encounter completion). [Open {label} deaths]({s.Report.Url}#fight={fight.Id}&type=deaths)"));
+        }
+        var candidates=RaidRecapReview.Candidates(s.Report.Bosses[s.BossIndex]);
+        CompareMenu(controls,s,candidates,"a",s.CompareAPage,s.CompareAIndex,2);
+        CompareMenu(controls,s,candidates,"b",s.CompareBPage,s.CompareBIndex,3);
+        controls.WithButton("A previous",Nav(s,"compare_a_prev"),ButtonStyle.Secondary,disabled:s.CompareAPage==0,row:4)
+            .WithButton("A next",Nav(s,"compare_a_next"),ButtonStyle.Secondary,disabled:(s.CompareAPage+1)*25>=candidates.Count,row:4)
+            .WithButton("B previous",Nav(s,"compare_b_prev"),ButtonStyle.Secondary,disabled:s.CompareBPage==0,row:4)
+            .WithButton("B next",Nav(s,"compare_b_next"),ButtonStyle.Secondary,disabled:(s.CompareBPage+1)*25>=candidates.Count,row:4)
+            .WithButton("Compare deaths",Nav(s,"compare_deaths"),ButtonStyle.Primary,row:4);
+        c.AddComponent(new SeparatorBuilder().WithIsDivider(true));
+        body.AppendLine("Equal time does not mean equal phase, opportunity or roster. Repeated deaths are events, not extra players. First loss is not a cause or blame verdict; inspect the lead-up, healing, defensives and assignments.");
+        var result=RaidRecapReview.Current(s);
+        if(result==null)
+        {
+            body.AppendLine("\nDeath comparison unavailable / not loaded. Select **Compare deaths** to load just A and B, or use their exact WCL links. No analysis is fetched while browsing.");return;
+        }
+        var complete=result.DeathsA.Complete && result.DeathsB.Complete;
+        if(!complete) body.AppendLine("\n**Partial observations** · at least the retained observations, not complete totals. Numeric changes and definite first-loss claims are withheld.");
+        FullDeaths(body,"A",result.DeathsA,complete); FullDeaths(body,"B",result.DeathsB,complete);
+        var window=Math.Min(a.DurationMs.Value,b.DurationMs.Value);
+        var windowA=result.DeathsA.Deaths.Where(d=>d.ElapsedMs>=0 && d.ElapsedMs<=window).ToArray();
+        var windowB=result.DeathsB.Deaths.Where(d=>d.ElapsedMs>=0 && d.ElapsedMs<=window).ToArray();
+        body.AppendLine($"\n**Same elapsed window [0, {Elapsed(window)}]** · inclusive endpoints; not phase-aligned.");
+        WindowDeaths(body,"A",windowA,result.DeathsA.Complete,complete);
+        WindowDeaths(body,"B",windowB,result.DeathsB.Complete,complete);
+        if(complete) body.AppendLine($"Window change (B − A): {windowB.Length-windowA.Length} death events · {Players(windowB)-Players(windowA)} distinct players. Descriptive, not a success judgment.");
+    }
+
+    private static int Players(IReadOnlyList<RaidRecapDeath> deaths)=>deaths.Select(d=>d.ActorId).Distinct().Count();
+    private static void FullDeaths(StringBuilder body,string label,RaidRecapAnalysis analysis,bool firstKnown)
+    {
+        body.AppendLine($"\n{label} full pull: {analysis.Deaths.Count} death events · {analysis.DistinctPlayers} distinct players · {(analysis.Complete?"complete observations":"partial; at least these observations")}");
+        if(firstKnown) FirstLoss(body,analysis.Deaths);
+    }
+    private static void WindowDeaths(StringBuilder body,string label,IReadOnlyList<RaidRecapDeath> deaths,bool complete,bool firstKnown)
+    {
+        body.AppendLine($"{label} window: {deaths.Count} death events · {Players(deaths)} distinct players"+(complete?"":" · partial; at least these observations"));
+        if(firstKnown) FirstLoss(body,deaths);
+    }
+    private static void FirstLoss(StringBuilder body,IReadOnlyList<RaidRecapDeath> deaths)
+    {
+        if(deaths.Count==0) { body.AppendLine("No player deaths in this complete scope.");return; }
+        var first=deaths.Min(d=>d.ElapsedMs);var ties=deaths.Where(d=>d.ElapsedMs==first).Select(d=>d.ActorId).Distinct().Count();
+        body.AppendLine($"First loss: {Elapsed(first)} · {ties} simultaneous player{(ties==1?"":"s")}");
+    }
+    private static void CompareMenu(ComponentBuilder controls,RaidRecapSession s,IReadOnlyList<RaidRecapFight> candidates,string side,int page,int selected,int row)
+    {
+        var menu=new SelectMenuBuilder().WithCustomId(Pick(s,"compare_"+side))
+            .WithPlaceholder($"{side.ToUpperInvariant()} · options page {page+1}/{(candidates.Count+24)/25} · choose a distinct pull");
+        for(var i=page*25;i<Math.Min(candidates.Count,(page+1)*25);i++)
+            menu.AddOption($"{side.ToUpperInvariant()} · {(candidates[i].IsKill?"Kill":"Wipe")} #{candidates[i].Id} · {Duration(candidates[i].DurationMs)}",i.ToString(CultureInfo.InvariantCulture),isDefault:i==selected);
+        controls.WithSelectMenu(menu,row:row);
+    }
+
+    private static void AnalysisBody(ContainerBuilder c, StringBuilder body, ComponentBuilder controls, RaidRecapSession s)
     {
         var pulls=s.Report.CompletedPulls;
         body.AppendLine("Private · one completed pull only. Observations, not player grades.");
@@ -111,14 +216,16 @@ public static class RaidRecapView
         var fight=pulls[Math.Clamp(s.PullIndex,0,pulls.Count-1)];
         body.AppendLine($"**{RaidRecapRules.Text(fight.Name,80)} · {Difficulty(fight.Difficulty)} · {(fight.IsKill?"Kill":"Wipe")} #{fight.Id}** · elapsed {Duration(fight.DurationMs)}");
         var metric=s.AnalysisMetric;
+        var mechanic=RaidRecapMechanics.Rule(metric);
         var type=metric=="incoming"?"damage-taken":metric;
-        body.AppendLine($"[Open this fight's {Label(metric)} view]({s.Report.Url}#fight={fight.Id}&type={type})");
+        if(mechanic==null) body.AppendLine($"[Open this fight's {Label(metric)} view]({s.Report.Url}#fight={fight.Id}&type={type})");
         Menu(controls,s,"pull",pulls.Select(f=>RaidRecapRules.Text(f.Name,40)+$" · {Difficulty(f.Difficulty)} · {(f.IsKill?"Kill":"Wipe")} #{f.Id}").ToArray(),s.PullPage,s.PullIndex);
-        foreach(var subview in new[]{"deaths","incoming","interrupts","dispels"})
-            controls.WithButton(Label(subview),Nav(s,subview),metric==subview?ButtonStyle.Primary:ButtonStyle.Secondary,row:3);
+        foreach(var subview in new[]{"deaths","incoming","interrupts","dispels","mechanics"})
+            controls.WithButton(Label(subview),Nav(s,subview),(metric==subview || (subview=="mechanics" && mechanic!=null))?ButtonStyle.Primary:ButtonStyle.Secondary,row:3);
         controls.WithButton("Previous pulls",Nav(s,"pulls_prev"),ButtonStyle.Secondary,disabled:s.PullPage==0,row:4)
             .WithButton("Next pulls",Nav(s,"pulls_next"),ButtonStyle.Secondary,disabled:(s.PullPage+1)*25>=pulls.Count,row:4);
 
+        if(mechanic!=null) { MechanicBody(c,body,controls,s,fight,mechanic); return; }
         if(metric=="deaths") body.AppendLine("Inspect lead-up damage, healing, defensives and assignments. First death / killing blow is not a cause or blame verdict; availability and preventability are not inferred.");
         else if(metric=="incoming") body.AppendLine("**WCL damage-taken table totals** · mitigation / absorb semantics not validated as net or effective damage. Composite parents counted once. Check assignments, soaks and mitigation against major sources; not an avoidable-damage verdict.");
         else if(metric=="interrupts") body.AppendLine("Observed actions only. Completed casts are not missed assignments; not every cast is interruptible. Review cast timing and assigned rotation on WCL.");
@@ -167,6 +274,38 @@ public static class RaidRecapView
         controls.WithButton("Previous rows",Nav(s,"analysis_prev"),ButtonStyle.Secondary,disabled:page==0,row:4)
             .WithButton("Next rows",Nav(s,"analysis_next"),ButtonStyle.Secondary,disabled:(page+1)*RaidRecapAnalysisRules.PageSize>=lines.Count,row:4);
     }
+    private static void MechanicBody(ContainerBuilder c,StringBuilder body,ComponentBuilder controls,RaidRecapSession s,
+        RaidRecapFight fight,RaidRecapMechanicRule rule)
+    {
+        c.AddComponent(new TextDisplayBuilder(body.ToString())); body.Clear();
+        foreach(var metric in new[]{RaidRecapMechanics.Junk,RaidRecapMechanics.Spin})
+        {
+            var candidate=RaidRecapMechanics.Rule(metric);
+            c.AddComponent(new SectionBuilder(new ButtonBuilder(metric==RaidRecapMechanics.Junk?"Throw Junk":"Shell Spin",Nav(s,metric),
+                metric==rule.Metric?ButtonStyle.Primary:ButtonStyle.Secondary),
+                new TextDisplayBuilder($"**{candidate.Label}** · spell {candidate.SpellId}")));
+        }
+        body.AppendLine($"\n**{rule.Label}** · Full pull · elapsed {Elapsed(fight.DurationMs??double.NaN)}");
+        body.AppendLine($"[WCL fight / spell {rule.SpellId}]({s.Report.Url}#fight={fight.Id}&type={rule.View}&ability={rule.SpellId}) · elapsed timestamps below, no timestamp-link claim.");
+        body.AppendLine(rule.CountDefinition);
+        body.AppendLine("Selected roster + Player identity only; pets/NPCs excluded. No opportunity denominator, position judgment or cause verdict.");
+        body.AppendLine($"Review: {rule.Question}");
+        var analysis=s.Analysis;var result=analysis?.Mechanic;
+        if(analysis?.Metric!=rule.Metric || result==null || result.SnapshotKey!=s.Report.SnapshotKey
+            || result.FightId!=fight.Id || result.StartMs!=fight.StartMs || result.EndMs!=fight.EndMs)
+        { body.AppendLine("\nMechanic analysis unavailable. Select a rule to retry, refresh, or open WCL. No zero is inferred.");return; }
+        if(result.Coverage=="unsupported") { body.AppendLine("\n**Unsupported mechanic scope** · "+RaidRecapRules.Text(analysis.Notice,250));return; }
+        if(!analysis.Complete) body.AppendLine("\n**Partial observations** · at least these event rows and distinct players; not a complete total.");
+        body.AppendLine($"\n{result.Events.Count} observed {(rule.Metric==RaidRecapMechanics.Junk?"damage event rows":"debuff applications")} · {result.DistinctPlayers} distinct players · {(analysis.Complete?"complete observations":"lower bound only")}");
+        if(result.Events.Count==0 && analysis.Complete) body.AppendLine("No qualifying player event rows in this complete scope.");
+        var page=Math.Clamp(s.AnalysisPage,0,Math.Max(0,(result.Events.Count-1)/RaidRecapAnalysisRules.PageSize));
+        body.AppendLine($"\n**Affected players · page {page+1}/{Math.Max(1,(result.Events.Count+RaidRecapAnalysisRules.PageSize-1)/RaidRecapAnalysisRules.PageSize)}**");
+        foreach(var row in result.Events.Skip(page*RaidRecapAnalysisRules.PageSize).Take(RaidRecapAnalysisRules.PageSize))
+            body.AppendLine($"{Elapsed(row.ElapsedMs)} (+{row.ElapsedMs.ToString(row.ElapsedMs>=1e15?"G6":"0.###",CultureInfo.InvariantCulture)} ms) · **{RaidRecapRules.Text(row.Name,55)}**");
+        controls.WithButton("Previous rows",Nav(s,"analysis_prev"),ButtonStyle.Secondary,disabled:page==0,row:4)
+            .WithButton("Next rows",Nav(s,"analysis_next"),ButtonStyle.Secondary,disabled:(page+1)*RaidRecapAnalysisRules.PageSize>=result.Events.Count,row:4);
+    }
+
     private static string Amount(double? value)=>value.HasValue?value.Value.ToString(value>=1e15?"G6":"N0",CultureInfo.InvariantCulture):"Unknown";
     private static string Elapsed(double ms)
     {
@@ -202,7 +341,7 @@ public static class RaidRecapView
         return body.ToString();
     }
     public static string Difficulty(int? id)=>id switch { 1=>"LFR",3=>"Normal",4=>"Heroic",5=>"Mythic",null=>"Unknown difficulty",_=>$"Difficulty {id}" };
-    private static string Label(string view)=>view switch { "overview"=>"Overview","bosses"=>"Bosses","damage"=>"Damage","analysis"=>"Analysis","deaths"=>"Deaths","incoming"=>"Incoming","interrupts"=>"Interrupts","dispels"=>"Dispels",_=>"Healing" };
+    private static string Label(string view)=>view switch { "overview"=>"Overview","bosses"=>"Bosses","damage"=>"Damage","analysis"=>"Analysis","deaths"=>"Deaths","incoming"=>"Incoming","interrupts"=>"Interrupts","dispels"=>"Dispels","mechanics"=>"Mechanics",_=>"Healing" };
     public static string Duration(double? ms)
     {
         // Bound untrusted provider numbers before constructing a TimeSpan; retain day information.

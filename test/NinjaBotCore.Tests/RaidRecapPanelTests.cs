@@ -21,7 +21,8 @@ public class RaidRecapPanelTests
         foreach(var component in components)
         {
             yield return component;
-            var children=component switch { ContainerComponent c=>c.Components,ActionRowComponent r=>r.Components,_=>null };
+            IEnumerable<IMessageComponent> children=component switch { ContainerComponent c=>c.Components,ActionRowComponent r=>r.Components,
+                SectionComponent s=>s.Components.Cast<IMessageComponent>().Append(s.Accessory),_=>null };
             if(children!=null) foreach(var child in Flatten(children)) yield return child;
         }
     }
