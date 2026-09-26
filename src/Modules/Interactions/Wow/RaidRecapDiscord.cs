@@ -33,12 +33,14 @@ public sealed class RaidRecapDiscord : IRaidRecapDiscord
     public async Task<RaidRecapAccess> AccessAsync(IInteractionContext context)
     {
         if(_accessOverride!=null) return await _accessOverride(context);
-        if(context.Guild==null||context.Client is not DiscordShardedClient client) return new(false,false);
+        // ShardedInteractionContext exposes its socket shard through IInteractionContext.Client.
+        if(context.Guild==null||context.Client is not BaseSocketClient client) return new(false,false);
         // Fresh REST guild includes roles; fresh users/channels avoid gateway-cache revocation gaps.
         var guild=await client.Rest.GetGuildAsync(context.Guild.Id);
         if(guild==null) return new(false,false);
         var channel=await guild.GetTextChannelAsync(context.Channel.Id);
-        if(channel==null||channel is IThreadChannel) return new(false,false);
+        // Voice channels also derive from RestTextChannel in Discord.Net; require a text/news type.
+        if(channel==null||channel.ChannelType is not (ChannelType.Text or ChannelType.News)) return new(false,false);
         var actor=await guild.GetUserAsync(context.User.Id);
         var bot=await guild.GetUserAsync(client.CurrentUser.Id);
         if(actor==null||bot==null) return new(false,false);
