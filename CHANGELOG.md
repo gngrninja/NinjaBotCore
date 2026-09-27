@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Raid Recap
+
+- `/raid-recap` now follows the `/char` WarcraftLogs cards: guild header with the server icon, emoji view buttons, parse dots, compact numbers, `m:ss` durations and a single footer.
+- Every report view has a **How to read** button. Interpretation notes moved there, so the cards are shorter.
+- `/char` and `/raid-recap` share one parse palette. `/char` now shows pink for 99 and gold for exactly 100.
+- Select menus show plain names instead of markdown-escaped ones.
+
 ## [v3.2.7] - 2026-08-23
 
 ### Raider.IO Insights

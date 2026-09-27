@@ -35,7 +35,7 @@ public class RaidRecapPlayerTests
         var source=new Mock<IRaidRecapSource>(MockBehavior.Strict);var service=new RaidRecapService(source.Object,new RaidRecapCache());
         var s=RaidRecapPanelTests.Session();s.Report=RaidRecapPanelTests.Report();
         await service.ApplyAsync(s,"players",null);
-        var c=RaidRecapView.Build(s);Assert.Contains("Choose completed pull",RaidRecapPanelTests.Text(c));
+        var c=RaidRecapView.Build(s);Assert.Contains("Pick a pull",RaidRecapPanelTests.Text(c));
         Assert.Contains(RaidRecapPanelTests.Flatten(c.Components).OfType<SelectMenuComponent>(),m=>m.CustomId.EndsWith("~player_pull"));
         source.VerifyNoOtherCalls();
     }
@@ -44,7 +44,7 @@ public class RaidRecapPlayerTests
     public void PrivateViewsHaveSiblingNativeContainersWithFiveTabs(string view)
     {
         var s=RaidRecapPanelTests.Session();s.Report=RaidRecapPanelTests.Report();s.View=view;
-        var c=RaidRecapView.Build(s);Assert.Equal(view is "damage" or "healing"?3:2,c.Components.OfType<ContainerComponent>().Count());
+        var c=RaidRecapView.Build(s);Assert.Equal(2,c.Components.OfType<ContainerComponent>().Count());
         Assert.All(c.Components,component=>Assert.IsType<ContainerComponent>(component));
         Assert.All(c.Components.OfType<ContainerComponent>(),container=>Assert.DoesNotContain(container.Components,component=>component is ContainerComponent));
         var all=RaidRecapPanelTests.Flatten(c.Components).ToArray();Assert.InRange(all.Length,1,40);

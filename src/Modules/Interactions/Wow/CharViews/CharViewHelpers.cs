@@ -30,15 +30,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
         /// </summary>
         public static Color GetParseColor(double percentile)
         {
-            return percentile switch
-            {
-                >= 99 => new Color(229, 204, 128),   // Gold/Pink for 99+
-                >= 95 => new Color(255, 128, 0),    // Orange for 95+
-                >= 75 => new Color(163, 53, 238),   // Purple for 75+
-                >= 50 => new Color(0, 112, 221),    // Blue for 50+
-                >= 25 => new Color(30, 255, 0),     // Green for 25+
-                _ => new Color(128, 128, 128)       // Gray for <25
-            };
+            // One palette for every WarcraftLogs card: gold 100, pink 99, orange 95,
+            // purple 75, blue 50, green 25, gray below.
+            var badge = NinjaBotCore.Modules.Wow.RaidRecapParsePalette.Badge(ClampPercentile(percentile));
+            return new Color(badge.Color);
         }
 
         /// <summary>
@@ -46,15 +41,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow.CharViews
         /// </summary>
         public static string GetParseEmoji(double percentile)
         {
-            return percentile switch
-            {
-                >= 99 => "🟡",  // Gold
-                >= 95 => "🟠",  // Orange
-                >= 75 => "🟣",  // Purple
-                >= 50 => "🔵",  // Blue
-                >= 25 => "🟢",  // Green
-                _ => "⚪"       // Gray
-            };
+            return NinjaBotCore.Modules.Wow.RaidRecapParsePalette.Badge(ClampPercentile(percentile)).Emoji;
+        }
+
+        private static double ClampPercentile(double percentile)
+        {
+            return double.IsFinite(percentile) ? Math.Clamp(percentile, 0, 100) : 0;
         }
 
         /// <summary>

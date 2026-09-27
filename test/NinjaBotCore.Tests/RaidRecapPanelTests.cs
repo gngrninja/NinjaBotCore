@@ -62,7 +62,7 @@ public class RaidRecapPanelTests
         var service=new RaidRecapService(source.Object,new RaidRecapCache()); var s=Session();
         await service.OpenAsync(s,"AbCdEfGh12345678");
         await service.ApplyAsync(s,"damage",null);
-        Assert.Contains("No completed boss kills",Text(RaidRecapView.Build(s)));
+        Assert.Contains("No boss kills in this log yet",Text(RaidRecapView.Build(s)));
         Assert.Contains("12.5%",Text(RaidRecapView.Build(s)));
         source.Verify(x=>x.GetRaidRecapReportAsync(It.IsAny<string>()),Times.Once);
         source.VerifyNoOtherCalls();
@@ -104,7 +104,7 @@ public class RaidRecapPanelTests
         Assert.DoesNotContain(Flatten(c.Components).OfType<ButtonComponent>(),b=>b.Style!=ButtonStyle.Link);
         Assert.Empty(Flatten(c.Components).OfType<SelectMenuComponent>());
         Assert.DoesNotContain(s.Token,Newtonsoft.Json.JsonConvert.SerializeObject(c));
-        Assert.Contains("1 kills",Text(c));
+        Assert.Contains("1 kill",Text(c));
     }
     [Fact]
     public void ExportRepresentativeSyntheticComponentTree()
@@ -113,12 +113,12 @@ public class RaidRecapPanelTests
         s.Report=Report(false,2) with { Title="SYNTHETIC fixture — raid progression" };
         var privateCard=RaidRecapView.Build(s);
         var sharedCard=RaidRecapView.Build(s,true);
-        Assert.Contains("Most-pulled unresolved",Text(privateCard));
+        Assert.Contains("Still progressing",Text(privateCard));
         var destination=Environment.GetEnvironmentVariable("RAID_RECAP_EVIDENCE_DIR");
         if(!string.IsNullOrEmpty(destination))
         {
             System.IO.Directory.CreateDirectory(destination);
-            System.IO.File.WriteAllText(System.IO.Path.Combine(destination,"synthetic-cv2-tree.json"),Newtonsoft.Json.JsonConvert.SerializeObject(new { fixture="Synthetic test data, not a live Warcraft Logs report",privateCard,sharedCard },Newtonsoft.Json.Formatting.Indented));
+            System.IO.File.WriteAllText(System.IO.Path.Combine(destination,"synthetic-cv2-tree.json"),Newtonsoft.Json.JsonConvert.SerializeObject(new { fixture="Synthetic test data, not a live WarcraftLogs report",privateCard,sharedCard },Newtonsoft.Json.Formatting.Indented));
             System.IO.File.WriteAllText(System.IO.Path.Combine(destination,"synthetic-cv2-text.md"),"# Synthetic CV2 fixture (not live log data)\n\n"+Text(privateCard));
         }
     }

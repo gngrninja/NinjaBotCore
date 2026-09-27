@@ -62,7 +62,7 @@ public partial class WarcraftLogsV2Client : IRaidRecapSource
     public async Task<JObject> GetRaidRecapScopedTableAsync(RaidRecapReport report, RaidRecapFight fight, bool healing)
     {
         if (report?.Revision == null || report.EndTime == null || !System.Linq.Enumerable.Contains(report.Fights, fight))
-            throw new InvalidOperationException("Report snapshot has incomplete scope metadata. Refresh or open Warcraft Logs.");
+            throw new InvalidOperationException("Report snapshot has incomplete scope metadata. Refresh or open WarcraftLogs.");
         var raw = await GetRaidRecapTableAsync(report.Code, fight, healing);
         if (RaidRecapRules.Number(raw["revision"]) != report.Revision || RaidRecapRules.Number(raw["endTime"]) != report.EndTime)
             throw new InvalidOperationException("Report changed while loading. Refresh this recap before viewing performance.");
@@ -140,7 +140,7 @@ public partial class WarcraftLogsV2Client : IRaidRecapSource
         // callers, recap treats partial GraphQL errors as unavailable, never as zero activity.
         var result = await ExecuteGraphQLAsync<JObject>(query, variables, cancellationToken: cancellationToken);
         if (result == null || result.Errors?.Count > 0 || result.Data?["reportData"] is not JObject data)
-            throw new InvalidOperationException("Warcraft Logs data is unavailable or access was denied. Try again later.");
+            throw new InvalidOperationException("WarcraftLogs data is unavailable or access was denied. Try again later.");
         return data;
     }
 }

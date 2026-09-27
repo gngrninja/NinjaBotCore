@@ -37,7 +37,7 @@ public class RaidRecapPlayerBoundaryTests
         await svc.ApplyAsync(s,"players",null);await svc.ApplyAsync(s,"player_pull","1");await svc.ApplyAsync(s,"player","1");await svc.ApplyAsync(s,"player_lens",lens);
         Assert.Contains($"#fight=1&type={view}",RaidRecapPanelTests.Text(RaidRecapView.Build(s)));
         await svc.ApplyAsync(s,"player_lens","summary");var text=RaidRecapPanelTests.Text(RaidRecapView.Build(s));
-        Assert.Contains(lens=="deaths"?"2 observed death events":"2 attributed actions",text);Assert.Contains("Damage — Not loaded",text);
+        Assert.Contains(lens=="deaths"?"· **2 deaths**":"· **2**",text);Assert.Contains("Damage · not loaded",text);
         RaidRecapPlayerReachabilityTests.Check(s);
     }
     [Fact]
@@ -100,7 +100,7 @@ public class RaidRecapPlayerBoundaryTests
         source.Setup(x=>x.GetRaidRecapScopedTableAsync(s.Report,s.Report.Fights[0],false)).ReturnsAsync(JObject.Parse("{data:{entries:[{id:1,name:'Same',total:6000}]}}"));
         players.Setup(x=>x.GetRaidRecapParsesAsync(s.Report,s.Report.Fights[0],false,It.IsAny<RaidRecapRoster>(),It.IsAny<CancellationToken>()))
             .ThrowsAsync(canceled?new OperationCanceledException():new TimeoutException());
-        await svc.ApplyAsync(s,"damage",null);Assert.Single(s.Performance);Assert.Contains("Parse unavailable",RaidRecapPanelTests.Text(RaidRecapView.Build(s)));
+        await svc.ApplyAsync(s,"damage",null);Assert.Single(s.Performance);Assert.Contains("Parses are unavailable",RaidRecapPanelTests.Text(RaidRecapView.Build(s)));
     }
     [Fact]
     public async Task UnknownRankingInvalidationMarkerFailsClosed()
@@ -142,24 +142,23 @@ public class RaidRecapPlayerBoundaryTests
         {
             await svc.ApplyAsync(s,"player",actor.ToString());
             var selected=Assert.Single(output.Parses.Entries,p=>p.ActorId==actor);var badge=RaidRecapParsePalette.Badge(selected.Percentile);
-            var text=PlayerText(s);var label=badge.Label+" P"+badge.Display;
+            var text=PlayerText(s);var label=badge.Emoji+" **"+badge.Display+"**";
             Assert.Contains(label,text);Assert.Equal(1,text.Split(label,StringSplitOptions.None).Length-1);
-            Assert.Contains($"Overall population: {selected.TotalParses} parses",text);
-            Assert.Contains($"ilvl parse: {RaidRecapParsePalette.Badge(selected.ItemLevelPercentile).Display} · bracket ID 3 / ilvl 300",text);
-            Assert.Contains("Parses · Today · partition 1 · as of",text);Assert.Contains("finality unknown",text);
+            Assert.Contains($"Against **{selected.TotalParses:N0}** parses",text);
+            Assert.Contains($"ilvl parse {RaidRecapParsePalette.Badge(selected.ItemLevelPercentile).Emoji} **{RaidRecapParsePalette.Badge(selected.ItemLevelPercentile).Display}** · ilvl 300",text);
+            Assert.Contains("Parses checked <t:",text);
             Assert.Contains($"#fight=2&source={actor}",text);Assert.DoesNotContain("source=700007",text);
-            Assert.Contains("Accent = overall WCL parse band",text);
             Assert.Equal(new Color(badge.Color),RaidRecapView.Build(s).Components.OfType<ContainerComponent>().Last().AccentColor);
             if(actor==7)
             {
-                Assert.Contains("No verified source row for this player. No zero is inferred.",text);
-                Assert.DoesNotContain(" · 0 "+(lens=="damage"?"DPS":"HPS"),text);Assert.DoesNotContain("Pink P99",text);
+                Assert.Contains("No row for this player on this kill.",text);
+                Assert.DoesNotContain(" · 0 "+(lens=="damage"?"DPS":"HPS"),text);Assert.DoesNotContain("🩷 **99**",text);
                 Assert.DoesNotContain(output.Rows,r=>r.ActorId==7);Assert.Single(output.Rows);
             }
             else
             {
-                Assert.Contains("100 "+(lens=="damage"?"DPS":"HPS"),text);
-                Assert.DoesNotContain("No verified source row",text);
+                Assert.Contains("**100** "+(lens=="damage"?"DPS":"HPS"),text);
+                Assert.DoesNotContain("No row for this player",text);
             }
             Assert.Equal(publicBefore,PublicPayload(s));RaidRecapPlayerReachabilityTests.Check(s);
         }
@@ -182,9 +181,9 @@ public class RaidRecapPlayerBoundaryTests
         await svc.ApplyAsync(s,"players",null);await svc.ApplyAsync(s,"player_pull","2");await svc.ApplyAsync(s,"player","7");await svc.ApplyAsync(s,"player_lens",lens);
         var output=lens=="damage"?s.PlayerPanel.Damage:s.PlayerPanel.Healing;
         Assert.Equal(8,Assert.Single(output.Rows).Player.ActorId);Assert.DoesNotContain(output.Parses?.Entries??Array.Empty<RaidRecapParse>(),p=>p.ActorId==7);
-        var text=PlayerText(s);Assert.Contains("No verified source row",text);Assert.Contains("No zero is inferred",text);
-        Assert.DoesNotContain("Overall population:",text);Assert.DoesNotContain("ilvl parse:",text);Assert.DoesNotContain("Pink P99",text);
-        Assert.DoesNotContain("Accent = overall WCL parse band",text);Assert.DoesNotContain(" · 0 "+(lens=="damage"?"DPS":"HPS"),text);
+        var text=PlayerText(s);Assert.Contains("No row for this player",text);Assert.Contains("no parse",text);
+        Assert.DoesNotContain("Against **",text);Assert.DoesNotContain("ilvl parse",text);Assert.DoesNotContain("🩷 **99**",text);
+        Assert.DoesNotContain(" · 0 "+(lens=="damage"?"DPS":"HPS"),text);
         Assert.Equal(new Color(0x7F8C8D),RaidRecapView.Build(s).Components.OfType<ContainerComponent>().Last().AccentColor);
         Assert.Equal(publicBefore,PublicPayload(s));RaidRecapPlayerReachabilityTests.Check(s);
     }
@@ -221,9 +220,9 @@ public class RaidRecapPlayerBoundaryTests
         Assert.All(participants,p=>Assert.True(p.VerifiedPlayer));
         if(state is "unknown" or "mixed" or "mixed-zero")
         {
-            Assert.Contains(participants,p=>p.Count==null);Assert.Contains("Unknown attributed actions",PlayerText(s));Assert.False(analysis.Complete);
+            Assert.Contains(participants,p=>p.Count==null);Assert.Contains("** · —",PlayerText(s));Assert.False(analysis.Complete);
         }
-        if(state=="zero") {Assert.Equal(0,Assert.Single(participants).Count);Assert.True(analysis.Complete);Assert.Contains("0 attributed actions",PlayerText(s));}
+        if(state=="zero") {Assert.Equal(0,Assert.Single(participants).Count);Assert.True(analysis.Complete);Assert.Contains("** · 0",PlayerText(s));}
         if(state=="complete")Assert.True(analysis.Complete);
         if(state=="partial-known")Assert.False(analysis.Complete);
         var calls=h.Queries.Count;
@@ -231,19 +230,20 @@ public class RaidRecapPlayerBoundaryTests
         var row=Assert.Single(RaidRecapPlayerPresentation.Rows(s),r=>r.StartsWith(RaidRecapPlayerPresentation.Label(lens)+" · "));
         if(state is "unknown" or "empty-attribution" or "empty-result" or "other-actor")
         {
-            Assert.Contains("Unknown attributed actions",row);Assert.DoesNotContain("0 attributed actions",row);
+            // No row for the player is never turned into a zero.
+            Assert.Contains(state=="unknown"?"**unknown**":"**none recorded**",row);Assert.DoesNotContain("**0**",row);
         }
         else if(state is "mixed" or "mixed-zero" or "partial-known")
         {
-            Assert.Contains((state=="mixed-zero"?"0":"2")+" attributed actions retained",row);
-            Assert.Contains("lower bound",row);Assert.Contains("total unknown",row);
+            Assert.Contains("**at least "+(state=="mixed-zero"?"0":"2")+"**",row);
+            Assert.Contains("partial",row);
         }
         else
         {
-            Assert.Contains((state=="zero"?"0":"5")+" attributed actions (not obligations)",row);
-            Assert.DoesNotContain("lower bound",row);Assert.DoesNotContain("Unknown",row);
+            Assert.Contains("**"+(state=="zero"?"0":"5")+"**",row);
+            Assert.DoesNotContain("at least",row);Assert.DoesNotContain("unknown",row);Assert.DoesNotContain("partial",row);
         }
-        Assert.Contains("not obligations",row);Assert.DoesNotContain("11 attributed actions",row);
+        Assert.DoesNotContain("11",row);
         Assert.Contains(row,PlayerText(s));Assert.Equal(publicBefore,PublicPayload(s));RaidRecapPlayerReachabilityTests.Check(s);
     }
     [Fact]

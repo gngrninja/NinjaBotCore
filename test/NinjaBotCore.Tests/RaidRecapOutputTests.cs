@@ -57,7 +57,7 @@ public class RaidRecapOutputTests
                 await svc.ApplyAsync(s,"output_help",null);await svc.ApplyAsync(s,"ranks_next",null);
             }
             await svc.ApplyAsync(s,"kills_next",null);await Save(directory,view+"-kill-options-page2",s);
-            Assert.Contains("kill #1",Text(s));
+            Assert.Contains("Kill #1",Text(s));
         }
     }
     [Theory]
@@ -72,17 +72,17 @@ public class RaidRecapOutputTests
             Assert.StartsWith((i+1)+". ",text);Assert.Contains("&source="+(i+1),text);
             Assert.Contains(RaidRecapPlayerPresentation.Badge(s.Performance[i].Parse),text);
         }
-        Assert.Contains("Sources 1–5 of 12 · page 1/3",Text(s));
-        Assert.Contains("Pink P99",Text(s));Assert.DoesNotContain("Gold P100",Text(s));
+        Assert.Contains("Players 1–5 of 12 · page 1/3",Text(s));
+        Assert.Contains("🩷 **99**",Text(s));Assert.DoesNotContain("🟡 **100**",Text(s));
     }
     [Theory]
-    [InlineData(0,0x666666u,"Gray P0")][InlineData(24.999,0x666666u,"Gray P24")]
-    [InlineData(25,0x1eff00u,"Green P25")][InlineData(49.999,0x1eff00u,"Green P49")]
-    [InlineData(50,0x0070ffu,"Blue P50")][InlineData(74.999,0x0070ffu,"Blue P74")]
-    [InlineData(75,0xa335eeu,"Purple P75")][InlineData(94.999,0xa335eeu,"Purple P94")]
-    [InlineData(95,0xff8000u,"Orange P95")][InlineData(98.999,0xff8000u,"Orange P98")]
-    [InlineData(99,0xe268a8u,"Pink P99")][InlineData(99.999,0xe268a8u,"Pink P99")]
-    [InlineData(100,0xe5cc80u,"Gold P100")]
+    [InlineData(0,0x666666u,"⚪ **0**")][InlineData(24.999,0x666666u,"⚪ **24**")]
+    [InlineData(25,0x1eff00u,"🟢 **25**")][InlineData(49.999,0x1eff00u,"🟢 **49**")]
+    [InlineData(50,0x0070ffu,"🔵 **50**")][InlineData(74.999,0x0070ffu,"🔵 **74**")]
+    [InlineData(75,0xa335eeu,"🟣 **75**")][InlineData(94.999,0xa335eeu,"🟣 **94**")]
+    [InlineData(95,0xff8000u,"🟠 **95**")][InlineData(98.999,0xff8000u,"🟠 **98**")]
+    [InlineData(99,0xe268a8u,"🩷 **99**")][InlineData(99.999,0xe268a8u,"🩷 **99**")]
+    [InlineData(100,0xe5cc80u,"🟡 **100**")]
     public void ActualSourceAccentUsesOverallParseNotPositionOrItemLevel(double percentile,uint color,string label)
     {
         var s=Sample();s.Performance=new[]{s.Performance[0] with {Parse=new(1,1000,percentile,100,100,1,300)}};
@@ -94,22 +94,23 @@ public class RaidRecapOutputTests
     {
         var s=Sample();s.Performance=new[]{s.Performance[0] with {Parse=null,Player=verified?s.Performance[0].Player:null}};
         Assert.Equal(0x7F8C8Du,Assert.Single(Cards(s)).AccentColor.Value.RawValue);
-        Assert.Contains("Parse unavailable",Text(s));Assert.DoesNotContain("Gray P0",Text(s));
-        if(!verified){Assert.Contains("Unverified source identity",Text(s));Assert.DoesNotContain("&source=",Text(s));}
+        Assert.Contains("no parse",Text(s));Assert.DoesNotContain("⚪ **0**",Text(s));
+        if(!verified){Assert.Contains("Not matched to the raid roster",Text(s));Assert.DoesNotContain("&source=",Text(s));}
     }
     [Theory]
     [InlineData("damage")][InlineData("healing")]
     public void CollapsedHeaderIsScanFirstButKeepsEssentialMeaningAndWarnings(string view)
     {
         var s=Sample(view);s.Notice="Visible partial warning";s.PerformanceNotice="Enrichment warning";
-        var text=Text(s);Assert.DoesNotContain("Band colors:",text);Assert.DoesNotContain("Fractional display",text);
+        var text=Text(s);Assert.DoesNotContain("Parse dots:",text);Assert.DoesNotContain("round down",text);
         Assert.Contains("Visible partial warning",text);Assert.Contains("Enrichment warning",text);
-        Assert.Contains("kill #1",text);Assert.Contains("elapsed 00:01:00",text);Assert.Contains("this boss kill only",text);
-        Assert.Contains("Parses · Today",text);Assert.Contains("may still update",text);Assert.NotNull(Button(s,"How to read"));
+        Assert.Contains("Kill #1",text);Assert.Contains("· 1:00",text);
+        Assert.Contains("may still update",text);Assert.NotNull(Button(s,"How to read"));
         if(view=="healing")
         {
-            Assert.Contains("WCL Healing table total / elapsed seconds",text);Assert.Contains("overheal not added",text);
-            Assert.Contains("not validated as effective healing",text);Assert.Contains("not a quality grade",text);
+            // The card stays short; the healing explanation is one press away.
+            Assert.DoesNotContain("Overhealing",text);s.OutputHelp=true;
+            Assert.Contains("WarcraftLogs' healing total",Text(s));Assert.Contains("Overhealing is not added",Text(s));
         }
     }
     [Theory]
@@ -120,8 +121,8 @@ public class RaidRecapOutputTests
         Assert.Equal(new[]{"Overview","Bosses","Damage","Healing","Analysis"},rows[0].Components.OfType<ButtonComponent>().Select(b=>b.Label));
         Assert.Contains(rows[1].Components.OfType<ButtonComponent>(),b=>b.Label=="Players");
         Assert.IsType<SelectMenuComponent>(Assert.Single(rows[2].Components));
-        var source=Assert.Single(rows,r=>r.Components.OfType<ButtonComponent>().Any(b=>b.Label=="Previous sources"));
-        Assert.Equal(new[]{"Previous sources","Next sources","How to read"},source.Components.OfType<ButtonComponent>().Select(b=>b.Label));
+        var source=Assert.Single(rows,r=>r.Components.OfType<ButtonComponent>().Any(b=>b.Label=="Previous players"));
+        Assert.Equal(new[]{"Previous players","Next players"},source.Components.OfType<ButtonComponent>().Select(b=>b.Label));Assert.NotNull(Button(s,"How to read"));
         Assert.DoesNotContain(rows.SelectMany(r=>r.Components).OfType<ButtonComponent>(),b=>b.Label is "Previous" or "Next");
         var optionRows=rows.Where(r=>r.Components.OfType<ButtonComponent>().Any(b=>b.Label=="Previous kill options")).ToArray();
         if(kills<=25)Assert.Empty(optionRows);
@@ -129,7 +130,7 @@ public class RaidRecapOutputTests
         {
             Assert.Equal(new[]{"Previous kill options","Next kill options"},Assert.Single(optionRows).Components.OfType<ButtonComponent>().Select(b=>b.Label));
             var svc=Local();await svc.ApplyAsync(s,"kills_next",null);
-            Assert.Equal(0,s.KillIndex);Assert.Contains("kill #1",Text(s));Assert.Contains("Kill options · page 2/",Text(s));
+            Assert.Equal(0,s.KillIndex);Assert.Contains("Kill #1",Text(s));Assert.Contains("Kill list · page 2/",Text(s));
             Assert.DoesNotContain(RaidRecapPlayerFlowTests.Menu(s,"kill").Options,o=>o.IsDefault==true);
             await Assert.ThrowsAsync<ArgumentException>(()=>svc.ApplyAsync(s,"kill","0"));
         }
@@ -140,7 +141,7 @@ public class RaidRecapOutputTests
     public void SingleSourcePageOmitsUselessPagingButKeepsHelp(int count)
     {
         var s=Sample(kills:1);s.Performance=s.Performance.Take(count).ToArray();
-        Assert.DoesNotContain(Rows(s).SelectMany(r=>r.Components).OfType<ButtonComponent>(),b=>b.Label is "Previous sources" or "Next sources" or "Previous kill options" or "Next kill options");
+        Assert.DoesNotContain(Rows(s).SelectMany(r=>r.Components).OfType<ButtonComponent>(),b=>b.Label is "Previous players" or "Next players" or "Previous kill options" or "Next kill options");
         Assert.NotNull(Button(s,"How to read"));RaidRecapPlayerReachabilityTests.Check(s);
     }
     [Fact]
@@ -151,19 +152,32 @@ public class RaidRecapOutputTests
         var before=JsonConvert.SerializeObject(RaidRecapView.Build(s,true));var svc=Local();
         await svc.ApplyAsync(s,"output_help",null);
         var text=Text(s);Assert.NotNull(Button(s,"Hide help"));
-        foreach(var term in new[]{"Output position","pets","cross-fight","Gray 0+","Green 25+","Blue 50+","Purple 75+","Orange 95+","Pink 99+","Gold exactly 100","Fractional display floors","partition 1","finality unknown","report revision"})Assert.Contains(term,text);
+        foreach(var term in new[]{"not a ranking","pets included","🟡 100","🩷 99","🟠 95","🟣 75","🔵 50","🟢 25","⚪ below 25","round down","not a zero","partition 1","can move as more logs are ranked"})Assert.Contains(term,text);
         Assert.Equal("Partial data retained",s.Notice);Assert.Equal(1,s.RankPage);Assert.Equal(1,s.KillPage);Assert.Equal(0,s.KillIndex);
         Assert.Same(rows,s.Performance);Assert.Same(parses,s.PerformanceParses);Assert.Equal(page,RaidRecapPlayerPresentation.OutputPages(s).SelectMany(p=>p));
-        await svc.ApplyAsync(s,"output_help",null);Assert.NotNull(Button(s,"How to read"));Assert.DoesNotContain("Band colors:",Text(s));
+        await svc.ApplyAsync(s,"output_help",null);Assert.NotNull(Button(s,"How to read"));Assert.DoesNotContain("Parse dots:",Text(s));
         Assert.Equal(before,JsonConvert.SerializeObject(RaidRecapView.Build(s,true)));
     }
     [Theory]
-    [InlineData("overview")][InlineData("bosses")][InlineData("analysis")][InlineData("reports")][InlineData("dossier")][InlineData("no-report")][InlineData("no-kills")]
-    public async Task HelpRejectsOutsideMainPrivateOutput(string state)
+    [InlineData("reports")][InlineData("no-report")]
+    public async Task HelpRejectsWhereNoReportCardIsShown(string state)
     {
-        var s=Sample();if(state=="dossier")s.PlayerPanel=new();else if(state=="no-report")s.Report=null;
-        else if(state=="no-kills")s.Report=RaidRecapPanelTests.Report(false);else s.View=state;
+        var s=Sample();if(state=="no-report")s.Report=null;else s.View=state;
         await Assert.ThrowsAsync<ArgumentException>(()=>Local().ApplyAsync(s,"output_help",null));
+        Assert.DoesNotContain(RaidRecapPanelTests.Flatten(RaidRecapView.Build(s).Components).OfType<ButtonComponent>(),b=>b.Label is "How to read" or "Hide help");
+    }
+    [Theory]
+    [InlineData("overview")][InlineData("bosses")][InlineData("analysis")][InlineData("dossier")][InlineData("no-kills")]
+    public async Task EveryReportViewOffersLocalHelpWithoutProviderIo(string state)
+    {
+        var s=Sample();if(state=="dossier")s.PlayerPanel=new(){SnapshotKey=s.Report.SnapshotKey};
+        else if(state=="no-kills")s.Report=RaidRecapPanelTests.Report(false);else s.View=state;
+        var publicBefore=JsonConvert.SerializeObject(RaidRecapView.Build(s,true));
+        Assert.NotNull(Button(s,"How to read"));Assert.DoesNotContain("How to read**",Text(s));
+        await Local().ApplyAsync(s,"output_help",null);
+        Assert.NotNull(Button(s,"Hide help"));Assert.Contains("**❔ How to read**",Text(s));
+        RaidRecapPlayerReachabilityTests.Check(s);
+        Assert.Equal(publicBefore,JsonConvert.SerializeObject(RaidRecapView.Build(s,true)));
     }
     [Theory]
     [InlineData("overview")][InlineData("reports")][InlineData("healing")][InlineData("refresh")][InlineData("report")][InlineData("kill")][InlineData("players")]
@@ -207,7 +221,7 @@ public class RaidRecapOutputTests
             Assert.All(RaidRecapPanelTests.Flatten(RaidRecapView.Build(s).Components).OfType<SelectMenuComponent>(),m=>Assert.InRange(m.Options.Count,1,25));
             seen.AddRange(closed.Select(t=>int.Parse(t.Split('.')[0])));
             await svc.ApplyAsync(s,"output_help",null);
-            if(Button(s,"Next sources").IsDisabled)break;
+            if(Button(s,"Next players").IsDisabled)break;
             await svc.ApplyAsync(s,"ranks_next",null);
         }
         Assert.Equal(Enumerable.Range(1,1000),seen);Assert.Equal(1000,s.Performance.Count);

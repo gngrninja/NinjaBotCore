@@ -30,9 +30,9 @@ public class RaidRecapPlayerFlowTests
         for(var p=0;p<4;p++)
         {
             var options=Menu(s,"player").Options;all.AddRange(options.Select(o=>int.Parse(o.Value)));
-            Assert.All(options,o=>Assert.Contains("#"+o.Value,o.Label));
+            Assert.All(options,o=>Assert.True(int.Parse(o.Value)>0));
             if(p>0)Assert.DoesNotContain(options,o=>o.IsDefault==true);
-            Assert.Contains("#1]",RaidRecapPanelTests.Text(RaidRecapView.Build(s)));
+            Assert.Contains("&source=1)",RaidRecapPanelTests.Text(RaidRecapView.Build(s)));
             if(p<3)await svc.ApplyAsync(s,"player_options_next",null);
         }
         Assert.Equal(Enumerable.Range(1,100),all);
@@ -65,7 +65,7 @@ public class RaidRecapPlayerFlowTests
         var first=svc.ApplyAsync(a,"player_lens","deaths");var second=svc.ApplyAsync(b,"player_lens","deaths");
         pending.SetResult(new RaidRecapAnalysis("deaths",true,null){Deaths=new[]{new RaidRecapDeath(1,"Same",1000,"Spell"),new RaidRecapDeath(2,"Same",2000,"Spell")}});
         await Task.WhenAll(first,second);await svc.ApplyAsync(a,"player","2");await svc.ApplyAsync(a,"player_lens","summary");await svc.ApplyAsync(a,"player_back",null);
-        Assert.Equal("overview",a.View);Assert.Contains("**Overview**",RaidRecapPanelTests.Text(RaidRecapView.Build(a)));
+        Assert.Equal("overview",a.View);Assert.Contains("1 kill",RaidRecapPanelTests.Text(RaidRecapView.Build(a)));
         source.Verify(x=>x.GetRaidRecapAnalysisAsync(a.Report,a.Report.Fights[0],"deaths",It.IsAny<CancellationToken>()),Times.Once);
         players.Verify(x=>x.GetRaidRecapRosterAsync(a.Report,a.Report.Fights[0],It.IsAny<CancellationToken>()),Times.Once);
     }
@@ -77,9 +77,9 @@ public class RaidRecapPlayerFlowTests
             .ThrowsAsync(new OperationCanceledException()).ReturnsAsync(new RaidRecapAnalysis("deaths",true,null){Deaths=new[]{new RaidRecapDeath(1,"PRIVATE OBSERVATION",1000,"Spell")}});
         await Assert.ThrowsAnyAsync<OperationCanceledException>(()=>svc.ApplyAsync(s,"player_lens","deaths"));
         Assert.DoesNotContain("PRIVATE OBSERVATION",RaidRecapPanelTests.Text(RaidRecapView.Build(s)));
-        await svc.ApplyAsync(s,"player_lens","deaths");Assert.Contains("00:00:01",RaidRecapPanelTests.Text(RaidRecapView.Build(s)));
-        await svc.ApplyAsync(s,"player_change",null);Assert.Contains("Choose completed pull",RaidRecapPanelTests.Text(RaidRecapView.Build(s)));
-        Assert.DoesNotContain("00:00:01",RaidRecapPanelTests.Text(RaidRecapView.Build(s)));
+        await svc.ApplyAsync(s,"player_lens","deaths");Assert.Contains("`0:01`",RaidRecapPanelTests.Text(RaidRecapView.Build(s)));
+        await svc.ApplyAsync(s,"player_change",null);Assert.Contains("Pick a pull",RaidRecapPanelTests.Text(RaidRecapView.Build(s)));
+        Assert.DoesNotContain("`0:01`",RaidRecapPanelTests.Text(RaidRecapView.Build(s)));
     }
     [Fact]
     public async Task ParseFailurePreservesRawOutputAndFailedEnrichmentRetriesWithoutRefetchingTable()
@@ -90,8 +90,8 @@ public class RaidRecapPlayerFlowTests
             .ThrowsAsync(new InvalidOperationException("private provider details"))
             .ReturnsAsync(new RaidRecapParses(s.Report.SnapshotKey,1,"dps","Parses","Today",1,DateTimeOffset.UnixEpoch,new[]{new RaidRecapParse(1,999,99,50,100,10,320)}));
         await svc.ApplyAsync(s,"damage",null);var text=RaidRecapPanelTests.Text(RaidRecapView.Build(s));
-        Assert.Contains("100",text);Assert.Contains("Parse unavailable",text);Assert.DoesNotContain("private provider details",text);
-        await svc.ApplyAsync(s,"damage",null);text=RaidRecapPanelTests.Text(RaidRecapView.Build(s));Assert.Contains("Pink P99",text);Assert.Contains("Today",text);
+        Assert.Contains("100",text);Assert.Contains("Parses are unavailable",text);Assert.Contains("no parse",text);Assert.DoesNotContain("private provider details",text);
+        await svc.ApplyAsync(s,"damage",null);text=RaidRecapPanelTests.Text(RaidRecapView.Build(s));Assert.Contains("🩷 **99**",text);Assert.DoesNotContain("Parses are unavailable",text);
         Assert.Contains("#fight=1&source=1",text);source.Verify(x=>x.GetRaidRecapScopedTableAsync(s.Report,s.Report.Fights[0],false),Times.Once);
         players.Verify(x=>x.GetRaidRecapParsesAsync(s.Report,s.Report.Fights[0],false,It.IsAny<RaidRecapRoster>(),It.IsAny<CancellationToken>()),Times.Exactly(2));
     }

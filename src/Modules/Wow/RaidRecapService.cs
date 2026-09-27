@@ -27,6 +27,7 @@ public sealed partial class RaidRecapService
         var reports=(IReadOnlyList<WclV2Report>)await _cache.GetAsync(key,async()=>await _source.GetRaidRecapReportsAsync(guild,realm,region),TimeSpan.FromSeconds(30));
         s.Reports=reports.GroupBy(r=>RaidRecapRules.ReportCode(r.Code)).Select(g=>g.First()).OrderByDescending(r=>r.StartTime).Take(100).ToArray();
         s.View="reports"; s.ReportPage=0;
+        s.GuildName=guild; s.GuildRegion=region;
     }
     public async Task OpenAsync(RaidRecapSession s,string code)
     {
@@ -38,10 +39,11 @@ public sealed partial class RaidRecapService
     }
     public async Task ApplyAsync(RaidRecapSession s,string action,string value)
     {
-        // Purely local disclosure: retain warnings and every selection/result, and reject hidden controls.
+        // Purely local disclosure: retain warnings and every selection/result. Every report view
+        // carries the "How to read" control; the report picker has none, so reject it there.
         if(action=="output_help")
         {
-            if(s.PlayerPanel!=null || s.View is not ("damage" or "healing") || s.Report?.Kills is not >0)throw InvalidSelection();
+            if(s.Report==null || s.View=="reports")throw InvalidSelection();
             s.OutputHelp=!s.OutputHelp;return;
         }
         if(action is "report" or "reports" or "refresh" or "overview" or "bosses" or "damage" or "healing" or "analysis" or "players" or "kill")s.OutputHelp=false;
@@ -194,7 +196,7 @@ public sealed partial class RaidRecapService
         var deathsA=await LoadAnalysisAsync(report,a,"deaths");
         var deathsB=await LoadAnalysisAsync(report,b,"deaths");
         if(deathsA?.Metric!="deaths" || deathsB?.Metric!="deaths")
-            throw new InvalidOperationException("Death comparison is unavailable. Open the selected fights on Warcraft Logs.");
+            throw new InvalidOperationException("Death comparison is unavailable. Open the selected fights on WarcraftLogs.");
         if(s.Report!=report || RaidRecapReview.Selection(s)!=(a,b)) throw InvalidSelection();
         s.Comparison=new(report.SnapshotKey,a,b,deathsA,deathsB);
     }

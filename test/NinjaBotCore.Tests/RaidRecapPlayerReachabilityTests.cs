@@ -35,7 +35,7 @@ public class RaidRecapPlayerReachabilityTests
         {
             Check(s);var text=RaidRecapPanelTests.Text(RaidRecapView.Build(s));
             foreach(System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(text,@"(?m)^(\d+)\. "))seen.Add(int.Parse(m.Groups[1].Value));
-            var next=Assert.Single(RaidRecapPanelTests.Flatten(RaidRecapView.Build(s).Components).OfType<ButtonComponent>(),b=>b.Label=="Next sources");
+            var next=Assert.Single(RaidRecapPanelTests.Flatten(RaidRecapView.Build(s).Components).OfType<ButtonComponent>(),b=>b.Label=="Next players");
             if(next.IsDisabled)break;await svc.ApplyAsync(s,"ranks_next",null);
         }
         Assert.Equal(Enumerable.Range(1,1000),seen.OrderBy(i=>i));
@@ -61,7 +61,7 @@ public class RaidRecapPlayerReachabilityTests
         await svc.ApplyAsync(s,metric,null);var text=RaidRecapPanelTests.Text(RaidRecapView.Build(s));
         Assert.Contains("#fight=1&source=1)",text);Assert.DoesNotContain("&source=999",text);Assert.Contains("Partial",text);
         await svc.ApplyAsync(s,"players",null);await svc.ApplyAsync(s,"player","1");await svc.ApplyAsync(s,"player_lens",metric);
-        Assert.Contains("1 attributed actions",RaidRecapPanelTests.Text(RaidRecapView.Build(s)));Check(s);
+        Assert.Contains("** · 1\n",RaidRecapPanelTests.Text(RaidRecapView.Build(s)));Check(s);
     }
     [Theory]
     [InlineData("deaths",500)][InlineData("interrupts",1500)][InlineData("dispels",1500)]
@@ -90,7 +90,7 @@ public class RaidRecapPlayerReachabilityTests
         var source=new Mock<IRaidRecapSource>(MockBehavior.Strict);source.Setup(x=>x.GetRaidRecapAnalysisAsync(s.Report,It.IsAny<RaidRecapFight>(),"deaths",It.IsAny<CancellationToken>()))
             .ReturnsAsync(new RaidRecapAnalysis("deaths",true,null){Deaths=Enumerable.Range(1,100).Select(i=>new RaidRecapDeath(i,"Tie"+i,1000,"Spell")).ToArray()});
         var svc=new RaidRecapService(source.Object,new RaidRecapCache());await svc.ApplyAsync(s,"bosses",null);await svc.ApplyAsync(s,"compare",null);await svc.ApplyAsync(s,"compare_deaths",null);
-        var text=RaidRecapPanelTests.Text(RaidRecapView.Build(s));Assert.Contains("&source=1)",text);Assert.Contains("100 simultaneous",text);Check(s);
+        var text=RaidRecapPanelTests.Text(RaidRecapView.Build(s));Assert.Contains("&source=1)",text);Assert.Contains("(100 together)",text);Check(s);
         await svc.ApplyAsync(s,"compare_losses",null);var seen=new System.Collections.Generic.HashSet<string>();
         for(var page=0;page<100;page++)
         {

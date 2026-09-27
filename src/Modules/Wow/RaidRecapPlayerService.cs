@@ -62,7 +62,7 @@ public sealed partial class RaidRecapService
         // This optional service call has no caller token; a provider deadline may degrade
         // enrichment, not valid raw output. The direct source APIs still propagate caller cancellation.
         catch(Exception ex) when(ex is InvalidOperationException or System.Net.Http.HttpRequestException or Newtonsoft.Json.JsonException or OperationCanceledException or TimeoutException) { }
-        return new(rows,parses,parses==null?"Parse unavailable · raw output retained. Select the metric again to retry enrichment.":null);
+        return new(rows,parses,parses==null?"Parses are unavailable right now. Select this tab again to retry.":null);
     }
     private async Task OpenPlayerFightAsync(RaidRecapSession s,RaidRecapFight fight)
     {

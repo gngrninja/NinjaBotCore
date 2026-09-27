@@ -11,7 +11,7 @@ public sealed record RaidRecapComparison(string SnapshotKey, RaidRecapFight A, R
 
 public static class RaidRecapReview
 {
-    public const string NoPair = "No matched pair: choose two distinct completed boss pulls in the same encounter and known difficulty, with positive finite durations. Live / unknown outcomes and trash are excluded.";
+    public const string NoPair = "Nothing to compare yet. You need two finished pulls of the same boss on the same difficulty.";
 
     private static bool Eligible(RaidRecapFight f) => f != null && f.Id > 0 && f.EncounterId > 0 && f.Difficulty > 0
         && (f.IsKill || f.IsWipe) && f.DurationMs is > 0 && double.IsFinite(f.DurationMs.Value)

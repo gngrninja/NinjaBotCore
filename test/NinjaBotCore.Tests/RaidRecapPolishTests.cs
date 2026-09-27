@@ -35,14 +35,14 @@ public class RaidRecapPolishTests
     {
         var s=RaidRecapPanelTests.Session();s.Report=RaidRecapPanelTests.Report(false);
         var text=RaidRecapPanelTests.Text(RaidRecapView.Build(s));
-        Assert.Contains("0 encounter/difficulty groups cleared across 1 attempts",text);
-        Assert.Contains("Most-pulled unresolved",text);
-        Assert.Contains("boss health",text);
+        Assert.Contains("✅ 0 kills · 💀 1 wipe",text);
+        Assert.Contains("Still progressing",text);
+        Assert.Contains("best 12.5%",text);
     }
     [Theory]
-    [InlineData(double.MaxValue,"Unknown")]
-    [InlineData(double.NaN,"Unknown")]
-    [InlineData(90000000,"1d 01:00:00")]
+    [InlineData(double.MaxValue,"—")]
+    [InlineData(double.NaN,"—")]
+    [InlineData(90000000,"1d 1:00:00")]
     public void DurationIsBoundedAndDoesNotWrapDays(double ms,string expected)=>Assert.Equal(expected,RaidRecapView.Duration(ms));
     [Fact]
     public void PickerDescribesZoneAndRecordedSpan()
@@ -50,6 +50,6 @@ public class RaidRecapPolishTests
         var s=RaidRecapPanelTests.Session();s.View="reports";
         s.Reports=new[]{new NinjaBotCore.Models.Wow.WclV2Report {Code="AbCdEfGh12345678",Title="Raid",StartTime=1000,EndTime=61000,Zone=new NinjaBotCore.Models.Wow.WclV2Zone {Name="Test zone"}}};
         var option=Assert.Single(RaidRecapPanelTests.Flatten(RaidRecapView.Build(s).Components).OfType<SelectMenuComponent>()).Options.Single();
-        Assert.Contains("Test zone",option.Description);Assert.Contains("00:01:00",option.Description);
+        Assert.Contains("Test zone",option.Description);Assert.Contains("1m",option.Description);
     }
 }

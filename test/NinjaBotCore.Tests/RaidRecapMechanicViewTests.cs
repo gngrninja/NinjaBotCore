@@ -50,17 +50,18 @@ public class RaidRecapMechanicViewTests
         Assert.DoesNotContain("PRIVATE",Text(s));
     }
     [Theory]
-    [InlineData(Junk,"Throw Junk damage events",1291935,"damage-taken")]
-    [InlineData(Spin,"Shell Spin debuff applications",1291918,"auras&spells=debuffs")]
+    [InlineData(Junk,"Throw Junk",1291935,"damage-taken")]
+    [InlineData(Spin,"Shell Spin",1291918,"auras&spells=debuffs")]
     public async Task SelectedMechanicShowsCountDefinitionScopeAffectedPlayersExactSpellLinkAndQuestion(string metric,string label,int spell,string view)
     {
         var s=Session();var service=Service(Wire(3));await service.ApplyAsync(s,metric,null);var text=Text(s);
-        Assert.Contains(label,text);Assert.Contains("3 observed",text);Assert.Contains("1 distinct players",text);
-        Assert.Contains("Full pull",text);Assert.Contains("00:01:00.000",text);Assert.Contains("00:00:01.000",text);Assert.Contains("+1000 ms",text);
-        Assert.Contains("PRIVATE synthetic player",text);Assert.Contains("One qualifying",text);Assert.Contains("Repeated rows",text);
-        Assert.Contains($"#fight=2&type={view}&ability={spell}",text);Assert.Contains("What was happening",text);
+        Assert.Contains("🔎 "+label,text);Assert.Contains(metric==Junk?"3 hits":"3 applications",text);Assert.Contains("· 1 player",text);
+        Assert.Contains("· 1:00",text);Assert.Contains("`0:01`",text);
+        Assert.Contains("PRIVATE synthetic player",text);Assert.DoesNotContain("How often",text);
+        s.OutputHelp=true;var help=Text(s);s.OutputHelp=false;Assert.Contains("counts damage hits, including fully absorbed ones",help);Assert.Contains("counts debuff applications",help);
+        Assert.Contains($"#fight=2&type={view}&ability={spell}",text);
         Assert.DoesNotContain("stuns",text);Assert.DoesNotContain("failure rate",text);Assert.DoesNotContain("#start=",text);
-        Assert.DoesNotContain("No observed spell rows",text);Export(metric,s);
+        Assert.DoesNotContain("No interrupts",text);Export(metric,s);
     }
     [Theory]
     [InlineData("complete")] [InlineData("partial")] [InlineData("unsupported")] [InlineData("unavailable")]
@@ -73,25 +74,26 @@ public class RaidRecapMechanicViewTests
         var service=Service(With(metadata,events));
         if(status=="unavailable")await Assert.ThrowsAsync<InvalidOperationException>(()=>service.ApplyAsync(s,"mechanics",null));else await service.ApplyAsync(s,"mechanics",null);
         var text=Text(s);
-        if(status=="complete")Assert.Contains("No qualifying player event rows in this complete scope",text);
-        else Assert.DoesNotContain("No qualifying player event rows",text);
-        if(status=="partial") {Assert.Contains("Partial observations",text);Assert.Contains("at least",text);}
-        if(status=="unsupported") {Assert.Contains("Unsupported mechanic scope",text);Assert.DoesNotContain("0 observed",text);}
-        if(status=="unavailable") {Assert.Contains("Mechanic analysis unavailable",text);Assert.DoesNotContain("0 observed",text);}
+        if(status=="complete")Assert.Contains("**No hits** on players this pull",text);
+        else Assert.DoesNotContain("No hits",text);
+        if(status=="partial") {Assert.Contains("Partial data",text);Assert.Contains("at least",text);}
+        if(status=="unsupported") {Assert.Contains("Not supported for this fight",text);Assert.DoesNotContain("0 hits",text);}
+        if(status=="unavailable") {Assert.Contains("This mechanic is unavailable",text);Assert.DoesNotContain("0 hits",text);}
         Export("mechanics-"+status,s);
     }
     [Fact]
     public async Task EveryRetainedEventPageAndAllPullPickerPagesAreReachableWithoutRefetching()
     {
         var s=Session();var h=Wire(500);var service=Service(h);await service.ApplyAsync(s,"mechanics",null);
-        var seen=new HashSet<int>();
+        var seen=0;
         for(var page=0;page<63;page++)
         {
             var text=Text(s);Assert.Contains($"page {page+1}/63",text);
-            foreach(var i in Enumerable.Range(0,500).Where(i=>text.Contains($"+{1000+i} ms")))seen.Add(i);
+            // Every retained event is one row; rows start with their time in the pull.
+            seen+=text.Split('\n').Count(line=>line.StartsWith("`0:0",StringComparison.Ordinal));
             Check(s);await service.ApplyAsync(s,"analysis_next",null);
         }
-        Assert.Equal(500,seen.Count);Assert.Equal(2,h.Queries.Count);Assert.Equal(62,s.AnalysisPage);
+        Assert.Equal(500,seen);Assert.Equal(2,h.Queries.Count);Assert.Equal(62,s.AnalysisPage);
         s.Report=s.Report with {Fights=Enumerable.Range(1,51).Select(i=>Fight with {Id=i}).ToArray()};
         var picks=new HashSet<string>();
         for(var page=0;page<3;page++)
@@ -158,7 +160,8 @@ public class RaidRecapMechanicViewTests
             .AddSingleton<Microsoft.Extensions.Logging.ILogger<RaidRecapCommands>>(NullLogger<RaidRecapCommands>.Instance).BuildServiceProvider();
         await router.AddModuleAsync<RaidRecapCommands>(deps);
         var sections=Parts(s).OfType<SectionComponent>().ToArray();Assert.Equal(2,sections.Length);
-        Assert.Equal(new[]{"Throw Junk","Shell Spin"},sections.Select(c=>Assert.IsType<ButtonComponent>(c.Accessory).Label));
+        // One switch to the other mechanic, plus the footer's How to read.
+        Assert.Equal(new[]{"Shell Spin","How to read"},sections.Select(c=>Assert.IsType<ButtonComponent>(c.Accessory).Label));
         foreach(var component in Parts(s))
         {
             var id=component switch {ButtonComponent b when b.Style!=ButtonStyle.Link=>b.CustomId,SelectMenuComponent m=>m.CustomId,_=>null};if(id==null)continue;
@@ -170,7 +173,7 @@ public class RaidRecapMechanicViewTests
         var parts=Parts(s);Assert.InRange(parts.Length,1,40);Assert.InRange(Text(s).Length,1,3800);Assert.DoesNotContain("@everyone",Text(s));Assert.DoesNotContain('\u202e',Text(s));
         Assert.Equal(5,parts.OfType<ActionRowComponent>().Count());
         Assert.Equal(new[]{"Overview","Bosses","Damage","Healing","Analysis"},parts.OfType<ActionRowComponent>().First().Components.Cast<ButtonComponent>().Select(b=>b.Label));
-        Assert.Equal(new[]{"Deaths","Incoming","Interrupts","Dispels","Mechanics"},parts.OfType<ActionRowComponent>().ElementAt(3).Components.Cast<ButtonComponent>().Select(b=>b.Label));
+        Assert.Equal(new[]{"Deaths","Damage taken","Interrupts","Dispels","Mechanics"},parts.OfType<ActionRowComponent>().ElementAt(3).Components.Cast<ButtonComponent>().Select(b=>b.Label));
         Assert.All(parts.OfType<ActionRowComponent>(),r=>Assert.InRange(r.Components.Count,1,5));
         Assert.All(parts.OfType<SelectMenuComponent>(),m=>{Assert.InRange(m.Options.Count,1,25);Assert.All(m.Options,o=>Assert.InRange(o.Label.Length,1,100));});
         Assert.All(parts.OfType<ButtonComponent>().Where(b=>b.Style!=ButtonStyle.Link),b=>Assert.InRange(b.CustomId.Length,1,100));

@@ -28,7 +28,7 @@ public class RaidRecapAnalysisViewTests
         Assert.Contains("No player deaths",Text(s));Assert.Contains("Wipe #2",Text(s));Assert.Single(h.Queries);
         await service.ApplyAsync(s,"analysis",null);Assert.Single(h.Queries);
         h.Reply=_=>RaidRecapAnalysisTransportTests.Envelope(new JObject{["table"]=JObject.Parse("{\"data\":{\"entries\":[]}}")});
-        await service.ApplyAsync(s,"incoming",null);Assert.Equal(2,h.Queries.Count);Assert.Contains("WCL damage-taken table totals",Text(s));
+        await service.ApplyAsync(s,"incoming",null);Assert.Equal(2,h.Queries.Count);Assert.Contains("Damage taken",Text(s));
         await service.ApplyAsync(s,"deaths",null);Assert.Equal(2,h.Queries.Count);
         await service.ApplyAsync(s,"bosses",null);Assert.Equal(2,h.Queries.Count);
     }
@@ -61,8 +61,9 @@ public class RaidRecapAnalysisViewTests
     {
         var s=Session();s.View="analysis";Set(s,"PullIndex",0);
         Set(s,"Analysis",new RaidRecapAnalysis("deaths",true,null){Deaths=new[]{new RaidRecapDeath(1,"Alpha",0,"Melee"),new RaidRecapDeath(2,"Beta",0,"Unknown killing ability"),new RaidRecapDeath(1,"Alpha",2000,"Fire")}});
-        var text=Text(s);Assert.Contains("3 observed death events · 2 distinct players",text);Assert.Contains("First loss: **00:00:00.000** · 2 simultaneous",text);
-        Assert.Contains("death event 2 for this player",text);Assert.Contains("Unknown killing ability",text);Assert.Contains("not a cause or blame verdict",text);
+        var text=Text(s);Assert.Contains("3 deaths** · 2 players",text);Assert.Contains("first at **0:00** (2 together)",text);
+        Assert.Contains("2nd death",text);Assert.Contains("Unknown killing ability",text);Assert.DoesNotContain("blame",text);
+        s.OutputHelp=true;Assert.Contains("not who to blame",Text(s));s.OutputHelp=false;
         Assert.Contains("#fight=2&type=deaths",text);
         Assert.DoesNotContain("Alpha",RaidRecapPanelTests.Text(RaidRecapView.Build(s,true)));
     }
@@ -70,7 +71,7 @@ public class RaidRecapAnalysisViewTests
     public void PartialEmptyDeathsNeverClaimsNoDeathsOrDefiniteFirstLoss()
     {
         var s=Session();s.View="analysis";Set(s,"PullIndex",0);Set(s,"Analysis",new RaidRecapAnalysis("deaths",false,"Partial: cursor unavailable"));
-        Assert.Contains("Partial",Text(s));Assert.DoesNotContain("No player deaths",Text(s));Assert.DoesNotContain("First loss:",Text(s));Assert.Contains("observed",Text(s));
+        Assert.Contains("Partial",Text(s));Assert.DoesNotContain("No player deaths",Text(s));Assert.DoesNotContain("first at",Text(s));Assert.Contains("at least",Text(s));
     }
     [Theory]
     [InlineData("deaths")] [InlineData("incoming")] [InlineData("interrupts")] [InlineData("dispels")]
@@ -110,7 +111,7 @@ public class RaidRecapAnalysisViewTests
                 Deaths=new[]{new RaidRecapDeath(1,"Alpha",2480,"Melee"),new RaidRecapDeath(2,"Beta",2480,"Unknown killing ability"),new RaidRecapDeath(1,"Alpha",52000,"Fire")},
                 Incoming=new[]{new RaidRecapIncoming("Blast","Boss source",120000),new RaidRecapIncoming("Melee","Composite / unspecified source",90000)},
                 Utility=new[]{new RaidRecapUtility("Boss cast",3,2,0,new[]{new RaidRecapParticipant(1,"Alpha",2),new RaidRecapParticipant(2,"Beta",1)},true)}});
-            var panel=RaidRecapView.Build(s);Assert.Contains("**Analysis**",RaidRecapPanelTests.Text(panel));
+            var panel=RaidRecapView.Build(s);Assert.Contains("## 🔬",RaidRecapPanelTests.Text(panel));
             if(!string.IsNullOrEmpty(directory))
             {
                 System.IO.Directory.CreateDirectory(directory);
@@ -125,7 +126,7 @@ public class RaidRecapAnalysisViewTests
     {
         var s=Session();s.View="analysis";Set(s,"PullIndex",0);Set(s,"AnalysisMetric","interrupts");
         Set(s,"Analysis",new RaidRecapAnalysis("interrupts",false,"Partial attribution") {Utility=new[]{new RaidRecapUtility("Dangerous spell",3,9,2,Array.Empty<RaidRecapParticipant>(),false)}});
-        var text=Text(s);Assert.Contains("3 observed interrupts",text);Assert.Contains("9 WCL-reported completed casts",text);Assert.Contains("2 channel interrupts",text);
-        Assert.Contains("Attribution unavailable / unassigned",text);Assert.Contains("not missed assignments",text);Assert.DoesNotContain("coverage",text);Assert.Contains("#fight=2&type=interrupts",text);
+        var text=Text(s);Assert.Contains("3 kicked",text);Assert.Contains("9 went off",text);Assert.Contains("2 channels stopped",text);
+        Assert.Contains("players unknown",text);Assert.DoesNotContain("missed",text);Assert.DoesNotContain("coverage",text);Assert.Contains("#fight=2&type=interrupts",text);
     }
 }

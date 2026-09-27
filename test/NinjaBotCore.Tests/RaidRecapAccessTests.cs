@@ -173,8 +173,8 @@ public class RaidRecapAccessTests
         Assert.Equal((int)MessageFlags.ComponentsV2,(int)wire["flags"]);Assert.Equal(2,wire["components"].Count());
         Assert.All(wire["components"],c=>Assert.Equal(17,(int)c["type"]));
         Assert.Empty(wire["allowed_mentions"]["parse"]);Assert.True(wire["embeds"]==null || !wire["embeds"].Any());
-        var sections=wire.SelectTokens("$..accessory").ToArray();Assert.Equal(2,sections.Length);Assert.All(sections,b=>Assert.Equal(2,(int)b["type"]));
-        Assert.Contains(sections,b=>(string)b["label"]=="Change pull");Assert.Contains(sections,b=>(string)b["label"]=="Player in WCL");
+        var sections=wire.SelectTokens("$..accessory").ToArray();Assert.Equal(3,sections.Length);Assert.All(sections,b=>Assert.Equal(2,(int)b["type"]));
+        Assert.Contains(sections,b=>(string)b["label"]=="Change pull");Assert.Contains(sections,b=>(string)b["label"]=="Player on WarcraftLogs");Assert.Contains(sections,b=>(string)b["label"]=="How to read");
         var dir=Environment.GetEnvironmentVariable("RAID_RECAP_EVIDENCE_DIR");
         if(!string.IsNullOrEmpty(dir)){Directory.CreateDirectory(dir);File.WriteAllText(Path.Combine(dir,"synthetic-player-discord-rest-wire.json"),wire.ToString());}
     }

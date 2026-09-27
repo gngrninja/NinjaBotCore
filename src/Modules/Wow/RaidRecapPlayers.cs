@@ -20,7 +20,27 @@ public sealed record RaidRecapPlayer(int ActorId,string Name,string Class,string
 public sealed record RaidRecapRoster(string SnapshotKey,int FightId,IReadOnlyList<RaidRecapPlayer> Players,bool Complete);
 public sealed record RaidRecapParse(int ActorId,int CharacterId,double Percentile,int TotalParses,double? ItemLevelPercentile,int? Bracket,int? ItemLevel);
 public sealed record RaidRecapParses(string SnapshotKey,int FightId,string Metric,string Compare,string Timeframe,int Partition,DateTimeOffset AsOf,IReadOnlyList<RaidRecapParse> Entries);
-public sealed record RaidRecapParseBadge(uint Color,string Label,string Display);
+public sealed record RaidRecapParseBadge(uint Color,string Label,string Display)
+{
+    public bool Known => Label != "Unavailable";
+
+    /// <summary>The coloured dot used beside parses on every WarcraftLogs card.</summary>
+    public string Emoji => Label switch
+    {
+        "Gold" => "🟡",
+        "Pink" => "🩷",
+        "Orange" => "🟠",
+        "Purple" => "🟣",
+        "Blue" => "🔵",
+        "Green" => "🟢",
+        _ => "⚪"
+    };
+}
+
+/// <summary>
+/// The single WarcraftLogs parse palette. /char and /raid-recap both read it, so a
+/// percentile always has the same colour, dot and tier everywhere.
+/// </summary>
 public static class RaidRecapParsePalette
 {
     public static RaidRecapParseBadge Badge(double? value)
@@ -39,7 +59,7 @@ public static class RaidRecapPlayerRules
     internal static string String(JToken v)=>v?.Type==JTokenType.String && !string.IsNullOrWhiteSpace((string)v) && ((string)v).Length<=200?(string)v:null;
     internal static int? Id(JToken v)=>RaidRecapAnalysisRules.Id(v);
     internal static double? Percent(JToken v)=>RaidRecapRules.Number(v) is double n && n>=0 && n<=100?n:null;
-    internal static InvalidOperationException Unavailable()=>new("Player identity or parse scope is unavailable. Open Warcraft Logs; no zero is inferred.");
+    internal static InvalidOperationException Unavailable()=>new("Player identity or parse scope is unavailable. Open WarcraftLogs; no zero is inferred.");
     internal static void Scope(RaidRecapReport r,RaidRecapFight f)
     {
         if(r?.Revision==null || r.EndTime==null || f==null || !r.Fights.Contains(f) || !(f.IsKill || f.IsWipe) || f.Id<=0 || f.EncounterId<=0

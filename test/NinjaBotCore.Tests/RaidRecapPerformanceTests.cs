@@ -43,10 +43,10 @@ public class RaidRecapPerformanceTests
         await service.ApplyAsync(s,"damage",null); await service.ApplyAsync(s,"overview",null); await service.ApplyAsync(s,"damage",null);
         source.Verify(x=>x.GetRaidRecapScopedTableAsync(r,r.Fights[0],false),Times.Once);
         var text=RaidRecapPanelTests.Text(RaidRecapView.Build(s));
-        Assert.Contains("20,000",text); Assert.Contains("elapsed",text); Assert.Contains("Beta",text);
+        Assert.Contains("20.0K",text); Assert.Contains("DPS",text); Assert.Contains("Beta",text);
         await service.ApplyAsync(s,"healing",null);
         source.Verify(x=>x.GetRaidRecapScopedTableAsync(r,r.Fights[0],true),Times.Once);
-        Assert.Contains("overheal",RaidRecapPanelTests.Text(RaidRecapView.Build(s)));
+        Assert.Contains("HPS",RaidRecapPanelTests.Text(RaidRecapView.Build(s)));
     }
     [Fact]
     public async Task RankingPagesReachAllSources()

@@ -17,14 +17,14 @@ public class RaidRecapCommands : InteractionModuleBase<IInteractionContext>
     private readonly RaidRecapSessions _sessions;
     private readonly IRaidRecapDiscord _discord;
     private readonly ILogger<RaidRecapCommands> _logger;
-    private const string Unavailable="Warcraft Logs is unavailable, access was denied, or the report changed. Refresh (30-second metadata cache), reopen /raid-recap, or open the report on Warcraft Logs.";
+    private const string Unavailable="WarcraftLogs is unavailable, access was denied, or the report changed. Refresh (30-second metadata cache), reopen /raid-recap, or open the report on WarcraftLogs.";
     public RaidRecapCommands(RaidRecapService service,RaidRecapSessions sessions,IRaidRecapDiscord discord,ILogger<RaidRecapCommands> logger)
     { _service=service;_sessions=sessions;_discord=discord;_logger=logger; }
 
-    [SlashCommand("raid-recap","Privately explore a Warcraft Logs raid report")]
+    [SlashCommand("raid-recap","Privately explore a WarcraftLogs raid report")]
     public async Task StartAsync(
         [Summary("guild","Optional realm, guild, region override (retail)")] string guild=null,
-        [Summary("report","Optional retail Warcraft Logs HTTPS report URL or exact code")] string report=null)
+        [Summary("report","Optional retail WarcraftLogs HTTPS report URL or exact code")] string report=null)
     {
         await DeferAsync(ephemeral:true);
         try
@@ -35,6 +35,8 @@ public class RaidRecapCommands : InteractionModuleBase<IInteractionContext>
             var access=await _discord.AccessAsync(Context);
             if(!access.View) { await NoticeAsync("You and NinjaBot must be members with View Channel access. Use a normal server text channel (threads are not supported).");return; }
             var s=_sessions.Create(Context.User.Id,Context.Guild.Id,Context.Channel.Id);
+            // Presentation only: the server icon heads the card, like the other WarcraftLogs commands.
+            s.GuildIconUrl=Context.Guild.IconUrl;
             await _sessions.RunAsync(s.Token,s.Actor,s.Guild,s.Channel,0,async state=>
             {
                 state.CanShare=access.Share;

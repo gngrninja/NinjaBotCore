@@ -94,6 +94,11 @@ public sealed class RaidRecapSession
     public RaidRecapParses PerformanceParses { get; set; }
     public string PerformanceNotice { get; set; }
     public string Notice { get; set; }
+    // Presentation only: the WoW guild the report list was discovered for, and the
+    // Discord server icon shown in the card header. Neither is used for lookups.
+    public string GuildName { get; set; }
+    public string GuildRegion { get; set; }
+    public string GuildIconUrl { get; set; }
     public RaidRecapReport Report { get; set; }
     public string View { get; set; } = "overview";
     public bool CanShare { get; set; }

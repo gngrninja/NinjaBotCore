@@ -35,7 +35,7 @@ public static class RaidRecapMechanics
     // WCL's observed Environment actor has ID -1 and type NPC, not a positive player identity.
     internal static int? ActorId(JToken token) => token?.Type == JTokenType.Integer && token.ToString() == "-1"
         ? -1 : RaidRecapAnalysisRules.Id(token);
-    internal static InvalidOperationException Unavailable() => new("Mechanic scope, roster or event data is unavailable. Refresh or open this fight on Warcraft Logs.");
+    internal static InvalidOperationException Unavailable() => new("Mechanic scope, roster or event data is unavailable. Refresh or open this fight on WarcraftLogs.");
 }
 
 // Cached data is normalized and bounded; no raw JSON or report-wide catalogs are retained.

@@ -55,7 +55,7 @@ public class RaidRecapCommandTests
         Assert.NotNull(h.Edited);Assert.Equal(MessageFlags.ComponentsV2,h.Edited.Flags.Value);
         Assert.Same(AllowedMentions.None,h.Edited.AllowedMentions.Value);
         Assert.Equal("",h.Edited.Content.Value);Assert.Null(h.Edited.Embed.Value);
-        Assert.Contains("Overview",RaidRecapPanelTests.Text(h.Edited.Components.Value));
+        Assert.Contains("1 kill",RaidRecapPanelTests.Text(h.Edited.Components.Value));
         h.Discord.Verify(x=>x.PublishAsync(It.IsAny<IInteractionContext>(),It.IsAny<MessageComponent>(),It.IsAny<Func<bool>>()),Times.Never);
     }
     [Fact]
@@ -93,7 +93,7 @@ public class RaidRecapCommandTests
         {
             var pick=Picker().CustomId.Split('~');
             await h.Module.SelectAsync(pick[1],pick[2],pick[3],new[]{"0"});
-            Assert.Contains("Overview",RaidRecapPanelTests.Text(h.Edited.Components.Value));
+            Assert.Contains("1 kill",RaidRecapPanelTests.Text(h.Edited.Components.Value));
             var reports=Assert.Single(RaidRecapPanelTests.Flatten(h.Edited.Components.Value.Components).OfType<ButtonComponent>(),b=>b.Label=="Reports").CustomId.Split('~');
             await h.Module.NavigateAsync(reports[1],reports[2],reports[3]);
         }
@@ -107,9 +107,9 @@ public class RaidRecapCommandTests
         h.Discord.Verify(x=>x.PublishAsync(It.IsAny<IInteractionContext>(),It.IsAny<MessageComponent>(),It.IsAny<Func<bool>>()),Times.Never);
         h.Source.Verify(x=>x.GetRaidRecapReportAsync("ZbCdEfGh12345678"),Times.Once);
         var text=RaidRecapPanelTests.Text(h.Edited.Components.Value);
-        Assert.Contains(@"Warcraft Logs is unavailable, access was denied, or the report changed\.",text);
+        Assert.Contains(@"WarcraftLogs is unavailable, access was denied, or the report changed\.",text);
         Assert.Contains(@"reopen /raid\-recap",text);
-        Assert.Contains("open the report on Warcraft Logs",text);
+        Assert.Contains("open the report on WarcraftLogs",text);
     }
 
     [Fact]
@@ -291,7 +291,7 @@ public class RaidRecapCommandTests
         var h=new Harness();var s=h.Sessions.Create(1,2,3);s.Report=RaidRecapPanelTests.Report(false);
         await h.Module.NavigateAsync(s.Token,"0","analysis");
         var text=RaidRecapPanelTests.Text(h.Edited.Components.Value);
-        Assert.Contains("**Analysis**",text);Assert.Contains("unavailable",text);
+        Assert.Contains("## 🔬",text);Assert.Contains("unavailable",text);
         Assert.Single(RaidRecapPanelTests.Flatten(h.Edited.Components.Value.Components).OfType<SelectMenuComponent>());
         Assert.Equal(MessageFlags.ComponentsV2,h.Edited.Flags.Value);Assert.Equal("",h.Edited.Content.Value);Assert.Null(h.Edited.Embed.Value);
         Assert.Same(AllowedMentions.None,h.Edited.AllowedMentions.Value);
@@ -308,9 +308,9 @@ public class RaidRecapCommandTests
         await h.Module.NavigateAsync(s.Token,s.Generation.ToString(),"bosses");
         await h.Module.NavigateAsync(s.Token,s.Generation.ToString(),"compare");
         await h.Module.NavigateAsync(s.Token,s.Generation.ToString(),"compare_deaths");
-        Assert.Contains("A full pull:",RaidRecapPanelTests.Text(h.Edited.Components.Value));
+        Assert.Contains("Whole pull",RaidRecapPanelTests.Text(h.Edited.Components.Value));
         await h.Module.SelectAsync(s.Token,s.Generation.ToString(),"compare_a",new[]{"999"});
-        var text=RaidRecapPanelTests.Text(h.Edited.Components.Value);Assert.DoesNotContain("A full pull:",text);Assert.Contains("unavailable",text);
+        var text=RaidRecapPanelTests.Text(h.Edited.Components.Value);Assert.DoesNotContain("Whole pull",text);Assert.Contains("unavailable",text);
         Assert.Equal(2,RaidRecapPanelTests.Flatten(h.Edited.Components.Value.Components).OfType<SelectMenuComponent>().Count());
         Assert.Equal(MessageFlags.ComponentsV2,h.Edited.Flags.Value);Assert.Same(AllowedMentions.None,h.Edited.AllowedMentions.Value);
     }
@@ -330,7 +330,7 @@ public class RaidRecapCommandTests
         if(outcome=="expired") now+=TimeSpan.FromMinutes(11);
         if(outcome=="revoked") h.Discord.Setup(x=>x.AccessAsync(h.Context.Object)).ReturnsAsync(new RaidRecapAccess(false,false));
         pending.SetResult(new RaidRecapAnalysis("deaths",true,null));await work;
-        if(outcome=="current") Assert.Contains("A full pull:",RaidRecapPanelTests.Text(h.Edited.Components.Value));
+        if(outcome=="current") Assert.Contains("Whole pull",RaidRecapPanelTests.Text(h.Edited.Components.Value));
         else Assert.Null(h.Edited);
         h.Discord.Verify(x=>x.PublishAsync(It.IsAny<IInteractionContext>(),It.IsAny<MessageComponent>(),It.IsAny<Func<bool>>()),Times.Never);
     }
@@ -356,7 +356,7 @@ public class RaidRecapCommandTests
         else
         {
             var text=RaidRecapPanelTests.Text(h.Edited.Components.Value);Assert.DoesNotContain("PRIVATE OLD",text);
-            if(outcome=="failed"){Assert.DoesNotContain("PRIVATE NEW",text);Assert.Contains("Mechanic analysis unavailable",text);Assert.Null(s.Analysis);}
+            if(outcome=="failed"){Assert.DoesNotContain("PRIVATE NEW",text);Assert.Contains("This mechanic is unavailable",text);Assert.Null(s.Analysis);}
             else Assert.Contains("PRIVATE NEW",text);
             Assert.Equal(MessageFlags.ComponentsV2,h.Edited.Flags.Value);Assert.Same(AllowedMentions.None,h.Edited.AllowedMentions.Value);Assert.Equal("",h.Edited.Content.Value);Assert.Null(h.Edited.Embed.Value);
         }
@@ -409,7 +409,7 @@ public class RaidRecapCommandTests
         await editing.Task.WaitAsync(TimeSpan.FromSeconds(5));
         var stale=h.Module.NavigateAsync(help[1],help[2],help[3]);
         Assert.False(active.IsCompleted);Assert.False(stale.IsCompleted);
-        Assert.Contains("Band colors:",RaidRecapPanelTests.Text(h.Edited.Components.Value));
+        Assert.Contains("Parse dots:",RaidRecapPanelTests.Text(h.Edited.Components.Value));
         Assert.Equal(MessageFlags.ComponentsV2,h.Edited.Flags.Value);Assert.Same(AllowedMentions.None,h.Edited.AllowedMentions.Value);
         Assert.Equal("",h.Edited.Content.Value);Assert.Null(h.Edited.Embed.Value);
         Assert.Equal("Partial observations retained",s.Notice);Assert.Same(original,s.Performance);
@@ -420,7 +420,7 @@ public class RaidRecapCommandTests
             .Callback<Action<MessageProperties>,RequestOptions>((act,_)=>{h.Edited=new();act(h.Edited);}).ReturnsAsync((RestInteractionMessage)null);
         var hide=Assert.Single(RaidRecapPanelTests.Flatten(h.Edited.Components.Value.Components).OfType<ButtonComponent>(),b=>b.Label=="Hide help").CustomId.Split('~');
         await h.Module.NavigateAsync(hide[1],hide[2],hide[3]);
-        Assert.DoesNotContain("Band colors:",RaidRecapPanelTests.Text(h.Edited.Components.Value));Assert.Equal(2,s.Generation);
+        Assert.DoesNotContain("Parse dots:",RaidRecapPanelTests.Text(h.Edited.Components.Value));Assert.Equal(2,s.Generation);
         Assert.Same(original,s.Performance);Assert.Equal(1,s.RankPage);Assert.Equal(1,s.KillPage);Assert.Equal("Partial observations retained",s.Notice);
         h.Source.VerifyNoOtherCalls();h.Players.VerifyNoOtherCalls();
         h.Discord.Verify(x=>x.PublishAsync(It.IsAny<IInteractionContext>(),It.IsAny<MessageComponent>(),It.IsAny<Func<bool>>()),Times.Never);

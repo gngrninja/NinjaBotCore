@@ -31,7 +31,7 @@ public static class RaidRecapAnalysisRules
     public const int MaxRows = 500;
     public const int MaxParticipants = 1000;
     public const int PageSize = 8;
-    internal const string Partial = "Partial observations: some data, identity or attribution is unavailable, malformed, or exceeds the analysis limits. Open this fight on Warcraft Logs.";
+    internal const string Partial = "Partial observations: some data, identity or attribution is unavailable, malformed, or exceeds the analysis limits. Open this fight on WarcraftLogs.";
     internal static string Name(JToken token, string fallback = "Unknown") => token?.Type == JTokenType.String && !string.IsNullOrWhiteSpace((string)token)
         ? string.Concat(((string)token).EnumerateRunes().Take(80).Select(r => r.ToString())) : fallback;
     internal static int? Id(JToken token) => token?.Type == JTokenType.Integer && int.TryParse(token.ToString(), out var id) && id > 0 ? id : null;
@@ -41,7 +41,7 @@ public static class RaidRecapAnalysisRules
     public static RaidRecapAnalysis Table(JObject table, string metric)
     {
         if (metric is not ("incoming" or "interrupts" or "dispels") || table?["data"]?["entries"] is not JArray entries)
-            throw new InvalidOperationException("Analysis table shape is unavailable. Open this fight on Warcraft Logs.");
+            throw new InvalidOperationException("Analysis table shape is unavailable. Open this fight on WarcraftLogs.");
         var complete = true;
         if (metric == "incoming")
         {
@@ -117,7 +117,7 @@ internal sealed class RaidRecapDeathCollector
         if (report?["fights"] is not JArray fights || fights.Count != 1 || RaidRecapAnalysisRules.Id(fights[0]?["id"]) != fight.Id
             || fights[0]?["friendlyPlayers"] is not JArray roster || roster.Count is 0 or > 100
             || report["masterData"]?["actors"] is not JArray actors || actors.Count > 2000)
-            throw new InvalidOperationException("Player roster / identity is unavailable for this pull. Open Warcraft Logs.");
+            throw new InvalidOperationException("Player roster / identity is unavailable for this pull. Open WarcraftLogs.");
         _roster = new HashSet<int>();
         foreach (var item in roster)
         {
@@ -128,7 +128,7 @@ internal sealed class RaidRecapDeathCollector
         foreach (var actor in actors)
         {
             if (actor is not JObject a || RaidRecapAnalysisRules.Id(a["id"]) is not int id) continue;
-            if (!seen.Add(id)) throw new InvalidOperationException("Ambiguous Warcraft Logs actor identity.");
+            if (!seen.Add(id)) throw new InvalidOperationException("Ambiguous WarcraftLogs actor identity.");
             if ((string)a["type"] == "Player")
             {
                 _players[id] = RaidRecapAnalysisRules.Name(a["name"], "Unknown player #" + id);
