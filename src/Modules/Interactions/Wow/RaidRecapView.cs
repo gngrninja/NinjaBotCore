@@ -48,6 +48,7 @@ public static class RaidRecapView
             }
             controls.WithButton("Warcraft Logs",style:ButtonStyle.Link,url:report.Url,row:shared?0:1);
             if(!shared && !(view=="bosses" && s.Comparing)) controls.WithButton("Players",Nav(s,"players"),ButtonStyle.Secondary,row:1);
+            if(!shared && view is "damage" or "healing" && report.Kills>0)return Output(scope,controls,s);
             var body=new StringBuilder();
             body.AppendLine($"**{Label(view)}**");
             if(!string.IsNullOrEmpty(s.Notice)&&!shared) body.AppendLine(RaidRecapRules.Text(s.Notice,300)+"\n");
@@ -66,43 +67,15 @@ public static class RaidRecapView
                     body.AppendLine($"Fastest kill: **{Duration(boss.FastestKillMs)}**\nBest wipe active boss health: **{Percent(boss.BestRemaining)}**\nLatest wipe active boss health: **{Percent(boss.LatestRemaining)}**");
                     body.AppendLine($"\n**All attempts · chronological · page {s.AttemptPage+1}/{(boss.Attempts.Count+9)/10}**");
                     foreach(var f in boss.Chronological.Skip(s.AttemptPage*10).Take(10)) body.AppendLine($"[Fight {f.Id}]({report.Url}#fight={f.Id}) · {(f.IsKill?"Kill":f.IsWipe?"Wipe":"Live / unknown outcome")} · {Duration(f.DurationMs)} · active boss health {Percent(f.Remaining)}");
-                    controls.WithButton("Previous attempts",Nav(s,"attempts_prev"),ButtonStyle.Secondary,disabled:s.AttemptPage==0,row:4)
-                        .WithButton("Next attempts",Nav(s,"attempts_next"),ButtonStyle.Secondary,disabled:(s.AttemptPage+1)*10>=boss.Attempts.Count,row:4);
+                    // The SDK inserts absent rows; create earlier rows before the paired controls.
                     Menu(controls,s,"boss",report.Bosses.Select(b=>RaidRecapRules.Text(b.Name,65)+" · "+Difficulty(b.Difficulty)).ToArray(),s.BossPage,s.BossIndex);
                     Pages(controls,s,"bosses",s.BossPage,report.Bosses.Count,3);
+                    controls.WithButton("Previous attempts",Nav(s,"attempts_prev"),ButtonStyle.Secondary,disabled:s.AttemptPage==0,row:4)
+                        .WithButton("Next attempts",Nav(s,"attempts_next"),ButtonStyle.Secondary,disabled:(s.AttemptPage+1)*10>=boss.Attempts.Count,row:4);
                 }
             }
             else if(view=="analysis") AnalysisBody(c,body,controls,s);
-            else
-            {
-                var kills=report.Fights.Where(f=>f.IsKill).ToArray();
-                if(kills.Length==0) body.AppendLine("No completed boss kills yet. Damage and healing rankings exclude wipes and trash.\n\n"+Overview(report));
-                else
-                {
-                    var fight=kills[Math.Clamp(s.KillIndex,0,kills.Length-1)];
-                    body.AppendLine($"**{RaidRecapRules.Text(fight.Name,100)} · {Difficulty(fight.Difficulty)} · kill #{fight.Id}**");
-                    body.AppendLine($"[Open this fight]({report.Url}#fight={fight.Id}) · elapsed {Duration(fight.DurationMs)}");
-                    body.AppendLine(view=="healing"
-                        ? "**WCL Healing table total / elapsed seconds** · overheal not added; not validated as effective healing; not a quality grade."
-                        : "**Damage / elapsed seconds (DPS)** · this boss kill only.");
-                    body.AppendLine("Output position in this kill · WCL sources as returned; pets are not manually added. No cross-fight averages.");
-                    body.AppendLine(s.PerformanceParses is { } parses?$"WCL {(view=="healing"?"HPS":"DPS")} · Parses · Today · partition {parses.Partition} · as of <t:{parses.AsOf.ToUnixTimeSeconds()}:f>. Finality unknown.":"Parse unavailable · raw output is separate.");
-                    body.AppendLine("Band colors: Gray 0+ · Green 25+ · Blue 50+ · Purple 75+ · Orange 95+ · Pink 99+ · Gold exactly 100. Fractional display floors, never rounds up.\n");
-                    if(s.Performance==null) body.AppendLine("Performance unavailable. Refresh or open this fight on Warcraft Logs.");
-                    else if(s.Performance.Count==0) body.AppendLine("No source rows returned for this kill.");
-                    else
-                    {
-                        var outputPages=RaidRecapPlayerPresentation.OutputPages(s);var outputPage=Math.Clamp(s.RankPage,0,outputPages.Count-1);
-                        foreach(var line in outputPages[outputPage])body.AppendLine(line);
-                        var first=outputPages.Take(outputPage).Sum(page=>page.Count)+1;
-                        body.AppendLine($"Sources {first}–{first+outputPages[outputPage].Count-1} of {s.Performance.Count} · page {outputPage+1}/{outputPages.Count}");
-                        controls.WithButton("Previous sources",Nav(s,"ranks_prev"),ButtonStyle.Secondary,disabled:s.RankPage==0,row:4)
-                            .WithButton("Next sources",Nav(s,"ranks_next"),ButtonStyle.Secondary,disabled:outputPage==outputPages.Count-1,row:4);
-                    }
-                    Menu(controls,s,"kill",kills.Select(f=>RaidRecapRules.Text(f.Name,60)+$" · {Difficulty(f.Difficulty)} #{f.Id}").ToArray(),s.KillPage,s.KillIndex);
-                    Pages(controls,s,"kills",s.KillPage,kills.Length,3);
-                }
-            }
+            else body.AppendLine("No completed boss kills yet. Damage and healing rankings exclude wipes and trash.\n\n"+Overview(report));
             if(view=="overview" && !shared)
             {
                 c.AddComponent(new TextDisplayBuilder(body.ToString())); body.Clear();
@@ -125,6 +98,63 @@ public static class RaidRecapView
         foreach(var row in rows.Skip(2)) c.AddComponent(new ActionRowBuilder(row));
         return new ComponentBuilderV2().AddComponent(scope).AddComponent(c).Build();
     }
+    private static MessageComponent Output(ContainerBuilder scope,ComponentBuilder controls,RaidRecapSession s)
+    {
+        var report=s.Report;var healing=s.View=="healing";var metric=healing?"HPS":"DPS";
+        var kills=report.Fights.Where(f=>f.IsKill).ToArray();var fight=kills[Math.Clamp(s.KillIndex,0,kills.Length-1)];
+        var body=new StringBuilder($"**{Label(s.View)} · {RaidRecapRules.Text(fight.Name,100)} · {Difficulty(fight.Difficulty)} · kill #{fight.Id}**\n");
+        body.AppendLine($"[Open this fight]({report.Url}#fight={fight.Id}) · elapsed {Duration(fight.DurationMs)} · this boss kill only.");
+        body.AppendLine(healing
+            ?"**WCL Healing table total / elapsed seconds** · overheal not added; not validated as effective healing; not a quality grade."
+            :"**Damage / elapsed seconds (DPS)** · raw output, not a quality grade.");
+        body.AppendLine(s.PerformanceParses!=null?$"WCL {metric} · Parses · Today · color / Pxx = overall percentile, not output position.":"Parse unavailable · raw output is separate.");
+        if(!string.IsNullOrEmpty(s.Notice))body.AppendLine(RaidRecapRules.Text(s.Notice,300));
+        if(!string.IsNullOrEmpty(s.PerformanceNotice))body.AppendLine(RaidRecapRules.Text(s.PerformanceNotice,200));
+        if(s.Performance==null)body.AppendLine("Performance unavailable. Refresh or open this fight on Warcraft Logs.");
+        else if(s.Performance.Count==0)body.AppendLine("No source rows returned for this kill.");
+
+        var pages=RaidRecapPlayerPresentation.OutputPages(s);var page=Math.Clamp(s.RankPage,0,pages.Count-1);
+        var offset=pages.Take(page).Sum(p=>p.Count);
+        // Build earlier rows first: Discord.Net inserts absent row indices instead of reserving slots.
+        Menu(controls,s,"kill",kills.Select(f=>RaidRecapRules.Text(f.Name,60)+$" · {Difficulty(f.Difficulty)} #{f.Id}").ToArray(),s.KillPage,s.KillIndex);
+        var nextRow=3;
+        if(kills.Length>25)
+        {
+            controls.WithButton("Previous kill options",Nav(s,"kills_prev"),ButtonStyle.Secondary,disabled:s.KillPage==0,row:nextRow)
+                .WithButton("Next kill options",Nav(s,"kills_next"),ButtonStyle.Secondary,disabled:(s.KillPage+1)*25>=kills.Length,row:nextRow);
+            nextRow++;
+        }
+        if(pages.Count>1)
+            controls.WithButton("Previous sources",Nav(s,"ranks_prev"),ButtonStyle.Secondary,disabled:page==0,row:nextRow)
+                .WithButton("Next sources",Nav(s,"ranks_next"),ButtonStyle.Secondary,disabled:page==pages.Count-1,row:nextRow);
+        controls.WithButton(s.OutputHelp?"Hide help":"How to read",Nav(s,"output_help"),ButtonStyle.Secondary,row:nextRow);
+        var rows=controls.Build().Components.OfType<ActionRowComponent>().ToArray();
+        foreach(var row in rows.Take(2))scope.AddComponent(new ActionRowBuilder(row));
+        var result=new ComponentBuilderV2().AddComponent(scope)
+            .AddComponent(new ContainerBuilder().WithAccentColor(new Color(healing?0x2AA198u:0xE06C75u)).AddComponent(new TextDisplayBuilder(body.ToString())));
+        for(var i=0;i<pages[page].Count;i++)
+        {
+            var source=s.Performance[offset+i];
+            result.AddComponent(new ContainerBuilder().WithAccentColor(new Color(RaidRecapParsePalette.Badge(source.Parse?.Percentile).Color))
+                .AddComponent(new TextDisplayBuilder(pages[page][i])));
+        }
+        var footer=new StringBuilder();
+        if(s.Performance?.Count>0)footer.AppendLine($"Sources {offset+1}–{offset+pages[page].Count} of {s.Performance.Count} · page {page+1}/{pages.Count}");
+        if(kills.Length>25)footer.AppendLine($"Kill options · page {s.KillPage+1}/{(kills.Length+24)/25} · browsing does not change the selected kill.");
+        footer.Append($"-# Snapshot as of <t:{report.AsOf.ToUnixTimeSeconds()}:f> · may still update.");
+        var detail=new ContainerBuilder().WithAccentColor(new Color(0x7F8C8Du)).AddComponent(new TextDisplayBuilder(footer.ToString()));
+        foreach(var row in rows.Skip(2))detail.AddComponent(new ActionRowBuilder(row));
+        if(s.OutputHelp)
+        {
+            var help="**How to read**\nOutput position is this kill's raw source order, not a parse or world rank. WCL source totals are retained; pets are not manually added. No cross-fight averages or active-time rates.\n"
+                +"Band colors: Gray 0+ · Green 25+ · Blue 50+ · Purple 75+ · Orange 95+ · Pink 99+ · Gold exactly 100. Fractional display floors, never rounds up (NinjaBot policy). Missing parses are neutral, not zero.\n"
+                +(s.PerformanceParses is { } parses?$"WCL {metric} · Parses · Today · partition {parses.Partition} · as of <t:{parses.AsOf.ToUnixTimeSeconds()}:f>. Changes independently of report revision; finality unknown.\n":"Parse unavailable; no percentile or finality is inferred.\n")
+                +"Report as-of is a snapshot, not a completion claim. Last event time does not mean the raid is finished.";
+            detail.AddComponent(new TextDisplayBuilder(help));
+        }
+        return result.AddComponent(detail).Build();
+    }
+
     private static string PrivateSynopsis(RaidRecapReport r) =>
         $"{r.Bosses.Count(b=>b.Kills>0)} encounter/difficulty groups cleared across {r.Fights.Count} attempts.\n"
         +$"**{r.Kills} kills · {r.Wipes} wipes · {r.Unfinished} live / unknown** · trash excluded.\n"

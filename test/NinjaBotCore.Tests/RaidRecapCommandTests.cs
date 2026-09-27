@@ -389,6 +389,62 @@ public class RaidRecapCommandTests
         h.Discord.Verify(x=>x.PublishAsync(It.IsAny<IInteractionContext>(),It.IsAny<MessageComponent>(),It.IsAny<Func<bool>>()),Times.Never);
     }
 
+    private static RaidRecapSession OutputSession(Harness h,ulong actor=1,ulong guild=2,ulong channel=3)
+    {
+        var s=h.Sessions.Create(actor,guild,channel);s.Report=RaidRecapPanelTests.Report(true,26);s.View="healing";
+        s.Performance=Enumerable.Range(1,12).Select(i=>new RaidRecapStanding("SYNTHETIC source "+i,1000,100)).ToArray();
+        s.RankPage=1;s.KillPage=1;s.Notice="Partial observations retained";return s;
+    }
+    [Fact]
+    public async Task OutputHelpUsesGuardedCommandAndHoldsFinalEditGateWithoutProviderIo()
+    {
+        var h=new Harness();var s=OutputSession(h);var original=s.Performance;
+        var publicBefore=Newtonsoft.Json.JsonConvert.SerializeObject(RaidRecapView.Build(s,true));
+        var editing=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var edit=new TaskCompletionSource<IUserMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.Interaction.Setup(x=>x.ModifyOriginalResponseAsync(It.IsAny<Action<MessageProperties>>(),It.IsAny<RequestOptions>()))
+            .Callback<Action<MessageProperties>,RequestOptions>((act,_)=>{h.Edited=new();act(h.Edited);editing.SetResult();}).Returns(edit.Task);
+        var help=Assert.Single(RaidRecapPanelTests.Flatten(RaidRecapView.Build(s).Components).OfType<ButtonComponent>(),b=>b.Label=="How to read").CustomId.Split('~');
+        var active=h.Module.NavigateAsync(help[1],help[2],help[3]);
+        await editing.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var stale=h.Module.NavigateAsync(help[1],help[2],help[3]);
+        Assert.False(active.IsCompleted);Assert.False(stale.IsCompleted);
+        Assert.Contains("Band colors:",RaidRecapPanelTests.Text(h.Edited.Components.Value));
+        Assert.Equal(MessageFlags.ComponentsV2,h.Edited.Flags.Value);Assert.Same(AllowedMentions.None,h.Edited.AllowedMentions.Value);
+        Assert.Equal("",h.Edited.Content.Value);Assert.Null(h.Edited.Embed.Value);
+        Assert.Equal("Partial observations retained",s.Notice);Assert.Same(original,s.Performance);
+        Assert.Equal(1,s.RankPage);Assert.Equal(1,s.KillPage);Assert.Equal(0,s.KillIndex);
+        edit.SetResult(null);await Task.WhenAll(active,stale).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1,s.Generation);h.Interaction.Verify(x=>x.ModifyOriginalResponseAsync(It.IsAny<Action<MessageProperties>>(),It.IsAny<RequestOptions>()),Times.Once);
+        h.Interaction.Setup(x=>x.ModifyOriginalResponseAsync(It.IsAny<Action<MessageProperties>>(),It.IsAny<RequestOptions>()))
+            .Callback<Action<MessageProperties>,RequestOptions>((act,_)=>{h.Edited=new();act(h.Edited);}).ReturnsAsync((RestInteractionMessage)null);
+        var hide=Assert.Single(RaidRecapPanelTests.Flatten(h.Edited.Components.Value.Components).OfType<ButtonComponent>(),b=>b.Label=="Hide help").CustomId.Split('~');
+        await h.Module.NavigateAsync(hide[1],hide[2],hide[3]);
+        Assert.DoesNotContain("Band colors:",RaidRecapPanelTests.Text(h.Edited.Components.Value));Assert.Equal(2,s.Generation);
+        Assert.Same(original,s.Performance);Assert.Equal(1,s.RankPage);Assert.Equal(1,s.KillPage);Assert.Equal("Partial observations retained",s.Notice);
+        h.Source.VerifyNoOtherCalls();h.Players.VerifyNoOtherCalls();
+        h.Discord.Verify(x=>x.PublishAsync(It.IsAny<IInteractionContext>(),It.IsAny<MessageComponent>(),It.IsAny<Func<bool>>()),Times.Never);
+        Assert.Equal(publicBefore,Newtonsoft.Json.JsonConvert.SerializeObject(RaidRecapView.Build(s,true)));
+    }
+    [Theory]
+    [InlineData("actor")][InlineData("guild")][InlineData("channel")][InlineData("expired")][InlineData("revoked")]
+    [InlineData("final-expired")][InlineData("final-revoked")]
+    public async Task OutputHelpCannotBypassOwnershipExpiryOrFinalAccess(string state)
+    {
+        var now=DateTimeOffset.UnixEpoch;var h=new Harness(()=>now);
+        var s=OutputSession(h,state=="actor"?9u:1u,state=="guild"?9u:2u,state=="channel"?9u:3u);var checks=0;
+        if(state=="expired")now=s.Expires;
+        h.Discord.Setup(x=>x.AccessAsync(h.Context.Object)).Returns(()=>
+        {
+            Assert.True(h.Deferred);checks++;
+            if(state=="final-expired" && checks==2)now=s.Expires;
+            return Task.FromResult(new RaidRecapAccess(state!="revoked" && !(state=="final-revoked" && checks==2),false));
+        });
+        await h.Module.NavigateAsync(s.Token,"0","output_help");Assert.Null(h.Edited);
+        if(state.StartsWith("final-",StringComparison.Ordinal))Assert.Equal(2,checks);
+        h.Source.VerifyNoOtherCalls();h.Players.VerifyNoOtherCalls();
+        h.Discord.Verify(x=>x.PublishAsync(It.IsAny<IInteractionContext>(),It.IsAny<MessageComponent>(),It.IsAny<Func<bool>>()),Times.Never);
+    }
     [Fact]
     public void PermissionPolicyRequiresOriginVisibilityAndBothSendRights()
     {

@@ -179,6 +179,19 @@ public class RaidRecapAccessTests
         if(!string.IsNullOrEmpty(dir)){Directory.CreateDirectory(dir);File.WriteAllText(Path.Combine(dir,"synthetic-player-discord-rest-wire.json"),wire.ToString());}
     }
 
+    internal static async Task<JObject> CaptureOfflineWire(MessageComponent payload)
+    {
+        using var h=new Harness();
+        await h.Context.Channel.SendMessageAsync(components:payload,flags:MessageFlags.ComponentsV2,allowedMentions:AllowedMentions.None,options:new RequestOptions{RetryMode=RetryMode.AlwaysFail});
+        Assert.Equal(1,h.Rest.Writes);
+        var wire=JObject.Parse(h.Rest.LastWrite);
+        Assert.Equal((int)MessageFlags.ComponentsV2,(int)wire["flags"]);
+        Assert.Empty(wire["allowed_mentions"]["parse"]);
+        Assert.True(wire["content"]==null || string.IsNullOrEmpty((string)wire["content"]));
+        Assert.True(wire["embeds"]==null || !wire["embeds"].Any());
+        return wire;
+    }
+
     private static MessageComponent PublicPayload() =>
         new ComponentBuilderV2().AddComponent(new TextDisplayBuilder("Offline timeout regression fixture")).Build();
 

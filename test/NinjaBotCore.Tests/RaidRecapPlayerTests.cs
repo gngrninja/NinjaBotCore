@@ -41,13 +41,26 @@ public class RaidRecapPlayerTests
     }
     [Theory]
     [InlineData("overview")][InlineData("bosses")][InlineData("damage")][InlineData("healing")][InlineData("analysis")]
-    public void PrivateViewsHaveTwoSiblingNativeContainersWithFiveTabs(string view)
+    public void PrivateViewsHaveSiblingNativeContainersWithFiveTabs(string view)
     {
         var s=RaidRecapPanelTests.Session();s.Report=RaidRecapPanelTests.Report();s.View=view;
-        var c=RaidRecapView.Build(s);Assert.Equal(2,c.Components.OfType<ContainerComponent>().Count());
+        var c=RaidRecapView.Build(s);Assert.Equal(view is "damage" or "healing"?3:2,c.Components.OfType<ContainerComponent>().Count());
+        Assert.All(c.Components,component=>Assert.IsType<ContainerComponent>(component));
+        Assert.All(c.Components.OfType<ContainerComponent>(),container=>Assert.DoesNotContain(container.Components,component=>component is ContainerComponent));
         var all=RaidRecapPanelTests.Flatten(c.Components).ToArray();Assert.InRange(all.Length,1,40);
         Assert.Equal(new[]{"Overview","Bosses","Damage","Healing","Analysis"},all.OfType<ActionRowComponent>().First().Components.OfType<ButtonComponent>().Select(b=>b.Label));
         Assert.Contains(all.OfType<ButtonComponent>(),b=>b.Label=="Players");
+    }
+    [Theory]
+    [InlineData(0)][InlineData(1)][InlineData(26)]
+    public async Task UnselectedCatalogOptionPairNeverSplitsAcrossInsertedRows(int count)
+    {
+        var (svc,source,players,s)=RaidRecapPlayerFlowTests.Setup(count);
+        await svc.ApplyAsync(s,"players",null);await svc.ApplyAsync(s,"player_pull","1");
+        var rows=RaidRecapPanelTests.Flatten(RaidRecapView.Build(s).Components).OfType<ActionRowComponent>();
+        var pair=Assert.Single(rows,r=>r.Components.OfType<ButtonComponent>().Any(b=>b.Label=="Previous players"));
+        Assert.Equal(new[]{"Previous players","Next players"},pair.Components.OfType<ButtonComponent>().Select(b=>b.Label));
+        RaidRecapPlayerReachabilityTests.Check(s);
     }
     [Fact]
     public void ReportPickerAlsoUsesSiblingScopeAndEvidenceContainers()

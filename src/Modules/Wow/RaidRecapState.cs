@@ -66,6 +66,7 @@ public sealed class RaidRecapSession
     public int AttemptPage { get; set; }
     public int KillPage { get; set; }
     public int RankPage { get; set; }
+    public bool OutputHelp { get; set; }
     public int BossIndex { get; set; }
     public int KillIndex { get; set; }
     public IReadOnlyList<RaidRecapStanding> Performance { get; set; }

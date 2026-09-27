@@ -50,7 +50,9 @@ public static class RaidRecapPlayerPresentation
     public static IReadOnlyList<IReadOnlyList<string>> OutputPages(RaidRecapSession s)
     {
         var fight=s.Report?.Fights.Where(f=>f.IsKill).ElementAtOrDefault(s.KillIndex);
-        return Pack((s.Performance??Array.Empty<RaidRecapStanding>()).Select((r,i)=>Standing(s.Report,fight,r,i+1,s.View=="healing"?"HPS":"DPS")).ToArray(),10);
+        // Reserve 2400 characters for bounded scope, warnings, controls and expanded help.
+        // Use the same whole-row pages with help open or closed so disclosure never moves a source.
+        return Pack((s.Performance??Array.Empty<RaidRecapStanding>()).Select((r,i)=>Standing(s.Report,fight,r,i+1,s.View=="healing"?"HPS":"DPS")).ToArray(),5,1400);
     }
     private static string UtilitySummary(RaidRecapAnalysis analysis,int actorId)
     {

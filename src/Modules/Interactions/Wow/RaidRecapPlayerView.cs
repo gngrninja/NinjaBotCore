@@ -79,8 +79,11 @@ public static class RaidRecapPlayerView
                     controls.WithButton("Previous rows",RaidRecapView.Nav(s,"player_rows_prev"),ButtonStyle.Secondary,disabled:index==0,row:4)
                         .WithButton("Next rows",RaidRecapView.Nav(s,"player_rows_next"),ButtonStyle.Secondary,disabled:index==pages.Count-1,row:4);
                 }
-                controls.WithButton("Previous players",RaidRecapView.Nav(s,"player_options_prev"),ButtonStyle.Secondary,disabled:p.OptionPage==0,row:4)
-                    .WithButton("Next players",RaidRecapView.Nav(s,"player_options_next"),ButtonStyle.Secondary,disabled:(p.OptionPage+1)*25>=p.Roster.Players.Count,row:4);
+                // Without a selected player there is no lens row. Do not insert a gap:
+                // the SDK would split the pair across separately appended rows.
+                var optionRow=p.Selected!=null?4:p.Roster.Players.Count>0?3:2;
+                controls.WithButton("Previous players",RaidRecapView.Nav(s,"player_options_prev"),ButtonStyle.Secondary,disabled:p.OptionPage==0,row:optionRow)
+                    .WithButton("Next players",RaidRecapView.Nav(s,"player_options_next"),ButtonStyle.Secondary,disabled:(p.OptionPage+1)*25>=p.Roster.Players.Count,row:optionRow);
             }
         }
         card.AddComponent(new TextDisplayBuilder($"-# Private snapshot · as of <t:{s.Report.AsOf.ToUnixTimeSeconds()}:f> · may still update. Player links open the general player report, not an exact event. Incoming is fight-wide, not a personal total."));

@@ -83,7 +83,7 @@ public class RaidRecapPanelTests
         foreach(var menu in all.OfType<SelectMenuComponent>())
         { Assert.InRange(menu.Options.Count,1,25); Assert.InRange(menu.CustomId.Length,1,100); Assert.All(menu.Options,o=>Assert.InRange(o.Label.Length,1,100)); }
         foreach(var button in all.OfType<ButtonComponent>().Where(b=>b.Style!=ButtonStyle.Link)) Assert.InRange(button.CustomId.Length,1,100);
-        if(view!="overview") Assert.Contains(all.OfType<ButtonComponent>(),b=>b.Label=="Next"&&!b.IsDisabled);
+        if(view!="overview") Assert.Contains(all.OfType<ButtonComponent>(),b=>b.Label==(view is "damage" or "healing"?"Next kill options":"Next")&&!b.IsDisabled);
     }
     [Fact]
     public void PickerNoticeIsBoundedEscapedAndPrivate()

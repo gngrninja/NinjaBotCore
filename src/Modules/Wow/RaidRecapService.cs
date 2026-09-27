@@ -22,7 +22,7 @@ public sealed partial class RaidRecapService
     public RaidRecapService(IRaidRecapSource source,RaidRecapCache cache) { _source=source; _cache=cache; }
     public async Task DiscoverAsync(RaidRecapSession s,string guild,string realm,string region)
     {
-        s.ResetComparison();
+        s.OutputHelp=false; s.ResetComparison();
         var key="guild:"+Newtonsoft.Json.JsonConvert.SerializeObject(new[]{guild,realm,region});
         var reports=(IReadOnlyList<WclV2Report>)await _cache.GetAsync(key,async()=>await _source.GetRaidRecapReportsAsync(guild,realm,region),TimeSpan.FromSeconds(30));
         s.Reports=reports.GroupBy(r=>RaidRecapRules.ReportCode(r.Code)).Select(g=>g.First()).OrderByDescending(r=>r.StartTime).Take(100).ToArray();
@@ -30,7 +30,7 @@ public sealed partial class RaidRecapService
     }
     public async Task OpenAsync(RaidRecapSession s,string code)
     {
-        s.ResetComparison(); s.Analysis=null; s.PlayerPanel=null; s.Performance=null; s.PerformanceParses=null; s.PerformanceNotice=null;
+        s.OutputHelp=false; s.ResetComparison(); s.Analysis=null; s.PlayerPanel=null; s.Performance=null; s.PerformanceParses=null; s.PerformanceNotice=null;
         code=RaidRecapRules.ReportCode(code);
         var report=(RaidRecapReport)await _cache.GetAsync("report:"+code,async()=>await _source.GetRaidRecapReportAsync(code),TimeSpan.FromSeconds(30));
         s.Analysis=null; s.PullIndex=-1; s.PullPage=s.AnalysisPage=0; s.AnalysisMetric="deaths";
@@ -38,6 +38,13 @@ public sealed partial class RaidRecapService
     }
     public async Task ApplyAsync(RaidRecapSession s,string action,string value)
     {
+        // Purely local disclosure: retain warnings and every selection/result, and reject hidden controls.
+        if(action=="output_help")
+        {
+            if(s.PlayerPanel!=null || s.View is not ("damage" or "healing") || s.Report?.Kills is not >0)throw InvalidSelection();
+            s.OutputHelp=!s.OutputHelp;return;
+        }
+        if(action is "report" or "reports" or "refresh" or "overview" or "bosses" or "damage" or "healing" or "analysis" or "players" or "kill")s.OutputHelp=false;
         s.Notice=null;
         if(await ApplyPlayersAsync(s,action,value))return;
         if(s.Report!=null && action is "bosses_prev" or "bosses_next" or "kills_prev" or "kills_next")

@@ -54,8 +54,17 @@ public class RaidRecapPerformanceTests
         var r=RaidRecapPanelTests.Report(); var source=new Mock<IRaidRecapSource>();
         source.Setup(x=>x.GetRaidRecapScopedTableAsync(r,r.Fights[0],false)).ReturnsAsync(new JObject { ["data"]=new JObject { ["entries"]=new JArray(Enumerable.Range(1,21).Select(i=>new JObject { ["id"]=i,["name"]="Source"+i,["total"]=i*60000 })) } });
         var s=RaidRecapPanelTests.Session();s.Report=r; var service=new RaidRecapService(source.Object,new RaidRecapCache());
-        await service.ApplyAsync(s,"damage",null); await service.ApplyAsync(s,"ranks_next",null); await service.ApplyAsync(s,"ranks_next",null);
-        Assert.Contains("Source1",RaidRecapPanelTests.Text(RaidRecapView.Build(s)));
-        Assert.Equal(2,s.RankPage);
+        await service.ApplyAsync(s,"damage",null);
+        var seen=new System.Collections.Generic.List<string>();var pages=RaidRecapPlayerPresentation.OutputPages(s);
+        for(var page=0;page<pages.Count;page++)
+        {
+            Assert.Equal(page,s.RankPage);RaidRecapPlayerReachabilityTests.Check(s);
+            var text=RaidRecapPanelTests.Text(RaidRecapView.Build(s));
+            seen.AddRange(System.Text.RegularExpressions.Regex.Matches(text,@"Source\d+").Select(m=>m.Value));
+            await service.ApplyAsync(s,"ranks_next",null);
+        }
+        Assert.Equal(Enumerable.Range(1,21).Reverse().Select(i=>"Source"+i),seen);
+        Assert.Equal(pages.Count-1,s.RankPage);
+        source.Verify(x=>x.GetRaidRecapScopedTableAsync(r,r.Fights[0],false),Times.Once);
     }
 }

@@ -68,14 +68,29 @@ public class RaidRecapPlayerQueryReplayTests
                 await svc.ApplyAsync(s,metric,null);if(handler.Pending!=null)break;
                 Assert.NotNull(s.PerformanceParses);Assert.True(s.PerformanceParses.Entries.Count>0,"A complete replay requires at least one verified parse; no synthetic substitution.");
                 counts[metric+"Sources"]=s.Performance.Count;counts[metric+"VerifiedParses"]=s.PerformanceParses.Entries.Count;
-                RaidRecapPlayerReachabilityTests.Check(s);Save(output,metric,s);
+                s.RankPage=0;await Save(output,metric,s);
+                var requests=handler.Executed.Count;var raw=s.Performance;var selected=s.KillIndex;
+                var seen=new List<string>();var pages=RaidRecapPlayerPresentation.OutputPages(s);
+                for(var page=0;page<pages.Count;page++)
+                {
+                    Assert.Equal(page,s.RankPage);
+                    var closed=RaidRecapOutputTests.Cards(s).SelectMany(c=>c.Components.OfType<Discord.TextDisplayComponent>()).Select(t=>t.Content).ToArray();
+                    seen.AddRange(closed);await Save(output,metric+"-page"+(page+1)+"-closed",s);
+                    await svc.ApplyAsync(s,"output_help",null);await Save(output,metric+"-page"+(page+1)+"-help",s);
+                    Assert.Equal(closed,RaidRecapOutputTests.Cards(s).SelectMany(c=>c.Components.OfType<Discord.TextDisplayComponent>()).Select(t=>t.Content));
+                    await svc.ApplyAsync(s,"output_help",null);await svc.ApplyAsync(s,"ranks_next",null);
+                }
+                var fight=s.Report.Fights.Where(f=>f.IsKill).ElementAt(selected);
+                Assert.Equal(raw.Select((r,i)=>RaidRecapPlayerPresentation.Standing(s.Report,fight,r,i+1,metric=="healing"?"HPS":"DPS")),seen);
+                Assert.Same(raw,s.Performance);Assert.Equal(selected,s.KillIndex);Assert.Equal(requests,handler.Executed.Count);
+                counts[metric+"ReachableSources"]=seen.Count;counts[metric+"Pages"]=pages.Count;
             }
             if(handler.Pending==null)
             {
                 var publicBefore=JsonConvert.SerializeObject(RaidRecapView.Build(s,true));await svc.ApplyAsync(s,"players",null);
                 counts["catalogPlayers"]=s.PlayerPanel.Roster.Players.Count;Assert.True(counts["catalogPlayers"]>0);
                 await svc.ApplyAsync(s,"player",s.PlayerPanel.Roster.Players[0].ActorId.ToString());await svc.ApplyAsync(s,"player_lens","healing");
-                RaidRecapPlayerReachabilityTests.Check(s);Save(output,"player",s);Assert.Equal(publicBefore,JsonConvert.SerializeObject(RaidRecapView.Build(s,true)));status="complete";
+                RaidRecapPlayerReachabilityTests.Check(s);await Save(output,"player",s);Assert.Equal(publicBefore,JsonConvert.SerializeObject(RaidRecapView.Build(s,true)));status="complete";
             }
         }
         catch(InvalidOperationException) when(handler.Pending!=null) { }
@@ -87,9 +102,5 @@ public class RaidRecapPlayerQueryReplayTests
         if(handler.Synthetic)Assert.Equal("complete",status);
         else if((bool?)config["requireComplete"]==true)Assert.Equal("complete",status);
     }
-    private static void Save(string directory,string name,RaidRecapSession s)
-    {
-        var payload=RaidRecapView.Build(s);File.WriteAllText(Path.Combine(directory,name+".sdk.json"),JsonConvert.SerializeObject(payload,Formatting.Indented));
-        File.WriteAllText(Path.Combine(directory,name+".md"),RaidRecapPanelTests.Text(payload));
-    }
+    private static Task Save(string directory,string name,RaidRecapSession s)=>RaidRecapOutputTests.Save(directory,name,s);
 }
