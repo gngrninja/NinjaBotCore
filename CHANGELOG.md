@@ -8,6 +8,8 @@
 - Every report view has a **How to read** button. Interpretation notes moved there, so the cards are shorter.
 - `/char` and `/raid-recap` share one parse palette. `/char` now shows pink for 99 and gold for exactly 100.
 - Select menus show plain names instead of markdown-escaped ones.
+- Added `/raid-recap-live`: a public card that is posted when the guild's raid log goes live and updates in place until the raid ends. It shows pull results, the first deaths of the last wipe and the top performers of the last kill by spec and class, never by name. **Open my recap** gives each viewer the private detail.
+- Added `/raid-recap-rollout` for the bot owner: off, the owner's servers only, or everyone.
 
 ## [v3.2.7] - 2026-08-23
 

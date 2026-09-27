@@ -59,6 +59,55 @@ public class RaidRecapCommandTests
         h.Discord.Verify(x=>x.PublishAsync(It.IsAny<IInteractionContext>(),It.IsAny<MessageComponent>(),It.IsAny<Func<bool>>()),Times.Never);
     }
     [Fact]
+    public async Task OpenMyRecapAnswersPrivatelyOnTheLatestPullWithNames()
+    {
+        var h=new Harness();
+        var report=new RaidRecapReport("AbCdEfGh12345678","Synthetic night",1,100000,999999,DateTimeOffset.UnixEpoch,new[]{
+            new RaidRecapFight(1,7,4,"First boss",true,false,1000,61000,null),
+            new RaidRecapFight(2,8,4,"Second boss",false,false,100000,160000,12.5)});
+        h.Source.Setup(x=>x.GetRaidRecapReportAsync("AbCdEfGh12345678")).ReturnsAsync(report);
+        h.Source.Setup(x=>x.GetRaidRecapAnalysisAsync(report,report.Fights[1],"deaths",It.IsAny<System.Threading.CancellationToken>()))
+            .ReturnsAsync(new RaidRecapAnalysis("deaths",true,null){Deaths=new[]{new RaidRecapDeath(5,"SyntheticPlayer",42000,"Synthetic Blast")}});
+        h.Discord.Setup(x=>x.GuildAsync(h.Context.Object)).ReturnsAsync(new RaidRecapGuild("Synthetic Guild","realm","us"));
+
+        await h.Module.OpenFromLiveCardAsync("AbCdEfGh12345678");
+
+        Assert.True(h.Deferred);
+        var text=RaidRecapPanelTests.Text(h.Edited.Components.Value);
+        Assert.StartsWith("# 📊 Raid Recap · Synthetic Guild",text);
+        Assert.Contains("## 🔬 Second boss · Heroic",text);Assert.Contains("Wipe #2",text);
+        Assert.Contains("`0:42` [SyntheticPlayer]",text);Assert.Contains("#fight=2&source=5",text);
+        Assert.Equal(MessageFlags.ComponentsV2,h.Edited.Flags.Value);Assert.Same(AllowedMentions.None,h.Edited.AllowedMentions.Value);
+        Assert.Equal("",h.Edited.Content.Value);Assert.Null(h.Edited.Embed.Value);
+        // A private answer only: nothing is sent to the channel.
+        h.Discord.Verify(x=>x.PublishAsync(It.IsAny<IInteractionContext>(),It.IsAny<MessageComponent>(),It.IsAny<Func<bool>>()),Times.Never);
+        h.Channel.Verify(x=>x.SendMessageAsync(It.IsAny<string>(),It.IsAny<bool>(),It.IsAny<Embed>(),It.IsAny<RequestOptions>(),It.IsAny<AllowedMentions>(),It.IsAny<MessageReference>(),It.IsAny<MessageComponent>(),It.IsAny<ISticker[]>(),It.IsAny<Embed[]>(),It.IsAny<MessageFlags>(),It.IsAny<PollProperties>()),Times.Never);
+    }
+    [Theory]
+    [InlineData("not-a-code")][InlineData("https://evil.example/reports/AbCdEfGh12345678")][InlineData("")]
+    public async Task OpenMyRecapRejectsAForgedCodeBeforeAnyLookup(string code)
+    {
+        var h=new Harness();
+        await h.Module.OpenFromLiveCardAsync(code);
+        Assert.Contains("16",RaidRecapPanelTests.Text(h.Edited.Components.Value));
+        h.Source.Verify(x=>x.GetRaidRecapReportAsync(It.IsAny<string>()),Times.Never);
+    }
+    [Fact]
+    public async Task OpenMyRecapFallsBackToTheOverviewWhenThePullCannotBeRead()
+    {
+        var h=new Harness();
+        var report=RaidRecapPanelTests.Report();
+        h.Source.Setup(x=>x.GetRaidRecapReportAsync("AbCdEfGh12345678")).ReturnsAsync(report);
+        h.Source.Setup(x=>x.GetRaidRecapAnalysisAsync(report,report.Fights[0],"deaths",It.IsAny<System.Threading.CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("PRIVATE provider detail"));
+        h.Discord.Setup(x=>x.GuildAsync(h.Context.Object)).ThrowsAsync(new ArgumentException("No unique WoW guild association."));
+
+        await h.Module.OpenFromLiveCardAsync("AbCdEfGh12345678");
+
+        var text=RaidRecapPanelTests.Text(h.Edited.Components.Value);
+        Assert.StartsWith("# 📊 Raid Recap\n",text);Assert.Contains("1 kill",text);Assert.DoesNotContain("PRIVATE",text);
+    }
+    [Fact]
     public async Task AssociatedGuildIsResolvedOnlyAfterDeferral()
     {
         var h=new Harness();h.Discord.Setup(x=>x.GuildAsync(h.Context.Object)).Returns(()=>{ Assert.True(h.Deferred); return Task.FromResult(new RaidRecapGuild("Guild","realm","us")); });

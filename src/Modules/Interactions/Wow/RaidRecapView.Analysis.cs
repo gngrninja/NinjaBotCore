@@ -110,7 +110,11 @@ public static partial class RaidRecapView
         var lines = new List<string>();
         var summary = $"**☠️ {RaidRecapFormat.Plural(analysis.Deaths.Count, "death")}**"
             + $" · {RaidRecapFormat.Plural(analysis.DistinctPlayers, "player")}";
-        if (!analysis.Complete)
+        if (!analysis.Complete && analysis.Deaths.Count == 0)
+        {
+            text.AppendLine("**☠️ No deaths recorded yet.** The data is partial.");
+        }
+        else if (!analysis.Complete)
         {
             text.AppendLine(summary + " · at least");
         }

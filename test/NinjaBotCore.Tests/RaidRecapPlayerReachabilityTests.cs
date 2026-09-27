@@ -61,7 +61,7 @@ public class RaidRecapPlayerReachabilityTests
         await svc.ApplyAsync(s,metric,null);var text=RaidRecapPanelTests.Text(RaidRecapView.Build(s));
         Assert.Contains("#fight=1&source=1)",text);Assert.DoesNotContain("&source=999",text);Assert.Contains("Partial",text);
         await svc.ApplyAsync(s,"players",null);await svc.ApplyAsync(s,"player","1");await svc.ApplyAsync(s,"player_lens",metric);
-        Assert.Contains("** · 1\n",RaidRecapPanelTests.Text(RaidRecapView.Build(s)));Check(s);
+        Assert.Contains(RaidRecapPanelTests.Text(RaidRecapView.Build(s)).Split('\n'),line=>line.TrimEnd('\r').EndsWith("** · 1",StringComparison.Ordinal));Check(s);
     }
     [Theory]
     [InlineData("deaths",500)][InlineData("interrupts",1500)][InlineData("dispels",1500)]

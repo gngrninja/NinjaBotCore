@@ -8,7 +8,7 @@
 
 Choose either guild or report. Guild lookup is read-only, independent of the Discord server's display name; missing/ambiguous associations require `/setguild` or an explicit target. Only Retail HTTPS hosts `warcraftlogs.com` / `www.warcraftlogs.com` are accepted. Arbitrary origins, other game hosts, URL credentials, malformed codes and whitespace repairs are rejected before lookup.
 
-The panel is **private to its invoking user** in a normal server text channel. DMs/threads are unsupported. Both actor and bot must retain membership and View Channel access. `/logs`, `/watchlogs`, monitoring and guild-association writers are unchanged. There is no watcher, automatic publication, database write, patch-specific ability catalog, prediction or player-quality score.
+The panel is **private to its invoking user** in a normal server text channel. DMs/threads are unsupported. Both actor and bot must retain membership and View Channel access. `/logs`, `/watchlogs`, monitoring and guild-association writers are unchanged. The private recap has no patch-specific ability catalog, prediction or player-quality score. Automatic posting exists only in the opt-in live card described below.
 
 ## Presentation
 
@@ -24,6 +24,42 @@ The cards follow the `/char` WarcraftLogs views, so the two read as one product.
 - **Wording:** pulls, kills, wipes, best pull, last wipe, deaths, kicked, went off, dispelled. Partial results are marked **Partial data** and their counts read **at least**.
 
 The sections below describe behaviour, limits and safety rules. Where they quote older labels, the labels above are current.
+
+## Live card
+
+`/raid-recap-live` posts one public card when the guild's raid log goes live and keeps editing that same message until the raid ends. Edits never ping anyone.
+
+**States**
+- **Found:** one of the guild's three newest logs had an event in the last 15 minutes and has at least one raid boss pull (LFR, Normal, Heroic or Mythic). Dungeon logs and logs with only trash are ignored. The card is posted, marked 🔴 LIVE. The report is claimed in the database before posting, so two bot processes cannot both post it.
+- **Watching:** the log is re-read every 90 seconds. After 10 minutes without a new pull that slows to every 3 minutes, and speeds up again with the next pull. The message is edited only when what it shows has changed.
+- **Ended:** the log has been quiet for 30 minutes, or the card has been watched for 8 hours. The card becomes a final summary, marked 🏁, and watching stops. If the same log goes live again within those 8 hours, for example after a long break, the same card returns to 🔴 LIVE.
+- **Stopped:** the card was deleted, the server turned the feature off, the rollout stopped covering the server and the card went quiet, or 10 refreshes in a row failed. A refresh refused because the WarcraftLogs budget is spent does not count as a failure. A deleted card is never reposted. Otherwise the card is edited to say updates stopped, so it never claims to be live forever.
+
+**What the public card shows**
+- Kills, wipes, pulls, time on bosses, and each boss with its result. The log's title is left out, because it is free text typed by the uploader.
+- The current boss, the last pull, the best pull, and a pull strip such as `62 · 55 · 41 · 12 · ✅` (boss health left per pull, latest 12).
+- The first three deaths of the latest wipe, and the top three damage and healing of the latest kill. These show **spec and class only**. The public card never contains a player name or a player link.
+- **Open my recap** opens the private `/raid-recap` for that log, for whoever pressed it, on the latest pull's deaths. Its custom ID holds only the report code, so it keeps working after a restart.
+
+**Two switches**
+| Switch | Who | What |
+|---|---|---|
+| `/raid-recap-live state:` On, Off or Status, optional `channel:` | Officers (Kick Members, same as `/watchlogs`) | Turns the card on or off for the server. The channel defaults to the `/watchlogs` channel, then to where the command was run. Needs `/setguild`. |
+| `/raid-recap-rollout mode:` Off, My servers, Everyone or Status | Bot owner only | Chooses which servers are eligible. Off is the kill switch: the watcher makes no WarcraftLogs calls and no Discord calls. **Open my recap** on cards already posted still works, the same as running `/raid-recap`. Hidden from help. |
+
+**Rollout gate.** In *My servers* mode a server is eligible only while the bot owner is a member of it. The bot already holds each server's member list, so the check normally costs no Discord call. Right after a restart, while member lists are still downloading, it asks Discord directly. Joining a server makes it eligible and leaving removes it. The default mode is *My servers*, and nothing is posted anywhere until an officer turns the card on.
+
+**Cost and limits**
+- One log read per refresh. Deaths and top output are read again only when the latest wipe or the latest kill changes, each independently.
+- Roughly 120 to 160 API points per live raid per hour. These are estimates from third-party measurements.
+- At most 20 cards are refreshed at once across all servers.
+- Servers without a live card are checked for a new log every 5 minutes, at most 5 servers per sweep, longest-waiting first.
+- The bot needs View Channel, Send Messages and Read Message History in the card's channel.
+- The card reads through the same caches as the private recap.
+
+**State** is in three tables: `RaidRecapLiveSettings` (per server), `RaidRecapLiveCards` (one row per posted card, unique per server and report) and `RaidRecapRollout` (one row). Watching resumes after a restart. Migration: `AddRaidRecapLive`.
+
+The existing `/watchlogs` "New log" post is unchanged.
 
 ## Five main views
 

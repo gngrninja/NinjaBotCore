@@ -138,6 +138,7 @@ namespace NinjaBotCore
                 .AddSingleton<MythicPlusDungeonService>()
                 .AddSingleton<WeeklyKeyHistoryRefreshService>()
                 .AddSingleton<PushGroupMaintenanceService>()
+                .AddSingleton<RaidRecapLiveService>()
                 .AddSingleton<AudioService>()
                 .AddWarcraftClients(_config["WoWClient"], _config["WoWSecret"])         
                 .AddSingleton<LoggingService>();                   
@@ -199,6 +200,10 @@ namespace NinjaBotCore
             var pushGroupMaintenance = serviceProvider.GetRequiredService<PushGroupMaintenanceService>();
             await pushGroupMaintenance.StartAsync(CancellationToken.None);
 
+            // Live raid recap cards: finds live guild logs and keeps their card updated
+            var raidRecapLive = serviceProvider.GetRequiredService<RaidRecapLiveService>();
+            await raidRecapLive.StartAsync(CancellationToken.None);
+
             // RealmWatcherService runs in separate NinjaBotHelpers container
 
             //Setup graceful shutdown
@@ -243,6 +248,7 @@ namespace NinjaBotCore
                 // service especially — killing it mid cache-replace can empty the M+ pool cache).
                 Log.Information("Stopping pushgroup background services...");
                 await pushGroupMaintenance.StopAsync(CancellationToken.None);
+                await raidRecapLive.StopAsync(CancellationToken.None);
                 await weeklyKeyHistoryService.StopAsync(CancellationToken.None);
                 await mythicPlusDungeonService.StopAsync(CancellationToken.None);
             }

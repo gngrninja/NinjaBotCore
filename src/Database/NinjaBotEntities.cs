@@ -79,6 +79,9 @@ namespace NinjaBotCore.Database
         public virtual DbSet<UserKeystone> UserKeystones { get; set; }
         public virtual DbSet<UserPushGroupSettings> UserPushGroupSettings { get; set; }
         public virtual DbSet<ServerPushGroupSettings> ServerPushGroupSettings { get; set; }
+        public virtual DbSet<RaidRecapLiveSettings> RaidRecapLiveSettings { get; set; }
+        public virtual DbSet<RaidRecapLiveCard> RaidRecapLiveCards { get; set; }
+        public virtual DbSet<RaidRecapRollout> RaidRecapRollout { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -126,6 +129,17 @@ namespace NinjaBotCore.Database
                     .IsUnique()
                     .HasFilter("\"WithdrewAt\" IS NULL")
                     .HasDatabaseName("IX_PushGroupSignups_ActiveSlot");
+            });
+
+            modelBuilder.Entity<RaidRecapLiveCard>(entity =>
+            {
+                // One card per report per server, however often discovery runs.
+                entity.HasIndex(e => new { e.DiscordGuildId, e.ReportCode })
+                    .IsUnique()
+                    .HasDatabaseName("IX_RaidRecapLiveCards_DiscordGuildId_ReportCode");
+
+                entity.HasIndex(e => e.State)
+                    .HasDatabaseName("IX_RaidRecapLiveCards_State");
             });
 
             modelBuilder.Entity<WeeklyKeyHistory>(entity =>

@@ -56,10 +56,16 @@ public sealed class RaidRecapDiscord : IRaidRecapDiscord
         if(context.Guild==null) throw new ArgumentException("Use /setguild in a server, or supply an explicit report.");
         using var scope=_scopes.CreateScope();
         var db=scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
-        var id=checked((long)context.Guild.Id);
+        return await FindGuildAsync(db,context.Guild.Id)
+            ??throw new ArgumentException("No unique WoW guild association. Use /setguild or an explicit guild override/report.");
+    }
+    /// <summary>The server's single associated WoW guild, or null when there is none or more than one.</summary>
+    public static async Task<RaidRecapGuild> FindGuildAsync(NinjaBotEntities db,ulong serverId)
+    {
+        var id=checked((long)serverId);
         var matches=await db.WowGuildAssociations.AsNoTracking().Where(g=>g.ServerId==id).Take(2).ToListAsync();
         if(matches.Count!=1 || string.IsNullOrWhiteSpace(matches[0].WowGuild) || string.IsNullOrWhiteSpace(matches[0].WowRealm))
-            throw new ArgumentException("No unique WoW guild association. Use /setguild or an explicit guild override/report.");
+            return null;
         var guild=matches[0];
         var region=(guild.WowRegion??"us").ToLowerInvariant();
         if(region=="ru") region="eu";

@@ -71,7 +71,7 @@ public class RaidRecapAnalysisViewTests
     public void PartialEmptyDeathsNeverClaimsNoDeathsOrDefiniteFirstLoss()
     {
         var s=Session();s.View="analysis";Set(s,"PullIndex",0);Set(s,"Analysis",new RaidRecapAnalysis("deaths",false,"Partial: cursor unavailable"));
-        Assert.Contains("Partial",Text(s));Assert.DoesNotContain("No player deaths",Text(s));Assert.DoesNotContain("first at",Text(s));Assert.Contains("at least",Text(s));
+        Assert.Contains("Partial",Text(s));Assert.DoesNotContain("No player deaths",Text(s));Assert.DoesNotContain("first at",Text(s));Assert.Contains("No deaths recorded yet",Text(s));Assert.Contains("partial",Text(s));
     }
     [Theory]
     [InlineData("deaths")] [InlineData("incoming")] [InlineData("interrupts")] [InlineData("dispels")]

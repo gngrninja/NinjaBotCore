@@ -118,7 +118,7 @@ public class RaidRecapDesignTests
         Assert.Equal(ButtonStyle.Success, Assert.Single(tabs, tab => tab.CustomId.EndsWith("~" + view)).Style);
         Assert.All(tabs.Where(tab => !tab.CustomId.EndsWith("~" + view)), tab => Assert.Equal(ButtonStyle.Primary, tab.Style));
 
-        Assert.Contains("| Data from WarcraftLogs · updated <t:", Text(s));
+        Assert.Contains("| Data from WarcraftLogs · fetched <t:", Text(s));
         Assert.Contains("(US)", Text(s));
         RaidRecapPlayerReachabilityTests.Check(s);
     }

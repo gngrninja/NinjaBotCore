@@ -27,6 +27,24 @@ public class RaidRecapCommands : InteractionModuleBase<IInteractionContext>
         [Summary("report","Optional retail WarcraftLogs HTTPS report URL or exact code")] string report=null)
     {
         await DeferAsync(ephemeral:true);
+        await OpenAsync(guild,report,fromLiveCard:false);
+    }
+
+    /// <summary>
+    /// "Open my recap" on the public live card. Answers with a new private recap for whoever
+    /// pressed it and leaves the public card untouched. The custom ID holds only the report
+    /// code, so the button keeps working after a restart.
+    /// </summary>
+    [ComponentInteraction(RaidRecapView.LiveOpenId+"~*")]
+    public async Task OpenFromLiveCardAsync(string code)
+    {
+        if(Context.Interaction is IComponentInteraction component) await component.DeferLoadingAsync(ephemeral:true);
+        else await DeferAsync(ephemeral:true);
+        await OpenAsync(null,code,fromLiveCard:true);
+    }
+
+    private async Task OpenAsync(string guild,string report,bool fromLiveCard)
+    {
         try
         {
             if(Context.Guild==null) { await NoticeAsync("Use /raid-recap in a server text channel."); return; }
@@ -40,7 +58,24 @@ public class RaidRecapCommands : InteractionModuleBase<IInteractionContext>
             await _sessions.RunAsync(s.Token,s.Actor,s.Guild,s.Channel,0,async state=>
             {
                 state.CanShare=access.Share;
-                if(report!=null) await _service.OpenAsync(state,report);
+                if(report!=null)
+                {
+                    if(fromLiveCard)
+                    {
+                        // The live card is posted for this server's own guild, so name it in the header.
+                        try { var own=await _discord.GuildAsync(Context);state.GuildName=own.Name;state.GuildRegion=own.Region; }
+                        catch(ArgumentException) { }
+                    }
+                    await _service.OpenAsync(state,report);
+                    if(fromLiveCard && state.Report.CompletedPulls.Count>0)
+                    {
+                        // Land on the latest pull's deaths: the named version of what the card shows.
+                        state.PullIndex=state.Report.CompletedPulls.Count-1;state.PullPage=state.PullIndex/25;
+                        try { await _service.ApplyAsync(state,"analysis",null); }
+                        catch(Exception ex) when(ex is InvalidOperationException or System.Net.Http.HttpRequestException)
+                        { state.View="overview";state.Analysis=null; }
+                    }
+                }
                 else
                 {
                     RaidRecapGuild target;

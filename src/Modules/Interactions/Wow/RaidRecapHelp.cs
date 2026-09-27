@@ -9,7 +9,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow;
 public static class RaidRecapHelp
 {
     private const string Live =
-        "Logs can change while a raid is still being uploaded. Press 🔄 Refresh for the latest.";
+        "The footer shows when the bot last read the log. Logs change while a raid is being uploaded, so press 🔄 Refresh for the latest.";
 
     private const string Partial =
         "⚠️ **Partial data** means WarcraftLogs returned incomplete results. Counts are minimums, never zero.";

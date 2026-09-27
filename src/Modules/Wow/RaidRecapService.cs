@@ -23,7 +23,7 @@ public sealed partial class RaidRecapService
     public async Task DiscoverAsync(RaidRecapSession s,string guild,string realm,string region)
     {
         s.OutputHelp=false; s.ResetComparison();
-        var key="guild:"+Newtonsoft.Json.JsonConvert.SerializeObject(new[]{guild,realm,region});
+        var key=GuildKey(guild,realm,region);
         var reports=(IReadOnlyList<WclV2Report>)await _cache.GetAsync(key,async()=>await _source.GetRaidRecapReportsAsync(guild,realm,region),TimeSpan.FromSeconds(30));
         s.Reports=reports.GroupBy(r=>RaidRecapRules.ReportCode(r.Code)).Select(g=>g.First()).OrderByDescending(r=>r.StartTime).Take(100).ToArray();
         s.View="reports"; s.ReportPage=0;
@@ -33,7 +33,7 @@ public sealed partial class RaidRecapService
     {
         s.OutputHelp=false; s.ResetComparison(); s.Analysis=null; s.PlayerPanel=null; s.Performance=null; s.PerformanceParses=null; s.PerformanceNotice=null;
         code=RaidRecapRules.ReportCode(code);
-        var report=(RaidRecapReport)await _cache.GetAsync("report:"+code,async()=>await _source.GetRaidRecapReportAsync(code),TimeSpan.FromSeconds(30));
+        var report=(RaidRecapReport)await _cache.GetAsync(ReportKey(code),async()=>await _source.GetRaidRecapReportAsync(code),TimeSpan.FromSeconds(30));
         s.Analysis=null; s.PullIndex=-1; s.PullPage=s.AnalysisPage=0; s.AnalysisMetric="deaths";
         s.Performance=null; s.Report=report; s.View="overview"; s.BossIndex=s.BossPage=s.AttemptPage=s.KillIndex=s.KillPage=s.RankPage=0;
     }
@@ -147,6 +147,13 @@ public sealed partial class RaidRecapService
             s.RankPage=Math.Clamp(s.RankPage,0,RaidRecapPlayerPresentation.OutputPages(s).Count-1);
         }
     }
+    // The live card reads through the same caches as the private recap, so a viewer who opens
+    // their recap right after a refresh costs no extra provider calls.
+    public Task<RaidRecapAnalysis> GetDeathsAsync(RaidRecapReport report,RaidRecapFight fight)=>LoadAnalysisAsync(report,fight,"deaths");
+    public Task<RaidRecapOutput> GetOutputAsync(RaidRecapReport report,RaidRecapFight fight,bool healing)=>LoadOutputAsync(report,fight,healing);
+    public Task<RaidRecapRoster> GetRosterAsync(RaidRecapReport report,RaidRecapFight fight)=>LoadRosterAsync(report,fight);
+    public static string GuildKey(string guild,string realm,string region)=>"guild:"+Newtonsoft.Json.JsonConvert.SerializeObject(new[]{guild,realm,region});
+    public static string ReportKey(string code)=>"report:"+code;
     private static ArgumentException InvalidSelection()=>new("Invalid or stale recap selection. Reopen /raid-recap.");
 
     private static void StartComparison(RaidRecapSession s,RaidRecapFight a,RaidRecapFight b)

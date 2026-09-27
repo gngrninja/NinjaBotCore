@@ -200,7 +200,11 @@ public static partial class RaidRecapView
         container.AddComponent(text);
     }
 
-    internal static string ReportSubtitle(RaidRecapSession s)
+    /// <summary>
+    /// Title line plus zone, difficulty, date and length. The title is free text typed by
+    /// whoever uploaded the log, so the automatic public card leaves it out.
+    /// </summary>
+    internal static string ReportSubtitle(RaidRecapSession s, bool includeTitle = true)
     {
         var report = s.Report;
         var parts = new List<string>();
@@ -232,8 +236,14 @@ public static partial class RaidRecapView
             parts.Add(RaidRecapFormat.Span(report.EndTime - report.StartTime) + " raid");
         }
 
+        var details = string.Join(" · ", parts);
+        if (!includeTitle)
+        {
+            return details;
+        }
+
         var line = $"**{RaidRecapRules.Text(report.Title, 160)}**";
-        return parts.Count == 0 ? line : line + "\n" + string.Join(" · ", parts);
+        return parts.Count == 0 ? line : line + "\n" + details;
     }
 
     internal static void AddNavigation(ComponentBuilder controls, RaidRecapSession s, string activeView)
@@ -320,7 +330,7 @@ public static partial class RaidRecapView
             owner += " | ";
         }
 
-        return $"-# {owner}Data from {RaidRecapFormat.Source} · updated <t:{s.Report.AsOf.ToUnixTimeSeconds()}:R> · may still update";
+        return $"-# {owner}Data from {RaidRecapFormat.Source} · fetched <t:{s.Report.AsOf.ToUnixTimeSeconds()}:R> · may still update";
     }
 
     // ===== Overview =====
