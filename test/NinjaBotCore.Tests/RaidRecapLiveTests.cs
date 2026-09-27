@@ -974,7 +974,7 @@ public class RaidRecapLiveTests
     // ===== The card =====
 
     [Fact]
-    public async Task PublicCardShowsSpecsAndResultsButNeverANameOrPlayerLink()
+    public async Task PublicCardNamesTopPerformersAndKeepsDeathsBySpecOnly()
     {
         using var rig = new Rig();
         await rig.EnrollAsync();
@@ -998,15 +998,22 @@ public class RaidRecapLiveTests
         Assert.Contains("`1:35` 💚 Holy Priest · Synthetic Spin", text);
         Assert.Contains("-# 4 deaths on this pull", text);
         Assert.Contains("**✅ Synthetic Boss kill** · 5:00", text);
-        Assert.Contains("🥇 ⚔️ Fury Warrior · **20.0K** DPS · 🟠 **96**", text);
-        Assert.Contains("🥈 💚 Holy Priest · **10.0K** DPS", text);
+        // Top damage and healing are praise, so they are named and linked.
+        Assert.Contains("🥇 **[PrivateAlpha](https://www.warcraftlogs.com/reports/AbCdEfGh12345678#fight=1&source=1)** · ⚔️ Fury Warrior · **20.0K** DPS · 🟠 **96**", text);
+        Assert.Contains("🥈 **[PrivateGamma](https://www.warcraftlogs.com/reports/AbCdEfGh12345678#fight=1&source=3)** · 💚 Holy Priest · **10.0K** DPS", text);
+
+        // Deaths never are: spec and class only, no name and no player link.
+        var normalized = text.Replace("\r\n", "\n");
+        var from = normalized.IndexOf("**💀 Last wipe", StringComparison.Ordinal);
+        var deaths = normalized.Substring(from, normalized.IndexOf("**✅ Synthetic Boss kill**", StringComparison.Ordinal) - from);
+        Assert.Contains("Fury Warrior", deaths);
+        Assert.DoesNotContain("Private", deaths);
+        Assert.DoesNotContain("&source=", deaths);
+        Assert.DoesNotContain("PrivateBeta", text);   // died, but was not a top performer
         Assert.Contains("refreshes while the raid is live", text);
 
-        Assert.DoesNotContain("Private", text);
         Assert.DoesNotContain("Synthetic raid night", text);   // the uploader's free-text title
         var serialized = Newtonsoft.Json.JsonConvert.SerializeObject(card);
-        Assert.DoesNotContain("Private", serialized);
-        Assert.DoesNotContain("&source=", serialized);
         Assert.DoesNotContain("@everyone", serialized);
 
         var parts = RaidRecapPanelTests.Flatten(card.Components).ToArray();
@@ -1036,8 +1043,8 @@ public class RaidRecapLiveTests
             TotalDeaths = 20,
             DeathsComplete = false,
             Kill = fights[11],
-            TopDamage = Enumerable.Range(1, 3).Select(i => new RaidRecapLivePerformer("⚔️ Fury Warrior", double.MaxValue, 100)).ToArray(),
-            TopHealing = Enumerable.Range(1, 3).Select(i => new RaidRecapLivePerformer("💚 Holy Priest", 1, null)).ToArray()
+            TopDamage = Enumerable.Range(1, 3).Select(i => new RaidRecapLivePerformer("⚔️ Fury Warrior", double.MaxValue, 100) { Name = hostile, ActorId = i }).ToArray(),
+            TopHealing = Enumerable.Range(1, 3).Select(i => new RaidRecapLivePerformer("💚 Holy Priest", 1, null) { Name = hostile }).ToArray()
         };
 
         foreach (var ended in new[] { false, true })
@@ -1050,6 +1057,41 @@ public class RaidRecapLiveTests
             Assert.Contains("at least 20 deaths", Text(card));
             Assert.All(parts.OfType<ButtonComponent>().Where(b => b.Style != ButtonStyle.Link), b => Assert.InRange(b.CustomId.Length, 1, 100));
         }
+    }
+
+    [Fact]
+    public void BossIsCalledNowOnlyWhileTheRaidIsStillWorkingOnIt()
+    {
+        var info = new RaidRecapLiveInfo("Guild", "us", "Zone", "");
+        RaidRecapReport Report(params RaidRecapFight[] fights) =>
+            new(Code, "Synthetic", 1, 1_790_000_000_000, 1_790_000_900_000, Start, fights);
+
+        Assert.Contains("**Now · Synthetic Boss · H**", Text(RaidRecapView.Live(Report(Wipe(1, 0, 40)), info, false, Start)));
+        var killed = Text(RaidRecapView.Live(Report(Wipe(1, 0, 40), Kill(2, 6)), info, false, Start));
+        Assert.Contains("**Latest · Synthetic Boss · H**", killed);
+        Assert.DoesNotContain("**Now ·", killed);
+        Assert.Contains("**Last boss · Synthetic Boss · H**", Text(RaidRecapView.Live(Report(Kill(1, 0)), info, true, Start)));
+    }
+
+    [Fact]
+    public void UnmatchedTopPerformerIsNamedButNeverLinked()
+    {
+        var kill = Kill(1, 0);
+        var report = new RaidRecapReport(Code, "Synthetic", 1, 1_790_000_000_000, 1_790_000_300_000, Start, new[] { kill });
+        var highlights = new RaidRecapLiveHighlights
+        {
+            Kill = kill,
+            TopDamage = new[]
+            {
+                new RaidRecapLivePerformer("⚔️ Fury Warrior", 1000, 80) { Name = "Matched", ActorId = 7 },
+                new RaidRecapLivePerformer("👤 Class unknown", 900, null) { Name = "Un[matched](x) @everyone" }
+            }
+        };
+        var text = Text(RaidRecapView.Live(report, new RaidRecapLiveInfo("Guild", "us", "Zone", ""), false, Start, highlights));
+        Assert.Contains("🥇 **[Matched](https://www.warcraftlogs.com/reports/AbCdEfGh12345678#fight=1&source=7)** · ⚔️ Fury Warrior", text);
+        Assert.Contains("🥈 **Un\\[matched\\]\\(x\\) ＠everyone** · 👤 Class unknown", text);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(text, "&source="));
+        Assert.DoesNotContain("@everyone", text);
     }
 
     [Theory]

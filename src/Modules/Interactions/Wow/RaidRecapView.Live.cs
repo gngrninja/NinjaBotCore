@@ -15,12 +15,20 @@ public sealed record RaidRecapLiveInfo(string GuildName, string Region, string Z
 /// <summary>A death on the public card: when, which spec, what killed them. Never a name.</summary>
 public sealed record RaidRecapLiveDeath(double ElapsedMs, string Identity, string Ability);
 
-/// <summary>A top performer on the public card, shown by spec and class. Never a name.</summary>
-public sealed record RaidRecapLivePerformer(string Identity, double? PerSecond, double? Percentile);
+/// <summary>
+/// A top performer on the public card, shown by name with spec and class. Being named here
+/// is praise. <see cref="ActorId"/> is set only when the player was matched to the raid
+/// roster, and only then is the name linked.
+/// </summary>
+public sealed record RaidRecapLivePerformer(string Identity, double? PerSecond, double? Percentile)
+{
+    public string Name { get; init; }
+    public int? ActorId { get; init; }
+}
 
 /// <summary>
-/// The anonymous detail on the live card: the first deaths of the latest wipe and the top
-/// damage and healing of the latest kill. Any part may be missing.
+/// The detail on the live card: the first deaths of the latest wipe, by spec and class only,
+/// and the top damage and healing of the latest kill, by name. Any part may be missing.
 /// </summary>
 public sealed record RaidRecapLiveHighlights
 {
@@ -61,7 +69,11 @@ public sealed record RaidRecapLiveHighlights
             .Select(r => new RaidRecapLivePerformer(
                 RaidRecapPlayerPresentation.Identity(r.Player),
                 r.PerSecond,
-                r.Parse?.Percentile))
+                r.Parse?.Percentile)
+            {
+                Name = r.Player?.Name ?? r.Name,
+                ActorId = r.Player?.ActorId
+            })
             .ToArray();
 }
 
@@ -73,8 +85,9 @@ public static partial class RaidRecapView
     private const int StripPulls = 12;
 
     /// <summary>
-    /// The public live card. It is posted once and edited as pulls arrive. It names bosses
-    /// and results only, never players. "Open my recap" gives each viewer their private recap.
+    /// The public live card. It is posted once and edited as pulls arrive. It names the top
+    /// damage and healing players of the latest kill. Deaths are shown by spec and class only.
+    /// "Open my recap" gives each viewer their private recap.
     /// </summary>
     public static MessageComponent Live(
         RaidRecapReport report,
@@ -94,7 +107,7 @@ public static partial class RaidRecapView
         text.Append(Current(report, ended));
         card.AddComponent(new TextDisplayBuilder(text.ToString()));
 
-        var detail = Highlights(highlights);
+        var detail = Highlights(report, highlights);
         if (detail.Length > 0)
         {
             card.AddComponent(new SeparatorBuilder().WithIsDivider(true).WithSpacing(SeparatorSpacingSize.Small));
@@ -147,7 +160,9 @@ public static partial class RaidRecapView
         var boss = report.Bosses.First(b => b.EncounterId == last.EncounterId && b.Difficulty == last.Difficulty);
         var text = new StringBuilder();
         text.AppendLine();
-        text.AppendLine($"**{(ended ? "Last boss" : "Now")} · {RaidRecapRules.Text(boss.Name, 75)} · {RaidRecapFormat.DifficultyShort(boss.Difficulty)}**"
+        // "Now" means the raid is working on this boss. After a kill they have moved on.
+        var label = ended ? "Last boss" : last.IsKill ? "Latest" : "Now";
+        text.AppendLine($"**{label} · {RaidRecapRules.Text(boss.Name, 75)} · {RaidRecapFormat.DifficultyShort(boss.Difficulty)}**"
             + $" · {RaidRecapFormat.Plural(boss.Attempts.Count, "pull")}");
 
         var line = $"Last pull {RaidRecapFormat.OutcomeEmoji(last)} {RaidRecapFormat.Outcome(last)}";
@@ -175,8 +190,10 @@ public static partial class RaidRecapView
         return text.ToString();
     }
 
-    /// <summary>Spec and class only. Names and links stay in the private recap.</summary>
-    private static string Highlights(RaidRecapLiveHighlights highlights)
+    /// <summary>
+    /// Deaths are shown by spec and class only. Top damage and healing are shown by name.
+    /// </summary>
+    private static string Highlights(RaidRecapReport report, RaidRecapLiveHighlights highlights)
     {
         var text = new StringBuilder();
         if (highlights?.Wipe != null && highlights.FirstDeaths.Count > 0)
@@ -201,14 +218,20 @@ public static partial class RaidRecapView
             }
 
             text.AppendLine($"**✅ {RaidRecapRules.Text(highlights.Kill.Name, 60)} kill** · {RaidRecapFormat.Clock(highlights.Kill.DurationMs)}");
-            Performers(text, "⚔️ Top damage", "DPS", highlights.TopDamage);
-            Performers(text, "💚 Top healing", "HPS", highlights.TopHealing);
+            Performers(text, report, highlights.Kill, "⚔️ Top damage", "DPS", highlights.TopDamage);
+            Performers(text, report, highlights.Kill, "💚 Top healing", "HPS", highlights.TopHealing);
         }
 
         return text.ToString();
     }
 
-    private static void Performers(StringBuilder text, string title, string metric, IReadOnlyList<RaidRecapLivePerformer> rows)
+    private static void Performers(
+        StringBuilder text,
+        RaidRecapReport report,
+        RaidRecapFight kill,
+        string title,
+        string metric,
+        IReadOnlyList<RaidRecapLivePerformer> rows)
     {
         if (rows.Count == 0)
         {
@@ -220,9 +243,25 @@ public static partial class RaidRecapView
         {
             var medal = i switch { 0 => "🥇", 1 => "🥈", _ => "🥉" };
             var badge = RaidRecapParsePalette.Badge(rows[i].Percentile);
-            text.AppendLine($"{medal} {rows[i].Identity} · **{RaidRecapFormat.Compact(rows[i].PerSecond)}** {metric}"
+            text.AppendLine($"{medal} {PerformerName(report, kill, rows[i])}{rows[i].Identity} · **{RaidRecapFormat.Compact(rows[i].PerSecond)}** {metric}"
                 + (rows[i].Percentile.HasValue && badge.Known ? $" · {badge.Emoji} **{badge.Display}**" : ""));
         }
+    }
+
+    private static string PerformerName(RaidRecapReport report, RaidRecapFight kill, RaidRecapLivePerformer row)
+    {
+        if (string.IsNullOrWhiteSpace(row.Name))
+        {
+            return "";
+        }
+
+        // Link only a player matched to the roster, and only when the kill is in this report.
+        if (row.ActorId is int actor && actor > 0 && report.Fights.Contains(kill))
+        {
+            return $"**{RaidRecapLinks.Name(report, kill, actor, row.Name, 30)}** · ";
+        }
+
+        return $"**{RaidRecapRules.Text(row.Name, 30)}** · ";
     }
 
     /// <summary>

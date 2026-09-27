@@ -39,7 +39,8 @@ The sections below describe behaviour, limits and safety rules. Where they quote
 **What the public card shows**
 - Kills, wipes, pulls, time on bosses, and each boss with its result. The log's title is left out, because it is free text typed by the uploader.
 - The current boss, the last pull, the best pull, and a pull strip such as `62 · 55 · 41 · 12 · ✅` (boss health left per pull, latest 12).
-- The first three deaths of the latest wipe, and the top three damage and healing of the latest kill. These show **spec and class only**. The public card never contains a player name or a player link.
+- The first three deaths of the latest wipe, shown by **spec and class only**, never by name or link.
+- The top three damage and healing of the latest kill, shown **by name** with spec, class and parse. Being listed there is praise. A name is linked to the player's view of the kill only when the player was matched to the raid roster.
 - **Open my recap** opens the private `/raid-recap` for that log, for whoever pressed it, on the latest pull's deaths. Its custom ID holds only the report code, so it keeps working after a restart.
 
 **Two switches**
