@@ -26,8 +26,9 @@ public class RaidRecapDesignTests
     private static IMessageComponent[] Parts(RaidRecapSession s, bool shared = false) =>
         RaidRecapPanelTests.Flatten(RaidRecapView.Build(s, shared).Components).ToArray();
 
+    // Line endings differ between Linux and Windows builds; compare on one form.
     private static string Text(RaidRecapSession s, bool shared = false) =>
-        RaidRecapPanelTests.Text(RaidRecapView.Build(s, shared));
+        RaidRecapPanelTests.Text(RaidRecapView.Build(s, shared)).Replace("\r\n", "\n");
 
     [Theory]
     [InlineData(0d, "0")]
@@ -263,6 +264,52 @@ public class RaidRecapDesignTests
         Assert.DoesNotContain("How to read", text);
         Assert.DoesNotContain("Worth a look", text);
         Assert.DoesNotContain(s.Token, Newtonsoft.Json.JsonConvert.SerializeObject(RaidRecapView.Build(s, true)));
+    }
+
+    [Fact]
+    public void BossesViewAndProgressCardShowThePullStrip()
+    {
+        RaidRecapFight Pull(int id, bool kill, double? left) =>
+            new(id, 3001, 4, "Synthetic Boss", kill, false, id * 400000d, id * 400000d + 300000, left);
+
+        var s = RaidRecapOutputTests.Sample("bosses");
+        s.Report = s.Report with { Fights = new[] { Pull(1, false, 62), Pull(2, false, 55.4), Pull(3, false, 12.1), Pull(4, false, 18) } };
+        var bosses = Text(s);
+        Assert.Contains("Best pull **12.1%** · Last wipe **18%**\n`62 · 55 · 12 · 18`", bosses);
+
+        s.View = "overview";
+        var overview = Text(s);
+        Assert.Contains("Still progressing", overview);
+        Assert.Contains("4 pulls · best 12.1%\n`62 · 55 · 12 · 18`", overview);
+        RaidRecapPlayerReachabilityTests.Check(s);
+
+        // A kill ends the strip, and the explanation is in How to read.
+        s.View = "bosses";
+        s.Report = s.Report with { Fights = s.Report.Fights.Append(Pull(5, true, null)).ToArray() };
+        Assert.Contains("`62 · 55 · 12 · 18 · ✅`", Text(s));
+        Assert.DoesNotContain("latest twelve", Text(s));
+        s.OutputHelp = true;
+        Assert.Contains("latest twelve", Text(s));
+        RaidRecapPlayerReachabilityTests.Check(s);
+
+        // One pull has no trend to show.
+        s.OutputHelp = false;
+        s.Report = s.Report with { Fights = new[] { Pull(1, false, 62) } };
+        Assert.DoesNotContain("`62`", Text(s));
+    }
+
+    [Fact]
+    public void PullStripStaysOffThePublicShare()
+    {
+        var s = RaidRecapOutputTests.Sample("overview");
+        s.Report = s.Report with
+        {
+            Fights = Enumerable.Range(1, 3)
+                .Select(i => new RaidRecapFight(i, 3001, 4, "Synthetic Boss", false, false, i * 400000d, i * 400000d + 300000, 50 - i))
+                .ToArray()
+        };
+        Assert.Contains("`49 · 48 · 47`", Text(s));
+        Assert.DoesNotContain("`49", Text(s, shared: true));
     }
 
     [Fact]

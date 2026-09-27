@@ -363,6 +363,7 @@ public static partial class RaidRecapView
                 button = "Details";
                 content = $"**🟠 Still progressing · {name}**\n"
                     + $"{RaidRecapFormat.Plural(boss.Attempts.Count, "pull")} · best {RaidRecapFormat.Percent(boss.BestRemaining)}\n"
+                    + (boss.Attempts.Count > 1 ? PullStrip(boss) + "\n" : "")
                     + (card.A.IsWipe
                         ? $"[Who died on the last wipe?]({RaidRecapLinks.Fight(report, card.A, "deaths")})"
                         : $"[Pull #{card.A.Id}]({RaidRecapLinks.Fight(report, card.A)}) has no result yet.");

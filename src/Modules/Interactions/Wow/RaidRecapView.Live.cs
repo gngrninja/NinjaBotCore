@@ -225,7 +225,10 @@ public static partial class RaidRecapView
         }
     }
 
-    /// <summary>Boss health left on each pull in order, e.g. `62 · 55 · 41 · 12 · ✅`.</summary>
+    /// <summary>
+    /// Boss health left on each pull in order, e.g. `62 · 55 · 41 · 12 · ✅`. Shows the latest
+    /// twelve pulls. ✅ is a kill, ⏳ has no result yet and ? has no recorded health.
+    /// </summary>
     internal static string PullStrip(RaidRecapBoss boss)
     {
         var pulls = boss.Chronological;

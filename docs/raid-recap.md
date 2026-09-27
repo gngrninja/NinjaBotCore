@@ -21,6 +21,7 @@ The cards follow the `/char` WarcraftLogs views, so the two read as one product.
 - **Footer:** `<guild> (REGION) | Data from WarcraftLogs · updated <relative time> · may still update`.
 - **How to read:** every report view has a **How to read / Hide help** button beside the footer. All interpretation notes live there, so the cards stay short. Toggling it is local: it fetches nothing and changes no selection, page or public share. The report picker has no help control and rejects the action.
 - **Select menus** show plain names. Card text is markdown and is escaped.
+- **Pull strip:** the Bosses view and the *Still progressing* card show boss health left on each pull in order, latest twelve, such as `62 · 55 · 41 · 12 · ✅`. It is boss health, not phase. It is not on the public share.
 - **Wording:** pulls, kills, wipes, best pull, last wipe, deaths, kicked, went off, dispelled. Partial results are marked **Partial data** and their counts read **at least**.
 
 The sections below describe behaviour, limits and safety rules. Where they quote older labels, the labels above are current.

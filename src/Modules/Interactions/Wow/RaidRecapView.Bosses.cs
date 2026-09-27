@@ -33,6 +33,12 @@ public static partial class RaidRecapView
             text.AppendLine($"Best pull **{RaidRecapFormat.Percent(boss.BestRemaining)}** · Last wipe **{RaidRecapFormat.Percent(boss.LatestRemaining)}**");
         }
 
+        if (boss.Attempts.Count > 1)
+        {
+            // The whole boss at a glance: how each pull ended, in order.
+            text.AppendLine(PullStrip(boss));
+        }
+
         if (boss.Kills > 0)
         {
             text.AppendLine($"Fastest kill **{RaidRecapFormat.Clock(boss.FastestKillMs)}**");

@@ -1135,6 +1135,19 @@ public class RaidRecapLiveTests
         Assert.False(RaidRecapLiveCoordinator.IsQuota(new TaskCanceledException()));
     }
 
+    [Fact]
+    public void RolloutCommandSaysChangedOnlyWhenTheModeReallyChanged()
+    {
+        const RaidRecapRolloutMode mine = RaidRecapRolloutMode.OwnerServers;
+        Assert.Equal("Rollout is **limited to servers you are a member of**.",
+            RaidRecapLiveCommands.RolloutLine(mine, mine, requested: false));
+        var same = RaidRecapLiveCommands.RolloutLine(mine, mine, requested: true);
+        Assert.Contains("already set", same);
+        Assert.DoesNotContain("Changed from", same);
+        var changed = RaidRecapLiveCommands.RolloutLine(RaidRecapRolloutMode.Off, mine, requested: true);
+        Assert.Equal("Rollout is **off everywhere**. Changed from limited to servers you are a member of.", changed);
+    }
+
     // ===== Open my recap =====
 
     [Fact]

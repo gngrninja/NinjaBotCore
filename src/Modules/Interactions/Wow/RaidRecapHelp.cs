@@ -23,10 +23,13 @@ public static class RaidRecapHelp
         {
             "overview" =>
                 "✅ killed · 🟠 still progressing · ⏳ no result yet.\n"
+                + "The strip under a boss shows boss health left on each pull in order.\n"
                 + "**Best** is the lowest boss health reached on a wipe. It is boss health, not how far into the fight you got.\n"
                 + "Trash is left out. **Worth a look** suggests where to start a review. It does not grade anyone.",
             "bosses" =>
                 "**Best pull** and **Last wipe** are boss health left when the raid wiped.\n"
+                + "The strip shows that number for each pull in order, latest twelve. ✅ is a kill and ⏳ has no result yet. "
+                + "It is boss health, not how far into the fight you got.\n"
                 + "**Time in combat** adds up this boss's kills and wipes. **Median wipe** is the middle wipe length.\n"
                 + "Pulls without a recorded length are left out of time figures, and the card says how many were timed.",
             "compare" =>

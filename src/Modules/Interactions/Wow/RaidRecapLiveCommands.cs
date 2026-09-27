@@ -118,7 +118,8 @@ public class RaidRecapLiveCommands : InteractionModuleBase<IInteractionContext>
                 "everyone" => RaidRecapRolloutMode.Everyone,
                 _ => null
             };
-            if (requested.HasValue)
+            var previous = await _gate.ModeAsync();
+            if (requested.HasValue && requested.Value != previous)
             {
                 await _gate.SetModeAsync(requested.Value);
             }
@@ -129,7 +130,7 @@ public class RaidRecapLiveCommands : InteractionModuleBase<IInteractionContext>
             var servers = await db.RaidRecapLiveSettings.CountAsync(s => s.Enabled);
             var live = await db.RaidRecapLiveCards.CountAsync(c => c.State == RaidRecapLiveState.Live);
             await NoticeAsync(
-                $"Rollout is **{Describe(current)}**{(requested.HasValue ? " (just changed)" : "")}.\n"
+                RolloutLine(current, previous, requested.HasValue) + "\n"
                 + $"Servers opted in: **{servers}**\n"
                 + $"Cards live right now: **{live}** of {RaidRecapLiveCoordinator.MaxLiveCards} allowed",
                 current == RaidRecapRolloutMode.Off ? Color.LightGrey : Color.Green);
@@ -224,6 +225,20 @@ public class RaidRecapLiveCommands : InteractionModuleBase<IInteractionContext>
         var name = Context.User.Username ?? "";
         settings.SetByName = name.Length <= 100 ? name : name[..100];
         settings.TimeSet = DateTime.UtcNow;
+    }
+
+    /// <summary>Says "changed" only when the mode really is different from before.</summary>
+    public static string RolloutLine(RaidRecapRolloutMode current, RaidRecapRolloutMode previous, bool requested)
+    {
+        var line = $"Rollout is **{Describe(current)}**";
+        if (!requested)
+        {
+            return line + ".";
+        }
+
+        return current == previous
+            ? line + ". It was already set to that, so nothing changed."
+            : line + $". Changed from {Describe(previous)}.";
     }
 
     private static string Describe(RaidRecapRolloutMode mode) => mode switch
