@@ -77,7 +77,7 @@ public class RaidRecapPanelTests
         var s=Session(); s.Report=Report(true,51) with { Title=new string('*',10000)+"@everyone" }; s.View=view; s.CanShare=true;
         var component=RaidRecapView.Build(s); var all=Flatten(component.Components).ToArray();
         Assert.InRange(all.Length,1,40);
-        Assert.InRange(Text(component).Length,1,4000);
+        Assert.InRange(Text(component).Length,1,3800);
         Assert.DoesNotContain("@everyone",Text(component));
         Assert.Contains("may still update",Text(component));
         foreach(var menu in all.OfType<SelectMenuComponent>())

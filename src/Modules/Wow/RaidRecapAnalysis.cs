@@ -9,7 +9,8 @@ namespace NinjaBotCore.Modules.Wow;
 // Normalized, bounded observations only. Never retain raw events/tables in the cache.
 public sealed record RaidRecapDeath(int ActorId, string Name, double ElapsedMs, string Ability);
 public sealed record RaidRecapIncoming(string Name, string Source, double? Total);
-public sealed record RaidRecapParticipant(int? ActorId, string Name, double? Count);
+public sealed record RaidRecapParticipant(int? ActorId, string Name, double? Count)
+{ public bool VerifiedPlayer { get; init; } }
 public sealed record RaidRecapUtility(string Name, double? Actions, double? CompletedCasts, double? Channels,
     IReadOnlyList<RaidRecapParticipant> Participants, bool AttributionKnown);
 public sealed record RaidRecapAnalysis(string Metric, bool Complete, string Notice)

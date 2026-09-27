@@ -159,6 +159,26 @@ public class RaidRecapAccessTests
         Assert.Equal(Harness.AccessRequests.Concat(Harness.AccessRequests), h.Rest.Requests);
     }
 
+    [Fact]
+    public async Task PlayerPayloadUsesActualSdkRestSerializationIncludingSectionAccessoriesOffline()
+    {
+        using var h=new Harness();
+        var (service,source,players,s)=RaidRecapPlayerFlowTests.Setup(100);
+        await service.ApplyAsync(s,"players",null);await service.ApplyAsync(s,"player_pull","1");await service.ApplyAsync(s,"player","1");
+        var payload=NinjaBotCore.Modules.Interactions.Wow.RaidRecapView.Build(s);
+        // The fixture IRestClient is the only transport. This exercises wire serialization,
+        // not public sharing; no network, gateway login or real Discord send is possible.
+        await h.Context.Channel.SendMessageAsync(components:payload,flags:MessageFlags.ComponentsV2,allowedMentions:AllowedMentions.None,options:new RequestOptions{RetryMode=RetryMode.AlwaysFail});
+        var wire=JObject.Parse(h.Rest.LastWrite);
+        Assert.Equal((int)MessageFlags.ComponentsV2,(int)wire["flags"]);Assert.Equal(2,wire["components"].Count());
+        Assert.All(wire["components"],c=>Assert.Equal(17,(int)c["type"]));
+        Assert.Empty(wire["allowed_mentions"]["parse"]);Assert.True(wire["embeds"]==null || !wire["embeds"].Any());
+        var sections=wire.SelectTokens("$..accessory").ToArray();Assert.Equal(2,sections.Length);Assert.All(sections,b=>Assert.Equal(2,(int)b["type"]));
+        Assert.Contains(sections,b=>(string)b["label"]=="Change pull");Assert.Contains(sections,b=>(string)b["label"]=="Player in WCL");
+        var dir=Environment.GetEnvironmentVariable("RAID_RECAP_EVIDENCE_DIR");
+        if(!string.IsNullOrEmpty(dir)){Directory.CreateDirectory(dir);File.WriteAllText(Path.Combine(dir,"synthetic-player-discord-rest-wire.json"),wire.ToString());}
+    }
+
     private static MessageComponent PublicPayload() =>
         new ComponentBuilderV2().AddComponent(new TextDisplayBuilder("Offline timeout regression fixture")).Build();
 
@@ -230,6 +250,7 @@ public class RaidRecapAccessTests
         public readonly Dictionary<ulong, DateTimeOffset?> Timeouts = new();
         public Func<ulong, Task> BeforeMember;
         public int Writes;
+        public string LastWrite;
         public void Dispose() { }
         public void SetHeader(string key, string value) { }
         public void SetCancelToken(CancellationToken token) { }
@@ -285,7 +306,7 @@ public class RaidRecapAccessTests
         {
             Assert.Equal("POST", method);
             Assert.Equal("channels/200/messages", endpoint.TrimStart('/'));
-            Writes++;
+            Writes++; LastWrite=json;
             const string response = """
                 {"id":"700","channel_id":"200","author":{"id":"400","username":"fixture-bot","discriminator":"0000","bot":true},"content":"","timestamp":"2026-01-01T00:00:00Z","tts":false,"mention_everyone":false,"mentions":[],"mention_roles":[],"attachments":[],"embeds":[],"pinned":false,"type":0}
                 """;

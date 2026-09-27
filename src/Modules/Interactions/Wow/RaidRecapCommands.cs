@@ -104,7 +104,8 @@ public class RaidRecapCommands : InteractionModuleBase<IInteractionContext>
             {
                 _logger.LogWarning("Raid recap transition failed ({Type})",ex.GetType().Name);
                 s.Notice=Unavailable;
-                s.Performance=null; s.Analysis=null; s.Comparison=null;
+                s.Performance=null; s.PerformanceParses=null; s.Analysis=null; s.Comparison=null;
+                s.PlayerPanel?.InvalidateLens();
             }
             if(!(await SafeAccessAsync()).View||!_sessions.IsCurrent(s)) { await ReopenAsync();return; }
             // Keep the lock through the Discord edit, including error rendering.

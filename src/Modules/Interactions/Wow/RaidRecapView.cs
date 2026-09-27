@@ -12,13 +12,15 @@ public static class RaidRecapView
 {
     public static MessageComponent Build(RaidRecapSession s,bool shared=false)
     {
-        var c=new ContainerBuilder().WithAccentColor(new Color(88,101,242));
+        if(!shared && s.PlayerPanel!=null) return RaidRecapPlayerView.Build(s);
+        var scope=new ContainerBuilder().WithAccentColor(new Color(88,101,242));
+        var c=new ContainerBuilder().WithAccentColor(new Color(shared?0x5865F2u:s.View=="damage"?0xE06C75u:s.View=="healing"?0x2AA198u:0x8B80D9u));
         var controls=new ComponentBuilder();
         var report=s.Report;
         var view=shared?"overview":s.View;
         if(report==null||view=="reports")
         {
-            c.AddComponent(new TextDisplayBuilder("# Raid recap\nChoose a recent report"));
+            (shared?c:scope).AddComponent(new TextDisplayBuilder("# Raid recap\nChoose a recent report"));
             if(!string.IsNullOrEmpty(s.Notice)&&!shared) c.AddComponent(new TextDisplayBuilder(RaidRecapRules.Text(s.Notice,300)));
             var page=RaidRecapService.Page(s.ReportPage,s.Reports.Count);
             c.AddComponent(new TextDisplayBuilder(s.Reports.Count==0
@@ -35,8 +37,8 @@ public static class RaidRecapView
         }
         else
         {
-            c.AddComponent(new TextDisplayBuilder("# Raid recap\n"+RaidRecapRules.Text(report.Title,160)));
-            c.AddComponent(new SeparatorBuilder().WithIsDivider(true));
+            (shared?c:scope).AddComponent(new TextDisplayBuilder("# Raid recap\n"+RaidRecapRules.Text(report.Title,160)));
+            (shared?c:scope).AddComponent(new SeparatorBuilder().WithIsDivider(true));
             if(!shared)
             {
                 foreach(var tab in new[]{"overview","bosses","damage","healing","analysis"}) controls.WithButton(Label(tab),Nav(s,tab),tab==view?ButtonStyle.Primary:ButtonStyle.Secondary,row:0);
@@ -45,6 +47,7 @@ public static class RaidRecapView
                     .WithButton(s.ShareAttempted?"Share attempted":"Share overview",Nav(s,"share"),ButtonStyle.Success,disabled:!s.CanShare||s.ShareAttempted,row:1);
             }
             controls.WithButton("Warcraft Logs",style:ButtonStyle.Link,url:report.Url,row:shared?0:1);
+            if(!shared && !(view=="bosses" && s.Comparing)) controls.WithButton("Players",Nav(s,"players"),ButtonStyle.Secondary,row:1);
             var body=new StringBuilder();
             body.AppendLine($"**{Label(view)}**");
             if(!string.IsNullOrEmpty(s.Notice)&&!shared) body.AppendLine(RaidRecapRules.Text(s.Notice,300)+"\n");
@@ -82,16 +85,19 @@ public static class RaidRecapView
                     body.AppendLine(view=="healing"
                         ? "**WCL Healing table total / elapsed seconds** · overheal not added; not validated as effective healing; not a quality grade."
                         : "**Damage / elapsed seconds (DPS)** · this boss kill only.");
-                    body.AppendLine("WCL sources as returned; pets are not manually added. No cross-fight averages.\n");
+                    body.AppendLine("Output position in this kill · WCL sources as returned; pets are not manually added. No cross-fight averages.");
+                    body.AppendLine(s.PerformanceParses is { } parses?$"WCL {(view=="healing"?"HPS":"DPS")} · Parses · Today · partition {parses.Partition} · as of <t:{parses.AsOf.ToUnixTimeSeconds()}:f>. Finality unknown.":"Parse unavailable · raw output is separate.");
+                    body.AppendLine("Band colors: Gray 0+ · Green 25+ · Blue 50+ · Purple 75+ · Orange 95+ · Pink 99+ · Gold exactly 100. Fractional display floors, never rounds up.\n");
                     if(s.Performance==null) body.AppendLine("Performance unavailable. Refresh or open this fight on Warcraft Logs.");
                     else if(s.Performance.Count==0) body.AppendLine("No source rows returned for this kill.");
                     else
                     {
-                        foreach(var (standing,index) in s.Performance.Select((r,i)=>(r,i)).Skip(s.RankPage*10).Take(10))
-                            body.AppendLine($"{index+1}. **{RaidRecapRules.Text(standing.Name,65)}** · {(standing.PerSecond.HasValue?standing.PerSecond.Value.ToString(standing.PerSecond>=1e15?"G6":"N0",CultureInfo.InvariantCulture):"Unknown")}");
-                        body.AppendLine($"Sources {s.RankPage*10+1}–{Math.Min(s.Performance.Count,(s.RankPage+1)*10)} of {s.Performance.Count}");
+                        var outputPages=RaidRecapPlayerPresentation.OutputPages(s);var outputPage=Math.Clamp(s.RankPage,0,outputPages.Count-1);
+                        foreach(var line in outputPages[outputPage])body.AppendLine(line);
+                        var first=outputPages.Take(outputPage).Sum(page=>page.Count)+1;
+                        body.AppendLine($"Sources {first}–{first+outputPages[outputPage].Count-1} of {s.Performance.Count} · page {outputPage+1}/{outputPages.Count}");
                         controls.WithButton("Previous sources",Nav(s,"ranks_prev"),ButtonStyle.Secondary,disabled:s.RankPage==0,row:4)
-                            .WithButton("Next sources",Nav(s,"ranks_next"),ButtonStyle.Secondary,disabled:(s.RankPage+1)*10>=s.Performance.Count,row:4);
+                            .WithButton("Next sources",Nav(s,"ranks_next"),ButtonStyle.Secondary,disabled:outputPage==outputPages.Count-1,row:4);
                     }
                     Menu(controls,s,"kill",kills.Select(f=>RaidRecapRules.Text(f.Name,60)+$" · {Difficulty(f.Difficulty)} #{f.Id}").ToArray(),s.KillPage,s.KillIndex);
                     Pages(controls,s,"kills",s.KillPage,kills.Length,3);
@@ -109,8 +115,15 @@ public static class RaidRecapView
                     new TextDisplayBuilder("**Matched pulls**\nCompare two completed pulls of this encounter / difficulty. Choose the pair before loading deaths.")));
 
         }
-        foreach(var row in controls.Build().Components.OfType<ActionRowComponent>()) c.AddComponent(new ActionRowBuilder(row));
-        return new ComponentBuilderV2().AddComponent(c).Build();
+        var rows=controls.Build().Components.OfType<ActionRowComponent>().ToArray();
+        if(shared || report==null || view=="reports")
+        {
+            foreach(var row in rows) c.AddComponent(new ActionRowBuilder(row));
+            return shared?new ComponentBuilderV2().AddComponent(c).Build():new ComponentBuilderV2().AddComponent(scope).AddComponent(c).Build();
+        }
+        foreach(var row in rows.Take(2)) scope.AddComponent(new ActionRowBuilder(row));
+        foreach(var row in rows.Skip(2)) c.AddComponent(new ActionRowBuilder(row));
+        return new ComponentBuilderV2().AddComponent(scope).AddComponent(c).Build();
     }
     private static string PrivateSynopsis(RaidRecapReport r) =>
         $"{r.Bosses.Count(b=>b.Kills>0)} encounter/difficulty groups cleared across {r.Fights.Count} attempts.\n"
@@ -146,12 +159,21 @@ public static class RaidRecapView
         controls.WithButton("All attempts",Nav(s,"attempts"),ButtonStyle.Secondary,row:1);
         body.AppendLine("**Matched pulls** · A and B are explicit selections from one report snapshot.");
         var (a,b)=RaidRecapReview.Selection(s);
+        if(s.CompareLosses && RaidRecapReview.Current(s) is { } tiesResult && tiesResult.DeathsA.Complete && tiesResult.DeathsB.Complete)
+        {
+            var pages=RaidRecapPlayerPresentation.Pack(RaidRecapPlayerPresentation.FirstLossRows(s));var page=Math.Clamp(s.CompareLossPage,0,pages.Count-1);
+            body.AppendLine($"**All first-loss evidence · page {page+1}/{pages.Count}**\nA #{a.Id} / B #{b.Id} · full pulls · simultaneous players, not a cause verdict.");
+            foreach(var line in pages[page])body.AppendLine(line);
+            controls.WithButton("Comparison",Nav(s,"compare_return"),ButtonStyle.Secondary,row:2)
+                .WithButton("Previous ties",Nav(s,"compare_loss_prev"),ButtonStyle.Secondary,disabled:page==0,row:2)
+                .WithButton("Next ties",Nav(s,"compare_loss_next"),ButtonStyle.Secondary,disabled:page==pages.Count-1,row:2);
+            return;
+        }
         if(a==null) { body.AppendLine(RaidRecapReview.NoPair); return; }
         body.AppendLine($"**{RaidRecapRules.Text(a.Name,80)} · {Difficulty(a.Difficulty)}**");
         c.AddComponent(new TextDisplayBuilder(body.ToString())); body.Clear();
         foreach(var (label,fight) in new[]{("A",a),("B",b)})
         {
-            c.AddComponent(new SeparatorBuilder().WithIsDivider(true));
             c.AddComponent(new TextDisplayBuilder($"**{label} · {(fight.IsKill?"Kill":"Wipe")} #{fight.Id}** · elapsed {Duration(fight.DurationMs)}\n"
                 +$"active boss health {Percent(fight.Remaining)} (not encounter completion). [Open {label} deaths]({s.Report.Url}#fight={fight.Id}&type=deaths)"));
         }
@@ -173,6 +195,17 @@ public static class RaidRecapView
         var complete=result.DeathsA.Complete && result.DeathsB.Complete;
         if(!complete) body.AppendLine("\n**Partial observations** · at least the retained observations, not complete totals. Numeric changes and definite first-loss claims are withheld.");
         FullDeaths(body,"A",result.DeathsA,complete); FullDeaths(body,"B",result.DeathsB,complete);
+        if(complete)
+        {
+            foreach(var (label,fight,deaths) in new[]{("A",a,result.DeathsA.Deaths),("B",b,result.DeathsB.Deaths)})
+            {
+                var ties=RaidRecapPlayerPresentation.FirstLosses(deaths);
+                if(ties.Count>0)body.AppendLine(label+" first-loss players: "+string.Join(", ",ties.Take(3).Select(d=>RaidRecapLinks.Name(s.Report,fight,d.ActorId,d.Name,30)))
+                    +(ties.Count>3?$" · +{ties.Count-3} — All first-loss evidence":""));
+            }
+            c.AddComponent(new SectionBuilder(new ButtonBuilder("All first-loss evidence",Nav(s,"compare_losses"),ButtonStyle.Secondary),
+                new TextDisplayBuilder("Who was lost at the same moment? Every first-loss tie is reachable; review the lead-up before drawing conclusions.")));
+        }
         var window=Math.Min(a.DurationMs.Value,b.DurationMs.Value);
         var windowA=result.DeathsA.Deaths.Where(d=>d.ElapsedMs>=0 && d.ElapsedMs<=window).ToArray();
         var windowB=result.DeathsB.Deaths.Where(d=>d.ElapsedMs>=0 && d.ElapsedMs<=window).ToArray();
@@ -248,7 +281,7 @@ public static class RaidRecapView
             foreach(var d in analysis.Deaths)
             {
                 seen.TryGetValue(d.ActorId,out var n);seen[d.ActorId]=++n;
-                lines.Add($"{Elapsed(d.ElapsedMs)} · **{RaidRecapRules.Text(d.Name,45)}** · {RaidRecapRules.Text(d.Ability,55)}"+(n>1?$" · death event {n} for this player":""));
+                lines.Add($"{Elapsed(d.ElapsedMs)} · {RaidRecapLinks.Name(s.Report,fight,d.ActorId,d.Name)} · {RaidRecapRules.Text(d.Ability,55)}"+(n>1?$" · death event {n} for this player":""));
             }
         }
         else if(metric=="incoming")
@@ -265,7 +298,8 @@ public static class RaidRecapView
                 lines.Add($"**{name}** · {Amount(spell.Actions)} observed {metric}"+(metric=="interrupts"?$" · {Amount(spell.CompletedCasts)} WCL-reported completed casts · {Amount(spell.Channels)} channel interrupts (separate)":"")
                     +(spell.AttributionKnown?"":" · Attribution unavailable / unassigned"));
                 foreach(var participant in spell.Participants)
-                    lines.Add($"↳ {name} · **{RaidRecapRules.Text(participant.Name,50)}** · {Amount(participant.Count)} attributed actions"+(participant.ActorId==null?" · unassigned identity":""));
+                    lines.Add($"↳ {name} · "+(participant.VerifiedPlayer && participant.ActorId is int actorId?RaidRecapLinks.Name(s.Report,fight,actorId,participant.Name,40):RaidRecapRules.Text(participant.Name,40))
+                        +$" · {Amount(participant.Count)} attributed actions"+(!participant.VerifiedPlayer?" · unassigned identity":""));
             }
         }
         var page=Math.Clamp(s.AnalysisPage,0,Math.Max(0,(lines.Count-1)/RaidRecapAnalysisRules.PageSize));
@@ -301,7 +335,7 @@ public static class RaidRecapView
         var page=Math.Clamp(s.AnalysisPage,0,Math.Max(0,(result.Events.Count-1)/RaidRecapAnalysisRules.PageSize));
         body.AppendLine($"\n**Affected players · page {page+1}/{Math.Max(1,(result.Events.Count+RaidRecapAnalysisRules.PageSize-1)/RaidRecapAnalysisRules.PageSize)}**");
         foreach(var row in result.Events.Skip(page*RaidRecapAnalysisRules.PageSize).Take(RaidRecapAnalysisRules.PageSize))
-            body.AppendLine($"{Elapsed(row.ElapsedMs)} (+{row.ElapsedMs.ToString(row.ElapsedMs>=1e15?"G6":"0.###",CultureInfo.InvariantCulture)} ms) · **{RaidRecapRules.Text(row.Name,55)}**");
+            body.AppendLine($"{Elapsed(row.ElapsedMs)} (+{row.ElapsedMs.ToString(row.ElapsedMs>=1e15?"G6":"0.###",CultureInfo.InvariantCulture)} ms) · {RaidRecapLinks.Name(s.Report,fight,row.ActorId,row.Name,45)}");
         controls.WithButton("Previous rows",Nav(s,"analysis_prev"),ButtonStyle.Secondary,disabled:page==0,row:4)
             .WithButton("Next rows",Nav(s,"analysis_next"),ButtonStyle.Secondary,disabled:(page+1)*RaidRecapAnalysisRules.PageSize>=result.Events.Count,row:4);
     }

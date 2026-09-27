@@ -82,11 +82,16 @@ public sealed class RaidRecapSession
     public int CompareAPage { get; set; }
     public int CompareBPage { get; set; }
     public RaidRecapComparison Comparison { get; set; }
+    public bool CompareLosses { get; set; }
+    public int CompareLossPage { get; set; }
     public void ResetComparison()
     {
-        Comparing = false; CompareSnapshotKey = null; Comparison = null;
+        Comparing = false; CompareSnapshotKey = null; Comparison = null; CompareLosses=false; CompareLossPage=0;
         CompareAIndex = CompareBIndex = -1; CompareAPage = CompareBPage = 0;
     }
+    public RaidRecapPlayerPanel PlayerPanel { get; set; }
+    public RaidRecapParses PerformanceParses { get; set; }
+    public string PerformanceNotice { get; set; }
     public string Notice { get; set; }
     public RaidRecapReport Report { get; set; }
     public string View { get; set; } = "overview";

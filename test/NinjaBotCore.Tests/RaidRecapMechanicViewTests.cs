@@ -167,7 +167,7 @@ public class RaidRecapMechanicViewTests
     }
     private static void Check(RaidRecapSession s)
     {
-        var parts=Parts(s);Assert.InRange(parts.Length,1,40);Assert.InRange(Text(s).Length,1,4000);Assert.DoesNotContain("@everyone",Text(s));Assert.DoesNotContain('\u202e',Text(s));
+        var parts=Parts(s);Assert.InRange(parts.Length,1,40);Assert.InRange(Text(s).Length,1,3800);Assert.DoesNotContain("@everyone",Text(s));Assert.DoesNotContain('\u202e',Text(s));
         Assert.Equal(5,parts.OfType<ActionRowComponent>().Count());
         Assert.Equal(new[]{"Overview","Bosses","Damage","Healing","Analysis"},parts.OfType<ActionRowComponent>().First().Components.Cast<ButtonComponent>().Select(b=>b.Label));
         Assert.Equal(new[]{"Deaths","Incoming","Interrupts","Dispels","Mechanics"},parts.OfType<ActionRowComponent>().ElementAt(3).Components.Cast<ButtonComponent>().Select(b=>b.Label));

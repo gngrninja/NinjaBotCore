@@ -55,7 +55,8 @@ public static class RaidRecapRules
             if(total<0) total=null;
             var rate=total/(durationMs/1000);
             if(rate.HasValue&&!double.IsFinite(rate.Value)) rate=null;
-            return new RaidRecapStanding(row.Value<string>("name")??"Unknown source",total,rate);
+            return new RaidRecapStanding(RaidRecapAnalysisRules.Name(row["name"],"Unknown source"),total,rate)
+            { ActorId=RaidRecapAnalysisRules.Id(row["id"]) };
         }).OrderByDescending(r=>r.PerSecond).ToArray();
     }
 

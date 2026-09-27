@@ -4,7 +4,12 @@ using System.Linq;
 
 namespace NinjaBotCore.Modules.Wow;
 
-public sealed record RaidRecapStanding(string Name,double? Total,double? PerSecond);
+public sealed record RaidRecapStanding(string Name,double? Total,double? PerSecond)
+{
+    public int? ActorId { get; init; }
+    public RaidRecapPlayer Player { get; init; }
+    public RaidRecapParse Parse { get; init; }
+}
 
 public sealed record RaidRecapFight(int Id, int EncounterId, int? Difficulty, string Name,
     bool? Kill, bool? InProgress, double? StartMs, double? EndMs, double? Remaining)

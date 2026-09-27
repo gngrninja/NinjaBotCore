@@ -15,7 +15,7 @@ public interface IRaidRecapSource
 }
 
 /// <summary>Only called while the owning session transition is locked, including its final render.</summary>
-public sealed class RaidRecapService
+public sealed partial class RaidRecapService
 {
     private readonly IRaidRecapSource _source;
     private readonly RaidRecapCache _cache;
@@ -30,7 +30,7 @@ public sealed class RaidRecapService
     }
     public async Task OpenAsync(RaidRecapSession s,string code)
     {
-        s.ResetComparison(); s.Analysis=null;
+        s.ResetComparison(); s.Analysis=null; s.PlayerPanel=null; s.Performance=null; s.PerformanceParses=null; s.PerformanceNotice=null;
         code=RaidRecapRules.ReportCode(code);
         var report=(RaidRecapReport)await _cache.GetAsync("report:"+code,async()=>await _source.GetRaidRecapReportAsync(code),TimeSpan.FromSeconds(30));
         s.Analysis=null; s.PullIndex=-1; s.PullPage=s.AnalysisPage=0; s.AnalysisMetric="deaths";
@@ -39,6 +39,13 @@ public sealed class RaidRecapService
     public async Task ApplyAsync(RaidRecapSession s,string action,string value)
     {
         s.Notice=null;
+        if(await ApplyPlayersAsync(s,action,value))return;
+        if(s.Report!=null && action is "bosses_prev" or "bosses_next" or "kills_prev" or "kills_next")
+        {
+            if(action.StartsWith("bosses_",StringComparison.Ordinal)) s.BossPage=Page(s.BossPage+(action.EndsWith("next",StringComparison.Ordinal)?1:-1),s.Report.Bosses.Count);
+            else s.KillPage=Page(s.KillPage+(action.EndsWith("next",StringComparison.Ordinal)?1:-1),s.Report.Kills);
+            return;
+        }
         if (action.StartsWith("review_",StringComparison.Ordinal))
         {
             if (s.View!="overview" || s.Report==null || !int.TryParse(action[7..],out var cardIndex))
@@ -62,6 +69,8 @@ public sealed class RaidRecapService
             if(action.StartsWith("compare_",StringComparison.Ordinal))
             { await ApplyComparisonAsync(s,action,value); return; }
         }
+        if(s.View is "damage" or "healing" && action is "ranks_prev" or "ranks_next")
+        { s.RankPage=Math.Clamp(s.RankPage+(action=="ranks_next"?1:-1),0,RaidRecapPlayerPresentation.OutputPages(s).Count-1);return; }
         // Picker pagination and row pagination are metadata/local-only navigation.
         if (s.View=="analysis" && s.Report!=null)
         {
@@ -111,7 +120,7 @@ public sealed class RaidRecapService
             case "ranks_next": s.RankPage=Math.Min(Math.Max(0,((s.Performance?.Count??0)-1)/10),s.RankPage+1); break;
             default: throw new ArgumentException("Invalid or stale recap selection. Reopen /raid-recap.");
         }
-        s.Performance=null;
+        s.Performance=null; s.PerformanceParses=null; s.PerformanceNotice=null;
         if(s.View=="analysis" && s.Report?.CompletedPulls.Count>0)
         {
             var fight=s.Report.CompletedPulls[s.PullIndex];
@@ -124,10 +133,9 @@ public sealed class RaidRecapService
             var fight=s.Report.Fights.Where(f=>f.IsKill).ElementAt(s.KillIndex);
             if(fight.DurationMs is not >0) { s.Notice="Unknown kill duration; per-second performance cannot be calculated."; return; }
             var healing=s.View=="healing";
-            var key=$"table:{s.Report.SnapshotKey}:{fight.Id}:{fight.StartMs}:{fight.EndMs}:{healing}";
-            s.Performance=(IReadOnlyList<RaidRecapStanding>)await _cache.GetAsync(key,async()=>
-                RaidRecapRules.Performance(await _source.GetRaidRecapScopedTableAsync(s.Report,fight,healing),fight.DurationMs.Value),TimeSpan.FromMinutes(2));
-            s.RankPage=Math.Clamp(s.RankPage,0,Math.Max(0,(s.Performance.Count-1)/10));
+            var output=await LoadOutputAsync(s.Report,fight,healing);
+            s.Performance=output.Rows;s.PerformanceParses=output.Parses;s.PerformanceNotice=output.Notice;
+            s.RankPage=Math.Clamp(s.RankPage,0,RaidRecapPlayerPresentation.OutputPages(s).Count-1);
         }
     }
     private static ArgumentException InvalidSelection()=>new("Invalid or stale recap selection. Reopen /raid-recap.");
@@ -154,8 +162,17 @@ public sealed class RaidRecapService
             case "compare_b_prev": s.CompareBPage=Page(s.CompareBPage-1,candidates.Count); return;
             case "compare_b_next": s.CompareBPage=Page(s.CompareBPage+1,candidates.Count); return;
         }
+        if(action is "compare_losses" or "compare_return" or "compare_loss_prev" or "compare_loss_next")
+        {
+            var current=RaidRecapReview.Current(s);
+            if(current==null || !current.DeathsA.Complete || !current.DeathsB.Complete)throw InvalidSelection();
+            if(action=="compare_return")s.CompareLosses=false;
+            else if(action=="compare_losses") {s.CompareLosses=true;s.CompareLossPage=0;}
+            else s.CompareLossPage=Math.Clamp(s.CompareLossPage+(action=="compare_loss_next"?1:-1),0,RaidRecapPlayerPresentation.Pack(RaidRecapPlayerPresentation.FirstLossRows(s)).Count-1);
+            return;
+        }
         // Fail closed before validating or awaiting, including a failed second load or snapshot drift.
-        s.Comparison=null;
+        s.Comparison=null;s.CompareLosses=false;s.CompareLossPage=0;
         if(action is "compare_a" or "compare_b")
         {
             var isA=action=="compare_a";
@@ -181,7 +198,23 @@ public sealed class RaidRecapService
             ?"mechanics:"+RaidRecapMechanics.Version+":full-pull-player-targets-actorids-abilityids-wipecutoff0-friendlies"
             :"analysis-v1";
         var key=$"{version}:{report.SnapshotKey}:{fight.Id}:{fight.StartMs}:{fight.EndMs}:{metric}:limit100-pages5-rows500";
-        return (RaidRecapAnalysis)await _cache.GetAsync(key,async()=>await _source.GetRaidRecapAnalysisAsync(report,fight,metric),TimeSpan.FromMinutes(2));
+        return (RaidRecapAnalysis)await _cache.GetAsync(key,async()=>
+        {
+            var analysis=await _source.GetRaidRecapAnalysisAsync(report,fight,metric);
+            if(metric is "interrupts" or "dispels" && analysis.Utility.Any(u=>u.Participants.Count>0))
+            {
+                RaidRecapRoster roster=null;
+                try { if(_source is IRaidRecapPlayerSource)roster=await LoadRosterAsync(report,fight); }
+                catch(RaidRecapSnapshotException) {throw;}
+                catch(OperationCanceledException) {throw;}
+                catch(Exception ex) when(ex is InvalidOperationException or System.Net.Http.HttpRequestException) { }
+                var utility=analysis.Utility.Select(u=>u with {Participants=u.Participants.Select(p=>p with {VerifiedPlayer=
+                    p.ActorId is int id && roster?.Players.Any(a=>a.ActorId==id && RaidRecapAnalysisRules.Name(new JValue(a.Name))==p.Name)==true}).ToArray()}).ToArray();
+                var complete=analysis.Complete && utility.All(u=>u.Participants.All(p=>p.VerifiedPlayer));
+                analysis=analysis with {Utility=utility,Complete=complete,Notice=complete?null:RaidRecapAnalysisRules.Partial};
+            }
+            return analysis;
+        },TimeSpan.FromMinutes(2));
     }
 
     private static int Index(string input,int page,int count)

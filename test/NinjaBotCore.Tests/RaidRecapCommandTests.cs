@@ -20,6 +20,7 @@ public class RaidRecapCommandTests
         public readonly Mock<IInteractionContext> Context=new();
         public readonly Mock<IRaidRecapDiscord> Discord=new(MockBehavior.Strict);
         public readonly Mock<IRaidRecapSource> Source=new(MockBehavior.Strict);
+        public readonly Mock<IRaidRecapPlayerSource> Players;
         public readonly RaidRecapSessions Sessions;
         public readonly RaidRecapCommands Module;
         public bool Deferred;
@@ -27,6 +28,7 @@ public class RaidRecapCommandTests
         public readonly Mock<IMessageChannel> Channel=new();
         public Harness(Func<DateTimeOffset> clock=null,bool concretePublication=false,int capacity=256)
         {
+            Players=Source.As<IRaidRecapPlayerSource>();
             Sessions=new RaidRecapSessions(clock,capacity);
             var user=new Mock<IUser>();user.SetupGet(x=>x.Id).Returns(1);
             var guild=new Mock<IGuild>();guild.SetupGet(x=>x.Id).Returns(2);
@@ -358,6 +360,32 @@ public class RaidRecapCommandTests
             else Assert.Contains("PRIVATE NEW",text);
             Assert.Equal(MessageFlags.ComponentsV2,h.Edited.Flags.Value);Assert.Same(AllowedMentions.None,h.Edited.AllowedMentions.Value);Assert.Equal("",h.Edited.Content.Value);Assert.Null(h.Edited.Embed.Value);
         }
+        h.Discord.Verify(x=>x.PublishAsync(It.IsAny<IInteractionContext>(),It.IsAny<MessageComponent>(),It.IsAny<Func<bool>>()),Times.Never);
+    }
+
+    [Fact]
+    public async Task PlayerLensDefersAndHoldsGateThroughProviderAndFinalEditRejectingStaleQueuedActor()
+    {
+        var h=new Harness();var s=h.Sessions.Create(1,2,3);s.Report=RaidRecapPanelTests.Report();
+        h.Players.Setup(x=>x.GetRaidRecapRosterAsync(s.Report,s.Report.Fights[0],It.IsAny<System.Threading.CancellationToken>()))
+            .Returns(()=>{Assert.True(h.Deferred);return Task.FromResult(RaidRecapPlayerFlowTests.Roster(s.Report,2));});
+        await h.Module.NavigateAsync(s.Token,s.Generation.ToString(),"players");
+        await h.Module.SelectAsync(s.Token,s.Generation.ToString(),"player_pull",new[]{"1"});
+        await h.Module.SelectAsync(s.Token,s.Generation.ToString(),"player",new[]{"1"});
+        var provider=new TaskCompletionSource<RaidRecapAnalysis>(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.Source.Setup(x=>x.GetRaidRecapAnalysisAsync(s.Report,s.Report.Fights[0],"deaths",It.IsAny<System.Threading.CancellationToken>()))
+            .Returns(()=>{Assert.True(h.Deferred);return provider.Task;});
+        var editing=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var edit=new TaskCompletionSource<IUserMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.Interaction.Setup(x=>x.ModifyOriginalResponseAsync(It.IsAny<Action<MessageProperties>>(),It.IsAny<RequestOptions>()))
+            .Callback<Action<MessageProperties>,RequestOptions>((act,_)=>{h.Edited=new();act(h.Edited);editing.SetResult();}).Returns(edit.Task);
+        h.Edited=null;var old=s.Generation.ToString();var active=h.Module.SelectAsync(s.Token,old,"player_lens",new[]{"deaths"});
+        var stale=h.Module.SelectAsync(s.Token,old,"player",new[]{"2"});Assert.False(stale.IsCompleted);Assert.Null(h.Edited);
+        provider.SetResult(new RaidRecapAnalysis("deaths",true,null){Deaths=new[]{new RaidRecapDeath(1,"Private",1000,"Spell")}});
+        await editing.Task.WaitAsync(TimeSpan.FromSeconds(5));Assert.False(active.IsCompleted);Assert.False(stale.IsCompleted);
+        Assert.Equal(MessageFlags.ComponentsV2,h.Edited.Flags.Value);Assert.Same(AllowedMentions.None,h.Edited.AllowedMentions.Value);
+        edit.SetResult(null);await Task.WhenAll(active,stale).WaitAsync(TimeSpan.FromSeconds(5));Assert.Equal(1,s.PlayerPanel.ActorId);
+        h.Source.Verify(x=>x.GetRaidRecapAnalysisAsync(s.Report,s.Report.Fights[0],"deaths",It.IsAny<System.Threading.CancellationToken>()),Times.Once);
         h.Discord.Verify(x=>x.PublishAsync(It.IsAny<IInteractionContext>(),It.IsAny<MessageComponent>(),It.IsAny<Func<bool>>()),Times.Never);
     }
 

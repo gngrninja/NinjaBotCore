@@ -86,7 +86,7 @@ public class RaidRecapAnalysisViewTests
         for(var page=0;page<3;page++)
         {
             Set(s,"AnalysisPage",page);var payload=RaidRecapView.Build(s);var all=RaidRecapPanelTests.Flatten(payload.Components).ToArray();
-            Assert.InRange(all.Length,1,40);Assert.InRange(RaidRecapPanelTests.Text(payload).Length,1,4000);
+            Assert.InRange(all.Length,1,40);Assert.InRange(RaidRecapPanelTests.Text(payload).Length,1,3800);
             Assert.DoesNotContain("@everyone",RaidRecapPanelTests.Text(payload));
             Assert.Equal(5,all.OfType<ActionRowComponent>().First().Components.Count);
             Assert.Equal(5,all.OfType<ActionRowComponent>().Count());

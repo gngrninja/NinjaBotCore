@@ -141,7 +141,7 @@ public class RaidRecapReviewTests
     }
 
     [Fact]
-    public async Task ExplicitDeathsUsesFullPullCacheAndInclusiveCommonWindowWithoutNamesOrCausalClaims()
+    public async Task ExplicitDeathsUsesFullPullCacheAndInclusiveCommonWindowWithPrivateLinkedTiesNotCausalClaims()
     {
         var s=Session(Pull(1),Pull(2,true,90000));var cache=new RaidRecapCache();
         var source=new Source { Load=f=>Task.FromResult(f.Id==1?Deaths(true,Death(1,0),Death(2,0),Death(1,60000)):
@@ -159,7 +159,7 @@ public class RaidRecapReviewTests
         Assert.Contains("First loss: 00:00:00.000 · 2 simultaneous players",text);Assert.Contains("First loss: 00:00:59.000 · 1 simultaneous player",text);
         Assert.Contains("Equal time",text);Assert.Contains("phase",text);Assert.Contains("opportunity",text);Assert.Contains("roster",text);
         Assert.Contains("Repeated deaths are events, not extra players",text);Assert.Contains("First loss is not a cause",text);
-        Assert.DoesNotContain("Private",text);Assert.Contains("#fight=1&type=deaths",text);Assert.Contains("#fight=2&type=deaths",text);
+        Assert.Contains("#fight=1&source=1",text);Assert.DoesNotContain("Private",RaidRecapPanelTests.Text(RaidRecapView.Build(s,true)));Assert.Contains("#fight=1&type=deaths",text);Assert.Contains("#fight=2&type=deaths",text);
         Assert.All(source.Calls,c=>{Assert.Equal("deaths",c.Metric);Assert.Same(s.Report,c.Report);});Assert.Equal(2,cache.Count);
         await service.ApplyAsync(s,"compare_deaths",null);Assert.Equal(2,source.Calls.Count);
         Export("comparison",s);
@@ -245,7 +245,7 @@ public class RaidRecapReviewTests
     }
     private static void Check(RaidRecapSession s)
     {
-        var parts=Parts(s);Assert.InRange(parts.Length,1,40);Assert.InRange(Text(s).Length,1,4000);Assert.DoesNotContain("@everyone",Text(s));Assert.DoesNotContain('\u202e',Text(s));
+        var parts=Parts(s);Assert.InRange(parts.Length,1,40);Assert.InRange(Text(s).Length,1,3800);Assert.DoesNotContain("@everyone",Text(s));Assert.DoesNotContain('\u202e',Text(s));
         Assert.All(parts.OfType<ActionRowComponent>(),r=>Assert.InRange(r.Components.Count,1,5));
         Assert.All(parts.OfType<SelectMenuComponent>(),m=>{Assert.InRange(m.Options.Count,1,25);Assert.All(m.Options,o=>Assert.InRange(o.Label.Length,1,100));Assert.InRange(m.CustomId.Length,1,100);});
         Assert.All(parts.OfType<ButtonComponent>().Where(b=>b.Style!=ButtonStyle.Link),b=>Assert.InRange(b.CustomId.Length,1,100));
