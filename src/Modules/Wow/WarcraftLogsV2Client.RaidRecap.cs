@@ -14,7 +14,7 @@ public partial class WarcraftLogsV2Client : IRaidRecapSource
         const string query = """
             query($code: String!) { reportData { report(code: $code) {
               code title revision startTime endTime
-              fights { id encounterID name difficulty kill inProgress startTime endTime bossPercentage }
+              fights { id encounterID name difficulty kill inProgress startTime endTime bossPercentage gameZone { id name } }
             } } }
             """;
         var raw = await RecapQueryAsync(query, new { code });

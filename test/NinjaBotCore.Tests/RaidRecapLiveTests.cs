@@ -1486,17 +1486,18 @@ public class RaidRecapLiveTests
         rig.Players.Verify(x => x.GetRaidRecapParsesAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<bool>(), It.IsAny<RaidRecapRoster>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
         rig.Players.Verify(x => x.GetRaidRecapParsesAsync(It.IsAny<RaidRecapReport>(), It.Is<RaidRecapFight>(f => f.Id != 3), It.IsAny<bool>(), It.IsAny<RaidRecapRoster>(), It.IsAny<CancellationToken>()), Times.Never);
 
-        // Twenty more redraws with nothing new: no pull is read again, and nothing is forgotten.
+        // Ten more redraws with nothing new: no pull is read again, and nothing is forgotten.
+        // (After an hour with no raid pull the card would end, so stop short of that.)
         rig.Source.Invocations.Clear();
         rig.Players.Invocations.Clear();
-        for (var i = 1; i <= 20; i++)
+        for (var i = 1; i <= 10; i++)
         {
             rig.Now = rig.Now.AddMinutes(5);
             rig.Report = rig.Build(Kill(1, 0), Kill(2, 6, encounter: 3002), Kill(3, 12, encounter: 3003)) with { EndTime = rig.Now.ToUnixTimeMilliseconds() };
             await rig.SweepAsync();
         }
 
-        Assert.Equal(20, rig.Discord.Edits.Count);
+        Assert.Equal(10, rig.Discord.Edits.Count);
         rig.Source.Verify(x => x.GetRaidRecapScopedTableAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<bool>()), Times.Never);
         rig.Players.Verify(x => x.GetRaidRecapParsesAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<bool>(), It.IsAny<RaidRecapRoster>(), It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -1614,6 +1615,483 @@ public class RaidRecapLiveTests
         // on the same kill still counts once.
         Assert.Contains("🏆 Most top-3 finishes: **PrivateAlpha** 3 · **PrivateGamma** 3", text);
         Assert.Contains("-# Raid: damage parse avg 🟠 **96**", text);
+    }
+
+    // ===== Several raids in one log, or one night =====
+
+    private static RaidRecapFight InZone(RaidRecapFight fight, int zone, string name) => fight with { ZoneId = zone, ZoneName = name };
+
+    [Fact]
+    public void LogIsSplitIntoRaidsByZoneAndByANewNight()
+    {
+        var spire = new[] { InZone(Wipe(1, 0, 62), 101, "First Spire"), InZone(Kill(2, 6), 101, "First Spire") };
+        var hall = InZone(Kill(3, 40, encounter: 3101), 202, "Second Hall");
+        var unknownZone = Wipe(4, 50, 30) with { EncounterId = 3101 };                 // WarcraftLogs gave no zone
+        var dungeon = new RaidRecapFight(5, 12005, 10, "Dungeon Boss", true, false, 3_300_000, 3_600_000, null) { ZoneId = 999 };
+        var nextNight = InZone(Wipe(6, 60 * 24, 70), 202, "Second Hall");             // same zone, the next day
+        var report = new RaidRecapReport(Code, "Synthetic", 1, 1_790_000_000_000, 1_790_090_000_000, Start,
+            spire.Append(hall).Append(unknownZone).Append(dungeon).Append(nextNight).ToArray());
+
+        var sessions = RaidRecapLiveSessions.Split(report);
+
+        Assert.Equal(3, sessions.Count);
+        Assert.Equal((0L, 101L, "First Spire"), (sessions[0].StartMs, (long)sessions[0].ZoneId, sessions[0].ZoneName));
+        Assert.Equal(new[] { 1, 2 }, sessions[0].Fights.Select(f => f.Id));
+        Assert.Equal((2_400_000L, 202L), (sessions[1].StartMs, (long)sessions[1].ZoneId));
+        Assert.Equal(new[] { 3, 4 }, sessions[1].Fights.Select(f => f.Id));            // no zone: stays with its raid
+        Assert.Equal(86_400_000L, sessions[2].StartMs);
+        Assert.DoesNotContain(sessions.SelectMany(x => x.Fights), f => f.Id == 5);      // dungeons are never a raid
+
+        // A break shorter than a new night keeps the raid together.
+        var afterBreak = new RaidRecapReport(Code, "Synthetic", 1, 1_790_000_000_000, 1_790_010_000_000, Start,
+            new[] { Wipe(1, 0, 62), Wipe(2, 200, 41) });                               // 3h15m later
+        Assert.Single(RaidRecapLiveSessions.Split(afterBreak));
+
+        // Cards made before raids were told apart hold 0 and cover the first raid, even when
+        // that raid's first pull did not start at 0.
+        Assert.Same(sessions[1], RaidRecapLiveSessions.Find(sessions, 2_400_000));
+        Assert.Null(RaidRecapLiveSessions.Find(sessions, 12345));
+        var late = RaidRecapLiveSessions.Split(report with { Fights = new[] { Wipe(1, 2, 62), hall } });
+        Assert.Equal(120_000L, late[0].StartMs);
+        Assert.Same(late[0], RaidRecapLiveSessions.Find(late, 0));
+        Assert.Empty(RaidRecapLiveSessions.Split(report with { Fights = new[] { dungeon } }));
+    }
+
+    [Fact]
+    public async Task ZoneChangeInOneLogClosesTheFirstCardAndPostsASecond()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.Now = Start.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(InZone(Wipe(1, 0, 62), 101, "First Spire"));
+        await rig.SweepAsync();
+        Assert.Single(rig.Discord.Sent);
+
+        // The first raid is killed by minute 11; the raid moves on and pulls in a new zone at minute 40.
+        rig.Now = Start.AddMinutes(46);
+        rig.Report = rig.Build(
+            InZone(Wipe(1, 0, 62), 101, "First Spire"),
+            InZone(Kill(2, 6), 101, "First Spire"),
+            InZone(Kill(3, 40, encounter: 3101), 202, "Second Hall") with { Name = "Second Boss" });
+        rig.List(minutesSinceLastEvent: 1);
+        await rig.SweepAsync();
+
+        Assert.Equal(2, rig.Discord.Sent.Count);
+        var cards = await rig.CardsAsync();
+        Assert.Equal(RaidRecapLiveState.Ended, cards[0].State);
+        Assert.Equal(0, cards[0].SessionStartMs);
+        Assert.Equal(RaidRecapLiveState.Live, cards[1].State);
+        Assert.Equal(2_400_000, cards[1].SessionStartMs);
+        Assert.Equal(202, cards[1].ZoneId);
+        Assert.Equal("Second Hall", cards[1].ZoneName);
+
+        // The old card closes with only its own raid in it.
+        var closed = Text(rig.Discord.Edits.Single(e => e.Message == 4201).Card);
+        Assert.Contains("🏁 **Raid ended**", closed);
+        Assert.Contains("11m raid", closed);
+        Assert.Contains("Synthetic Boss", closed);
+        Assert.DoesNotContain("Second Boss", closed);
+
+        // The new card starts with the new raid, in its own zone.
+        var opened = Text(rig.Discord.Sent[1].Card);
+        Assert.Contains("🔴 **LIVE**", opened);
+        Assert.Contains("Second Hall", opened);
+        Assert.Contains("5m raid", opened);
+        Assert.Contains("Second Boss", opened);
+        Assert.DoesNotContain("Synthetic Boss", opened);
+        Assert.Contains("✅ 1 kill · 💀 0 wipes", opened);
+    }
+
+    private static WclV2Report Listing(string code, DateTimeOffset start, DateTimeOffset lastEvent) => new()
+    {
+        Code = code, Title = "Synthetic", Zone = new WclV2Zone { Name = "Synthetic Spire" },
+        StartTime = start.ToUnixTimeMilliseconds(), EndTime = lastEvent.ToUnixTimeMilliseconds()
+    };
+
+    [Theory]
+    [InlineData(5, true)]     // the old raid's last pull ended before the new log's first pull: the same team moved on
+    [InlineData(18, false)]   // the old raid was still pulling after the new log began: a second team
+    public async Task NewLogTakesOverFromAFinishedRaidButNotFromOneStillGoing(double oldLastPullMinute, bool takesOver)
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        const string second = "SecondLog0000001";
+        RaidRecapReport secondReport = null;
+        rig.Source.Setup(x => x.GetRaidRecapReportAsync(second)).ReturnsAsync(() => secondReport);
+
+        rig.Now = Start.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Wipe(1, 0, 62));
+        await rig.SweepAsync();
+
+        rig.Now = Start.AddMinutes(20);
+        rig.Report = rig.Build(Wipe(1, oldLastPullMinute - 5, 62));
+        var secondStart = Start.AddMinutes(14);
+        secondReport = new RaidRecapReport(second, "Synthetic", 1, secondStart.ToUnixTimeMilliseconds(),
+            rig.Now.ToUnixTimeMilliseconds(), rig.Now, new[] { Wipe(1, 0, 70) with { Name = "New Log Boss", EncounterId = 3002 } });
+        rig.Listed.Clear();
+        rig.Listed.Add(Listing(Code, Start, Start.AddMinutes(oldLastPullMinute)));
+        rig.Listed.Add(Listing(second, secondStart, rig.Now.AddMinutes(-1)));
+        await rig.SweepAsync();
+
+        Assert.Equal(2, rig.Discord.Sent.Count);
+        Assert.Contains("New Log Boss", Text(rig.Discord.Sent[1].Card));
+        var cards = await rig.CardsAsync();
+        Assert.Equal(second, cards[1].ReportCode);
+        Assert.Equal(RaidRecapLiveState.Live, cards[1].State);
+        Assert.Equal(takesOver ? RaidRecapLiveState.Ended : RaidRecapLiveState.Live, cards[0].State);
+        Assert.Equal(takesOver, rig.Discord.Edits.Any(e => e.Message == 4201 && Text(e.Card).Contains("Raid ended")));
+    }
+
+    [Fact]
+    public async Task AtMostTwoCardsAreLiveInOneServer()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        var codes = new[] { "SecondLog0000001", "ThirdLog00000001" };
+        var reports = new Dictionary<string, RaidRecapReport>();
+        foreach (var code in codes)
+        {
+            rig.Source.Setup(x => x.GetRaidRecapReportAsync(code)).ReturnsAsync(() => reports[code]);
+        }
+
+        rig.Now = Start.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Wipe(1, 0, 62));
+        await rig.SweepAsync();
+
+        // Three teams, all pulling right now.
+        rig.Now = Start.AddMinutes(20);
+        rig.Report = rig.Build(Wipe(1, 14, 62));
+        rig.Listed.Clear();
+        rig.Listed.Add(Listing(Code, Start, rig.Now.AddMinutes(-1)));
+        for (var i = 0; i < codes.Length; i++)
+        {
+            var start = Start.AddMinutes(10 + i);
+            reports[codes[i]] = new RaidRecapReport(codes[i], "Synthetic", 1, start.ToUnixTimeMilliseconds(),
+                rig.Now.ToUnixTimeMilliseconds(), rig.Now, new[] { Wipe(1, 4, 70) with { EncounterId = 3002 + i } });
+            rig.Listed.Add(Listing(codes[i], start, rig.Now.AddMinutes(-1)));
+        }
+
+        await rig.SweepAsync();
+        rig.Now = rig.Now.AddMinutes(6);
+        await rig.SweepAsync();
+
+        Assert.Equal(RaidRecapLiveCoordinator.MaxCardsPerServer, rig.Discord.Sent.Count);
+        Assert.All(await rig.CardsAsync(), c => Assert.Equal(RaidRecapLiveState.Live, c.State));
+    }
+
+    [Fact]
+    public async Task TwoPeopleLoggingTheSameRaidGetOneCard()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        const string backup = "BackupLog0000001";
+        RaidRecapReport backupReport = null;
+        rig.Source.Setup(x => x.GetRaidRecapReportAsync(backup)).ReturnsAsync(() => backupReport);
+
+        rig.Now = Start.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Wipe(1, 0, 62));
+        await rig.SweepAsync();
+
+        // A second raider's log of the same pulls: it began 30 seconds later, so every pull
+        // sits 30 seconds earlier in its own time.
+        rig.Now = Start.AddMinutes(12);
+        rig.Report = rig.Build(Wipe(1, 0, 62), Wipe(2, 6, 50));
+        var backupStart = Start.AddSeconds(30);
+        backupReport = new RaidRecapReport(backup, "Synthetic", 1, backupStart.ToUnixTimeMilliseconds(),
+            rig.Now.ToUnixTimeMilliseconds(), rig.Now, new[] { Wipe(1, -0.5, 62), Wipe(2, 5.5, 50) });
+        rig.Listed.Clear();
+        rig.Listed.Add(Listing(Code, Start, rig.Now.AddMinutes(-1)));
+        rig.Listed.Add(Listing(backup, backupStart, rig.Now.AddMinutes(-1)));
+        await rig.SweepAsync();
+        rig.Now = rig.Now.AddMinutes(6);
+        await rig.SweepAsync();
+
+        Assert.Single(rig.Discord.Sent);
+        var card = Assert.Single(await rig.CardsAsync());
+        Assert.Equal(Code, card.ReportCode);
+        Assert.Equal(RaidRecapLiveState.Live, card.State);
+    }
+
+    [Fact]
+    public async Task OtherTeamsPullInProgressKeepsItsCard()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        const string second = "SecondLog0000001";
+        RaidRecapReport secondReport = null;
+        rig.Source.Setup(x => x.GetRaidRecapReportAsync(second)).ReturnsAsync(() => secondReport);
+
+        rig.Now = Start.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Wipe(1, 0, 62));
+        await rig.SweepAsync();
+
+        // This team's last finished pull ended at minute 5, but a long pull has been going since minute 8.
+        rig.Now = Start.AddMinutes(20);
+        // No end time yet: only the in-progress flag says this team is still going.
+        var longPull = new RaidRecapFight(2, 3001, 4, "Synthetic Boss", null, true, 480_000, null, 30);
+        rig.Report = rig.Build(Wipe(1, 0, 62), longPull);
+        var secondStart = Start.AddMinutes(14);
+        secondReport = new RaidRecapReport(second, "Synthetic", 1, secondStart.ToUnixTimeMilliseconds(),
+            rig.Now.ToUnixTimeMilliseconds(), rig.Now, new[] { Wipe(1, 0, 70) with { EncounterId = 3002 } });
+        rig.Listed.Clear();
+        rig.Listed.Add(Listing(Code, Start, rig.Now.AddMinutes(-1)));
+        rig.Listed.Add(Listing(second, secondStart, rig.Now.AddMinutes(-1)));
+        await rig.SweepAsync();
+
+        Assert.Equal(2, rig.Discord.Sent.Count);
+        Assert.All(await rig.CardsAsync(), c => Assert.Equal(RaidRecapLiveState.Live, c.State));
+    }
+
+    [Fact]
+    public async Task RaidThatFinishedLongAgoInALogKeptLiveByKeysGetsNoCard()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        // The server turns the card on after the raid; keys have kept the log live since.
+        rig.Now = Start.AddMinutes(125);
+        var key = new RaidRecapFight(9, 12009, 10, "Dungeon Boss", true, false, 7_000_000, 7_300_000, null);
+        rig.Report = rig.Build(Kill(1, 0), key) with { EndTime = rig.Now.ToUnixTimeMilliseconds() };
+        rig.List(minutesSinceLastEvent: 0);
+
+        await rig.SweepAsync();
+
+        Assert.Empty(rig.Discord.Sent);
+        Assert.Empty(await rig.CardsAsync());
+    }
+
+    [Fact]
+    public async Task BreakResumeWaitsWhenTheServerAlreadyHasTwoLiveCards()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.Now = Start.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Wipe(1, 0, 62));
+        await rig.SweepAsync();
+        rig.Now = Start.AddMinutes(40);
+        await rig.SweepAsync();
+        Assert.Equal(RaidRecapLiveState.Ended, Assert.Single(await rig.CardsAsync()).State);
+
+        // Meanwhile two other teams have live cards in this server.
+        var others = new[] { "SecondLog0000001", "ThirdLog00000001" };
+        using (var scope = rig.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+            for (var i = 0; i < others.Length; i++)
+            {
+                var code = others[i];
+                var report = new RaidRecapReport(code, "Synthetic", 1, Start.ToUnixTimeMilliseconds(),
+                    Start.AddMinutes(59).ToUnixTimeMilliseconds(), rig.Now, new[] { Wipe(1, 54, 70) with { EncounterId = 3002 + i } });
+                rig.Source.Setup(x => x.GetRaidRecapReportAsync(code)).ReturnsAsync(report);
+                db.RaidRecapLiveCards.Add(new RaidRecapLiveCard
+                {
+                    DiscordGuildId = (long)Server, ChannelId = (long)Channel, MessageId = 8000 + i, ReportCode = code,
+                    SessionStartMs = 3_240_000, State = RaidRecapLiveState.Live, StartedAt = rig.Now.UtcDateTime,
+                    LastChangedAt = rig.Now.UtcDateTime, LastCheckedAt = rig.Now.AddMinutes(30).UtcDateTime
+                });
+            }
+
+            await db.SaveChangesAsync();
+        }
+
+        // The first team comes back from its break.
+        rig.Now = Start.AddMinutes(60);
+        rig.Report = rig.Build(Wipe(1, 0, 62), Wipe(2, 50, 41));
+        rig.Listed.Clear();
+        rig.Listed.Add(Listing(Code, Start, rig.Now.AddMinutes(-1)));
+        await rig.SweepAsync();
+
+        var cards = await rig.CardsAsync();
+        Assert.Equal(RaidRecapLiveState.Ended, cards.Single(c => c.ReportCode == Code).State);
+        Assert.Equal(2, cards.Count(c => c.State == RaidRecapLiveState.Live));
+    }
+
+    [Fact]
+    public async Task PullsUploadedLateRedrawTheFinalCard()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.Now = Start.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Wipe(1, 0, 62));
+        await rig.SweepAsync();
+        rig.Now = Start.AddMinutes(40);
+        await rig.SweepAsync();
+        Assert.Equal(RaidRecapLiveState.Ended, Assert.Single(await rig.CardsAsync()).State);
+
+        // The uploader had stalled: a pull from minute 20 arrives now.
+        rig.Now = Start.AddMinutes(45);
+        rig.Report = rig.Build(Wipe(1, 0, 62), Wipe(2, 20, 41));
+        rig.List(minutesSinceLastEvent: 1);
+        await rig.SweepAsync();
+
+        var text = Text(rig.Discord.Edits.Last().Card);
+        Assert.Contains("🏁 **Raid ended**", text);
+        Assert.Contains("`62 · 41`", text);
+        Assert.Equal(RaidRecapLiveState.Ended, Assert.Single(await rig.CardsAsync()).State);
+        Assert.Single(rig.Discord.Sent);
+
+        // Nothing new after that: no more redraws.
+        var edits = rig.Discord.Edits.Count;
+        rig.Now = rig.Now.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        await rig.SweepAsync();
+        Assert.Equal(edits, rig.Discord.Edits.Count);
+    }
+
+    [Fact]
+    public async Task LogOpenedLongBeforeTheRaidIsTimedFromTheFirstPull()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        // The log was started 90 minutes before the first boss.
+        rig.Now = Start.AddMinutes(96);
+        rig.Report = rig.Build(Wipe(1, 90, 62));
+        rig.List(minutesSinceLastEvent: 1);
+        await rig.SweepAsync();
+
+        var text = Text(rig.Discord.Sent.Single().Card);
+        Assert.Contains("5m raid", text);
+        Assert.DoesNotContain("1h", text);
+    }
+
+    [Fact]
+    public void ParsedFightsCarryTheirZone()
+    {
+        var raw = JObject.Parse("""
+        {"code":"AbCdEfGh12345678","revision":1,"startTime":0,"endTime":600000,"fights":[
+          {"id":1,"encounterID":3001,"name":"A","difficulty":4,"kill":false,"inProgress":false,"startTime":0,"endTime":60000,"bossPercentage":50,"gameZone":{"id":3004,"name":"The Venomous Abyss"}},
+          {"id":2,"encounterID":3002,"name":"B","difficulty":4,"kill":true,"inProgress":false,"startTime":70000,"endTime":90000,"gameZone":null},
+          {"id":3,"encounterID":3003,"name":"C","difficulty":4,"kill":true,"inProgress":false,"startTime":100000,"endTime":120000,"gameZone":{"id":"x","name":7}},
+          {"id":4,"encounterID":3004,"name":"D","difficulty":4,"kill":true,"inProgress":false,"startTime":130000,"endTime":150000}
+        ]}
+        """);
+        var fights = RaidRecapRules.ParseReport(raw, Code, Start).Fights;
+        Assert.Equal((3004, "The Venomous Abyss"), (fights[0].ZoneId, fights[0].ZoneName));
+        Assert.All(fights.Skip(1), f => Assert.Null(f.ZoneId));
+        Assert.All(fights.Skip(1), f => Assert.Null(f.ZoneName));
+    }
+
+    [Fact]
+    public async Task NightAppendedToTheSameLogGetsItsOwnCard()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.Now = Start.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Wipe(1, 0, 62));
+        await rig.SweepAsync();
+        rig.Now = Start.AddMinutes(40);
+        await rig.SweepAsync();
+        Assert.Equal(RaidRecapLiveState.Ended, Assert.Single(await rig.CardsAsync()).State);
+
+        // The next evening the guild appends to the same log.
+        var nextNight = Start.AddHours(24);
+        rig.Now = nextNight.AddMinutes(6);
+        rig.Report = rig.Build(Wipe(1, 0, 62), Wipe(2, 24 * 60, 55));
+        rig.List(minutesSinceLastEvent: 1);
+        await rig.SweepAsync();
+
+        Assert.Equal(2, rig.Discord.Sent.Count);
+        var cards = await rig.CardsAsync();
+        Assert.Equal(RaidRecapLiveState.Ended, cards[0].State);
+        Assert.Equal(86_400_000, cards[1].SessionStartMs);
+        var text = Text(rig.Discord.Sent[1].Card);
+        Assert.Contains("✅ 0 kills · 💀 1 wipe** · 1 pull", text);                     // tonight only
+        Assert.Contains($"<t:{nextNight.ToUnixTimeSeconds()}:D>", text);
+        Assert.Contains("5m raid", text);
+        Assert.DoesNotContain("62%", text);                                          // night one's pull
+    }
+
+    [Fact]
+    public async Task TenToTwentyMinuteBreakKeepsTheSameCardLive()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.Now = Start.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Wipe(1, 0, 62));
+        await rig.SweepAsync();
+
+        // A 20 minute break: the log goes quiet after minute 5.
+        for (var minute = 10; minute <= 24; minute += 2)
+        {
+            rig.Now = Start.AddMinutes(minute);
+            await rig.SweepAsync();
+            Assert.Equal(RaidRecapLiveState.Live, Assert.Single(await rig.CardsAsync()).State);
+        }
+
+        rig.Now = Start.AddMinutes(31);
+        rig.Report = rig.Build(Wipe(1, 0, 62), Wipe(2, 25, 41));
+        await rig.SweepAsync();
+
+        Assert.Single(rig.Discord.Sent);
+        var last = Text(rig.Discord.Edits.Last().Card);
+        Assert.Contains("🔴 **LIVE**", last);
+        Assert.Contains("`62 · 41`", last);
+        Assert.DoesNotContain(rig.Discord.Edits, e => Text(e.Card).Contains("Raid ended"));
+        Assert.Equal(RaidRecapLiveState.Live, Assert.Single(await rig.CardsAsync()).State);
+    }
+
+    [Fact]
+    public async Task MythicPlusAfterTheRaidNeverShowsAndEndsTheCardAfterAnHour()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.Now = Start.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Kill(1, 0));
+        await rig.SweepAsync();
+
+        RaidRecapFight Key(int id, double minute) =>
+            new(id, 12000 + id, 10, "Dungeon Boss", true, false, minute * 60000, minute * 60000 + 300000, null) { ZoneId = 999, ZoneName = "Some Dungeon" };
+        foreach (var minute in new[] { 20, 40, 66, 80, 100 })
+        {
+            // The log keeps growing with keys, so it never goes quiet.
+            rig.Now = Start.AddMinutes(minute);
+            rig.Report = rig.Build(Kill(1, 0), Key(2, minute - 6)) with { EndTime = rig.Now.ToUnixTimeMilliseconds() };
+            rig.List(minutesSinceLastEvent: 0);
+            await rig.SweepAsync();
+            var state = Assert.Single(await rig.CardsAsync()).State;
+            Assert.Equal(minute < 65 ? RaidRecapLiveState.Live : RaidRecapLiveState.Ended, state);
+        }
+
+        Assert.Single(rig.Discord.Sent);
+        Assert.DoesNotContain("Dungeon Boss", Text(rig.Discord.Sent.Single().Card));
+        Assert.All(rig.Discord.Edits, e => Assert.DoesNotContain("Dungeon Boss", Text(e.Card)));
+        Assert.Contains("Raid ended", Text(rig.Discord.Edits.Last().Card));
+    }
+
+    [Fact]
+    public async Task CardMadeBeforeRaidsWereToldApartIsNotPostedAgain()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        using (var scope = rig.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+            db.RaidRecapLiveCards.Add(new RaidRecapLiveCard
+            {
+                DiscordGuildId = (long)Server, ChannelId = (long)Channel, MessageId = 9000, ReportCode = Code,
+                SessionStartMs = 0, State = RaidRecapLiveState.Live, StartedAt = rig.Now.UtcDateTime,
+                LastChangedAt = rig.Now.UtcDateTime, LastCheckedAt = rig.Now.AddMinutes(-5).UtcDateTime
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // The first raid pull starts two minutes into the log, not at 0.
+        rig.Report = rig.Build(Wipe(1, 2, 62)) with { EndTime = rig.Now.ToUnixTimeMilliseconds() };
+        rig.List(minutesSinceLastEvent: 1);
+        await rig.SweepAsync();
+
+        Assert.Empty(rig.Discord.Sent);
+        Assert.Equal(9000ul, Assert.Single(rig.Discord.Edits).Message);
+        Assert.Equal(RaidRecapLiveState.Live, Assert.Single(await rig.CardsAsync()).State);
     }
 
     // ===== Open my recap =====

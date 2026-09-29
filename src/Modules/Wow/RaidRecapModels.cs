@@ -14,6 +14,9 @@ public sealed record RaidRecapStanding(string Name,double? Total,double? PerSeco
 public sealed record RaidRecapFight(int Id, int EncounterId, int? Difficulty, string Name,
     bool? Kill, bool? InProgress, double? StartMs, double? EndMs, double? Remaining)
 {
+    /// <summary>The in-game zone the pull happened in, when WarcraftLogs reports it.</summary>
+    public int? ZoneId { get; init; }
+    public string ZoneName { get; init; }
     public bool IsKill => Kill == true && InProgress == false;
     public bool IsWipe => Kill == false && InProgress == false;
     public double? DurationMs => InProgress == false && StartMs >= 0 && EndMs > StartMs ? EndMs - StartMs : null;

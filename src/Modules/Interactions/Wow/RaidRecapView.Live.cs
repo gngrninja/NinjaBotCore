@@ -10,7 +10,15 @@ using NinjaBotCore.Modules.Wow;
 namespace NinjaBotCore.Modules.Interactions.Wow;
 
 /// <summary>What the live card needs besides the report itself.</summary>
-public sealed record RaidRecapLiveInfo(string GuildName, string Region, string ZoneName, string IconUrl);
+public sealed record RaidRecapLiveInfo(string GuildName, string Region, string ZoneName, string IconUrl)
+{
+    /// <summary>
+    /// When this card's raid began and ended, as epoch milliseconds, for the header's date and
+    /// length. Unset means the whole log. A log can hold several raids, each with its own card.
+    /// </summary>
+    public double? HeaderStartMs { get; init; }
+    public double? HeaderEndMs { get; init; }
+}
 
 /// <summary>A death on the public card: when, which spec, what killed them. Never a name.</summary>
 public sealed record RaidRecapLiveDeath(double ElapsedMs, string Identity, string Ability);
@@ -308,7 +316,12 @@ public static partial class RaidRecapView
 
     private static RaidRecapSession Session(RaidRecapReport report, RaidRecapLiveInfo info) => new()
     {
-        Report = report,
+        // Only the header reads these times; everything else uses the report as given.
+        Report = report with
+        {
+            StartTime = info?.HeaderStartMs ?? report.StartTime,
+            EndTime = info?.HeaderEndMs ?? report.EndTime
+        },
         GuildName = info?.GuildName,
         GuildRegion = info?.Region,
         GuildIconUrl = info?.IconUrl,

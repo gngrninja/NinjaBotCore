@@ -36,6 +36,17 @@ namespace NinjaBotCore.Database
         [MaxLength(16)]
         public string ReportCode { get; set; } = "";
 
+        /// <summary>
+        /// Where in the log this card's raid begins: the start of its first raid pull, in
+        /// milliseconds from the start of the log. One log can hold several raids, for example
+        /// two zones in one night or several nights appended, and each gets its own card.
+        /// Cards made before this existed hold 0, meaning the first raid in the log.
+        /// </summary>
+        public long SessionStartMs { get; set; }
+
+        /// <summary>The in-game zone of this card's raid, when WarcraftLogs reported it.</summary>
+        public long? ZoneId { get; set; }
+
         public RaidRecapLiveState State { get; set; }
 
         [MaxLength(100)]

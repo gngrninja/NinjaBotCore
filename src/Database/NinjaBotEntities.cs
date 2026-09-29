@@ -133,10 +133,10 @@ namespace NinjaBotCore.Database
 
             modelBuilder.Entity<RaidRecapLiveCard>(entity =>
             {
-                // One card per report per server, however often discovery runs.
-                entity.HasIndex(e => new { e.DiscordGuildId, e.ReportCode })
+                // One card per raid in a report per server, however often discovery runs.
+                entity.HasIndex(e => new { e.DiscordGuildId, e.ReportCode, e.SessionStartMs })
                     .IsUnique()
-                    .HasDatabaseName("IX_RaidRecapLiveCards_DiscordGuildId_ReportCode");
+                    .HasDatabaseName("IX_RaidRecapLiveCards_DiscordGuildId_ReportCode_SessionStartMs");
 
                 entity.HasIndex(e => e.State)
                     .HasDatabaseName("IX_RaidRecapLiveCards_State");

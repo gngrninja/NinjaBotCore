@@ -36,6 +36,17 @@ The sections below describe behaviour, limits and safety rules. Where they quote
 - **Ended:** the log has been quiet for 30 minutes, or the card has been watched for 8 hours. The card becomes a final summary, marked 🏁, and watching stops. If the same log goes live again within those 8 hours, for example after a long break, the same card returns to 🔴 LIVE.
 - **Stopped:** the card was deleted, the server turned the feature off, the rollout stopped covering the server and the card went quiet, or 10 refreshes in a row failed. A refresh refused because the WarcraftLogs budget is spent does not count as a failure. A deleted card is never reposted. Otherwise the card is edited to say updates stopped, so it never claims to be live forever.
 
+**Several raids in one night or one log.** A card covers one raid: consecutive raid boss pulls in one zone on one night. Pulls that are not raid bosses, such as Mythic+ dungeons, never appear on the card.
+- A new card starts when the zone changes inside the log, when a newer log goes live, or when pulls in the same zone begin 4 hours or more after the last one (a night appended to the same log). Each starts under the same rule as the first card: a raid boss pull in a live log.
+- A new card needs the raid to be going on: a pull in progress, or one in the last 30 minutes. A raid that finished long ago in a log kept live by keys gets no card.
+- When a new raid starts, older cards close as 🏁 Raid ended, showing only their own raid: always an earlier raid in the same log, and a raid in another log when it had no activity after the new raid's first pull began (the same team moved on, for example after restarting the uploader). A raid in another log still going after the new one began is a second team, and its card stays. At most 2 cards are live in one server, including cards returning from a break.
+- Two logs of the same raid, recorded by two people, get one card: a pull of the same boss on the same difficulty beginning within 60 seconds in both marks them as the same raid.
+- Pulls uploaded late, after a card closed, redraw its final version.
+- A break shorter than 4 hours in the same zone keeps the same card: it stays live for up to 30 quiet minutes, and after that returns to 🔴 LIVE on the next pull.
+- A card also ends after an hour with no raid pull while the log keeps going, for example Mythic+ after the raid. A later raid pull brings it back.
+- Each card's header shows its own raid's zone, date and length. The first raid in a log is timed from the start of the log when its first pull began within 30 minutes of it, so trash before the first boss counts; otherwise from its first pull. A final card is timed to its last pull.
+- New logs are looked for every 5 minutes in every opted-in server, including servers with a live card.
+
 **What the public card shows**
 - Kills, wipes, pulls, time on bosses, and each boss with its result. The log's title is left out, because it is free text typed by the uploader.
 - The current boss, the last pull, the best pull, and a pull strip such as `62 · 55 · 41 · 12 · ✅` (boss health left per pull, latest 12).
@@ -66,7 +77,7 @@ The sections below describe behaviour, limits and safety rules. Where they quote
 - The bot needs View Channel, Send Messages and Read Message History in the card's channel.
 - The card reads through the same caches as the private recap.
 
-**State** is in three tables: `RaidRecapLiveSettings` (per server), `RaidRecapLiveCards` (one row per posted card, unique per server and report) and `RaidRecapRollout` (one row). Watching resumes after a restart. Migration: `AddRaidRecapLive`.
+**State** is in three tables: `RaidRecapLiveSettings` (per server), `RaidRecapLiveCards` (one row per posted card, unique per server, report and raid start) and `RaidRecapRollout` (one row). Watching resumes after a restart. Migrations: `AddRaidRecapLive`, then `SplitRaidRecapLiveCardsByRaid`, which adds the raid start and zone to each card. Cards made before it hold 0 and cover the first raid in their log.
 
 The existing `/watchlogs` "New log" post is unchanged.
 

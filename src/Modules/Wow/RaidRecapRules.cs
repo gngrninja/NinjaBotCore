@@ -29,10 +29,17 @@ public static class RaidRecapRules
                 throw new InvalidOperationException("Incomplete WarcraftLogs fight data.");
             var health = Number(o["bossPercentage"]);
             if (health < 0 || health > 100) health = null;
+            var zone = o["gameZone"] as JObject;
+            var zoneId = Integer(zone?["id"]);
+            var zoneName = zone?["name"]?.Type == JTokenType.String ? (string)zone["name"] : null;
             return new RaidRecapFight(id, encounter, Integer(o["difficulty"]), o.Value<string>("name") ?? "Unknown encounter",
                 o["kill"]?.Type == JTokenType.Boolean ? (bool?)o["kill"] : null,
                 o["inProgress"]?.Type == JTokenType.Boolean ? (bool?)o["inProgress"] : null,
-                Number(o["startTime"]), Number(o["endTime"]), health);
+                Number(o["startTime"]), Number(o["endTime"]), health)
+            {
+                ZoneId = zoneId > 0 ? zoneId : null,
+                ZoneName = string.IsNullOrWhiteSpace(zoneName) ? null : zoneName.Length <= 100 ? zoneName : zoneName[..100]
+            };
         }).ToArray();
         if (parsed.Select(f => f.Id).Distinct().Count() != parsed.Length)
             throw new InvalidOperationException("Duplicate WarcraftLogs fight identity.");

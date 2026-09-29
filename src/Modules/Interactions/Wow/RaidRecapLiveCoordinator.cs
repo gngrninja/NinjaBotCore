@@ -67,7 +67,27 @@ public sealed class RaidRecapLiveCoordinator
     /// <summary>How many of the night's latest kills the final summary looks at.</summary>
     public const int MaxSummaryKills = 12;
 
-    private static readonly int?[] RaidDifficulties = { 1, 3, 4, 5 };
+    /// <summary>
+    /// Two logs whose pulls of the same boss began this close together are the same raid,
+    /// recorded by two people. Only one card is kept for it.
+    /// </summary>
+    public static readonly TimeSpan SameRaidPullWindow = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// The first raid in a log is timed from the start of the log only when its first pull
+    /// began this soon after, so trash before the first boss counts but a log left open for
+    /// hours beforehand does not.
+    /// </summary>
+    public static readonly TimeSpan LogStartCountsWithin = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// A raid ends after this long without a raid pull, even while the log keeps going,
+    /// for example Mythic+ after the raid. A later raid pull brings the card back.
+    /// </summary>
+    public static readonly TimeSpan NoRaidPullEndAfter = TimeSpan.FromMinutes(60);
+
+    /// <summary>At most this many cards are live in one server at once.</summary>
+    public const int MaxCardsPerServer = 2;
 
     private readonly IServiceScopeFactory _scopes;
     private readonly IRaidRecapSource _source;
@@ -191,7 +211,6 @@ public sealed class RaidRecapLiveCoordinator
         }
 
         var watching = 0;
-        var busy = new HashSet<long>();
         foreach (var (cardId, guild) in live)
         {
             ct.ThrowIfCancellationRequested();
@@ -199,22 +218,18 @@ public sealed class RaidRecapLiveCoordinator
             var stillLive = await ContainAsync(
                 () => RefreshCardAsync(cardId, enabled.ContainsKey(guild), eligible, watching < MaxLiveCards, ct),
                 "refresh", cardId, ct);
-            if (stillLive)
+            if (stillLive && eligible)
             {
-                busy.Add(guild);
-                if (eligible)
-                {
-                    // Cards outside the rollout cost nothing, so they do not use up a slot.
-                    watching++;
-                }
+                // Cards outside the rollout cost nothing, so they do not use up a slot.
+                watching++;
             }
         }
 
         // Longest-waiting servers first, a few per sweep, so a restart or a large rollout
-        // never turns into a burst of WarcraftLogs calls.
+        // never turns into a burst of WarcraftLogs calls. Servers with a live card are checked
+        // too, so a second raid that night is found and takes over.
         var now = _clock();
         var due = enabled.Keys
-            .Where(g => !busy.Contains(g))
             .Where(g => !_lastDiscovery.TryGetValue(g, out var last) || now - last >= DiscoveryInterval)
             .OrderBy(g => _lastDiscovery.TryGetValue(g, out var last) ? last : DateTimeOffset.MinValue)
             .ThenBy(g => g)
@@ -315,18 +330,29 @@ public sealed class RaidRecapLiveCoordinator
         card.LastCheckedAt = now.UtcDateTime;
         try
         {
-            var report = await LoadReportAsync(card.ReportCode);
+            var full = await LoadReportAsync(card.ReportCode);
+            var sessions = RaidRecapLiveSessions.Split(full);
+            var session = RaidRecapLiveSessions.Find(sessions, card.SessionStartMs);
+            var report = Scope(full, session);
             if (LastPullAt(report) is { } pulled)
             {
                 _lastPull[card.Id] = pulled;
             }
 
-            var ended = HasEnded(report, card, now);
+            // A later raid in the same log, such as the next zone, closes this card. Discovery
+            // is asked to look at the server this sweep, so the next card is not kept waiting.
+            var replaced = session != null && sessions[^1].StartMs != session.StartMs;
+            if (replaced)
+            {
+                _lastDiscovery.Remove(card.DiscordGuildId);
+            }
+
+            var ended = replaced || HasEnded(report, card, now) || RaidQuiet(full, session, now);
             var fingerprint = Fingerprint(report, ended);
             if (fingerprint != card.Fingerprint || card.MessageId == 0)
             {
                 var highlights = await HighlightsAsync(report, ct);
-                var component = RaidRecapView.Live(report, Info(card), ended, now, highlights);
+                var component = RaidRecapView.Live(report, Info(card, full, sessions, session, ended), ended, now, highlights);
                 if (card.MessageId == 0)
                 {
                     // Posting was interrupted last time. Post now.
@@ -474,29 +500,222 @@ public sealed class RaidRecapLiveCoordinator
                 continue;
             }
 
-            var existing = await db.RaidRecapLiveCards.FirstOrDefaultAsync(c => c.DiscordGuildId == guild && c.ReportCode == code, ct);
-            if (existing != null && (existing.State != RaidRecapLiveState.Ended || now - Utc(existing.StartedAt) >= MaxWatch))
-            {
-                // Already live, or stopped on purpose, or watched for long enough.
-                continue;
-            }
-
-            var report = await LoadReportAsync(code);
-            if (!report.Fights.Any(f => RaidDifficulties.Contains(f.Difficulty)))
+            var full = await LoadReportAsync(code);
+            var sessions = RaidRecapLiveSessions.Split(full);
+            if (sessions.Count == 0)
             {
                 // No raid boss pull yet, or not a raid log.
                 continue;
             }
 
-            if (existing != null)
+            // Only the log's latest raid can be live.
+            var latest = sessions[^1];
+            var existing = await db.RaidRecapLiveCards.FirstOrDefaultAsync(
+                c => c.DiscordGuildId == guild && c.ReportCode == code && c.SessionStartMs == latest.StartMs, ct);
+            if (existing == null && sessions.Count == 1)
             {
-                return await ResumeAsync(db, existing, report, now, ct);
+                // A card made before raids were told apart covers the first raid.
+                existing = await db.RaidRecapLiveCards.FirstOrDefaultAsync(
+                    c => c.DiscordGuildId == guild && c.ReportCode == code && c.SessionStartMs == 0, ct);
             }
 
-            return await PostAsync(db, guild, channel, wow, candidate, report, now, ct);
+            var liveHere = await db.RaidRecapLiveCards.CountAsync(
+                c => c.DiscordGuildId == guild && c.State == RaidRecapLiveState.Live, ct);
+            if (existing != null)
+            {
+                if (existing.State == RaidRecapLiveState.Ended
+                    && now - Utc(existing.StartedAt) < MaxWatch
+                    && RaidRecapLiveSessions.LastActivityAt(full, latest) is { } activity
+                    && activity > Utc(existing.LastChangedAt)
+                    && liveHere < MaxCardsPerServer)
+                {
+                    // Back from a break: a raid pull after the card closed.
+                    return await ResumeAsync(db, existing, full, sessions, latest, now, ct);
+                }
+
+                if (existing.State == RaidRecapLiveState.Ended
+                    && existing.Fingerprint != Fingerprint(Scope(full, latest), ended: true))
+                {
+                    // Pulls from before the card closed arrived late. Redraw the final card.
+                    await FinishAsync(existing, full, sessions, latest, now, ct);
+                    await db.SaveChangesAsync(CancellationToken.None);
+                }
+
+                // Live already, stopped on purpose, or nothing new since it closed.
+                continue;
+            }
+
+            // A new card needs a raid that is actually going on: a pull in progress or a
+            // recent one. A raid that finished hours ago in a log kept live by keys is not.
+            if (!latest.HasPullInProgress
+                && (RaidRecapLiveSessions.LastActivityAt(full, latest) is not { } recent || now - recent >= EndAfter))
+            {
+                continue;
+            }
+
+            // First close the cards this raid takes over from, unless it is a raid that is
+            // already on a card because someone else is logging it too.
+            if (!await TakeOverAsync(db, guild, full, latest, now, ct))
+            {
+                continue;
+            }
+
+            liveHere = await db.RaidRecapLiveCards.CountAsync(
+                c => c.DiscordGuildId == guild && c.State == RaidRecapLiveState.Live, ct);
+            if (liveHere >= MaxCardsPerServer)
+            {
+                continue;
+            }
+
+            return await PostAsync(db, guild, channel, wow, candidate, full, sessions, latest, now, ct);
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Prepares the server for a new raid's card. Returns false when the raid is already on a
+    /// card because a second person is logging it; nothing is closed then. Otherwise closes
+    /// the cards the new raid takes over from:
+    /// <list type="bullet">
+    /// <item>an earlier raid in the same log, always;</item>
+    /// <item>a raid in another log that had no activity after the new raid's first pull began,
+    /// because the same team has moved on, for example after restarting the uploader.</item>
+    /// </list>
+    /// A raid in another log that is still going after the new one began is a second team,
+    /// and its card stays.
+    /// </summary>
+    private async Task<bool> TakeOverAsync(
+        NinjaBotEntities db,
+        long guild,
+        RaidRecapReport newFull,
+        RaidRecapLiveSession newRaid,
+        DateTimeOffset now,
+        CancellationToken ct)
+    {
+        var cards = await db.RaidRecapLiveCards
+            .Where(c => c.DiscordGuildId == guild && c.State == RaidRecapLiveState.Live)
+            .ToListAsync(ct);
+        var newStart = newFull.StartTime + newRaid.StartMs;
+        var closing = new List<(RaidRecapLiveCard Card, RaidRecapReport Full, IReadOnlyList<RaidRecapLiveSession> Sessions, RaidRecapLiveSession? Session)>();
+        foreach (var card in cards)
+        {
+            RaidRecapReport full;
+            try
+            {
+                full = await LoadReportAsync(card.ReportCode);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Unknown, so leave it alone; its own refresh closes it once it goes quiet.
+                _logger.LogDebug("Raid recap live card {CardId} could not be checked ({Type})", card.Id, ex.GetType().Name);
+                continue;
+            }
+
+            var sessions = RaidRecapLiveSessions.Split(full);
+            var session = RaidRecapLiveSessions.Find(sessions, card.SessionStartMs);
+            if (card.ReportCode == newFull.Code)
+            {
+                closing.Add((card, full, sessions, session));
+                continue;
+            }
+
+            if (session != null && SameRaid(full, session, newFull, newRaid))
+            {
+                return false;
+            }
+
+            var lastActivity = session == null ? null : full.StartTime + session.LastActivityMs;
+            var stillGoing = session?.HasPullInProgress == true || (lastActivity is double last && newStart is double begun && last > begun);
+            if (!stillGoing)
+            {
+                closing.Add((card, full, sessions, session));
+            }
+        }
+
+        foreach (var (card, full, sessions, session) in closing)
+        {
+            try
+            {
+                await FinishAsync(card, full, sessions, session, now, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug("Raid recap live card {CardId} could not be closed ({Type})", card.Id, ex.GetType().Name);
+            }
+        }
+
+        await db.SaveChangesAsync(CancellationToken.None);
+        return true;
+    }
+
+    /// <summary>
+    /// True when two logs recorded the same raid: a pull of the same boss on the same
+    /// difficulty, in the same zone if both say, began at nearly the same moment in both.
+    /// </summary>
+    public static bool SameRaid(RaidRecapReport aFull, RaidRecapLiveSession a, RaidRecapReport bFull, RaidRecapLiveSession b)
+    {
+        if (aFull.StartTime is not double aStart || bFull.StartTime is not double bStart)
+        {
+            return false;
+        }
+
+        if (a.ZoneId is int aZone && b.ZoneId is int bZone && aZone != bZone)
+        {
+            return false;
+        }
+
+        var window = SameRaidPullWindow.TotalMilliseconds;
+        return a.Fights.Any(x => b.Fights.Any(y =>
+            x.EncounterId == y.EncounterId
+            && x.Difficulty == y.Difficulty
+            && x.StartMs is double xs && y.StartMs is double ys
+            && Math.Abs(aStart + xs - (bStart + ys)) <= window));
+    }
+
+    /// <summary>Draws a card's final version and marks it ended.</summary>
+    private async Task FinishAsync(
+        RaidRecapLiveCard card,
+        RaidRecapReport full,
+        IReadOnlyList<RaidRecapLiveSession> sessions,
+        RaidRecapLiveSession? session,
+        DateTimeOffset now,
+        CancellationToken ct)
+    {
+        Forget(card);
+        if (card.MessageId == 0)
+        {
+            card.State = RaidRecapLiveState.Stopped;
+            return;
+        }
+
+        var report = Scope(full, session);
+        var highlights = await HighlightsAsync(report, ct);
+        var result = await _discord.EditAsync((ulong)card.ChannelId, (ulong)card.MessageId,
+            RaidRecapView.Live(report, Info(card, full, sessions, session, closed: true), ended: true, now, highlights));
+        if (result == RaidRecapLiveEdit.Missing)
+        {
+            card.State = RaidRecapLiveState.Stopped;
+            return;
+        }
+
+        if (result != RaidRecapLiveEdit.Updated)
+        {
+            return;
+        }
+
+        card.State = RaidRecapLiveState.Ended;
+        card.Fingerprint = Fingerprint(report, ended: true);
+        card.LastChangedAt = now.UtcDateTime;
+        _logger.LogInformation("Raid recap live card {CardId} drawn as ended", card.Id);
     }
 
     private async Task<bool> PostAsync(
@@ -505,7 +724,9 @@ public sealed class RaidRecapLiveCoordinator
         long channel,
         RaidRecapGuild wow,
         WclV2Report listed,
-        RaidRecapReport report,
+        RaidRecapReport full,
+        IReadOnlyList<RaidRecapLiveSession> sessions,
+        RaidRecapLiveSession session,
         DateTimeOffset now,
         CancellationToken ct)
     {
@@ -514,17 +735,19 @@ public sealed class RaidRecapLiveCoordinator
             DiscordGuildId = guild,
             ChannelId = channel,
             MessageId = 0,
-            ReportCode = report.Code,
+            ReportCode = full.Code,
+            SessionStartMs = session.StartMs,
+            ZoneId = session.ZoneId,
             State = RaidRecapLiveState.Live,
             GuildName = Limit(wow.Name, 100),
             Region = Limit(wow.Region, 8),
-            ZoneName = Limit(listed.ZoneName, 200),
+            ZoneName = Limit(session.ZoneName ?? listed.ZoneName, 200),
             StartedAt = now.UtcDateTime,
             LastChangedAt = now.UtcDateTime,
             LastCheckedAt = now.UtcDateTime
         };
 
-        // Claim the report before posting. The unique index makes sure that two bot processes
+        // Claim the raid before posting. The unique index makes sure that two bot processes
         // running side by side during a deploy cannot both post.
         db.RaidRecapLiveCards.Add(card);
         try
@@ -536,11 +759,13 @@ public sealed class RaidRecapLiveCoordinator
             return false;
         }
 
+        var report = Scope(full, session);
         ulong? message = null;
         try
         {
             var highlights = await HighlightsAsync(report, ct);
-            message = await _discord.SendAsync((ulong)channel, RaidRecapView.Live(report, Info(card), ended: false, now, highlights));
+            message = await _discord.SendAsync((ulong)channel,
+                RaidRecapView.Live(report, Info(card, full, sessions, session), ended: false, now, highlights));
         }
         finally
         {
@@ -561,22 +786,26 @@ public sealed class RaidRecapLiveCoordinator
         card.MessageId = checked((long)message.Value);
         card.Fingerprint = Fingerprint(report, ended: false);
         await db.SaveChangesAsync(CancellationToken.None);
-        _logger.LogInformation("Raid recap live card posted for guild {GuildId}, report {Report}", guild, report.Code);
+        _logger.LogInformation("Raid recap live card posted for guild {GuildId}, report {Report}, raid from {Start} ms",
+            guild, full.Code, session.StartMs);
         return true;
     }
 
-    /// <summary>The raid came back after a long break. The same card carries on.</summary>
+    /// <summary>The raid came back after a break. The same card carries on.</summary>
     private async Task<bool> ResumeAsync(
         NinjaBotEntities db,
         RaidRecapLiveCard card,
-        RaidRecapReport report,
+        RaidRecapReport full,
+        IReadOnlyList<RaidRecapLiveSession> sessions,
+        RaidRecapLiveSession session,
         DateTimeOffset now,
         CancellationToken ct)
     {
+        var report = Scope(full, session);
         var fingerprint = Fingerprint(report, ended: false);
         var highlights = await HighlightsAsync(report, ct);
         var result = await _discord.EditAsync((ulong)card.ChannelId, (ulong)card.MessageId,
-            RaidRecapView.Live(report, Info(card), ended: false, now, highlights));
+            RaidRecapView.Live(report, Info(card, full, sessions, session), ended: false, now, highlights));
         if (result == RaidRecapLiveEdit.Missing)
         {
             card.State = RaidRecapLiveState.Stopped;
@@ -595,7 +824,7 @@ public sealed class RaidRecapLiveCoordinator
         card.LastChangedAt = now.UtcDateTime;
         card.LastCheckedAt = now.UtcDateTime;
         await db.SaveChangesAsync(CancellationToken.None);
-        _logger.LogInformation("Raid recap live card resumed for guild {GuildId}, report {Report}", card.DiscordGuildId, report.Code);
+        _logger.LogInformation("Raid recap live card resumed for guild {GuildId}, report {Report}", card.DiscordGuildId, full.Code);
         return true;
     }
 
@@ -813,11 +1042,49 @@ public sealed class RaidRecapLiveCoordinator
         async () => await _source.GetRaidRecapReportAsync(code),
         TimeSpan.FromSeconds(30));
 
-    private RaidRecapLiveInfo Info(RaidRecapLiveCard card) => new(
-        card.GuildName ?? "",
-        card.Region ?? "",
-        card.ZoneName ?? "",
-        _discord.GuildIconUrl((ulong)card.DiscordGuildId) ?? "");
+    /// <summary>
+    /// What the card's header needs. When the log holds several raids, the header shows this
+    /// raid's own start and, once a later raid has taken over or the card is closed, its end.
+    /// The first raid starts with the log, so time spent before its first pull still counts.
+    /// </summary>
+    private RaidRecapLiveInfo Info(
+        RaidRecapLiveCard card,
+        RaidRecapReport? full = null,
+        IReadOnlyList<RaidRecapLiveSession>? sessions = null,
+        RaidRecapLiveSession? session = null,
+        bool closed = false)
+    {
+        var info = new RaidRecapLiveInfo(
+            card.GuildName ?? "",
+            card.Region ?? "",
+            card.ZoneName ?? "",
+            _discord.GuildIconUrl((ulong)card.DiscordGuildId) ?? "");
+        if (full?.StartTime is not double start || session == null || sessions == null || sessions.Count == 0)
+        {
+            return info;
+        }
+
+        var first = sessions[0].StartMs == session.StartMs;
+        var latest = sessions[^1].StartMs == session.StartMs;
+        var fromLogStart = first && session.StartMs <= LogStartCountsWithin.TotalMilliseconds;
+        return info with
+        {
+            HeaderStartMs = fromLogStart ? null : start + session.StartMs,
+            HeaderEndMs = latest && !closed ? null : start + session.LastActivityMs
+        };
+    }
+
+    /// <summary>The log narrowed to the card's raid. Without one, every raid pull in the log.</summary>
+    private static RaidRecapReport Scope(RaidRecapReport full, RaidRecapLiveSession? session) => session != null
+        ? RaidRecapLiveSessions.Scope(full, session)
+        : full with { Fights = full.Fights.Where(RaidRecapLiveSessions.IsRaid).ToArray() };
+
+    /// <summary>True when the raid has had no raid pull for <see cref="NoRaidPullEndAfter"/>.</summary>
+    public static bool RaidQuiet(RaidRecapReport full, RaidRecapLiveSession? session, DateTimeOffset now) =>
+        session != null
+        && !session.HasPullInProgress
+        && RaidRecapLiveSessions.LastActivityAt(full, session) is { } at
+        && now - at >= NoRaidPullEndAfter;
 
     /// <summary>
     /// True when WarcraftLogs refused because the hourly budget is spent or it asked us to
@@ -870,7 +1137,9 @@ public sealed class RaidRecapLiveCoordinator
     public static string Fingerprint(RaidRecapReport report, bool ended)
     {
         var last = report.Fights.OrderBy(f => f.StartMs ?? double.MaxValue).ThenBy(f => f.Id).LastOrDefault();
-        var span = report.EndTime > report.StartTime
+        // While live, the header's raid length grows with the log; redraw every five minutes
+        // for it. A final card is timed to its last pull, so only new pulls change it.
+        var span = !ended && report.EndTime > report.StartTime
             ? (long)((report.EndTime.Value - report.StartTime!.Value) / TimeSpan.FromMinutes(5).TotalMilliseconds)
             : 0;
         return FormattableString.Invariant(
