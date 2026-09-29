@@ -13,6 +13,8 @@
 - The live card names the top damage and healing players of the latest kill. Deaths stay by spec and class.
 - The live card calls out a new best pull, states the killing blow that most often started a wipe, and adds a raid line to each kill with average parses, speed and execution.
 - The final card adds the typical gap between pulls and the players with the most top-three finishes.
+- Each of the latest kill's top damage and healing players shows their two biggest targets, with amount and share.
+- The live card shows kicks and dispels for the latest pull: how many, the top kickers and dispellers, and what was dispelled most.
 - Two raids in one night each get a card. A zone change, a newer log, or a night appended to the same log starts a new card, and the previous card closes as Raid ended unless a second team is still raiding. Two people logging the same raid get one card. Mythic+ and other non-raid fights no longer appear on the card, and a card ends after an hour without a raid pull.
 - The private recap's Bosses view and *Still progressing* card now show a pull strip: boss health left on each pull, in order.
 

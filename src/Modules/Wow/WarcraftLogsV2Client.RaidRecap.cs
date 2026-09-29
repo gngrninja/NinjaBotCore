@@ -6,7 +6,7 @@ using Newtonsoft.Json.Linq;
 
 namespace NinjaBotCore.Modules.Wow;
 
-public partial class WarcraftLogsV2Client : IRaidRecapSource
+public partial class WarcraftLogsV2Client : IRaidRecapSource, IRaidRecapTargetSource
 {
     public async Task<RaidRecapReport> GetRaidRecapReportAsync(string code)
     {
@@ -19,6 +19,34 @@ public partial class WarcraftLogsV2Client : IRaidRecapSource
             """;
         var raw = await RecapQueryAsync(query, new { code });
         return RaidRecapRules.ParseReport(raw["report"] as JObject, code, DateTimeOffset.UtcNow);
+    }
+
+    /// <summary>
+    /// One player's damage or healing on a finished kill, by target. A finished kill does not
+    /// change as the log grows, so only the report code and revision are checked, not its
+    /// end time.
+    /// </summary>
+    public async Task<JObject> GetRaidRecapTargetsAsync(RaidRecapReport report, RaidRecapFight fight, bool healing, int sourceId,
+        System.Threading.CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var code = RaidRecapRules.ReportCode(report?.Code);
+        if (report.Revision == null || fight == null || !System.Linq.Enumerable.Contains(report.Fights, fight) || !fight.IsKill
+            || fight.Id <= 0 || fight.DurationMs is not > 0 || sourceId <= 0)
+            throw new ArgumentException("Targets need a completed boss kill and a player.");
+        var metric = healing ? "Healing" : "DamageDone";
+        var query = $$"""
+            query($code: String!, $fights: [Int]!, $start: Float!, $end: Float!, $source: Int!) {
+              reportData { report(code: $code) { code revision
+                table(dataType: {{metric}}, fightIDs: $fights, startTime: $start, endTime: $end, killType: Kills, viewBy: Target, sourceID: $source)
+              } }
+            }
+            """;
+        var data = await RecapQueryAsync(query, new { code, fights = new[] { fight.Id }, start = fight.StartMs.Value, end = fight.EndMs.Value, source = sourceId }, cancellationToken);
+        if (data["report"] is not JObject current || current.Value<string>("code") != code
+            || RaidRecapRules.Number(current["revision"]) != report.Revision || current["table"] is not JObject table)
+            throw new InvalidOperationException("Target table is unavailable.");
+        return table;
     }
 
     public async Task<JObject> GetRaidRecapTableAsync(string code, RaidRecapFight fight, bool healing)

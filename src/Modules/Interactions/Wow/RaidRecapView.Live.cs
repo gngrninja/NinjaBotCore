@@ -32,6 +32,12 @@ public sealed record RaidRecapLivePerformer(string Identity, double? PerSecond, 
 {
     public string Name { get; init; }
     public int? ActorId { get; init; }
+
+    /// <summary>The player's whole damage or healing on the kill, to check target shares against.</summary>
+    public double? Total { get; init; }
+
+    /// <summary>Where this player's damage or healing went, top first. Null when not read.</summary>
+    public IReadOnlyList<RaidRecapTarget> Targets { get; init; }
 }
 
 /// <summary>The killing blow that most often started a wipe on the current boss.</summary>
@@ -47,6 +53,77 @@ public sealed record RaidRecapLiveKillQuality(
     double? Execution)
 {
     public bool HasAny => DamageAverage.HasValue || HealingAverage.HasValue || Speed.HasValue || Execution.HasValue;
+}
+
+/// <summary>A name and how many times, for kicks and dispels.</summary>
+public sealed record RaidRecapLiveCount(string Name, double Count);
+
+/// <summary>
+/// Interrupts and dispels on one pull: how many, and who did the most. Only players matched
+/// to the raid roster are named, so pets and unknown sources never show. What was dispelled
+/// is named by its spell.
+/// </summary>
+public sealed record RaidRecapLiveUtility(RaidRecapFight Pull)
+{
+    public const int Shown = 3;
+
+    public double Kicks { get; init; }
+    public double WentOff { get; init; }
+    public IReadOnlyList<RaidRecapLiveCount> Kickers { get; init; } = Array.Empty<RaidRecapLiveCount>();
+    public bool KicksComplete { get; init; }
+    public double Dispels { get; init; }
+    public IReadOnlyList<RaidRecapLiveCount> Debuffs { get; init; } = Array.Empty<RaidRecapLiveCount>();
+    public IReadOnlyList<RaidRecapLiveCount> Dispellers { get; init; } = Array.Empty<RaidRecapLiveCount>();
+    public bool DispelsComplete { get; init; }
+
+    /// <summary>
+    /// Nothing more to learn by reading again: both results complete, names included. A result
+    /// whose counts are whole but whose names could not be matched, for example because the
+    /// roster could not be read, is worth another try.
+    /// </summary>
+    public bool Settled { get; init; }
+
+    public bool HasKicks => Kicks > 0 || WentOff > 0;
+    public bool HasDispels => Dispels > 0;
+
+    public static RaidRecapLiveUtility From(RaidRecapFight pull, RaidRecapAnalysis interrupts, RaidRecapAnalysis dispels) => new(pull)
+    {
+        Kicks = Sum(interrupts?.Utility.Select(u => u.Actions)),
+        WentOff = Sum(interrupts?.Utility.Select(u => u.CompletedCasts)),
+        Kickers = Players(interrupts),
+        // The count is complete when every spell's count is known. Credit going to a pet or
+        // someone off the roster makes attribution partial, not the count.
+        KicksComplete = Counted(interrupts),
+        Dispels = Sum(dispels?.Utility.Select(u => u.Actions)),
+        Debuffs = (dispels?.Utility ?? Array.Empty<RaidRecapUtility>())
+            .Where(u => u.Actions is > 0)
+            .GroupBy(u => u.Name, StringComparer.Ordinal)
+            .Select(g => new RaidRecapLiveCount(g.Key, g.Sum(u => u.Actions!.Value)))
+            .OrderByDescending(c => c.Count)
+            .ThenBy(c => c.Name, StringComparer.Ordinal)
+            .Take(2)
+            .ToArray(),
+        Dispellers = Players(dispels).Take(2).ToArray(),
+        DispelsComplete = Counted(dispels),
+        Settled = interrupts?.Complete == true && dispels?.Complete == true
+    };
+
+    private static bool Counted(RaidRecapAnalysis analysis) =>
+        analysis != null && analysis.Utility.All(u => u.Actions.HasValue);
+
+    private static double Sum(IEnumerable<double?> values) =>
+        values?.Where(v => v is >= 0 && double.IsFinite(v.Value)).Sum(v => v!.Value) ?? 0;
+
+    private static IReadOnlyList<RaidRecapLiveCount> Players(RaidRecapAnalysis analysis) =>
+        (analysis?.Utility ?? Array.Empty<RaidRecapUtility>())
+            .SelectMany(u => u.Participants)
+            .Where(p => p.VerifiedPlayer && p.ActorId is > 0 && p.Count is > 0)
+            .GroupBy(p => p.ActorId!.Value)
+            .Select(g => new RaidRecapLiveCount(g.First().Name, g.Sum(p => p.Count!.Value)))
+            .OrderByDescending(c => c.Count)
+            .ThenBy(c => c.Name, StringComparer.Ordinal)
+            .Take(Shown)
+            .ToArray();
 }
 
 /// <summary>A player who finished in the top three of damage or healing on several kills.</summary>
@@ -67,6 +144,9 @@ public sealed record RaidRecapLiveHighlights
     public const int MvpKills = 2;
 
     public RaidRecapLiveWipePattern Pattern { get; init; }
+
+    /// <summary>Kicks and dispels on the latest finished pull, when read.</summary>
+    public RaidRecapLiveUtility Utility { get; init; }
     public RaidRecapLiveKillQuality Quality { get; init; }
     public IReadOnlyList<RaidRecapLiveMvp> Mvps { get; init; } = Array.Empty<RaidRecapLiveMvp>();
 
@@ -246,7 +326,8 @@ public sealed record RaidRecapLiveHighlights
                 r.Parse?.Percentile)
             {
                 Name = r.Player?.Name ?? r.Name,
-                ActorId = r.Player?.ActorId
+                ActorId = r.Player?.ActorId,
+                Total = r.Total
             })
             .ToArray();
 }
@@ -263,12 +344,58 @@ public static partial class RaidRecapView
     /// damage and healing players of the latest kill. Deaths are shown by spec and class only.
     /// "Open my recap" gives each viewer their private recap.
     /// </summary>
+    /// <summary>Total text a card may hold. Discord allows 4000; the rest is headroom.</summary>
+    public const int LiveTextBudget = 3800;
+
     public static MessageComponent Live(
         RaidRecapReport report,
         RaidRecapLiveInfo info,
         bool ended,
         DateTimeOffset updated,
-        RaidRecapLiveHighlights highlights = null)
+        RaidRecapLiveHighlights highlights = null) =>
+        Live(report, info, ended, updated, highlights, LiveTextBudget);
+
+    /// <summary>
+    /// Targets under each top player are the first thing to go when a busy night with long
+    /// names would push the card past the text budget.
+    /// </summary>
+    internal static MessageComponent Live(
+        RaidRecapReport report,
+        RaidRecapLiveInfo info,
+        bool ended,
+        DateTimeOffset updated,
+        RaidRecapLiveHighlights highlights,
+        int textBudget)
+    {
+        // Trimmed in order of how much a reader loses: target lines first, then kicks and dispels.
+        foreach (var (targets, utility) in new[] { (true, true), (false, true) })
+        {
+            var card = BuildLive(report, info, ended, updated, highlights, targets, utility);
+            if (TextLength(card.Components) <= textBudget)
+            {
+                return card;
+            }
+        }
+
+        return BuildLive(report, info, ended, updated, highlights, targets: false, utility: false);
+    }
+
+    private static int TextLength(IEnumerable<IMessageComponent> components) => components.Sum(c => c switch
+    {
+        TextDisplayComponent t => t.Content?.Length ?? 0,
+        ContainerComponent k => TextLength(k.Components),
+        SectionComponent s => TextLength(s.Components.Cast<IMessageComponent>()),
+        _ => 0
+    });
+
+    private static MessageComponent BuildLive(
+        RaidRecapReport report,
+        RaidRecapLiveInfo info,
+        bool ended,
+        DateTimeOffset updated,
+        RaidRecapLiveHighlights highlights,
+        bool targets,
+        bool utility)
     {
         var s = Session(report, info);
         var card = new ContainerBuilder().WithAccentColor(new Color(ended ? EndedColor : LiveColor));
@@ -286,7 +413,7 @@ public static partial class RaidRecapView
         text.Append(Current(report, ended));
         card.AddComponent(new TextDisplayBuilder(text.ToString()));
 
-        var detail = Highlights(report, highlights);
+        var detail = Highlights(report, highlights, targets, utility);
         if (detail.Length > 0)
         {
             card.AddComponent(new SeparatorBuilder().WithIsDivider(true).WithSpacing(SeparatorSpacingSize.Small));
@@ -401,7 +528,7 @@ public static partial class RaidRecapView
     /// <summary>
     /// Deaths are shown by spec and class only. Top damage and healing are shown by name.
     /// </summary>
-    private static string Highlights(RaidRecapReport report, RaidRecapLiveHighlights highlights)
+    private static string Highlights(RaidRecapReport report, RaidRecapLiveHighlights highlights, bool targets, bool utility)
     {
         var text = new StringBuilder();
         if (highlights?.Wipe != null && highlights.FirstDeaths.Count > 0)
@@ -427,6 +554,16 @@ public static partial class RaidRecapView
             text.AppendLine($"📌 First death was **{RaidRecapRules.Text(pattern.Ability, 55)}** on {pattern.Count} of {RaidRecapFormat.Plural(pattern.Wipes, "wipe")}");
         }
 
+        if (utility && highlights?.Utility is { } done && (done.HasKicks || done.HasDispels))
+        {
+            if (text.Length > 0)
+            {
+                text.AppendLine();
+            }
+
+            Utility(text, done);
+        }
+
         if (highlights?.Kill != null && (highlights.TopDamage.Count > 0 || highlights.TopHealing.Count > 0))
         {
             if (text.Length > 0)
@@ -435,12 +572,49 @@ public static partial class RaidRecapView
             }
 
             text.AppendLine($"**✅ {RaidRecapRules.Text(highlights.Kill.Name, 60)} kill** · {RaidRecapFormat.Clock(highlights.Kill.DurationMs)}");
-            Performers(text, report, highlights.Kill, "⚔️ Top damage", "DPS", highlights.TopDamage);
-            Performers(text, report, highlights.Kill, "💚 Top healing", "HPS", highlights.TopHealing);
+            Performers(text, report, highlights.Kill, "⚔️ Top damage", "DPS", highlights.TopDamage, targets);
+            Performers(text, report, highlights.Kill, "💚 Top healing", "HPS", highlights.TopHealing, targets);
             Quality(text, highlights.Quality);
         }
 
         return text.ToString();
+    }
+
+    /// <summary>Kicks and dispels on the latest finished pull, with who did the most.</summary>
+    private static void Utility(StringBuilder text, RaidRecapLiveUtility u)
+    {
+        static string Names(IEnumerable<RaidRecapLiveCount> counts) =>
+            string.Join(" · ", counts.Select(c => $"{RaidRecapRules.Text(c.Name, 24)} {RaidRecapFormat.Count(c.Count)}"));
+
+        if (u.HasKicks)
+        {
+            text.AppendLine($"✋ **Kicks** · #{u.Pull.Id} · {(u.KicksComplete ? "" : "at least ")}{RaidRecapFormat.Count(u.Kicks)} stopped"
+                + (u.WentOff > 0 ? $" · {RaidRecapFormat.Count(u.WentOff)} went off" : ""));
+            if (u.Kickers.Count > 0)
+            {
+                text.AppendLine("-# " + Names(u.Kickers));
+            }
+        }
+
+        if (u.HasDispels)
+        {
+            text.AppendLine($"✨ **Dispels** · #{u.Pull.Id} · {(u.DispelsComplete ? "" : "at least ")}{RaidRecapFormat.Count(u.Dispels)}");
+            var parts = new List<string>();
+            if (u.Debuffs.Count > 0)
+            {
+                parts.Add(Names(u.Debuffs));
+            }
+
+            if (u.Dispellers.Count > 0)
+            {
+                parts.Add("by " + Names(u.Dispellers));
+            }
+
+            if (parts.Count > 0)
+            {
+                text.AppendLine("-# " + string.Join(" · ", parts));
+            }
+        }
     }
 
     /// <summary>One small line for the whole raid: average parses, then speed and execution.</summary>
@@ -490,7 +664,8 @@ public static partial class RaidRecapView
         RaidRecapFight kill,
         string title,
         string metric,
-        IReadOnlyList<RaidRecapLivePerformer> rows)
+        IReadOnlyList<RaidRecapLivePerformer> rows,
+        bool targets)
     {
         if (rows.Count == 0)
         {
@@ -504,7 +679,19 @@ public static partial class RaidRecapView
             var badge = RaidRecapParsePalette.Badge(rows[i].Percentile);
             text.AppendLine($"{medal} {PerformerName(report, kill, rows[i])}{rows[i].Identity} · **{RaidRecapFormat.Compact(rows[i].PerSecond)}** {metric}"
                 + (rows[i].Percentile.HasValue && badge.Known ? $" · {badge.Emoji} **{badge.Display}**" : ""));
+            if (targets && rows[i].Targets is { Count: > 0 } list)
+            {
+                text.AppendLine("-# ↳ " + string.Join(" · ", list.Select(t =>
+                    $"{(t.Self ? "self" : t.Pet ? "pet" : RaidRecapRules.Text(t.Name, 24))} "
+                    + (t.Amount is > 0 ? $"{RaidRecapFormat.Compact(t.Amount)} ({Share(t.Share)})" : Share(t.Share)))));
+            }
         }
+    }
+
+    private static string Share(double share)
+    {
+        var percent = share * 100;
+        return percent is > 0 and < 1 ? "<1%" : Math.Round(percent).ToString("0", CultureInfo.InvariantCulture) + "%";
     }
 
     private static string PerformerName(RaidRecapReport report, RaidRecapFight kill, RaidRecapLivePerformer row)

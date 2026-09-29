@@ -64,6 +64,9 @@ public sealed class RaidRecapLiveCoordinator
     /// <summary>How many of the current boss's latest wipes the wipe pattern looks at.</summary>
     public const int MaxPatternWipes = 10;
 
+    /// <summary>How long one target read may take before the rest wait for the next redraw.</summary>
+    public static readonly TimeSpan TargetReadDeadline = TimeSpan.FromSeconds(15);
+
     /// <summary>How many of the night's latest kills the final summary looks at.</summary>
     public const int MaxSummaryKills = 12;
 
@@ -870,8 +873,56 @@ public sealed class RaidRecapLiveCoordinator
         wanted.AddRange(kills.Where(f => f != kill));
 
         var reads = 0;
-        foreach (var fight in wanted)
+        var budgetSpent = false;
+        var latestPull = report.CompletedPulls.LastOrDefault(f => f.DurationMs is > 0);
+        var utilityKey = latestPull == null ? null : "u:" + PullKey(latestPull);
+        var latestCount = wanted.Count(f => f == wipe || f == kill);
+        for (var index = 0; index <= wanted.Count; index++)
         {
+            // Kicks and dispels for the latest pull are read right after the latest wipe and kill.
+            // They are one small read of their own each redraw, apart from the pull budget, so
+            // catching up on older pulls is not slowed down by them.
+            if (index == latestCount && utilityKey != null && !budgetSpent)
+            {
+                if (!known.UtilitySettled(utilityKey))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    known.Attempts[utilityKey] = known.Attempts.GetValueOrDefault(utilityKey) + 1;
+                    try
+                    {
+                        var interrupts = await _service.GetUtilityAsync(report, latestPull!, dispels: false);
+                        var dispels = await _service.GetUtilityAsync(report, latestPull!, dispels: true);
+                        known.Utility[utilityKey] = RaidRecapLiveUtility.From(latestPull!, interrupts, dispels);
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex) when (IsQuota(ex))
+                    {
+                        known.Attempts[utilityKey]--;
+                        budgetSpent = true;
+                    }
+                    catch (Exception ex) when (ReportMoved(ex))
+                    {
+                        // The log grew while reading; that is not this pull's fault. Try again
+                        // at the next redraw without using up an attempt.
+                        known.Attempts[utilityKey]--;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug("Raid recap live kicks and dispels unavailable for {Report} fight {Fight} ({Type})",
+                            report.Code, latestPull!.Id, ex.GetType().Name);
+                    }
+                }
+            }
+
+            if (index == wanted.Count || budgetSpent)
+            {
+                break;
+            }
+
+            var fight = wanted[index];
             ct.ThrowIfCancellationRequested();
             var key = PullKey(fight);
             var latest = fight == wipe || fight == kill;
@@ -882,7 +933,8 @@ public sealed class RaidRecapLiveCoordinator
 
             if (reads >= MaxPullReadsPerRedraw)
             {
-                break;
+                // Budget used: older pulls wait, but the loop still reaches the kicks and dispels.
+                continue;
             }
 
             reads++;
@@ -895,7 +947,8 @@ public sealed class RaidRecapLiveCoordinator
                 }
                 else
                 {
-                    known.Kills[key] = await ReadKillAsync(report, fight, latest);
+                    known.Kills.TryGetValue(key, out var previous);
+                    known.Kills[key] = await ReadKillAsync(report, fight, latest, previous, ct);
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -907,6 +960,7 @@ public sealed class RaidRecapLiveCoordinator
                 // The budget is spent. That is not this pull's fault, and asking again now
                 // cannot succeed. Stop reading until the next redraw.
                 known.Attempts[key]--;
+                budgetSpent = true;
                 break;
             }
             catch (Exception ex)
@@ -948,7 +1002,8 @@ public sealed class RaidRecapLiveCoordinator
             TopDamage = latestKill?.TopDamage ?? Array.Empty<RaidRecapLivePerformer>(),
             TopHealing = latestKill?.TopHealing ?? Array.Empty<RaidRecapLivePerformer>(),
             Quality = latestKill?.Quality!,
-            Mvps = RaidRecapLiveHighlights.FindMvps(perKill)
+            Mvps = RaidRecapLiveHighlights.FindMvps(perKill),
+            Utility = utilityKey != null && known.Utility.TryGetValue(utilityKey, out var utility) ? utility : null!
         };
     }
 
@@ -972,8 +1027,16 @@ public sealed class RaidRecapLiveCoordinator
     /// The latest kill is shown in full: specs, parses and the raid's standing. An earlier
     /// kill only feeds the night's standouts, which need the top three names alone.
     /// </summary>
-    private async Task<KillFacts> ReadKillAsync(RaidRecapReport report, RaidRecapFight fight, bool latest)
+    private async Task<KillFacts> ReadKillAsync(RaidRecapReport report, RaidRecapFight fight, bool latest, KillFacts? previous, CancellationToken ct)
     {
+        if (latest && previous is { Complete: true, Full: true, TargetsPending: true })
+        {
+            // Everything else is in hand; only some target lines are still to read.
+            var (damageTop, damagePending) = await WithTargetsAsync(report, fight, false, previous.TopDamage, previous.TopDamage, ct);
+            var (healingTop, healingPending) = await WithTargetsAsync(report, fight, true, previous.TopHealing, previous.TopHealing, ct);
+            return previous with { TopDamage = damageTop, TopHealing = healingTop, TargetsPending = damagePending || healingPending };
+        }
+
         if (!latest)
         {
             return new KillFacts(
@@ -986,12 +1049,81 @@ public sealed class RaidRecapLiveCoordinator
 
         var damage = await _service.GetOutputAsync(report, fight, healing: false);
         var healing = await _service.GetOutputAsync(report, fight, healing: true);
+        var (topDamage, damageTargetsPending) = await WithTargetsAsync(report, fight, false, RaidRecapLiveHighlights.Performers(damage), previous?.TopDamage, ct);
+        var (topHealing, healingTargetsPending) = await WithTargetsAsync(report, fight, true, RaidRecapLiveHighlights.Performers(healing), previous?.TopHealing, ct);
         return new KillFacts(
-            RaidRecapLiveHighlights.Performers(damage),
-            RaidRecapLiveHighlights.Performers(healing),
+            topDamage,
+            topHealing,
             RaidRecapLiveHighlights.FindQuality(damage, healing),
             Complete: damage.Parses != null && healing.Parses != null,
-            Full: true);
+            Full: true)
+        {
+            TargetsPending = damageTargetsPending || healingTargetsPending
+        };
+    }
+
+    /// <summary>
+    /// Adds where each top player's damage or healing went: one small read per player, kept
+    /// from an earlier read of the same kill when there is one. Best effort: a player whose
+    /// targets cannot be read has no line. The first failed read, including one slower than
+    /// <see cref="TargetReadDeadline"/>, leaves the rest for a later redraw, and the result
+    /// says so; <see cref="MaxPullAttempts"/> bounds how often that happens.
+    /// </summary>
+    private async Task<(IReadOnlyList<RaidRecapLivePerformer> Top, bool Pending)> WithTargetsAsync(
+        RaidRecapReport report,
+        RaidRecapFight fight,
+        bool healing,
+        IReadOnlyList<RaidRecapLivePerformer> top,
+        IReadOnlyList<RaidRecapLivePerformer>? earlier,
+        CancellationToken ct)
+    {
+        if (_source is not IRaidRecapTargetSource source)
+        {
+            return (top, false);
+        }
+
+        var result = new List<RaidRecapLivePerformer>(top.Count);
+        var pending = false;
+        foreach (var player in top)
+        {
+            var kept = earlier?.FirstOrDefault(p => p.ActorId == player.ActorId && p.Targets != null)?.Targets;
+            if (kept != null || player.ActorId is not int actor || actor <= 0)
+            {
+                result.Add(kept == null ? player : player with { Targets = kept });
+                continue;
+            }
+
+            if (pending)
+            {
+                result.Add(player);
+                continue;
+            }
+
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(TargetReadDeadline);
+            try
+            {
+                var table = await source.GetRaidRecapTargetsAsync(report, fight, healing, actor, deadline.Token);
+                // A table that is not in the expected shape, or does not add up to the
+                // player's own total, gives an empty list: no line, and no asking again.
+                result.Add(player with
+                {
+                    Targets = RaidRecapTargets.Parse(table, player.Name, actor, player.Total) ?? Array.Empty<RaidRecapTarget>()
+                });
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                pending = true;
+                _logger.LogDebug("Raid recap live targets unavailable for {Report} fight {Fight} ({Type})", report.Code, fight.Id, ex.GetType().Name);
+                result.Add(player);
+            }
+        }
+
+        return (result, pending);
     }
 
     // A finished pull never changes, so its id and end time identify what was read.
@@ -1009,13 +1141,23 @@ public sealed class RaidRecapLiveCoordinator
         IReadOnlyList<RaidRecapLivePerformer> TopHealing,
         RaidRecapLiveKillQuality? Quality,
         bool Complete,
-        bool Full);
+        bool Full)
+    {
+        /// <summary>Some target lines could not be read yet and are worth another try.</summary>
+        public bool TargetsPending { get; init; }
+    }
 
     private sealed class ReportMemory
     {
         public Dictionary<string, WipeFacts> Wipes { get; } = new();
         public Dictionary<string, KillFacts> Kills { get; } = new();
         public Dictionary<string, int> Attempts { get; } = new();
+        public Dictionary<string, RaidRecapLiveUtility> Utility { get; } = new();
+
+        /// <summary>Kicks and dispels need no further reading: complete with names, or every attempt used.</summary>
+        public bool UtilitySettled(string key) =>
+            Attempts.GetValueOrDefault(key) >= MaxPullAttempts
+            || (Utility.TryGetValue(key, out var utility) && utility.Settled);
 
         /// <summary>
         /// True when the pull needs no further reading: what is held is complete and detailed
@@ -1033,7 +1175,8 @@ public sealed class RaidRecapLiveCoordinator
                 return wipe.Complete && (wipe.Full || !latest);
             }
 
-            return Kills.TryGetValue(key, out var kill) && kill.Complete && (kill.Full || !latest);
+            return Kills.TryGetValue(key, out var kill) && kill.Complete && (kill.Full || !latest)
+                && !(latest && kill.TargetsPending);
         }
     }
 
@@ -1085,6 +1228,10 @@ public sealed class RaidRecapLiveCoordinator
         && !session.HasPullInProgress
         && RaidRecapLiveSessions.LastActivityAt(full, session) is { } at
         && now - at >= NoRaidPullEndAfter;
+
+    /// <summary>True when a read was refused because the log changed after it was fetched.</summary>
+    public static bool ReportMoved(Exception ex) => ex is RaidRecapSnapshotException
+        || (ex is InvalidOperationException && ex.Message.StartsWith("Report changed", StringComparison.Ordinal));
 
     /// <summary>
     /// True when WarcraftLogs refused because the hourly budget is spent or it asked us to

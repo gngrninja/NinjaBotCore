@@ -150,6 +150,7 @@ public sealed partial class RaidRecapService
     // The live card reads through the same caches as the private recap, so a viewer who opens
     // their recap right after a refresh costs no extra provider calls.
     public Task<RaidRecapAnalysis> GetDeathsAsync(RaidRecapReport report,RaidRecapFight fight)=>LoadAnalysisAsync(report,fight,"deaths");
+    public Task<RaidRecapAnalysis> GetUtilityAsync(RaidRecapReport report,RaidRecapFight fight,bool dispels)=>LoadAnalysisAsync(report,fight,dispels?"dispels":"interrupts");
     public Task<RaidRecapOutput> GetOutputAsync(RaidRecapReport report,RaidRecapFight fight,bool healing)=>LoadOutputAsync(report,fight,healing);
     public Task<RaidRecapRoster> GetRosterAsync(RaidRecapReport report,RaidRecapFight fight)=>LoadRosterAsync(report,fight);
     /// <summary>The damage or healing table alone: one provider call, names unverified, no parses.</summary>

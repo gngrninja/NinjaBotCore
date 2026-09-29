@@ -77,6 +77,7 @@ public class RaidRecapLiveTests
         public FakeDiscord Discord { get; } = new();
         public Mock<IRaidRecapSource> Source { get; } = new(MockBehavior.Strict);
         public Mock<IRaidRecapPlayerSource> Players { get; }
+        public Mock<IRaidRecapTargetSource> Targets { get; }
         public RaidRecapLiveGate Gate { get; }
         public RaidRecapLiveCoordinator Coordinator { get; }
         public RaidRecapService Service { get; }
@@ -93,6 +94,10 @@ public class RaidRecapLiveTests
                     .UseInternalServiceProvider(_efServices))
                 .BuildServiceProvider();
             Players = Source.As<IRaidRecapPlayerSource>();
+            Targets = Source.As<IRaidRecapTargetSource>();
+            // By default the target tables are empty, so cards carry no target lines.
+            Targets.Setup(x => x.GetRaidRecapTargetsAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(JObject.Parse("{data:{entries:[]}}"));
             var scopes = Services.GetRequiredService<IServiceScopeFactory>();
             // The report cache has a 30 second lifetime; use the test clock so refreshes re-read.
             var cache = new RaidRecapCache(() => Now);
@@ -115,6 +120,13 @@ public class RaidRecapLiveTests
                         new RaidRecapDeath(1, "PrivateAlpha", 120000, "Melee")
                     }
                 });
+            // By default nobody kicked or dispelled, so cards carry no such lines.
+            foreach (var metric in new[] { "interrupts", "dispels" })
+            {
+                Source.Setup(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), metric, It.IsAny<CancellationToken>()))
+                    .ReturnsAsync(new RaidRecapAnalysis(metric, true, null));
+            }
+
             Players.Setup(x => x.GetRaidRecapRosterAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync((RaidRecapReport r, RaidRecapFight f, CancellationToken _) => new RaidRecapRoster(r.SnapshotKey, f.Id, new[]
                 {
@@ -2092,6 +2104,508 @@ public class RaidRecapLiveTests
         Assert.Empty(rig.Discord.Sent);
         Assert.Equal(9000ul, Assert.Single(rig.Discord.Edits).Message);
         Assert.Equal(RaidRecapLiveState.Live, Assert.Single(await rig.CardsAsync()).State);
+    }
+
+    // ===== Where each top player's damage and healing went =====
+
+    [Fact]
+    public void TargetsAreTheTopTwoSharesAndMalformedTablesGiveNothing()
+    {
+        var table = JObject.Parse("""
+        {"data":{"entries":[
+          {"name":"Void Shard","id":90,"total":210},
+          {"name":"Nexus-King","id":80,"total":680},
+          {"name":"Healbot","id":7,"total":100},
+          {"name":"Dummy","id":91,"total":10}
+        ]}}
+        """);
+        var targets = RaidRecapTargets.Parse(table, "Healbot", 7);
+        Assert.Equal(new[] { "Nexus-King", "Void Shard" }, targets.Select(t => t.Name));
+        Assert.Equal(0.68, targets[0].Share, 3);
+        Assert.Equal(0.21, targets[1].Share, 3);
+        Assert.False(targets[0].Self);
+
+        // A healer's top target is often themselves: matched by id, or by name when there is no id.
+        var healing = JObject.Parse("""{"data":{"entries":[{"name":"Frequency","id":5,"total":900},{"name":"Tank","id":2,"total":100}]}}""");
+        Assert.True(RaidRecapTargets.Parse(healing, "Someone Else", 5)[0].Self);
+        var byName = JObject.Parse("""{"data":{"entries":[{"name":"Frequency","total":900}]}}""");
+        Assert.True(RaidRecapTargets.Parse(byName, "Frequency", 5)[0].Self);
+
+        foreach (var bad in new[]
+        {
+            "{}", "{\"data\":{}}", "{\"data\":{\"entries\":{}}}", "{\"data\":{\"entries\":[]}}",
+            "{\"data\":{\"entries\":[{\"name\":\"A\",\"total\":-1}]}}",
+            "{\"data\":{\"entries\":[{\"name\":\"A\",\"total\":\"5\"}]}}",
+            "{\"data\":{\"entries\":[{\"name\":5,\"total\":5}]}}",
+            "{\"data\":{\"entries\":[{\"name\":\" \",\"total\":5}]}}",
+            "{\"data\":{\"entries\":[{\"name\":\"A\",\"total\":0}]}}",
+            "{\"data\":{\"entries\":[1]}}"
+        })
+        {
+            Assert.Null(RaidRecapTargets.Parse(JObject.Parse(bad), "P", 1));
+        }
+
+        Assert.Null(RaidRecapTargets.Parse(null, "P", 1));
+
+        // One boss made of several creatures counts once; a player's pet is shown as "pet".
+        var merged = JObject.Parse("""
+        {"data":{"entries":[
+          {"name":"Twin Fang","id":80,"total":300},{"name":"Twin Fang","id":81,"total":300},
+          {"name":"Fluffy","id":40,"type":"Pet","total":250},{"name":"Add","id":90,"total":150}
+        ]}}
+        """);
+        var twins = RaidRecapTargets.Parse(merged, "P", 1);
+        Assert.Equal(("Twin Fang", 0.6, 600d), (twins[0].Name, Math.Round(twins[0].Share, 3), twins[0].Amount));
+        Assert.True(twins[1].Pet);
+
+        // An id settles who it is: the same name with another id is someone else.
+        var namesake = JObject.Parse("""{"data":{"entries":[{"name":"Frequency","id":6,"total":900}]}}""");
+        Assert.False(RaidRecapTargets.Parse(namesake, "Frequency", 5)[0].Self);
+
+        // Shares must describe the number on the card: the table has to add up to the player's own total.
+        Assert.NotNull(RaidRecapTargets.Parse(table, "P", 1, expectedTotal: 1000));    // exactly
+        Assert.NotNull(RaidRecapTargets.Parse(table, "P", 1, expectedTotal: 1090));    // within 10%
+        Assert.Null(RaidRecapTargets.Parse(table, "P", 1, expectedTotal: 1200));       // pets left out, say
+        Assert.Null(RaidRecapTargets.Parse(table, "P", 1, expectedTotal: 0));
+        var tooMany = new JObject { ["data"] = new JObject { ["entries"] = new JArray(Enumerable.Range(0, 501).Select(i => new JObject { ["name"] = "T" + i, ["total"] = 1 })) } };
+        Assert.Null(RaidRecapTargets.Parse(tooMany, "P", 1));
+    }
+
+    private static RaidRecapLiveHighlights KillWithTargets(RaidRecapFight kill, string targetName = "Nexus-King") => new()
+    {
+        Kill = kill,
+        TopDamage = new[]
+        {
+            new RaidRecapLivePerformer("⚔️ Demonology Warlock", 131700, 84) { Name = "Throck", ActorId = 7,
+                Targets = new[] { new RaidRecapTarget(targetName, 0.684, false), new RaidRecapTarget("Void Shard", 0.004, false) } },
+            new RaidRecapLivePerformer("⚔️ Frost Mage", 90000, 50) { Name = "Noline", ActorId = 8 }
+        },
+        TopHealing = new[]
+        {
+            new RaidRecapLivePerformer("💚 Discipline Priest", 194000, 96) { Name = "Frequency", ActorId = 9,
+                Targets = new[] { new RaidRecapTarget("Frequency", 0.3, true), new RaidRecapTarget("Tankenstein", 0.18, false) } },
+            new RaidRecapLivePerformer("💚 Restoration Druid", 150000, 70) { Name = "Petfriend", ActorId = 10,
+                Targets = new[] { new RaidRecapTarget("Mr **Fluffy** @everyone", 0.4, false) { Pet = true } } }
+        }
+    };
+
+    [Fact]
+    public void TargetsSitUnderTheirPlayerInSmallText()
+    {
+        var kill = Kill(1, 0);
+        var report = new RaidRecapReport(Code, "Synthetic", 1, 1_790_000_000_000, 1_790_000_300_000, Start, new[] { kill });
+        var text = Text(RaidRecapView.Live(report, new RaidRecapLiveInfo("Guild", "us", "Zone", ""), false, Start, KillWithTargets(kill)));
+
+        var lines = text.Replace("\r\n", "\n").Split('\n');
+        var throck = Array.FindIndex(lines, l => l.Contains("Throck"));
+        Assert.Equal("-# ↳ Nexus\\-King 68% · Void Shard <1%", lines[throck + 1]);   // no amounts known: shares only
+        var noline = Array.FindIndex(lines, l => l.Contains("Noline"));
+        Assert.DoesNotContain("↳", lines[noline + 1]);                      // no targets read: no line
+        var frequency = Array.FindIndex(lines, l => l.Contains("Frequency") && l.Contains("HPS"));
+        Assert.Equal("-# ↳ self 30% · Tankenstein 18%", lines[frequency + 1]);
+        var petfriend = Array.FindIndex(lines, l => l.Contains("Petfriend"));
+        Assert.Equal("-# ↳ pet 40%", lines[petfriend + 1]);                 // a pet's typed name never shows
+        Assert.DoesNotContain("Fluffy", text);
+    }
+
+    [Fact]
+    public void TargetsAreDroppedFirstWhenTheCardWouldBeTooLong()
+    {
+        var hostile = string.Concat(Enumerable.Repeat("😀**@everyone[]\\\n", 300));
+        var fights = Enumerable.Range(1, 60)
+            .Select(i => new RaidRecapFight(i, 3000 + i % 12, 4, hostile, i % 12 == 0, false, i * 400000d, i * 400000d + 300000, 50 - i % 40))
+            .ToArray();
+        var report = new RaidRecapReport(Code, hostile, 1, 1_790_000_000_000, 1_790_030_000_000, Start, fights);
+        var info = new RaidRecapLiveInfo(hostile, "us", hostile, "https://cdn.discordapp.com/icons/2/synthetic.png");
+        RaidRecapLivePerformer P(string identity) => new(identity, double.MaxValue, 100)
+        {
+            Name = hostile, ActorId = 1,
+            Targets = new[] { new RaidRecapTarget(hostile, 0.5, false), new RaidRecapTarget(hostile, 0.4, false) }
+        };
+        var highlights = new RaidRecapLiveHighlights
+        {
+            Wipe = fights[^1],
+            FirstDeaths = Enumerable.Range(1, 3).Select(i => new RaidRecapLiveDeath(i * 1000, "⚔️ Fury Warrior", hostile)).ToArray(),
+            TotalDeaths = 20,
+            Kill = fights[11],
+            TopDamage = Enumerable.Range(1, 3).Select(_ => P("⚔️ Fury Warrior")).ToArray(),
+            TopHealing = Enumerable.Range(1, 3).Select(_ => P("💚 Holy Priest")).ToArray(),
+            Pattern = new RaidRecapLiveWipePattern(hostile, 10, 10),
+            Quality = new RaidRecapLiveKillQuality(99.9, 20, 99.9, 5, 99.9, 99.9),
+            Mvps = Enumerable.Range(1, 3).Select(_ => new RaidRecapLiveMvp(hostile, 12)).ToArray()
+        };
+
+        foreach (var ended in new[] { false, true })
+        {
+            // Everything at its longest still fits, targets included.
+            var card = RaidRecapView.Live(report, info, ended, Start, highlights);
+            Assert.InRange(Text(card).Length, 1, RaidRecapView.LiveTextBudget);
+            Assert.InRange(RaidRecapPanelTests.Flatten(card.Components).Count(), 1, 40);
+            Assert.Contains("↳", Text(card));
+            Assert.DoesNotContain("@everyone", Newtonsoft.Json.JsonConvert.SerializeObject(card));
+
+            // Were it too long, the targets go first and the players stay.
+            // (The joined test text adds a newline between blocks, so stay well under it.)
+            var tight = RaidRecapView.Live(report, info, ended, Start, highlights, Text(card).Length - 100);
+            Assert.DoesNotContain("↳", Text(tight));
+            Assert.Contains("Top damage", Text(tight));
+            Assert.True(Text(tight).Length < Text(card).Length);
+        }
+    }
+
+    [Fact]
+    public async Task LatestKillReadsTargetsForItsTopPlayersOnceAndEarlierKillsNever()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        var targets = rig.Targets;
+        targets.Setup(x => x.GetRaidRecapTargetsAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((RaidRecapReport _, RaidRecapFight _, bool healing, int source, CancellationToken _) =>
+            {
+                // The rig's tables credit PrivateAlpha (1) with 6M and PrivateGamma (3) with 3M.
+                var total = source == 1 ? 6_000_000 : 3_000_000;
+                return JObject.Parse(healing
+                    ? $"{{data:{{entries:[{{name:'PrivateAlpha',id:1,total:{total * 3 / 10}}},{{name:'Tank',id:50,total:{total * 7 / 10}}}]}}}}"
+                    : $"{{data:{{entries:[{{name:'Synthetic Boss',id:80,total:{total * 8 / 10}}},{{name:'Add',id:81,total:{total * 2 / 10}}}]}}}}");
+            });
+        rig.Now = Start.AddMinutes(20);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Kill(1, 0), Kill(2, 6, encounter: 3002));
+        await rig.SweepAsync();
+
+        // Two matched players in each table of the latest kill: four reads, none for the earlier kill.
+        targets.Verify(x => x.GetRaidRecapTargetsAsync(It.IsAny<RaidRecapReport>(), It.Is<RaidRecapFight>(f => f.Id == 2), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Exactly(4));
+        targets.Verify(x => x.GetRaidRecapTargetsAsync(It.IsAny<RaidRecapReport>(), It.Is<RaidRecapFight>(f => f.Id == 1), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+        var text = Text(rig.Discord.Sent.Single().Card);
+        Assert.Contains("-# ↳ Synthetic Boss 4.80M (80%) · Add 1.20M (20%)", text);
+        Assert.Contains("-# ↳ Tank 4.20M (70%) · self 1.80M (30%)", text);       // PrivateAlpha healing themselves
+        Assert.Contains("-# ↳ Tank 2.10M (70%) · PrivateAlpha 900.0K (30%)", text); // PrivateGamma healing PrivateAlpha
+
+        // Later redraws do not read them again.
+        rig.Now = rig.Now.AddMinutes(5);
+        rig.Report = rig.Build(Kill(1, 0), Kill(2, 6, encounter: 3002)) with { EndTime = rig.Now.ToUnixTimeMilliseconds() };
+        await rig.SweepAsync();
+        Assert.Single(rig.Discord.Edits);
+        targets.Verify(x => x.GetRaidRecapTargetsAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Exactly(4));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TargetsThatCannotBeReadLeaveTheLineOutAndABudgetRefusalStopsTheRest(bool quota)
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        var targets = rig.Targets;
+        targets.Setup(x => x.GetRaidRecapTargetsAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(quota ? new InvalidOperationException("Warcraft Logs quota unavailable. Retry in 60s.") : new InvalidOperationException("PRIVATE provider detail"));
+        rig.Now = Start.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Kill(1, 0));
+        await rig.SweepAsync();
+
+        var text = Text(rig.Discord.Sent.Single().Card);
+        Assert.Contains("Top damage", text);
+        Assert.DoesNotContain("↳", text);
+        Assert.DoesNotContain("PRIVATE", text);
+        // One failed read per table, then the rest of that table waits for a later redraw.
+        targets.Verify(x => x.GetRaidRecapTargetsAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task TargetLinesThatFailedAreRetriedAloneAndGivenUpAfterThreeTries()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        var failures = 1;
+        rig.Targets.Setup(x => x.GetRaidRecapTargetsAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Returns((RaidRecapReport _, RaidRecapFight _, bool _, int source, CancellationToken _) => failures-- > 0
+                ? Task.FromException<JObject>(new TimeoutException())
+                : Task.FromResult(JObject.Parse($"{{data:{{entries:[{{name:'Synthetic Boss',id:80,total:{(source == 1 ? 6_000_000 : 3_000_000)}}}]}}}}")));
+        rig.Now = Start.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Kill(1, 0));
+        await rig.SweepAsync();
+        Assert.DoesNotContain("↳ Synthetic Boss", Text(rig.Discord.Sent.Single().Card).Split("Top healing")[0]);
+        rig.Source.Invocations.Clear();
+        rig.Players.Invocations.Clear();
+
+        // The next redraw reads only the missing target lines, not the tables or parses again.
+        rig.Now = rig.Now.AddMinutes(5);
+        rig.Report = rig.Build(Kill(1, 0)) with { EndTime = rig.Now.ToUnixTimeMilliseconds() };
+        await rig.SweepAsync();
+        Assert.Contains("-# ↳ Synthetic Boss 6.00M (100%)", Text(rig.Discord.Edits.Last().Card).Split("Top healing")[0]);
+        rig.Source.Verify(x => x.GetRaidRecapScopedTableAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<bool>()), Times.Never);
+        rig.Players.Verify(x => x.GetRaidRecapParsesAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<bool>(), It.IsAny<RaidRecapRoster>(), It.IsAny<CancellationToken>()), Times.Never);
+
+        // A target source that always fails is asked a bounded number of times.
+        failures = int.MaxValue;
+        using var fresh = new Rig();
+        await fresh.EnrollAsync();
+        fresh.Targets.Setup(x => x.GetRaidRecapTargetsAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException());
+        fresh.Now = Start.AddMinutes(6);
+        fresh.List(minutesSinceLastEvent: 1);
+        fresh.Report = fresh.Build(Kill(1, 0));
+        for (var i = 0; i < 12; i++)
+        {
+            await fresh.SweepAsync();
+            fresh.Now = fresh.Now.AddMinutes(5);
+            fresh.Report = fresh.Build(Kill(1, 0)) with { EndTime = fresh.Now.ToUnixTimeMilliseconds() };
+        }
+
+        // Three attempts at the kill, each stopping after the first failed read of each table.
+        fresh.Targets.Verify(x => x.GetRaidRecapTargetsAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<bool>(), It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            Times.Exactly(RaidRecapLiveCoordinator.MaxPullAttempts * 2));
+    }
+
+    // ===== Kicks and dispels =====
+
+    private static RaidRecapAnalysis Kicks(bool complete = true, bool offRoster = true) => new("interrupts", complete, null)
+    {
+        Utility = new[]
+        {
+            new RaidRecapUtility("Void Bolt", complete ? 7 : null, 2, 0, new[]
+            {
+                new RaidRecapParticipant(1, "PrivateAlpha", 4) { VerifiedPlayer = true },
+                new RaidRecapParticipant(3, "PrivateGamma", 3) { VerifiedPlayer = true }
+            }, true),
+            new RaidRecapUtility("Shadow Mend", 5, 1, 0, (offRoster
+                ? new[] { new RaidRecapParticipant(40, "Fluffy the pet", 3) }            // not on the roster
+                : Array.Empty<RaidRecapParticipant>())
+                .Append(new RaidRecapParticipant(1, "PrivateAlpha", 2) { VerifiedPlayer = true })
+                .Append(new RaidRecapParticipant(2, "PrivateBeta", null) { VerifiedPlayer = true })
+                .ToArray(), true)
+        }
+    };
+
+    private static RaidRecapAnalysis Dispels(bool complete = true) => new("dispels", complete, null)
+    {
+        Utility = new[]
+        {
+            new RaidRecapUtility("Venom Bite", 6, null, null, new[] { new RaidRecapParticipant(3, "PrivateGamma", 6) { VerifiedPlayer = true } }, true),
+            new RaidRecapUtility("Mind Rot", 2, null, null, new[] { new RaidRecapParticipant(2, "PrivateBeta", 2) { VerifiedPlayer = true } }, true),
+            new RaidRecapUtility("Tiny Curse", complete ? 1 : null, null, null, Array.Empty<RaidRecapParticipant>(), false)
+        }
+    };
+
+    [Fact]
+    public void KicksAndDispelsCountEverythingAndNameOnlyRosterPlayers()
+    {
+        var pull = Wipe(4, 0, 30);
+        var u = RaidRecapLiveUtility.From(pull, Kicks(), Dispels());
+        Assert.Equal(12, u.Kicks);
+        Assert.Equal(3, u.WentOff);
+        Assert.Equal(new[] { new RaidRecapLiveCount("PrivateAlpha", 6), new RaidRecapLiveCount("PrivateGamma", 3) }, u.Kickers);
+        Assert.Equal(9, u.Dispels);                                               // an unattributed dispel still counts
+        Assert.Equal(new[] { new RaidRecapLiveCount("Venom Bite", 6), new RaidRecapLiveCount("Mind Rot", 2) }, u.Debuffs);
+        Assert.Equal(new[] { new RaidRecapLiveCount("PrivateGamma", 6), new RaidRecapLiveCount("PrivateBeta", 2) }, u.Dispellers);
+        Assert.True(u.KicksComplete && u.DispelsComplete);
+
+        var empty = RaidRecapLiveUtility.From(pull, new RaidRecapAnalysis("interrupts", true, null), null);
+        Assert.False(empty.HasKicks || empty.HasDispels);
+        Assert.False(empty.DispelsComplete);                                      // never read is not complete
+        Assert.False(RaidRecapLiveUtility.From(pull, Kicks(false), Dispels()).KicksComplete);
+
+        // A pet's kick makes the service call the result partial; the count is still whole,
+        // but the names may improve on another read.
+        var petCredited = RaidRecapLiveUtility.From(pull, Kicks() with { Complete = false }, Dispels());
+        Assert.True(petCredited.KicksComplete);
+        Assert.False(petCredited.Settled);
+        Assert.True(u.Settled);
+    }
+
+    [Fact]
+    public void KicksAndDispelsShowUnderTheLatestPullAndGoBeforeThePlayersWhenSpaceRunsOut()
+    {
+        var wipe = Wipe(4, 0, 30);
+        var report = new RaidRecapReport(Code, "Synthetic", 1, 1_790_000_000_000, 1_790_000_300_000, Start, new[] { wipe });
+        var info = new RaidRecapLiveInfo("Guild", "us", "Zone", "");
+        var highlights = new RaidRecapLiveHighlights
+        {
+            Wipe = wipe,
+            FirstDeaths = new[] { new RaidRecapLiveDeath(42000, "⚔️ Fury Warrior", "Synthetic Blast") },
+            TotalDeaths = 1,
+            DeathsComplete = true,
+            Utility = RaidRecapLiveUtility.From(wipe, Kicks(), Dispels(complete: false))
+        };
+
+        var text = Text(RaidRecapView.Live(report, info, false, Start, highlights)).Replace("\r\n", "\n");
+        Assert.Contains("✋ **Kicks** · #4 · 12 stopped · 3 went off\n-# PrivateAlpha 6 · PrivateGamma 3", text);
+        Assert.Contains("✨ **Dispels** · #4 · at least 8\n-# Venom Bite 6 · Mind Rot 2 · by PrivateGamma 6 · PrivateBeta 2", text);
+        Assert.DoesNotContain("Fluffy", text);
+        Assert.True(text.IndexOf("first deaths", StringComparison.Ordinal) < text.IndexOf("Kicks", StringComparison.Ordinal));
+
+        // Nothing to report: no lines at all.
+        var quiet = Text(RaidRecapView.Live(report, info, false, Start, highlights with
+        {
+            Utility = RaidRecapLiveUtility.From(wipe, new RaidRecapAnalysis("interrupts", true, null), new RaidRecapAnalysis("dispels", true, null))
+        }));
+        Assert.DoesNotContain("Kicks", quiet);
+        Assert.DoesNotContain("Dispels", quiet);
+
+        // Short of space, they go after the target lines and before anything else.
+        var full = Text(RaidRecapView.Live(report, info, false, Start, highlights));
+        var tight = Text(RaidRecapView.Live(report, info, false, Start, highlights, full.Length - 100));
+        Assert.DoesNotContain("Kicks", tight);
+        Assert.Contains("first deaths", tight);
+    }
+
+    [Fact]
+    public async Task LatestPullsKicksAndDispelsAreReadOnceAndAgainForTheNextPull()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        // Every kick credited to someone on the roster, so the first read is complete.
+        rig.Source.Setup(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), "interrupts", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Kicks(offRoster: false));
+        rig.Source.Setup(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), "dispels", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Dispels() with { Utility = Dispels().Utility.Take(2).ToArray() });
+        rig.Now = Start.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Wipe(1, 0, 62));
+        await rig.SweepAsync();
+        Assert.Contains("✋ **Kicks** · #1 · 12 stopped", Text(rig.Discord.Sent.Single().Card));
+
+        // A redraw with no new pull reads nothing again.
+        rig.Now = rig.Now.AddMinutes(5);
+        rig.Report = rig.Build(Wipe(1, 0, 62)) with { EndTime = rig.Now.ToUnixTimeMilliseconds() };
+        await rig.SweepAsync();
+        foreach (var metric in new[] { "interrupts", "dispels" })
+        {
+            rig.Source.Verify(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), metric, It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        // The next pull gets its own.
+        rig.Now = Start.AddMinutes(18);
+        rig.Report = rig.Build(Wipe(1, 0, 62), Wipe(2, 12, 41));
+        await rig.SweepAsync();
+        Assert.Contains("✋ **Kicks** · #2", Text(rig.Discord.Edits.Last().Card));
+        rig.Source.Verify(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.Is<RaidRecapFight>(f => f.Id == 2), "interrupts", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public void WhenSpaceRunsOutTargetsGoBeforeKicksAndDispels()
+    {
+        var wipe = Wipe(4, 0, 30);
+        var kill = Kill(3, 6, encounter: 3002);
+        var report = new RaidRecapReport(Code, "Synthetic", 1, 1_790_000_000_000, 1_790_000_700_000, Start, new[] { kill, wipe with { StartMs = 720_000, EndMs = 1_020_000 } });
+        var latestWipe = report.Fights[1];
+        var info = new RaidRecapLiveInfo("Guild", "us", "Zone", "");
+        var highlights = KillWithTargets(kill) with { Wipe = latestWipe, Utility = RaidRecapLiveUtility.From(latestWipe, Kicks(), Dispels()) };
+
+        var full = Text(RaidRecapView.Live(report, info, false, Start, highlights));
+        Assert.Contains("↳", full);
+        Assert.Contains("Kicks", full);
+
+        // Just too long for everything: the target lines go and kicks stay.
+        var withoutTargets = Text(RaidRecapView.Live(report, info, false, Start, highlights with
+        {
+            TopDamage = highlights.TopDamage.Select(p => p with { Targets = null }).ToArray(),
+            TopHealing = highlights.TopHealing.Select(p => p with { Targets = null }).ToArray()
+        }));
+        var trimmed = Text(RaidRecapView.Live(report, info, false, Start, highlights, withoutTargets.Length));
+        Assert.DoesNotContain("↳", trimmed);
+        Assert.Contains("Kicks", trimmed);
+    }
+
+    [Fact]
+    public async Task KicksWithoutNamesBecauseTheRosterFailedAreReadAgain()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        var rosterDown = true;
+        rig.Players.Setup(x => x.GetRaidRecapRosterAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<CancellationToken>()))
+            .Returns((RaidRecapReport r, RaidRecapFight f, CancellationToken _) => rosterDown
+                ? Task.FromException<RaidRecapRoster>(new InvalidOperationException("Player roster / identity is unavailable for this pull."))
+                : Task.FromResult(new RaidRecapRoster(r.SnapshotKey, f.Id, new[]
+                {
+                    new RaidRecapPlayer(1, "PrivateAlpha", "Warrior", "Fury", "dps", "Realm", "US", true),
+                    new RaidRecapPlayer(3, "PrivateGamma", "Priest", "Holy", "healers", "Realm", "US", true)
+                }, true)));
+        rig.Source.Setup(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), "interrupts", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Kicks(offRoster: false));
+        rig.Now = Start.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Wipe(1, 0, 62));
+        await rig.SweepAsync();
+
+        var first = Text(rig.Discord.Sent.Single().Card);
+        Assert.Contains("✋ **Kicks** · #1 · 12 stopped", first);
+        Assert.DoesNotContain("PrivateAlpha 6", first);                          // no names without the roster
+
+        rosterDown = false;
+        rig.Now = rig.Now.AddMinutes(5);
+        rig.Report = rig.Build(Wipe(1, 0, 62)) with { EndTime = rig.Now.ToUnixTimeMilliseconds() };
+        await rig.SweepAsync();
+        Assert.Contains("-# PrivateAlpha 6 · PrivateGamma 3", Text(rig.Discord.Edits.Last().Card));
+    }
+
+    [Fact]
+    public async Task KicksAndDispelsThatFailAreRetriedAtMostThreeTimesAndNeverSlowCatchUp()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.Source.Setup(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), "interrupts", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("PRIVATE provider detail"));
+        rig.Now = Start.AddMinutes(50);
+        rig.List(minutesSinceLastEvent: 1);
+        var wipes = Enumerable.Range(1, 8).Select(i => Wipe(i, (i - 1) * 6, 90 - i)).ToArray();
+        rig.Report = rig.Build(wipes);
+        await rig.SweepAsync();
+
+        // Catching up still reads three pulls on the first redraw.
+        rig.Source.Verify(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), "deaths", It.IsAny<CancellationToken>()),
+            Times.Exactly(RaidRecapLiveCoordinator.MaxPullReadsPerRedraw));
+        for (var i = 1; i <= 6; i++)
+        {
+            rig.Now = rig.Now.AddMinutes(5);
+            rig.Report = rig.Build(wipes) with { EndTime = rig.Now.ToUnixTimeMilliseconds() };
+            await rig.SweepAsync();
+        }
+
+        rig.Source.Verify(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), "interrupts", It.IsAny<CancellationToken>()),
+            Times.Exactly(RaidRecapLiveCoordinator.MaxPullAttempts));
+        Assert.All(rig.Discord.Edits, e => Assert.DoesNotContain("PRIVATE", Text(e.Card)));
+    }
+
+    [Fact]
+    public async Task TargetQueryAsksOnePlayersTableByTargetAndChecksTheReport()
+    {
+        var kill = new RaidRecapFight(4, 3001, 4, "Boss", true, false, 1000, 61000, null);
+        var report = new RaidRecapReport(Code, "Synthetic", 3, 0, 999999, Start, new[] { kill });
+        var h = new RaidRecapTransportTests.Handler
+        {
+            Result = """{"data":{"reportData":{"report":{"code":"AbCdEfGh12345678","revision":3,"table":{"data":{"entries":[{"name":"Boss","total":5}]}}}}}}"""
+        };
+        var client = RaidRecapTransportTests.Client(h);
+
+        var table = await client.GetRaidRecapTargetsAsync(report, kill, true, 7);
+
+        var q = Assert.Single(h.Queries);
+        var query = (string)q["query"];
+        Assert.Contains("dataType: Healing", query);
+        Assert.Contains("viewBy: Target", query);
+        Assert.Contains("sourceID: $source", query);
+        Assert.Equal(7, (int)q["variables"]["source"]);
+        Assert.Equal(4, (int)q["variables"]["fights"][0]);
+        Assert.Equal("Boss", (string)table["data"]["entries"][0]["name"]);
+
+        // Another revision of the log is not this kill's data.
+        h.Result = h.Result.Replace("\"revision\":3", "\"revision\":4");
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetRaidRecapTargetsAsync(report, kill, false, 7));
+        // Only finished kills of this report, and only real players.
+        await Assert.ThrowsAsync<ArgumentException>(() => client.GetRaidRecapTargetsAsync(report, kill, false, 0));
+        await Assert.ThrowsAsync<ArgumentException>(() => client.GetRaidRecapTargetsAsync(report, kill with { Id = 5 }, false, 7));
+        var wipe = kill with { Id = 6, Kill = false };
+        await Assert.ThrowsAsync<ArgumentException>(() => client.GetRaidRecapTargetsAsync(report with { Fights = new[] { kill, wipe } }, wipe, false, 7));
+        // A cancelled caller never reaches WarcraftLogs.
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        var before = h.Queries.Count;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.GetRaidRecapTargetsAsync(report, kill, false, 7, cancelled.Token));
+        Assert.Equal(before, h.Queries.Count);
     }
 
     // ===== Open my recap =====
