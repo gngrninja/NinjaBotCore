@@ -55,6 +55,18 @@ public sealed class RaidRecapLiveCoordinator
 
     public const int MaxFailures = 10;
 
+    /// <summary>How many pulls one redraw may read from WarcraftLogs.</summary>
+    public const int MaxPullReadsPerRedraw = 3;
+
+    /// <summary>How many times one pull is read before the card settles for what it has.</summary>
+    public const int MaxPullAttempts = 3;
+
+    /// <summary>How many of the current boss's latest wipes the wipe pattern looks at.</summary>
+    public const int MaxPatternWipes = 10;
+
+    /// <summary>How many of the night's latest kills the final summary looks at.</summary>
+    public const int MaxSummaryKills = 12;
+
     private static readonly int?[] RaidDifficulties = { 1, 3, 4, 5 };
 
     private readonly IServiceScopeFactory _scopes;
@@ -71,7 +83,7 @@ public sealed class RaidRecapLiveCoordinator
     // are only touched while this is held.
     private readonly SemaphoreSlim _sync = new(1, 1);
     private readonly Dictionary<long, DateTimeOffset> _lastDiscovery = new();
-    private readonly Dictionary<string, HighlightCache> _highlights = new();
+    private readonly Dictionary<string, ReportMemory> _highlights = new();
     private readonly Dictionary<long, DateTimeOffset> _lastPull = new();
 
     public RaidRecapLiveCoordinator(
@@ -143,19 +155,27 @@ public sealed class RaidRecapLiveCoordinator
 
         Dictionary<long, long?> enabled;
         List<(long Id, long Guild)> live;
+        HashSet<string> watched;
         using (var scope = _scopes.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
             enabled = await db.RaidRecapLiveSettings.AsNoTracking()
                 .Where(s => s.Enabled && s.ChannelId != null)
                 .ToDictionaryAsync(s => s.DiscordGuildId, s => s.ChannelId, ct);
-            live = (await db.RaidRecapLiveCards.AsNoTracking()
-                    .Where(c => c.State == RaidRecapLiveState.Live)
-                    .OrderBy(c => c.Id)
-                    .Select(c => new { c.Id, c.DiscordGuildId })
-                    .ToListAsync(ct))
-                .Select(c => (c.Id, c.DiscordGuildId))
-                .ToList();
+            var cards = await db.RaidRecapLiveCards.AsNoTracking()
+                .Where(c => c.State == RaidRecapLiveState.Live)
+                .OrderBy(c => c.Id)
+                .Select(c => new { c.Id, c.DiscordGuildId, c.ReportCode })
+                .ToListAsync(ct);
+            live = cards.Select(c => (c.Id, c.DiscordGuildId)).ToList();
+            watched = cards.Select(c => c.ReportCode).ToHashSet(StringComparer.Ordinal);
+        }
+
+        // Let go of what was read about logs nobody is watching any more. Logs with a live
+        // card are never dropped, so an active card never has to read its pulls again.
+        foreach (var code in _highlights.Keys.Where(code => !watched.Contains(code)).ToArray())
+        {
+            _highlights.Remove(code);
         }
 
         var allowed = new Dictionary<long, bool>();
@@ -399,8 +419,9 @@ public sealed class RaidRecapLiveCoordinator
 
     private void Forget(RaidRecapLiveCard card)
     {
+        // What was read about the log stays until no live card uses it. Another server may be
+        // watching the same log.
         _lastPull.Remove(card.Id);
-        _highlights.Remove(card.ReportCode);
     }
 
     /// <summary>Returns true when a card went live for this server.</summary>
@@ -526,6 +547,7 @@ public sealed class RaidRecapLiveCoordinator
             if (message == null)
             {
                 // Nothing was posted. Release the claim so the next check can try again.
+                // What was read is let go by the next sweep, unless another card uses it.
                 db.RaidRecapLiveCards.Remove(card);
                 await db.SaveChangesAsync(CancellationToken.None);
             }
@@ -578,9 +600,16 @@ public sealed class RaidRecapLiveCoordinator
     }
 
     /// <summary>
-    /// Deaths of the latest wipe and top output of the latest kill. Each half is loaded again
-    /// only when its own pull changes, so a new wipe never re-reads the last kill. The card
-    /// is still posted if any of it fails.
+    /// What the card shows beyond pull results: deaths of the latest wipe, top output of the
+    /// latest kill, the wipe pattern on the current boss and the night's standouts.
+    /// <para>
+    /// Each pull is read from WarcraftLogs and remembered. A redraw reads at most
+    /// <see cref="MaxPullReadsPerRedraw"/> pulls, newest first, so catching up after a restart
+    /// is spread out. A pull that fails or comes back incomplete is tried again on a later
+    /// redraw, at most <see cref="MaxPullAttempts"/> times in all. Earlier pulls get a lighter
+    /// read than the latest ones, because less of them is shown.
+    /// </para>
+    /// The card is still posted if any of it fails.
     /// </summary>
     private async Task<RaidRecapLiveHighlights?> HighlightsAsync(RaidRecapReport report, CancellationToken ct)
     {
@@ -588,99 +617,195 @@ public sealed class RaidRecapLiveCoordinator
         var kill = RaidRecapLiveHighlights.LatestKill(report);
         if (wipe == null && kill == null)
         {
-            _highlights.Remove(report.Code);
             return null;
         }
 
         if (!_highlights.TryGetValue(report.Code, out var known))
         {
-            if (_highlights.Count >= MaxLiveCards * 2)
-            {
-                _highlights.Clear();
-            }
-
-            known = new HighlightCache();
+            known = new ReportMemory();
             _highlights[report.Code] = known;
         }
 
-        var wipeKey = wipe == null ? null : FormattableString.Invariant($"{wipe.Id}:{wipe.EndMs}");
-        if (wipeKey != known.WipeKey)
+        var finished = report.CompletedPulls.Where(f => f.DurationMs is > 0).ToArray();
+        var bossWipes = wipe == null
+            ? Array.Empty<RaidRecapFight>()
+            : finished.Where(f => f.IsWipe && f.EncounterId == wipe.EncounterId && f.Difficulty == wipe.Difficulty)
+                .Reverse().Take(MaxPatternWipes).ToArray();
+        var kills = finished.Where(f => f.IsKill).Reverse().Take(MaxSummaryKills).ToArray();
+
+        // What the card needs most comes first: the latest wipe, the latest kill, then the rest.
+        var wanted = new List<RaidRecapFight>();
+        if (wipe != null) wanted.Add(wipe);
+        if (kill != null) wanted.Add(kill);
+        wanted.AddRange(bossWipes.Where(f => f != wipe));
+        wanted.AddRange(kills.Where(f => f != kill));
+
+        var reads = 0;
+        foreach (var fight in wanted)
         {
-            known.WipeKey = null;
-            known.Deaths = new RaidRecapLiveHighlights();
-            if (wipe != null)
+            ct.ThrowIfCancellationRequested();
+            var key = PullKey(fight);
+            var latest = fight == wipe || fight == kill;
+            if (known.Settled(key, latest))
             {
-                try
+                continue;
+            }
+
+            if (reads >= MaxPullReadsPerRedraw)
+            {
+                break;
+            }
+
+            reads++;
+            known.Attempts[key] = known.Attempts.GetValueOrDefault(key) + 1;
+            try
+            {
+                if (fight.IsWipe)
                 {
-                    var deaths = await _service.GetDeathsAsync(report, wipe);
-                    var roster = deaths.Deaths.Count > 0 ? await _service.GetRosterAsync(report, wipe) : null;
-                    known.Deaths = new RaidRecapLiveHighlights
-                    {
-                        FirstDeaths = RaidRecapLiveHighlights.Deaths(deaths, roster!),
-                        TotalDeaths = deaths.Deaths.Count,
-                        DeathsComplete = deaths.Complete
-                    };
-                    known.WipeKey = wipeKey;
+                    known.Wipes[key] = await ReadWipeAsync(report, fight, latest);
                 }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                else
                 {
-                    throw;
+                    known.Kills[key] = await ReadKillAsync(report, fight, latest);
                 }
-                catch (Exception ex)
-                {
-                    // Not remembered, so it is tried again the next time the card is redrawn.
-                    _logger.LogDebug("Raid recap live deaths unavailable for {Report} ({Type})", report.Code, ex.GetType().Name);
-                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (IsQuota(ex))
+            {
+                // The budget is spent. That is not this pull's fault, and asking again now
+                // cannot succeed. Stop reading until the next redraw.
+                known.Attempts[key]--;
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug("Raid recap live pull {Fight} unavailable for {Report} ({Type})", fight.Id, report.Code, ex.GetType().Name);
             }
         }
 
-        var killKey = kill == null ? null : FormattableString.Invariant($"{kill.Id}:{kill.EndMs}");
-        if (killKey != known.KillKey)
+        known.Wipes.TryGetValue(wipe == null ? "" : PullKey(wipe), out var latestWipe);
+        known.Kills.TryGetValue(kill == null ? "" : PullKey(kill), out var latestKill);
+
+        // A pattern is only stated once every wipe it could cover has been looked at, so the
+        // card never says "3 of 3" while five more wipes are still unread.
+        RaidRecapLiveWipePattern? pattern = null;
+        if (bossWipes.All(f => known.Settled(PullKey(f), f == wipe)))
         {
-            known.KillKey = null;
-            known.Output = new RaidRecapLiveHighlights();
-            if (kill != null)
-            {
-                try
-                {
-                    var damage = await _service.GetOutputAsync(report, kill, healing: false);
-                    var healing = await _service.GetOutputAsync(report, kill, healing: true);
-                    known.Output = new RaidRecapLiveHighlights
-                    {
-                        TopDamage = RaidRecapLiveHighlights.Performers(damage),
-                        TopHealing = RaidRecapLiveHighlights.Performers(healing)
-                    };
-                    known.KillKey = killKey;
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug("Raid recap live output unavailable for {Report} ({Type})", report.Code, ex.GetType().Name);
-                }
-            }
+            var blows = bossWipes
+                .Select(f => known.Wipes.TryGetValue(PullKey(f), out var facts) && facts.Complete ? facts : null)
+                .Where(facts => facts != null)
+                .Select(facts => facts!.FirstBlow!)
+                .ToArray();
+            pattern = RaidRecapLiveHighlights.FindPattern(blows);
         }
+
+        var perKill = kills
+            .Where(f => known.Kills.ContainsKey(PullKey(f)))
+            .Select(f => known.Kills[PullKey(f)])
+            .Select(k => (IReadOnlyList<RaidRecapLivePerformer>)k.TopDamage.Concat(k.TopHealing).ToArray())
+            .ToArray();
 
         return new RaidRecapLiveHighlights
         {
             Wipe = wipe!,
-            FirstDeaths = known.Deaths.FirstDeaths,
-            TotalDeaths = known.Deaths.TotalDeaths,
-            DeathsComplete = known.Deaths.DeathsComplete,
+            FirstDeaths = latestWipe?.FirstDeaths ?? Array.Empty<RaidRecapLiveDeath>(),
+            TotalDeaths = latestWipe?.Total ?? 0,
+            DeathsComplete = latestWipe?.Complete ?? false,
+            Pattern = pattern!,
             Kill = kill!,
-            TopDamage = known.Output.TopDamage,
-            TopHealing = known.Output.TopHealing
+            TopDamage = latestKill?.TopDamage ?? Array.Empty<RaidRecapLivePerformer>(),
+            TopHealing = latestKill?.TopHealing ?? Array.Empty<RaidRecapLivePerformer>(),
+            Quality = latestKill?.Quality!,
+            Mvps = RaidRecapLiveHighlights.FindMvps(perKill)
         };
     }
 
-    private sealed class HighlightCache
+    /// <summary>
+    /// The latest wipe is shown in full, so it is read with the roster for spec and class.
+    /// An earlier wipe only feeds the pattern, which needs the first killing blow alone.
+    /// </summary>
+    private async Task<WipeFacts> ReadWipeAsync(RaidRecapReport report, RaidRecapFight fight, bool latest)
     {
-        public string? WipeKey { get; set; }
-        public RaidRecapLiveHighlights Deaths { get; set; } = new();
-        public string? KillKey { get; set; }
-        public RaidRecapLiveHighlights Output { get; set; } = new();
+        var deaths = await _service.GetDeathsAsync(report, fight);
+        var roster = latest && deaths.Deaths.Count > 0 ? await _service.GetRosterAsync(report, fight) : null;
+        return new WipeFacts(
+            latest ? RaidRecapLiveHighlights.Deaths(deaths, roster!) : Array.Empty<RaidRecapLiveDeath>(),
+            deaths.Deaths.Count,
+            deaths.Complete,
+            deaths.Deaths.OrderBy(d => d.ElapsedMs).FirstOrDefault()?.Ability,
+            Full: latest);
+    }
+
+    /// <summary>
+    /// The latest kill is shown in full: specs, parses and the raid's standing. An earlier
+    /// kill only feeds the night's standouts, which need the top three names alone.
+    /// </summary>
+    private async Task<KillFacts> ReadKillAsync(RaidRecapReport report, RaidRecapFight fight, bool latest)
+    {
+        if (!latest)
+        {
+            return new KillFacts(
+                RaidRecapLiveHighlights.Performers(await _service.GetTableAsync(report, fight, healing: false)),
+                RaidRecapLiveHighlights.Performers(await _service.GetTableAsync(report, fight, healing: true)),
+                Quality: null,
+                Complete: true,
+                Full: false);
+        }
+
+        var damage = await _service.GetOutputAsync(report, fight, healing: false);
+        var healing = await _service.GetOutputAsync(report, fight, healing: true);
+        return new KillFacts(
+            RaidRecapLiveHighlights.Performers(damage),
+            RaidRecapLiveHighlights.Performers(healing),
+            RaidRecapLiveHighlights.FindQuality(damage, healing),
+            Complete: damage.Parses != null && healing.Parses != null,
+            Full: true);
+    }
+
+    // A finished pull never changes, so its id and end time identify what was read.
+    private static string PullKey(RaidRecapFight fight) => FormattableString.Invariant($"{fight.Id}:{fight.EndMs}");
+
+    private sealed record WipeFacts(
+        IReadOnlyList<RaidRecapLiveDeath> FirstDeaths,
+        int Total,
+        bool Complete,
+        string? FirstBlow,
+        bool Full);
+
+    private sealed record KillFacts(
+        IReadOnlyList<RaidRecapLivePerformer> TopDamage,
+        IReadOnlyList<RaidRecapLivePerformer> TopHealing,
+        RaidRecapLiveKillQuality? Quality,
+        bool Complete,
+        bool Full);
+
+    private sealed class ReportMemory
+    {
+        public Dictionary<string, WipeFacts> Wipes { get; } = new();
+        public Dictionary<string, KillFacts> Kills { get; } = new();
+        public Dictionary<string, int> Attempts { get; } = new();
+
+        /// <summary>
+        /// True when the pull needs no further reading: what is held is complete and detailed
+        /// enough for how the pull is shown now, or every attempt has been used.
+        /// </summary>
+        public bool Settled(string key, bool latest)
+        {
+            if (Attempts.GetValueOrDefault(key) >= MaxPullAttempts)
+            {
+                return true;
+            }
+
+            if (Wipes.TryGetValue(key, out var wipe))
+            {
+                return wipe.Complete && (wipe.Full || !latest);
+            }
+
+            return Kills.TryGetValue(key, out var kill) && kill.Complete && (kill.Full || !latest);
+        }
     }
 
     private async Task<RaidRecapReport> LoadReportAsync(string code) => (RaidRecapReport)await _cache.GetAsync(

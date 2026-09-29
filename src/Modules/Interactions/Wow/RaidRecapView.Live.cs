@@ -26,6 +26,24 @@ public sealed record RaidRecapLivePerformer(string Identity, double? PerSecond, 
     public int? ActorId { get; init; }
 }
 
+/// <summary>The killing blow that most often started a wipe on the current boss.</summary>
+public sealed record RaidRecapLiveWipePattern(string Ability, int Count, int Wipes);
+
+/// <summary>How a kill went for the whole raid. Any part may be missing.</summary>
+public sealed record RaidRecapLiveKillQuality(
+    double? DamageAverage,
+    int DamageParses,
+    double? HealingAverage,
+    int HealingParses,
+    double? Speed,
+    double? Execution)
+{
+    public bool HasAny => DamageAverage.HasValue || HealingAverage.HasValue || Speed.HasValue || Execution.HasValue;
+}
+
+/// <summary>A player who finished in the top three of damage or healing on several kills.</summary>
+public sealed record RaidRecapLiveMvp(string Name, int Finishes);
+
 /// <summary>
 /// The detail on the live card: the first deaths of the latest wipe, by spec and class only,
 /// and the top damage and healing of the latest kill, by name. Any part may be missing.
@@ -33,6 +51,154 @@ public sealed record RaidRecapLivePerformer(string Identity, double? PerSecond, 
 public sealed record RaidRecapLiveHighlights
 {
     public const int Shown = 3;
+
+    /// <summary>A pattern needs at least this many wipes with full death data.</summary>
+    public const int PatternWipes = 3;
+
+    /// <summary>Most-top-three lists need at least this many kills.</summary>
+    public const int MvpKills = 2;
+
+    public RaidRecapLiveWipePattern Pattern { get; init; }
+    public RaidRecapLiveKillQuality Quality { get; init; }
+    public IReadOnlyList<RaidRecapLiveMvp> Mvps { get; init; } = Array.Empty<RaidRecapLiveMvp>();
+
+    /// <summary>
+    /// The most common first killing blow across a boss's wipes. Reported only when it
+    /// started at least half of them and more than any other blow, so neither one unlucky
+    /// pull nor a tie is called a pattern.
+    /// Pass one entry per wipe with full death data; null when nobody died or the blow is unknown.
+    /// </summary>
+    public static RaidRecapLiveWipePattern FindPattern(IReadOnlyList<string> firstBlows)
+    {
+        if (firstBlows == null || firstBlows.Count < PatternWipes)
+        {
+            return null;
+        }
+
+        var ranked = firstBlows
+            .Where(b => !string.IsNullOrWhiteSpace(b) && !b.StartsWith("Unknown", StringComparison.OrdinalIgnoreCase))
+            .GroupBy(b => b, StringComparer.Ordinal)
+            .Select(g => (Ability: g.Key, Count: g.Count()))
+            .OrderByDescending(g => g.Count)
+            .ToArray();
+        if (ranked.Length == 0 || ranked[0].Count < 2 || ranked[0].Count * 2 < firstBlows.Count)
+        {
+            return null;
+        }
+
+        if (ranked.Length > 1 && ranked[1].Count == ranked[0].Count)
+        {
+            return null;
+        }
+
+        return new(ranked[0].Ability, ranked[0].Count, firstBlows.Count);
+    }
+
+    /// <summary>
+    /// Average parse of the damage dealers and of the healers, plus the raid's speed and
+    /// execution standing when WarcraftLogs sent them. Tanks are left out of both averages.
+    /// </summary>
+    public static RaidRecapLiveKillQuality FindQuality(RaidRecapOutput damage, RaidRecapOutput healing)
+    {
+        static (double? Average, int Count) Average(RaidRecapOutput output, string role)
+        {
+            var parses = (output?.Rows ?? Array.Empty<RaidRecapStanding>())
+                .Where(r => r.Player?.Role == role && r.Parse != null)
+                .Select(r => r.Parse.Percentile)
+                .ToArray();
+            return parses.Length == 0 ? (null, 0) : (parses.Average(), parses.Length);
+        }
+
+        var dps = Average(damage, "dps");
+        var heal = Average(healing, "healers");
+        var quality = new RaidRecapLiveKillQuality(
+            dps.Average,
+            dps.Count,
+            heal.Average,
+            heal.Count,
+            damage?.Parses?.SpeedPercent ?? healing?.Parses?.SpeedPercent,
+            damage?.Parses?.ExecutionPercent ?? healing?.Parses?.ExecutionPercent);
+        return quality.HasAny ? quality : null;
+    }
+
+    /// <summary>
+    /// The record-setting wipe and the best it beat, when the latest finished pull is a wipe
+    /// that beat every earlier one on that boss. Null otherwise. Lower boss health left is better.
+    /// </summary>
+    public static (RaidRecapFight Fight, double Previous)? BeatenBest(RaidRecapReport report)
+    {
+        var last = report.CompletedPulls.LastOrDefault();
+        if (last?.IsWipe != true || last.Remaining is not double now)
+        {
+            return null;
+        }
+
+        var earlier = report.CompletedPulls
+            .Where(f => f != last && f.IsWipe && f.EncounterId == last.EncounterId && f.Difficulty == last.Difficulty && f.Remaining.HasValue)
+            .Select(f => f.Remaining.Value)
+            .ToArray();
+        return earlier.Length > 0 && now < earlier.Min() ? (last, earlier.Min()) : null;
+    }
+
+    /// <summary>The middle gap between one pull ending and the next starting.</summary>
+    public static double? MedianGapMs(RaidRecapReport report)
+    {
+        var pulls = report.CompletedPulls;
+        var gaps = new List<double>();
+        for (var i = 1; i < pulls.Count; i++)
+        {
+            if (pulls[i].StartMs - pulls[i - 1].EndMs is double gap && gap > 0 && double.IsFinite(gap))
+            {
+                gaps.Add(gap);
+            }
+        }
+
+        if (gaps.Count < 2)
+        {
+            return null;
+        }
+
+        gaps.Sort();
+        return gaps.Count % 2 == 1 ? gaps[gaps.Count / 2] : gaps[gaps.Count / 2 - 1] / 2 + gaps[gaps.Count / 2] / 2;
+    }
+
+    /// <summary>
+    /// Who finished in the top three on the most kills. Pass one list per kill holding that
+    /// kill's top damage and top healing together. A player counts once per kill, however
+    /// many lists they topped, and needs at least two kills to be listed. Players are told
+    /// apart by their id in the log, so two players who share a name stay separate.
+    /// </summary>
+    public static IReadOnlyList<RaidRecapLiveMvp> FindMvps(IReadOnlyList<IReadOnlyList<RaidRecapLivePerformer>> perKill)
+    {
+        if (perKill == null || perKill.Count < MvpKills)
+        {
+            return Array.Empty<RaidRecapLiveMvp>();
+        }
+
+        static string Key(RaidRecapLivePerformer p) => p.ActorId is int id ? "#" + id : "n:" + p.Name;
+
+        return perKill
+            .SelectMany(kill => kill
+                .Where(p => !string.IsNullOrWhiteSpace(p.Name))
+                .GroupBy(Key, StringComparer.Ordinal)
+                .Select(g => g.First()))
+            .GroupBy(Key, StringComparer.Ordinal)
+            .Where(g => g.Count() >= 2)
+            .OrderByDescending(g => g.Count())
+            .ThenBy(g => g.First().Name, StringComparer.Ordinal)
+            .ThenBy(g => g.Key, StringComparer.Ordinal)
+            .Take(Shown)
+            .Select(g => new RaidRecapLiveMvp(g.First().Name, g.Count()))
+            .ToArray();
+    }
+
+    /// <summary>Top three of a raw table, by name only. Used for kills that are not the latest.</summary>
+    public static IReadOnlyList<RaidRecapLivePerformer> Performers(IReadOnlyList<RaidRecapStanding> rows) =>
+        rows
+            .Where(r => r.PerSecond.HasValue)
+            .Take(Shown)
+            .Select(r => new RaidRecapLivePerformer("", r.PerSecond, null) { Name = r.Name, ActorId = r.ActorId })
+            .ToArray();
 
     public RaidRecapFight Wipe { get; init; }
     public IReadOnlyList<RaidRecapLiveDeath> FirstDeaths { get; init; } = Array.Empty<RaidRecapLiveDeath>();
@@ -104,6 +270,11 @@ public static partial class RaidRecapView
 
         var text = new StringBuilder();
         text.Append(Summary(report));
+        if (ended)
+        {
+            text.Append(Night(report, highlights));
+        }
+
         text.Append(Current(report, ended));
         card.AddComponent(new TextDisplayBuilder(text.ToString()));
 
@@ -146,6 +317,24 @@ public static partial class RaidRecapView
             : new[] { new WclV2Report { Code = report.Code, Zone = new WclV2Zone { Name = info.ZoneName } } }
     };
 
+    /// <summary>Closing facts for the final card: pace, and who stood out across the kills.</summary>
+    private static string Night(RaidRecapReport report, RaidRecapLiveHighlights highlights)
+    {
+        var text = new StringBuilder();
+        if (RaidRecapLiveHighlights.MedianGapMs(report) is double gap)
+        {
+            text.AppendLine($"⏳ {RaidRecapFormat.Clock(gap)} between pulls, typically");
+        }
+
+        if (highlights?.Mvps.Count > 0)
+        {
+            text.AppendLine("🏆 Most top-3 finishes: " + string.Join(" · ",
+                highlights.Mvps.Select(m => $"**{RaidRecapRules.Text(m.Name, 30)}** {m.Finishes}")));
+        }
+
+        return text.ToString();
+    }
+
     private static string Current(RaidRecapReport report, bool ended)
     {
         var last = report.Fights
@@ -182,6 +371,12 @@ public static partial class RaidRecapView
         }
 
         text.AppendLine(line);
+        // Only while that record pull is the one shown above. A pull that has just begun has no result yet.
+        if (RaidRecapLiveHighlights.BeatenBest(report) is { } best && best.Fight == last)
+        {
+            text.AppendLine($"🔥 **New best pull** · {RaidRecapFormat.Percent(best.Fight.Remaining)}, was {RaidRecapFormat.Percent(best.Previous)}");
+        }
+
         if (boss.Attempts.Count > 1)
         {
             text.AppendLine(PullStrip(boss));
@@ -210,6 +405,15 @@ public static partial class RaidRecapView
             }
         }
 
+        var now = report.Fights.OrderBy(f => f.StartMs ?? double.MaxValue).ThenBy(f => f.Id).LastOrDefault();
+        var sameBoss = highlights?.Wipe != null && now != null
+            && now.EncounterId == highlights.Wipe.EncounterId && now.Difficulty == highlights.Wipe.Difficulty;
+        if (sameBoss && highlights.Pattern is { } pattern)
+        {
+            // The one thing to fix. A killing blow, never a person.
+            text.AppendLine($"📌 First death was **{RaidRecapRules.Text(pattern.Ability, 55)}** on {pattern.Count} of {RaidRecapFormat.Plural(pattern.Wipes, "wipe")}");
+        }
+
         if (highlights?.Kill != null && (highlights.TopDamage.Count > 0 || highlights.TopHealing.Count > 0))
         {
             if (text.Length > 0)
@@ -220,9 +424,51 @@ public static partial class RaidRecapView
             text.AppendLine($"**✅ {RaidRecapRules.Text(highlights.Kill.Name, 60)} kill** · {RaidRecapFormat.Clock(highlights.Kill.DurationMs)}");
             Performers(text, report, highlights.Kill, "⚔️ Top damage", "DPS", highlights.TopDamage);
             Performers(text, report, highlights.Kill, "💚 Top healing", "HPS", highlights.TopHealing);
+            Quality(text, highlights.Quality);
         }
 
         return text.ToString();
+    }
+
+    /// <summary>One small line for the whole raid: average parses, then speed and execution.</summary>
+    private static void Quality(StringBuilder text, RaidRecapLiveKillQuality quality)
+    {
+        if (quality == null)
+        {
+            return;
+        }
+
+        var parts = new List<string>();
+        static string Dot(double? value)
+        {
+            var badge = RaidRecapParsePalette.Badge(value);
+            return $"{badge.Emoji} **{badge.Display}**";
+        }
+
+        if (quality.DamageAverage.HasValue)
+        {
+            parts.Add($"damage parse avg {Dot(quality.DamageAverage)}");
+        }
+
+        if (quality.HealingAverage.HasValue)
+        {
+            parts.Add($"healing avg {Dot(quality.HealingAverage)}");
+        }
+
+        if (quality.Speed.HasValue)
+        {
+            parts.Add($"speed {Dot(quality.Speed)}");
+        }
+
+        if (quality.Execution.HasValue)
+        {
+            parts.Add($"execution {Dot(quality.Execution)}");
+        }
+
+        if (parts.Count > 0)
+        {
+            text.AppendLine("-# Raid: " + string.Join(" · ", parts));
+        }
     }
 
     private static void Performers(

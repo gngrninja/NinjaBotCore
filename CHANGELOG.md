@@ -11,6 +11,8 @@
 - Added `/raid-recap-live`: a public card that is posted when the guild's raid log goes live and updates in place until the raid ends. It shows pull results, the first deaths of the last wipe and the top performers of the last kill by spec and class, never by name. **Open my recap** gives each viewer the private detail.
 - Added `/raid-recap-rollout` for the bot owner: off, the owner's servers only, or everyone.
 - The live card names the top damage and healing players of the latest kill. Deaths stay by spec and class.
+- The live card calls out a new best pull, states the killing blow that most often started a wipe, and adds a raid line to each kill with average parses, speed and execution.
+- The final card adds the typical gap between pulls and the players with the most top-three finishes.
 - The private recap's Bosses view and *Still progressing* card now show a pull strip: boss health left on each pull, in order.
 
 ## [v3.2.7] - 2026-08-23

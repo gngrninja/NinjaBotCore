@@ -19,7 +19,14 @@ public sealed class RaidRecapSnapshotException : InvalidOperationException
 public sealed record RaidRecapPlayer(int ActorId,string Name,string Class,string Spec,string Role,string Realm,string Region,bool BridgeEligible);
 public sealed record RaidRecapRoster(string SnapshotKey,int FightId,IReadOnlyList<RaidRecapPlayer> Players,bool Complete);
 public sealed record RaidRecapParse(int ActorId,int CharacterId,double Percentile,int TotalParses,double? ItemLevelPercentile,int? Bracket,int? ItemLevel);
-public sealed record RaidRecapParses(string SnapshotKey,int FightId,string Metric,string Compare,string Timeframe,int Partition,DateTimeOffset AsOf,IReadOnlyList<RaidRecapParse> Entries);
+public sealed record RaidRecapParses(string SnapshotKey,int FightId,string Metric,string Compare,string Timeframe,int Partition,DateTimeOffset AsOf,IReadOnlyList<RaidRecapParse> Entries)
+{
+    /// <summary>How fast the kill was against other kills, 0 to 100. Null when WarcraftLogs did not send it.</summary>
+    public double? SpeedPercent { get; init; }
+
+    /// <summary>How cleanly the kill went against other kills, 0 to 100. Null when WarcraftLogs did not send it.</summary>
+    public double? ExecutionPercent { get; init; }
+}
 public sealed record RaidRecapParseBadge(uint Color,string Label,string Display)
 {
     public bool Known => Label != "Unavailable";
@@ -124,6 +131,16 @@ public static class RaidRecapPlayerRules
             players.Add(new(id,name??"Unknown player",role==null?null:c,role==null?null:spec,eligible?role:null,realm,region,eligible));
         }
         return new(report.SnapshotKey,fight.Id,players.OrderBy(p=>p.Name,StringComparer.Ordinal).ThenBy(p=>p.ActorId).ToArray(),complete);
+    }
+    /// <summary>
+    /// Optional raid-wide standing for the kill. WarcraftLogs sends it either as a number or as
+    /// an object with rankPercent. Anything else, or anything outside 0 to 100, is left out.
+    /// </summary>
+    internal static double? FightPercent(JObject ranking,string name)
+    {
+        if(ranking?["data"] is not JArray data || data.Count!=1 || data[0] is not JObject fight)return null;
+        var value=fight[name];
+        return Percent(value is JObject o?o["rankPercent"]:value);
     }
     internal static (int Partition,List<(string Role,JObject Row)> Rows) Ranking(JObject ranking,RaidRecapFight fight)
     {

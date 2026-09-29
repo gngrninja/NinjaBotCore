@@ -36,11 +36,15 @@ public sealed partial class RaidRecapService
         if(roster?.SnapshotKey!=report.SnapshotKey || roster.FightId!=fight.Id)throw new RaidRecapSnapshotException();
         return roster;
     }
-    private async Task<RaidRecapOutput> LoadOutputAsync(RaidRecapReport report,RaidRecapFight fight,bool healing)
+    private async Task<IReadOnlyList<RaidRecapStanding>> LoadTableAsync(RaidRecapReport report,RaidRecapFight fight,bool healing)
     {
         var key=$"table:{report.SnapshotKey}:{fight.Id}:{fight.StartMs}:{fight.EndMs}:{healing}";
-        var raw=(IReadOnlyList<RaidRecapStanding>)await _cache.GetAsync(key,async()=>
+        return (IReadOnlyList<RaidRecapStanding>)await _cache.GetAsync(key,async()=>
             RaidRecapRules.Performance(await _source.GetRaidRecapScopedTableAsync(report,fight,healing),fight.DurationMs.Value),TimeSpan.FromMinutes(2));
+    }
+    private async Task<RaidRecapOutput> LoadOutputAsync(RaidRecapReport report,RaidRecapFight fight,bool healing)
+    {
+        var raw=await LoadTableAsync(report,fight,healing);
         var rows=raw;RaidRecapParses parses=null;
         try
         {

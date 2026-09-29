@@ -152,6 +152,8 @@ public sealed partial class RaidRecapService
     public Task<RaidRecapAnalysis> GetDeathsAsync(RaidRecapReport report,RaidRecapFight fight)=>LoadAnalysisAsync(report,fight,"deaths");
     public Task<RaidRecapOutput> GetOutputAsync(RaidRecapReport report,RaidRecapFight fight,bool healing)=>LoadOutputAsync(report,fight,healing);
     public Task<RaidRecapRoster> GetRosterAsync(RaidRecapReport report,RaidRecapFight fight)=>LoadRosterAsync(report,fight);
+    /// <summary>The damage or healing table alone: one provider call, names unverified, no parses.</summary>
+    public Task<IReadOnlyList<RaidRecapStanding>> GetTableAsync(RaidRecapReport report,RaidRecapFight fight,bool healing)=>LoadTableAsync(report,fight,healing);
     public static string GuildKey(string guild,string realm,string region)=>"guild:"+Newtonsoft.Json.JsonConvert.SerializeObject(new[]{guild,realm,region});
     public static string ReportKey(string code)=>"report:"+code;
     private static ArgumentException InvalidSelection()=>new("Invalid or stale recap selection. Reopen /raid-recap.");

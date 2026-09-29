@@ -37,7 +37,8 @@ public partial class WarcraftLogsV2Client : IRaidRecapPlayerSource
             """;
         var data=await PlayerQueryAsync(query,new {code=report.Code,fights=new[]{fight.Id}},report,cancellationToken);
         var current=RaidRecapPlayerRules.Snapshot(data,report);
-        var (partition,rows)=RaidRecapPlayerRules.Ranking(current["rankings"] as JObject,fight);
+        var ranking=current["rankings"] as JObject;
+        var (partition,rows)=RaidRecapPlayerRules.Ranking(ranking,fight);
         var ids=rows.Select(r=>RaidRecapPlayerRules.Id(RaidRecapPlayerRules.Field(r.Row["server"],"id"))).Where(i=>i.HasValue).Select(i=>i.Value).Distinct().OrderBy(i=>i).ToArray();
         // No server discovery/enumeration: only referenced IDs, one bounded metadata operation.
         if(ids.Length>25)throw RaidRecapPlayerRules.Unavailable();
@@ -49,7 +50,11 @@ public partial class WarcraftLogsV2Client : IRaidRecapPlayerSource
             RaidRecapPlayerRules.Snapshot(world,report); // a late realm lookup must not mask report drift
             servers=world["worldData"] as JObject??throw RaidRecapPlayerRules.Unavailable();
         }
-        return new(report.SnapshotKey,fight.Id,metric,"Parses","Today",partition,DateTimeOffset.UtcNow,RaidRecapPlayerRules.Join(rows,servers,roster));
+        return new(report.SnapshotKey,fight.Id,metric,"Parses","Today",partition,DateTimeOffset.UtcNow,RaidRecapPlayerRules.Join(rows,servers,roster))
+        {
+            SpeedPercent=RaidRecapPlayerRules.FightPercent(ranking,"speed"),
+            ExecutionPercent=RaidRecapPlayerRules.FightPercent(ranking,"execution")
+        };
     }
     internal static (string Query,Dictionary<string,object> Variables) ParseServerQuery(string code,IReadOnlyList<int> ids)
     {

@@ -1044,12 +1044,25 @@ public class RaidRecapLiveTests
             DeathsComplete = false,
             Kill = fights[11],
             TopDamage = Enumerable.Range(1, 3).Select(i => new RaidRecapLivePerformer("⚔️ Fury Warrior", double.MaxValue, 100) { Name = hostile, ActorId = i }).ToArray(),
-            TopHealing = Enumerable.Range(1, 3).Select(i => new RaidRecapLivePerformer("💚 Holy Priest", 1, null) { Name = hostile }).ToArray()
+            TopHealing = Enumerable.Range(1, 3).Select(i => new RaidRecapLivePerformer("💚 Holy Priest", 1, null) { Name = hostile }).ToArray(),
+            Pattern = new RaidRecapLiveWipePattern(hostile, 10, 10),
+            Quality = new RaidRecapLiveKillQuality(99.9, 20, 99.9, 5, 99.9, 99.9),
+            Mvps = Enumerable.Range(1, 3).Select(i => new RaidRecapLiveMvp(hostile, 12)).ToArray()
         };
+        Assert.NotNull(RaidRecapLiveHighlights.BeatenBest(report with
+        {
+            Fights = fights.Select((f, i) => f with { Kill = false, Remaining = 100 - i }).ToArray()
+        }));
 
         foreach (var ended in new[] { false, true })
         {
-            var card = RaidRecapView.Live(report, info, ended, Start, highlights);
+            // Every optional line at once: record pull, pattern, raid standing and the night summary.
+            var busiest = report with { Fights = fights.Select((f, i) => f with { Kill = false, Remaining = 100 - i }).ToArray() };
+            var card = RaidRecapView.Live(busiest, info, ended, Start, highlights with { Wipe = busiest.Fights[^1], Kill = busiest.Fights[11] });
+            Assert.Contains("New best pull", Text(card));
+            Assert.Contains("📌 First death was", Text(card));
+            Assert.Contains("-# Raid:", Text(card));
+            Assert.Equal(ended, Text(card).Contains("top-3 finishes"));
             var parts = RaidRecapPanelTests.Flatten(card.Components).ToArray();
             Assert.InRange(parts.Length, 1, 40);
             Assert.InRange(Text(card).Length, 1, 3800);
@@ -1188,6 +1201,419 @@ public class RaidRecapLiveTests
         Assert.DoesNotContain("Changed from", same);
         var changed = RaidRecapLiveCommands.RolloutLine(RaidRecapRolloutMode.Off, mine, requested: true);
         Assert.Equal("Rollout is **off everywhere**. Changed from limited to servers you are a member of.", changed);
+    }
+
+    // ===== Insights =====
+
+    [Theory]
+    [InlineData("Blast,Blast,Blast,Spin,Melee", "Blast", 3, 5)]      // more than half
+    [InlineData("Blast,Blast,Spin,Melee", "Blast", 2, 4)]            // exactly half, and clearly ahead
+    [InlineData("Blast,Spin,Blast,Spin", null, 0, 0)]                // a tie is not a pattern
+    [InlineData("Blast,Blast,,Unknown killing ability", "Blast", 2, 4)]
+    [InlineData("Blast,Blast", null, 0, 0)]                          // too few wipes to call it a pattern
+    [InlineData("Blast,Spin,Melee", null, 0, 0)]                     // nothing repeats
+    [InlineData("Blast,Blast,Spin,Melee,Fire", null, 0, 0)]          // repeats, but under half
+    [InlineData(",,", null, 0, 0)]
+    public void WipePatternNeedsThreeWipesAndHalfOfThem(string blows, string ability, int count, int wipes)
+    {
+        var pattern = RaidRecapLiveHighlights.FindPattern(blows.Split(',').Select(b => b.Length == 0 ? null : b).ToArray());
+        if (ability == null)
+        {
+            Assert.Null(pattern);
+            return;
+        }
+
+        Assert.Equal(new RaidRecapLiveWipePattern(ability, count, wipes), pattern);
+    }
+
+    [Fact]
+    public void NewBestPullIsCalledOnlyWhenTheLatestWipeBeatsEveryEarlierOne()
+    {
+        RaidRecapReport Night(params RaidRecapFight[] fights) =>
+            new(Code, "Synthetic", 1, 1_790_000_000_000, 1_790_003_000_000, Start, fights);
+
+        var record = RaidRecapLiveHighlights.BeatenBest(Night(Wipe(1, 0, 62), Wipe(2, 6, 38), Wipe(3, 12, 12.1)));
+        Assert.Equal(38, record.Value.Previous);
+        Assert.Equal(3, record.Value.Fight.Id);
+        Assert.Null(RaidRecapLiveHighlights.BeatenBest(Night(Wipe(1, 0, 12), Wipe(2, 6, 38))));          // worse
+        Assert.Null(RaidRecapLiveHighlights.BeatenBest(Night(Wipe(1, 0, 38), Wipe(2, 6, 38))));          // equal
+        Assert.Null(RaidRecapLiveHighlights.BeatenBest(Night(Wipe(1, 0, 38))));                          // first pull
+        Assert.Null(RaidRecapLiveHighlights.BeatenBest(Night(Wipe(1, 0, 38), Kill(2, 6))));              // a kill, not a wipe
+        // Another boss's pulls do not count.
+        Assert.Null(RaidRecapLiveHighlights.BeatenBest(Night(Wipe(1, 0, 62), Wipe(2, 6, 12) with { EncounterId = 3002 })));
+
+        var info = new RaidRecapLiveInfo("Guild", "us", "Zone", "");
+        var text = Text(RaidRecapView.Live(Night(Wipe(1, 0, 62), Wipe(2, 6, 38), Wipe(3, 12, 12.1)), info, false, Start));
+        Assert.Contains("🔥 **New best pull** · 12.1%, was 38%", text);
+        Assert.DoesNotContain("New best pull", Text(RaidRecapView.Live(Night(Wipe(1, 0, 12), Wipe(2, 6, 38)), info, false, Start)));
+    }
+
+    [Theory]
+    [InlineData(3001)]   // the next pull on the same boss has begun
+    [InlineData(3002)]   // the raid has moved to another boss
+    public void PullThatHasJustBegunNeverBorrowsTheLastPullsNumbers(int encounter)
+    {
+        var begun = new RaidRecapFight(4, encounter, 4, encounter == 3001 ? "Synthetic Boss" : "Second Boss", null, true, 1_080_000, null, 97);
+        var report = new RaidRecapReport(Code, "Synthetic", 1, 1_790_000_000_000, 1_790_001_100_000, Start,
+            new[] { Wipe(1, 0, 62), Wipe(2, 6, 38), Wipe(3, 12, 12.1), begun });
+        var highlights = new RaidRecapLiveHighlights
+        {
+            Wipe = report.Fights[2],
+            FirstDeaths = new[] { new RaidRecapLiveDeath(42000, "⚔️ Fury Warrior", "Synthetic Blast") },
+            TotalDeaths = 1,
+            DeathsComplete = true,
+            Pattern = new RaidRecapLiveWipePattern("Synthetic Blast", 3, 3)
+        };
+
+        var text = Text(RaidRecapView.Live(report, new RaidRecapLiveInfo("Guild", "us", "Zone", ""), false, Start, highlights));
+
+        Assert.Contains("Last pull ⏳ In progress", text);
+        // The record belongs to pull 3, which is no longer the pull on show.
+        Assert.DoesNotContain("New best pull", text);
+        Assert.DoesNotContain("97%", text);
+        if (encounter == 3001)
+        {
+            Assert.Contains("**Now · Synthetic Boss · H**", text);
+            Assert.Contains("📌 First death was **Synthetic Blast** on 3 of 3 wipes", text);
+        }
+        else
+        {
+            // Advice about the last boss is not shown under the new one.
+            Assert.Contains("**Now · Second Boss · H**", text);
+            Assert.DoesNotContain("📌", text);
+        }
+    }
+
+    [Fact]
+    public void KillQualityAveragesDamageDealersAndHealersSeparatelyAndLeavesTanksOut()
+    {
+        RaidRecapStanding Row(int id, string role, double? parse) => new("P" + id, 1000, 100)
+        {
+            ActorId = id,
+            Player = new(id, "P" + id, "Warrior", "Fury", role, "Realm", "US", true),
+            Parse = parse.HasValue ? new(id, 1000 + id, parse.Value, 100, null, null, null) : null
+        };
+        var rows = new[] { Row(1, "dps", 90), Row(2, "dps", 70), Row(3, "dps", null), Row(4, "tanks", 10), Row(5, "healers", 60) };
+        RaidRecapOutput Output(string metric, double? speed, double? execution) => new(rows,
+            new RaidRecapParses("k", 1, metric, "Parses", "Today", 1, Start, Array.Empty<RaidRecapParse>())
+            { SpeedPercent = speed, ExecutionPercent = execution }, null);
+
+        var quality = RaidRecapLiveHighlights.FindQuality(Output("dps", 72.4, 64), Output("hps", null, null));
+        Assert.Equal(80, quality.DamageAverage);
+        Assert.Equal(2, quality.DamageParses);
+        Assert.Equal(60, quality.HealingAverage);
+        Assert.Equal(1, quality.HealingParses);
+        Assert.Equal(72.4, quality.Speed);
+        Assert.Equal(64, quality.Execution);
+
+        // Nothing to say is nothing shown, never a zero.
+        Assert.Null(RaidRecapLiveHighlights.FindQuality(new(Array.Empty<RaidRecapStanding>(), null, null), null));
+
+        var kill = Kill(1, 0);
+        var report = new RaidRecapReport(Code, "Synthetic", 1, 1_790_000_000_000, 1_790_000_300_000, Start, new[] { kill });
+        var info = new RaidRecapLiveInfo("Guild", "us", "Zone", "");
+        var shown = Text(RaidRecapView.Live(report, info, false, Start, new RaidRecapLiveHighlights
+        {
+            Kill = kill,
+            TopDamage = new[] { new RaidRecapLivePerformer("⚔️ Fury Warrior", 1000, 90) { Name = "P1" } },
+            Quality = quality
+        }));
+        Assert.Contains("-# Raid: damage parse avg 🟣 **80** · healing avg 🔵 **60** · speed 🔵 **72** · execution 🔵 **64**", shown);
+
+        var partial = Text(RaidRecapView.Live(report, info, false, Start, new RaidRecapLiveHighlights
+        {
+            Kill = kill,
+            TopDamage = new[] { new RaidRecapLivePerformer("⚔️ Fury Warrior", 1000, 90) { Name = "P1" } },
+            Quality = new RaidRecapLiveKillQuality(80, 2, null, 0, null, null)
+        }));
+        Assert.Contains("-# Raid: damage parse avg 🟣 **80**", partial);
+        Assert.DoesNotContain("speed", partial);
+        Assert.DoesNotContain("healing avg", partial);
+    }
+
+    [Theory]
+    [InlineData("{data:[{speed:{rankPercent:72.5},execution:{rankPercent:64}}]}", 72.5, 64d)]
+    [InlineData("{data:[{speed:88,execution:12}]}", 88d, 12d)]
+    [InlineData("{data:[{speed:{rankPercent:0}}]}", 0d, null)]
+    [InlineData("{data:[{speed:{rankPercent:101},execution:{rankPercent:-1}}]}", null, null)]
+    [InlineData("{data:[{speed:'fast',execution:{rank:3}}]}", null, null)]
+    [InlineData("{data:[{}]}", null, null)]
+    [InlineData("{data:[{speed:50},{speed:60}]}", null, null)]
+    [InlineData("{}", null, null)]
+    public void SpeedAndExecutionAreOptionalAndOnlyAcceptedAsPercentages(string json, double? speed, double? execution)
+    {
+        var ranking = JObject.Parse(json);
+        Assert.Equal(speed, RaidRecapPlayerRules.FightPercent(ranking, "speed"));
+        Assert.Equal(execution, RaidRecapPlayerRules.FightPercent(ranking, "execution"));
+        Assert.Null(RaidRecapPlayerRules.FightPercent(null, "speed"));
+    }
+
+    [Fact]
+    public void FinalCardAddsPaceAndStandoutsAndTheLiveCardDoesNot()
+    {
+        // Gaps between pulls: 1, 1 and 4 minutes. The middle one is 1 minute.
+        var fights = new[]
+        {
+            new RaidRecapFight(1, 3001, 4, "A", true, false, 0, 300000, null),
+            new RaidRecapFight(2, 3002, 4, "B", true, false, 360000, 660000, null),
+            new RaidRecapFight(3, 3003, 4, "C", true, false, 720000, 1020000, null),
+            new RaidRecapFight(4, 3004, 4, "D", true, false, 1260000, 1560000, null)
+        };
+        var report = new RaidRecapReport(Code, "Synthetic", 1, 1_790_000_000_000, 1_790_001_560_000, Start, fights);
+        Assert.Equal(60000, RaidRecapLiveHighlights.MedianGapMs(report));
+        // An even number of gaps takes the middle of the two middle ones: 1 and 1 minute.
+        Assert.Equal(60000, RaidRecapLiveHighlights.MedianGapMs(report with { Fights = fights.Take(3).ToArray() }));
+        var uneven = fights.Take(2).Append(fights[2] with { StartMs = 840000, EndMs = 1140000 }).ToArray();   // gaps of 1 and 3 minutes
+        Assert.Equal(120000, RaidRecapLiveHighlights.MedianGapMs(report with { Fights = uneven }));
+        Assert.Null(RaidRecapLiveHighlights.MedianGapMs(report with { Fights = fights.Take(2).ToArray() }));
+
+        RaidRecapLivePerformer P(string name, int? actor = null) => new("⚔️ Fury Warrior", 1000, 90) { Name = name, ActorId = actor };
+        const string hostile = "Un**safe** @everyone";
+        var mvps = RaidRecapLiveHighlights.FindMvps(new[]
+        {
+            // One list per kill: that kill's top damage and top healing together.
+            new[] { P("Ann", 1), P("Bo", 2), P(hostile, 9), P("Ann", 1) },   // Ann topped both lists: still one finish
+            new[] { P("Ann", 1), P("Bo", 2), P("Di", 4), P(hostile, 9) },
+            new[] { P("Bo", 2), P("Eve", 5), P("Ann", 1) }
+        });
+        Assert.Equal(new[] { new RaidRecapLiveMvp("Ann", 3), new RaidRecapLiveMvp("Bo", 3), new RaidRecapLiveMvp(hostile, 2) }, mvps);
+
+        // One kill is not enough, however many lists a player topped.
+        Assert.Empty(RaidRecapLiveHighlights.FindMvps(new[] { new[] { P("Ann", 1), P("Ann", 1) } }));
+        // Two players who share a name are told apart by their id in the log.
+        Assert.Empty(RaidRecapLiveHighlights.FindMvps(new[] { new[] { P("Same", 1) }, new[] { P("Same", 2) } }));
+        Assert.Equal(new[] { new RaidRecapLiveMvp("Same", 2) },
+            RaidRecapLiveHighlights.FindMvps(new[] { new[] { P("Same", 1) }, new[] { P("Same", 1) } }));
+
+        var info = new RaidRecapLiveInfo("Guild", "us", "Zone", "");
+        var highlights = new RaidRecapLiveHighlights { Kill = fights[3], Mvps = mvps };
+        var final = Text(RaidRecapView.Live(report, info, true, Start, highlights));
+        Assert.Contains("⏳ 1:00 between pulls, typically", final);
+        Assert.Contains("🏆 Most top-3 finishes: **Ann** 3 · **Bo** 3 · **Un\\*\\*safe\\*\\* ＠everyone** 2", final);
+        Assert.DoesNotContain("@everyone", final);
+        var live = Text(RaidRecapView.Live(report, info, false, Start, highlights));
+        Assert.DoesNotContain("between pulls", live);
+        Assert.DoesNotContain("top-3 finishes", live);
+    }
+
+    [Fact]
+    public async Task WipePatternAppearsAfterThreeWipesAndNamesNoPlayer()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.Now = Start.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Wipe(1, 0, 62));
+        await rig.SweepAsync();
+        Assert.DoesNotContain("📌", Text(rig.Discord.Sent.Single().Card));
+
+        rig.Now = Start.AddMinutes(12);
+        rig.Report = rig.Build(Wipe(1, 0, 62), Wipe(2, 6, 55));
+        await rig.SweepAsync();
+        Assert.DoesNotContain("📌", Text(rig.Discord.Edits.Last().Card));
+
+        rig.Now = Start.AddMinutes(18);
+        rig.Report = rig.Build(Wipe(1, 0, 62), Wipe(2, 6, 55), Wipe(3, 12, 41));
+        await rig.SweepAsync();
+        var text = Text(rig.Discord.Edits.Last().Card);
+        Assert.Contains("📌 First death was **Synthetic Blast** on 3 of 3 wipes", text);
+        Assert.DoesNotContain("Private", text);
+
+        // Each wipe was read once, when it happened.
+        rig.Source.Verify(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), "deaths", It.IsAny<CancellationToken>()), Times.Exactly(3));
+
+        // The boss dies: the pattern is history, not advice.
+        rig.Now = Start.AddMinutes(24);
+        rig.Report = rig.Build(Wipe(1, 0, 62), Wipe(2, 6, 55), Wipe(3, 12, 41), Kill(4, 18));
+        await rig.SweepAsync();
+        Assert.DoesNotContain("📌", Text(rig.Discord.Edits.Last().Card));
+    }
+
+    [Fact]
+    public async Task CatchingUpIsSpreadAcrossRedrawsAndThePatternWaitsForAllOfIt()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.Now = Start.AddMinutes(50);
+        rig.List(minutesSinceLastEvent: 1);
+        // The bot joins a raid that already has eight wipes on this boss.
+        var wipes = Enumerable.Range(1, 8).Select(i => Wipe(i, (i - 1) * 6, 90 - i)).ToArray();
+        rig.Report = rig.Build(wipes);
+
+        await rig.SweepAsync();
+        rig.Source.Verify(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), "deaths", It.IsAny<CancellationToken>()),
+            Times.Exactly(RaidRecapLiveCoordinator.MaxPullReadsPerRedraw));
+        // Three of eight wipes read: too early to call anything a pattern.
+        Assert.DoesNotContain("📌", Text(rig.Discord.Sent.Single().Card));
+        // Only the wipe on show needs specs. The earlier ones are read without the roster.
+        rig.Players.Verify(x => x.GetRaidRecapRosterAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<CancellationToken>()), Times.Once);
+
+        rig.Now = Start.AddMinutes(56);
+        rig.Report = rig.Build(wipes.Append(Wipe(9, 48, 70)).ToArray());
+        await rig.SweepAsync();
+        Assert.DoesNotContain("📌", Text(rig.Discord.Edits.Last().Card));
+
+        rig.Now = Start.AddMinutes(62);
+        rig.Report = rig.Build(wipes.Append(Wipe(9, 48, 70)).Append(Wipe(10, 54, 60)).ToArray());
+        await rig.SweepAsync();
+        rig.Now = Start.AddMinutes(68);
+        rig.Report = rig.Build(wipes.Append(Wipe(9, 48, 70)).Append(Wipe(10, 54, 60)).Append(Wipe(11, 60, 50)).ToArray());
+        await rig.SweepAsync();
+
+        // The pattern covers the latest ten wipes, and each of those was read exactly once.
+        // The very first wipe has dropped out of that window, so it is never read at all.
+        Assert.Contains("📌 First death was **Synthetic Blast** on 10 of 10 wipes", Text(rig.Discord.Edits.Last().Card));
+        rig.Source.Verify(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), "deaths", It.IsAny<CancellationToken>()),
+            Times.Exactly(10));
+        rig.Source.Verify(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.Is<RaidRecapFight>(f => f.Id == 1), "deaths", It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task EarlierKillsAreReadFromTheTableAloneAndNothingIsReadTwice()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.Now = Start.AddMinutes(20);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Kill(1, 0), Kill(2, 6, encounter: 3002), Kill(3, 12, encounter: 3003));
+
+        await rig.SweepAsync();
+
+        // Three kills, damage and healing each: six table reads.
+        rig.Source.Verify(x => x.GetRaidRecapScopedTableAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<bool>()), Times.Exactly(6));
+        // Parses only for the kill on show.
+        rig.Players.Verify(x => x.GetRaidRecapParsesAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<bool>(), It.IsAny<RaidRecapRoster>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+        rig.Players.Verify(x => x.GetRaidRecapParsesAsync(It.IsAny<RaidRecapReport>(), It.Is<RaidRecapFight>(f => f.Id != 3), It.IsAny<bool>(), It.IsAny<RaidRecapRoster>(), It.IsAny<CancellationToken>()), Times.Never);
+
+        // Twenty more redraws with nothing new: no pull is read again, and nothing is forgotten.
+        rig.Source.Invocations.Clear();
+        rig.Players.Invocations.Clear();
+        for (var i = 1; i <= 20; i++)
+        {
+            rig.Now = rig.Now.AddMinutes(5);
+            rig.Report = rig.Build(Kill(1, 0), Kill(2, 6, encounter: 3002), Kill(3, 12, encounter: 3003)) with { EndTime = rig.Now.ToUnixTimeMilliseconds() };
+            await rig.SweepAsync();
+        }
+
+        Assert.Equal(20, rig.Discord.Edits.Count);
+        rig.Source.Verify(x => x.GetRaidRecapScopedTableAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<bool>()), Times.Never);
+        rig.Players.Verify(x => x.GetRaidRecapParsesAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<bool>(), It.IsAny<RaidRecapRoster>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task PullThatKeepsFailingIsGivenUpOnAfterThreeTries()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.Now = Start.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Wipe(1, 0, 62));
+        rig.Source.Setup(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), "deaths", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("PRIVATE provider detail"));
+
+        await rig.SweepAsync();
+        for (var i = 1; i <= 10; i++)
+        {
+            rig.Now = rig.Now.AddMinutes(5);
+            rig.Report = rig.Build(Wipe(1, 0, 62)) with { EndTime = rig.Now.ToUnixTimeMilliseconds() };
+            await rig.SweepAsync();
+        }
+
+        Assert.Equal(10, rig.Discord.Edits.Count);
+        rig.Source.Verify(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), "deaths", It.IsAny<CancellationToken>()),
+            Times.Exactly(RaidRecapLiveCoordinator.MaxPullAttempts));
+        Assert.DoesNotContain("PRIVATE", string.Concat(rig.Discord.Edits.Select(e => Text(e.Card))));
+        Assert.Equal(RaidRecapLiveState.Live, Assert.Single(await rig.CardsAsync()).State);
+    }
+
+    [Fact]
+    public async Task KillWhoseParsesFailedIsReadAgainUntilTheyArrive()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.Now = Start.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Kill(1, 0));
+        var failing = true;
+        rig.Players.Setup(x => x.GetRaidRecapParsesAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<bool>(), It.IsAny<RaidRecapRoster>(), It.IsAny<CancellationToken>()))
+            .Returns((RaidRecapReport r, RaidRecapFight f, bool healing, RaidRecapRoster _, CancellationToken _) => failing
+                ? Task.FromException<RaidRecapParses>(new TimeoutException())
+                : Task.FromResult(new RaidRecapParses(r.SnapshotKey, f.Id, healing ? "hps" : "dps", "Parses", "Today", 1, Start,
+                    new[] { new RaidRecapParse(1, 1001, 96.4, 500, 60, 1, 640) })));
+
+        await rig.SweepAsync();
+        var first = Text(rig.Discord.Sent.Single().Card);
+        Assert.Contains("**[PrivateAlpha]", first);     // output is shown even without parses
+        Assert.DoesNotContain("-# Raid:", first);
+
+        failing = false;
+        rig.Now = rig.Now.AddMinutes(5);
+        rig.Report = rig.Build(Kill(1, 0)) with { EndTime = rig.Now.ToUnixTimeMilliseconds() };
+        await rig.SweepAsync();
+        Assert.Contains("-# Raid: damage parse avg 🟠 **96**", Text(rig.Discord.Edits.Last().Card));
+
+        // Complete now, so it is left alone.
+        rig.Players.Invocations.Clear();
+        rig.Now = rig.Now.AddMinutes(5);
+        rig.Report = rig.Build(Kill(1, 0)) with { EndTime = rig.Now.ToUnixTimeMilliseconds() };
+        await rig.SweepAsync();
+        rig.Players.Verify(x => x.GetRaidRecapParsesAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<bool>(), It.IsAny<RaidRecapRoster>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SpentBudgetStopsReadingPullsAndDoesNotCountAgainstThem()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.Now = Start.AddMinutes(30);
+        rig.List(minutesSinceLastEvent: 1);
+        var wipes = Enumerable.Range(1, 4).Select(i => Wipe(i, (i - 1) * 6, 90 - i)).ToArray();
+        rig.Report = rig.Build(wipes);
+        rig.Source.Setup(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), "deaths", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("Warcraft Logs quota unavailable. Retry in 60s."));
+
+        await rig.SweepAsync();
+        for (var i = 1; i <= 5; i++)
+        {
+            rig.Now = rig.Now.AddMinutes(5);
+            rig.Report = rig.Build(wipes) with { EndTime = rig.Now.ToUnixTimeMilliseconds() };
+            await rig.SweepAsync();
+        }
+
+        // One refused read per redraw, never three, and never given up on.
+        rig.Source.Verify(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), "deaths", It.IsAny<CancellationToken>()), Times.Exactly(6));
+        rig.Source.Verify(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.Is<RaidRecapFight>(f => f.Id != 4), "deaths", It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task FinalCardNamesStandoutsFromTheKillsItSaw()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.Now = Start.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Kill(1, 0));
+        await rig.SweepAsync();
+        rig.Now = Start.AddMinutes(12);
+        rig.Report = rig.Build(Kill(1, 0), Kill(2, 6, encounter: 3002));
+        await rig.SweepAsync();
+        rig.Now = Start.AddMinutes(18);
+        rig.Report = rig.Build(Kill(1, 0), Kill(2, 6, encounter: 3002), Kill(3, 12, encounter: 3003));
+        await rig.SweepAsync();
+        Assert.DoesNotContain("top-3 finishes", Text(rig.Discord.Edits.Last().Card));
+
+        rig.Now = Start.AddMinutes(17 + 31);
+        await rig.SweepAsync();
+
+        var text = Text(rig.Discord.Edits.Last().Card);
+        Assert.Contains("🏁 **Raid ended**", text);
+        // Each kill ran five minutes and the next began a minute later.
+        Assert.Contains("⏳ 1:00 between pulls, typically", text);
+        // Both players were in the top three of all three kills. Topping damage and healing
+        // on the same kill still counts once.
+        Assert.Contains("🏆 Most top-3 finishes: **PrivateAlpha** 3 · **PrivateGamma** 3", text);
+        Assert.Contains("-# Raid: damage parse avg 🟠 **96**", text);
     }
 
     // ===== Open my recap =====

@@ -41,6 +41,10 @@ The sections below describe behaviour, limits and safety rules. Where they quote
 - The current boss, the last pull, the best pull, and a pull strip such as `62 · 55 · 41 · 12 · ✅` (boss health left per pull, latest 12).
 - The first three deaths of the latest wipe, shown by **spec and class only**, never by name or link.
 - The top three damage and healing of the latest kill, shown **by name** with spec, class and parse. Being listed there is praise. A name is linked to the player's view of the kill only when the player was matched to the raid roster.
+- **New best pull:** shown when the latest finished pull is a wipe that beat every earlier wipe on that boss, for example `🔥 New best pull · 12.1%, was 38%`. It is not shown once the next pull has begun.
+- **Wipe pattern:** `📌 First death was <ability> on 4 of 5 wipes`. It needs at least three wipes with full death data, the ability must have started at least half of them, and it must be clearly ahead of any other. A tie is not a pattern. It names a killing blow, never a player. It covers the latest ten wipes on the boss the card calls **Now**, and waits until every one of them has been read.
+- **Raid line on a kill:** the average parse of the damage dealers and of the healers, tanks left out, then kill speed and execution when WarcraftLogs sends them. Anything missing is left out, never shown as zero.
+- **Final card only:** the typical gap between pulls (the middle gap), and the players with the most top-three finishes across the night's latest twelve kills. A player counts once per kill and needs two kills to be listed.
 - **Open my recap** opens the private `/raid-recap` for that log, for whoever pressed it, on the latest pull's deaths. Its custom ID holds only the report code, so it keeps working after a restart.
 
 **Two switches**
@@ -52,7 +56,10 @@ The sections below describe behaviour, limits and safety rules. Where they quote
 **Rollout gate.** In *My servers* mode a server is eligible only while the bot owner is a member of it. The bot already holds each server's member list, so the check normally costs no Discord call. Right after a restart, while member lists are still downloading, it asks Discord directly. Joining a server makes it eligible and leaving removes it. The default mode is *My servers*, and nothing is posted anywhere until an officer turns the card on.
 
 **Cost and limits**
-- One log read per refresh. Deaths and top output are read again only when the latest wipe or the latest kill changes, each independently.
+- One log read per refresh. Each pull is read once and remembered for as long as a live card watches the log.
+- A redraw reads at most three pulls, newest first, so catching up after a restart is spread over several redraws.
+- A pull that fails or comes back incomplete is tried again on a later redraw, three times at most. A refusal because the WarcraftLogs budget is spent stops reading for that redraw and does not count as a try.
+- The latest wipe and the latest kill are read in full. Earlier wipes are read for deaths only, and earlier kills for the damage and healing tables only.
 - Roughly 120 to 160 API points per live raid per hour. These are estimates from third-party measurements.
 - At most 20 cards are refreshed at once across all servers.
 - Servers without a live card are checked for a new log every 5 minutes, at most 5 servers per sweep, longest-waiting first.
