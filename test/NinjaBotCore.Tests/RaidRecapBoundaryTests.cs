@@ -44,6 +44,22 @@ public class RaidRecapBoundaryTests
     }
 
     [Fact]
+    public async Task PointsReadingIsKeptForTheOwner()
+    {
+        var h=new RaidRecapTransportTests.Handler { Result="""
+        {"data":{"reportData":{"reports":{"data":[]}}}}
+        """ };
+        var client=RaidRecapTransportTests.Client(h);
+        Assert.Null(client.LastRateLimit);
+        await client.GetRaidRecapReportsAsync("Guild","realm","us",10);
+        var points=Assert.IsType<NinjaBotCore.Models.Wow.WclV2RateLimitSnapshot>(client.LastRateLimit);
+        Assert.Equal(1,points.Spent);
+        Assert.Equal(1000,points.LimitPerHour);
+        Assert.Equal(0.1,points.UsagePercent,3);
+        Assert.Equal(100,(points.ResetsAt-points.CheckedAt).TotalSeconds,0);
+    }
+
+    [Fact]
     public async Task DiscoveryAsksForTheGivenLimitAndRejectsMoreRows()
     {
         var h=new RaidRecapTransportTests.Handler { Result="""

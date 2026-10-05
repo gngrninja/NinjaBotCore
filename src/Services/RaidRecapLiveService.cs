@@ -61,6 +61,7 @@ namespace NinjaBotCore.Services
                 // One line every few minutes, not one every sweep.
                 _pausedUntil = DateTimeOffset.UtcNow + FailurePause;
                 _logger.LogWarning(ex, "Raid recap live sweep failed; pausing for {Pause}", FailurePause);
+                _coordinator.Health.Error("sweep", ex);
             }
             finally
             {

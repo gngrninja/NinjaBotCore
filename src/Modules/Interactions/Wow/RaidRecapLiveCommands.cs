@@ -26,6 +26,7 @@ public class RaidRecapLiveCommands : InteractionModuleBase<IInteractionContext>
     private readonly RaidRecapLiveGate _gate;
     private readonly RaidRecapLiveCoordinator _coordinator;
     private readonly IRaidRecapLiveDiscord _discord;
+    private readonly NinjaBotCore.Modules.Wow.WarcraftLogsV2Client _warcraftLogs;
     private readonly ILogger<RaidRecapLiveCommands> _logger;
 
     public RaidRecapLiveCommands(
@@ -33,12 +34,14 @@ public class RaidRecapLiveCommands : InteractionModuleBase<IInteractionContext>
         RaidRecapLiveGate gate,
         RaidRecapLiveCoordinator coordinator,
         IRaidRecapLiveDiscord discord,
+        NinjaBotCore.Modules.Wow.WarcraftLogsV2Client warcraftLogs,
         ILogger<RaidRecapLiveCommands> logger)
     {
         _scopes = scopes;
         _gate = gate;
         _coordinator = coordinator;
         _discord = discord;
+        _warcraftLogs = warcraftLogs;
         _logger = logger;
     }
 
@@ -127,12 +130,10 @@ public class RaidRecapLiveCommands : InteractionModuleBase<IInteractionContext>
             var current = await _gate.ModeAsync();
             using var scope = _scopes.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
-            var servers = await db.RaidRecapLiveSettings.CountAsync(s => s.Enabled);
-            var live = await db.RaidRecapLiveCards.CountAsync(c => c.State == RaidRecapLiveState.Live);
+            var status = await RaidRecapLiveStatus.BuildAsync(
+                db, current, _coordinator.Health.Snapshot(), _warcraftLogs.LastRateLimit, DateTimeOffset.UtcNow);
             await NoticeAsync(
-                RolloutLine(current, previous, requested.HasValue) + "\n"
-                + $"Servers opted in: **{servers}**\n"
-                + $"Cards live right now: **{live}** of {RaidRecapLiveCoordinator.MaxLiveCards} allowed",
+                RolloutLine(current, previous, requested.HasValue) + "\n" + status.Text(),
                 current == RaidRecapRolloutMode.Off ? Color.LightGrey : Color.Green);
         }
         catch (Exception ex)
@@ -186,6 +187,7 @@ public class RaidRecapLiveCommands : InteractionModuleBase<IInteractionContext>
         settings.ChannelId = checked((long)target.Value);
         Stamp(settings);
         await db.SaveChangesAsync();
+        await _coordinator.StartServerAsync(guildId);
         await NoticeAsync(
             $"The live raid recap is **on**.\n"
             + $"When the next raid log for **{NinjaBotCore.Modules.Wow.RaidRecapRules.Text(guild.Name, 80)}** goes live, "

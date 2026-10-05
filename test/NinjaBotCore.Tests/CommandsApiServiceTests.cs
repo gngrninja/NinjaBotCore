@@ -18,6 +18,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NinjaBotCore.Database;
+using NinjaBotCore.Modules.Interactions.Wow;
+using NinjaBotCore.Modules.Wow;
 using NinjaBotCore.Services;
 using NinjaBotCore.Services.Api;
 using Xunit;
@@ -66,6 +68,11 @@ namespace NinjaBotCore.Tests
             services.AddMemoryCache();
             services.AddScoped<WowCacheService>();
             services.AddSingleton<ILogger<WowCacheService>>(NullLogger<WowCacheService>.Instance);
+            // Live raid recap: only its health endpoint is called, so WarcraftLogs and Discord are stubs.
+            services.AddLogging();
+            services.AddRaidRecap();
+            services.AddSingleton(Mock.Of<IRaidRecapSource>());
+            services.AddSingleton(Mock.Of<IRaidRecapLiveDiscord>());
             RootProvider = services.BuildServiceProvider();
 
             // Create simple dependencies for CommandsApiService constructor
@@ -1306,6 +1313,61 @@ namespace NinjaBotCore.Tests
                 json.GetProperty("association").GetProperty("wow_guild_name").GetString());
             Assert.Equal("stormrage",
                 json.GetProperty("association").GetProperty("wow_realm_slug").GetString());
+        }
+
+        #endregion
+
+        #region Live raid recap
+
+        [Fact]
+        public async Task RaidRecapLiveHealth_NoApiKey_Returns401()
+        {
+            var response = await _unauth.GetAsync("/api/raid-recap-live/health");
+
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task RaidRecapLiveHealth_ShowsCardsWatcherAndPoints()
+        {
+            const long server = 987654321098765432;
+            var (scope, db) = _fixture.CreateDbScope();
+            using (scope)
+            {
+                db.RaidRecapLiveCards.Add(new RaidRecapLiveCard
+                {
+                    DiscordGuildId = server, ChannelId = 5, MessageId = 6, ReportCode = "AbCdEfGh12345678",
+                    State = RaidRecapLiveState.Live, GuildName = "Health Guild", ZoneName = "Synthetic Spire",
+                    StartedAt = DateTime.UtcNow, LastChangedAt = DateTime.UtcNow, LastCheckedAt = DateTime.UtcNow
+                });
+                await db.SaveChangesAsync();
+            }
+
+            var health = _fixture.RootProvider.GetRequiredService<RaidRecapLiveCoordinator>().Health;
+            Assert.Same(_fixture.RootProvider.GetRequiredService<RaidRecapLiveHealth>(), health);
+            health.Event(RaidRecapLiveEventKind.Stopped, server, 77, "AbCdEfGh12345678", "Health Guild", "kept failing (TimeoutException)");
+            health.Error("refresh 77", "TimeoutException");
+
+            var response = await _client.GetAsync("/api/raid-recap-live/health");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("my servers", json.GetProperty("rollout").GetString());
+            Assert.True(json.GetProperty("cards").GetProperty("live").GetInt32() >= 1);
+            var card = json.GetProperty("live").EnumerateArray().Single(c => c.GetProperty("guild").GetString() == "Health Guild");
+            // Discord IDs are strings, so a browser never rounds them.
+            Assert.Equal("987654321098765432", card.GetProperty("server_id").GetString());
+            Assert.Equal("https://discord.com/channels/987654321098765432/5/6", card.GetProperty("link").GetString());
+            var watcher = json.GetProperty("watcher");
+            Assert.Equal("TimeoutException", watcher.GetProperty("last_error_type").GetString());
+            Assert.Equal(1, watcher.GetProperty("errors_last_hour").GetInt32());
+            Assert.Equal(1, watcher.GetProperty("counts").GetProperty("stopped").GetInt32());
+            var recent = watcher.GetProperty("recent")[0];
+            Assert.Equal("stopped", recent.GetProperty("kind").GetString());
+            Assert.Equal("987654321098765432", recent.GetProperty("server_id").GetString());
+            Assert.Equal("kept failing (TimeoutException)", recent.GetProperty("reason").GetString());
+            // No WarcraftLogs client here, so no points reading.
+            Assert.Equal(JsonValueKind.Null, json.GetProperty("warcraft_logs").ValueKind);
         }
 
         #endregion

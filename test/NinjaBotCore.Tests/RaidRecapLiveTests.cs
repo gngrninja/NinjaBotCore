@@ -378,7 +378,7 @@ public class RaidRecapLiveTests
             db.RaidRecapLiveCards.Add(new RaidRecapLiveCard
             {
                 DiscordGuildId = (long)Server, ChannelId = (long)Channel, MessageId = 1, ReportCode = Code,
-                State = RaidRecapLiveState.Stopped, StartedAt = rig.Now.UtcDateTime,
+                State = RaidRecapLiveState.Deleted, StartedAt = rig.Now.UtcDateTime,
                 LastChangedAt = rig.Now.UtcDateTime, LastCheckedAt = rig.Now.UtcDateTime
             });
             await db.SaveChangesAsync();
@@ -853,7 +853,7 @@ public class RaidRecapLiveTests
         rig.Now = rig.Now.AddSeconds(91);
         rig.Report = rig.Build(Wipe(1, 0, 62), Wipe(2, 6, 41));
         await rig.SweepAsync();
-        Assert.Equal(RaidRecapLiveState.Stopped, Assert.Single(await rig.CardsAsync()).State);
+        Assert.Equal(RaidRecapLiveState.Deleted, Assert.Single(await rig.CardsAsync()).State);
 
         rig.Now = rig.Now.AddMinutes(10);
         rig.List(minutesSinceLastEvent: 1);
@@ -916,6 +916,405 @@ public class RaidRecapLiveTests
         var card = Assert.Single(await rig.CardsAsync());
         Assert.Equal(0, card.Failures);
         Assert.Equal(RaidRecapLiveState.Live, card.State);
+    }
+
+    [Fact]
+    public async Task TheOwnerSeesEachCardsHistoryWithReasons()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.List(minutesSinceLastEvent: 1);
+        await rig.SweepAsync();
+        await rig.Coordinator.StopServerAsync(Server);
+        await rig.Coordinator.StartServerAsync(Server);
+        rig.Now = rig.Now.AddSeconds(30);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Wipe(1, 0, 62), Wipe(2, 20, 41));
+        await rig.SweepAsync();
+
+        // The log has been quiet for more than half an hour.
+        rig.Now = rig.Now.AddMinutes(40);
+        await rig.SweepAsync();
+
+        var health = rig.Coordinator.Health.Snapshot();
+        Assert.Equal(new[] { "ended", "revived", "stopped", "posted" }, health.Recent.Select(e => e.Kind));
+        Assert.Equal(new[] { "log quiet 30 minutes", "in place", "turned off", "Synthetic Spire" }, health.Recent.Select(e => e.Reason));
+        Assert.All(health.Recent, e => Assert.Equal((long)Server, e.ServerId));
+        Assert.All(health.Recent, e => Assert.Equal("Synthetic Guild", e.Guild));
+        Assert.Equal(1, health.Counts["revived"]);
+        Assert.Equal(rig.Now, health.LastSweep!.At);
+        Assert.False(health.LastSweep.KillSwitch);
+        Assert.Null(health.LastError);
+
+        await rig.Gate.SetModeAsync(RaidRecapRolloutMode.Off);
+        await rig.SweepAsync();
+        Assert.True(rig.Coordinator.Health.Snapshot().LastSweep!.KillSwitch);
+    }
+
+    [Fact]
+    public async Task FailuresAndBudgetWaitsAreCountedWithoutTheirMessages()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.List(minutesSinceLastEvent: 1);
+        await rig.SweepAsync();
+
+        rig.Source.Setup(x => x.GetRaidRecapReportAsync(Code)).ThrowsAsync(new InvalidOperationException("PRIVATE provider detail"));
+        rig.Now = rig.Now.AddMinutes(2);
+        await rig.SweepAsync();
+        rig.Source.Setup(x => x.GetRaidRecapReportAsync(Code)).ThrowsAsync(new InvalidOperationException("Warcraft Logs quota unavailable. Retry in 60s."));
+        rig.Now = rig.Now.AddMinutes(2);
+        await rig.SweepAsync();
+
+        var health = rig.Coordinator.Health.Snapshot();
+        var card = Assert.Single(await rig.CardsAsync());
+        Assert.Equal($"refresh {card.Id}", health.LastError!.Where);
+        Assert.Equal("InvalidOperationException", health.LastError.Type);
+        Assert.Equal(1, health.ErrorsLastHour);
+        Assert.True(health.QuotaWaitsLastHour >= 1);
+
+        // An hour later neither counts any more; the last error is still shown.
+        rig.Source.Setup(x => x.GetRaidRecapReportAsync(Code)).ReturnsAsync(() => rig.Report);
+        rig.Now = rig.Now.AddHours(1);
+        health = rig.Coordinator.Health.Snapshot();
+        Assert.Equal(0, health.ErrorsLastHour);
+        Assert.Equal(0, health.QuotaWaitsLastHour);
+        Assert.NotNull(health.LastError);
+
+    }
+
+    [Fact]
+    public void HealthKeepsOnlyTheLatestEvents()
+    {
+        var now = Start;
+        var health = new RaidRecapLiveHealth(() => now);
+        for (var i = 0; i < RaidRecapLiveHealth.MaxEvents + 5; i++)
+        {
+            now = now.AddMinutes(1);
+            health.Event(RaidRecapLiveEventKind.Posted, 1, i);
+        }
+
+        var snapshot = health.Snapshot();
+        Assert.Equal(RaidRecapLiveHealth.MaxEvents, snapshot.Recent.Count);
+        Assert.Equal(RaidRecapLiveHealth.MaxEvents + 4, snapshot.Recent[0].CardId);
+        Assert.Equal(RaidRecapLiveHealth.MaxEvents + 5, snapshot.Counts["posted"]);
+    }
+
+    [Fact]
+    public async Task StatusTextShowsCardsSweepErrorsAndPoints()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.List(minutesSinceLastEvent: 1);
+        await rig.SweepAsync();
+
+        var status = await StatusAsync(rig, new WclV2RateLimitSnapshot(155.42, 18000, 0.8634, rig.Now, rig.Now.AddMinutes(20)));
+        var text = status.Text();
+        Assert.Equal("my servers", status.Rollout);
+        Assert.Equal(1, status.ServersOn);
+        Assert.Equal(new RaidRecapLiveCardCounts(1, 0, 0, 0), status.Cards);
+        Assert.Equal(1, status.PostedLastDay);
+        var live = Assert.Single(status.Live);
+        Assert.Equal(Server.ToString(), live.ServerId);
+        Assert.Equal($"https://discord.com/channels/{Server}/{Channel}/4201", live.Link);
+        Assert.Contains("Cards: **1** live of 20 allowed · 0 ended · 0 stopped · 0 deleted · 1 posted in the last day", text);
+        Assert.Contains("1 watched, 1 servers checked", text);
+        Assert.Contains("Last error: none since the bot started", text);
+        Assert.Contains("WarcraftLogs: **155** of 18,000 points this hour (0.9%)", text);
+        Assert.Contains("card 1 posted: Synthetic Spire", text);
+        Assert.DoesNotContain("\n\n", text.Replace("\r\n", "\n"));
+
+        var none = await StatusAsync(rig, null);
+        Assert.Contains("WarcraftLogs: no points reading yet", none.Text());
+        Assert.Null(none.WarcraftLogs);
+    }
+
+    private static async Task<RaidRecapLiveStatus> StatusAsync(Rig rig, WclV2RateLimitSnapshot points)
+    {
+        using var scope = rig.Services.CreateScope();
+        return await RaidRecapLiveStatus.BuildAsync(
+            scope.ServiceProvider.GetRequiredService<NinjaBotEntities>(),
+            await rig.Gate.ModeAsync(), rig.Coordinator.Health.Snapshot(), points, rig.Now);
+    }
+
+    [Fact]
+    public async Task AStoppedCardPicksUpAgainWhenWarcraftLogsComesBack()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.List(minutesSinceLastEvent: 1);
+        await rig.SweepAsync();
+
+        rig.Source.Setup(x => x.GetRaidRecapReportAsync(Code)).ThrowsAsync(new TimeoutException());
+        for (var attempt = 0; attempt < RaidRecapLiveCoordinator.MaxFailures; attempt++)
+        {
+            rig.Now = rig.Now.AddMinutes(2);
+            await rig.SweepAsync();
+        }
+
+        Assert.Equal(RaidRecapLiveState.Stopped, Assert.Single(await rig.CardsAsync()).State);
+        Assert.Contains("Live updates stopped", Text(rig.Discord.Edits.Last().Card));
+
+        // WarcraftLogs is back and the raid went on.
+        rig.Source.Setup(x => x.GetRaidRecapReportAsync(Code)).ReturnsAsync(() => rig.Report);
+        rig.Now = rig.Now.AddMinutes(5);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Wipe(1, 0, 62), Wipe(2, 38, 41));
+        await rig.SweepAsync();
+        var card = Assert.Single(await rig.CardsAsync());
+        Assert.Equal(RaidRecapLiveState.Live, card.State);
+        Assert.Equal(0, card.Failures);
+
+        rig.Now = rig.Now.AddSeconds(30);
+        await rig.SweepAsync();
+        var edit = rig.Discord.Edits.Last();
+        Assert.Single(rig.Discord.Sent);
+        Assert.Equal(4201ul, edit.Message);
+        Assert.Contains("🔴 **LIVE**", Text(edit.Card));
+        Assert.Contains("2 pulls", Text(edit.Card));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TurningTheCardOffAndOnAgainBringsItBack(bool newChannel)
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.List(minutesSinceLastEvent: 1);
+        await rig.SweepAsync();
+
+        await SetServerAsync(rig, enabled: false, Channel);
+        await rig.Coordinator.StopServerAsync(Server);
+        rig.Now = rig.Now.AddMinutes(1);
+        await rig.SweepAsync();
+        Assert.Equal(RaidRecapLiveState.Stopped, Assert.Single(await rig.CardsAsync()).State);
+
+        // On again straight away: checked on the very next sweep, not after five minutes.
+        var channel = newChannel ? 777ul : Channel;
+        await SetServerAsync(rig, enabled: true, channel);
+        await rig.Coordinator.StartServerAsync(Server);
+        rig.Now = rig.Now.AddSeconds(30);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Wipe(1, 0, 62), Wipe(2, 20, 41));
+        await rig.SweepAsync();
+        rig.Now = rig.Now.AddSeconds(30);
+        await rig.SweepAsync();
+
+        var card = Assert.Single(await rig.CardsAsync());
+        Assert.Equal(RaidRecapLiveState.Live, card.State);
+        Assert.Equal((long)channel, card.ChannelId);
+        if (newChannel)
+        {
+            // A new post where the officer asked; the old one keeps saying it stopped.
+            Assert.Equal(2, rig.Discord.Sent.Count);
+            Assert.Equal(777ul, rig.Discord.Sent[1].Channel);
+            Assert.Equal(4202, card.MessageId);
+            Assert.Contains("Live updates stopped", Text(rig.Discord.Edits.Last().Card));
+        }
+        else
+        {
+            Assert.Single(rig.Discord.Sent);
+            Assert.Equal(4201ul, rig.Discord.Edits.Last().Message);
+            Assert.Contains("🔴 **LIVE**", Text(rig.Discord.Edits.Last().Card));
+        }
+    }
+
+    [Fact]
+    public async Task ADeletedCardComesBackOnlyWhenTheCardIsTurnedOnAgain()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.List(minutesSinceLastEvent: 1);
+        await rig.SweepAsync();
+
+        rig.Discord.EditResult = RaidRecapLiveEdit.Missing;
+        rig.Now = rig.Now.AddSeconds(91);
+        rig.Report = rig.Build(Wipe(1, 0, 62), Wipe(2, 6, 41));
+        await rig.SweepAsync();
+        rig.Discord.EditResult = RaidRecapLiveEdit.Updated;
+        rig.Now = rig.Now.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        await rig.SweepAsync();
+        Assert.Equal(RaidRecapLiveState.Deleted, Assert.Single(await rig.CardsAsync()).State);
+        Assert.Single(rig.Discord.Sent);
+
+        // The raid pulls again and an officer turns the card on.
+        rig.Report = rig.Build(Wipe(1, 0, 62), Wipe(2, 6, 41), Wipe(3, 22, 30));
+        await rig.Coordinator.StartServerAsync(Server);
+        rig.Now = rig.Now.AddSeconds(30);
+        await rig.SweepAsync();
+        rig.Now = rig.Now.AddSeconds(30);
+        await rig.SweepAsync();
+
+        var card = Assert.Single(await rig.CardsAsync());
+        Assert.Equal(RaidRecapLiveState.Live, card.State);
+        Assert.Equal(2, rig.Discord.Sent.Count);
+        Assert.Equal(4202, card.MessageId);
+        Assert.Contains("🔴 **LIVE**", Text(rig.Discord.Sent[1].Card));
+    }
+
+    [Theory]
+    [InlineData("raid over")]
+    [InlineData("watched too long")]
+    public async Task AStoppedCardStaysStoppedWhenItsRaidIsNotGoing(string why)
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.List(minutesSinceLastEvent: 1);
+        await rig.SweepAsync();
+        await rig.Coordinator.StopServerAsync(Server);
+        var edits = rig.Discord.Edits.Count;
+
+        if (why == "raid over")
+        {
+            // Only keys since the last raid pull, half an hour ago.
+            rig.Now = rig.Now.AddMinutes(20);
+        }
+        else
+        {
+            rig.Now = rig.Now.Add(RaidRecapLiveCoordinator.MaxWatch);
+            // Pulls never more than four hours apart, so it is all one raid.
+            rig.Report = rig.Build(Wipe(1, 0, 62), Wipe(2, 170, 50), Wipe(3, 340, 45),
+                Wipe(4, RaidRecapLiveCoordinator.MaxWatch.TotalMinutes + 10, 41));
+        }
+
+        rig.List(minutesSinceLastEvent: 1);
+        await rig.Coordinator.StartServerAsync(Server);
+        await rig.SweepAsync();
+        rig.Now = rig.Now.AddSeconds(30);
+        await rig.SweepAsync();
+
+        Assert.Equal(RaidRecapLiveState.Stopped, Assert.Single(await rig.CardsAsync()).State);
+        Assert.Single(rig.Discord.Sent);
+        Assert.Equal(edits, rig.Discord.Edits.Count);
+    }
+
+    [Fact]
+    public async Task AStoppedCardStaysStoppedOnceTheTeamMovedToANewLog()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        const string second = "SecondLog0000001";
+        RaidRecapReport secondReport = null;
+        rig.Source.Setup(x => x.GetRaidRecapReportAsync(second)).ReturnsAsync(() => secondReport);
+
+        rig.Now = Start.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Wipe(1, 0, 62));
+        await rig.SweepAsync();
+        await rig.Coordinator.StopServerAsync(Server);
+        await rig.Coordinator.StartServerAsync(Server);
+
+        // The raid leader restarted the uploader. The old log has nothing after the stop but
+        // still counts as live for a while; the new log is pulling.
+        var secondStart = Start.AddMinutes(7);
+        secondReport = new RaidRecapReport(second, "Synthetic", 1, secondStart.ToUnixTimeMilliseconds(),
+            secondStart.AddMinutes(5).ToUnixTimeMilliseconds(), rig.Now, new[] { Wipe(1, 0, 50) });
+        foreach (var minute in new[] { 13, 18, 23 })
+        {
+            rig.Now = Start.AddMinutes(minute);
+            rig.Listed.Clear();
+            rig.Listed.Add(Listing(second, secondStart, rig.Now.AddMinutes(-1)));
+            rig.Listed.Add(Listing(Code, Start, Start.AddMinutes(5)));
+            await rig.SweepAsync();
+        }
+
+        var cards = await rig.CardsAsync();
+        Assert.Equal(RaidRecapLiveState.Stopped, cards.Single(c => c.ReportCode == Code).State);
+        Assert.Equal(RaidRecapLiveState.Live, cards.Single(c => c.ReportCode == second).State);
+        Assert.Equal(2, rig.Discord.Sent.Count);
+        Assert.DoesNotContain(rig.Coordinator.Health.Snapshot().Recent, e => e.Kind == RaidRecapLiveEventKind.Revived);
+    }
+
+    [Fact]
+    public async Task AfterOffAndOnTheCardComesBackWithTheNextPull()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.Now = Start.AddMinutes(6);
+        rig.List(minutesSinceLastEvent: 1);
+        rig.Report = rig.Build(Wipe(1, 0, 62));
+        await rig.SweepAsync();
+
+        // A pull ends that the card has not drawn yet, then an officer turns it off and on.
+        rig.Now = Start.AddMinutes(9);
+        rig.Report = rig.Build(Wipe(1, 0, 62), Wipe(2, 3, 55));
+        await rig.Coordinator.StopServerAsync(Server);
+        await rig.Coordinator.StartServerAsync(Server);
+        rig.Now = Start.AddMinutes(10);
+        rig.List(minutesSinceLastEvent: 2);
+        await rig.SweepAsync();
+        Assert.Equal(RaidRecapLiveState.Stopped, Assert.Single(await rig.CardsAsync()).State);
+
+        // The next pull brings it back.
+        rig.Now = Start.AddMinutes(16);
+        rig.Report = rig.Build(Wipe(1, 0, 62), Wipe(2, 3, 55), Wipe(3, 10, 48));
+        rig.List(minutesSinceLastEvent: 1);
+        await rig.SweepAsync();
+        Assert.Equal(RaidRecapLiveState.Live, Assert.Single(await rig.CardsAsync()).State);
+    }
+
+    [Fact]
+    public async Task ACardThatKeepsFailingIsRevivedAtMostEveryHalfHour()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        var pulls = new List<RaidRecapFight> { Wipe(1, 0, 62) };
+        rig.List(minutesSinceLastEvent: 1);
+        await rig.SweepAsync();
+
+        // Edits keep failing, as in an archived thread, while the log reads fine and the raid pulls on.
+        rig.Discord.EditResult = RaidRecapLiveEdit.Unavailable;
+        for (var sweep = 1; sweep <= 240; sweep++)
+        {
+            rig.Now = rig.Now.AddSeconds(30);
+            if (sweep % 4 == 0)
+            {
+                pulls.Add(Wipe(pulls.Count + 1, (rig.Now - Start).TotalMinutes - 6, 50));
+                rig.Report = rig.Build(pulls.ToArray());
+            }
+
+            rig.List(minutesSinceLastEvent: 1);
+            await rig.SweepAsync();
+        }
+
+        // Two hours: without a pause it would come back every 15 to 20 minutes.
+        var counts = rig.Coordinator.Health.Snapshot().Counts;
+        Assert.InRange(counts[RaidRecapLiveEventKind.Revived], 2, 4);
+        Assert.InRange(counts[RaidRecapLiveEventKind.Stopped], 2, 5);
+    }
+
+    [Fact]
+    public async Task ErrorsAreKeptByWhereAndTypeNeverByMessage()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.Source.Setup(x => x.GetRaidRecapReportsAsync("Synthetic Guild", "area-52", "us", RaidRecapLiveCoordinator.DiscoveryReports))
+            .ThrowsAsync(new InvalidOperationException("PRIVATE provider detail"));
+        await rig.SweepAsync();
+
+        var error = rig.Coordinator.Health.Snapshot().LastError;
+        Assert.Equal($"discovery {Server}", error!.Where);
+        Assert.Equal("InvalidOperationException", error.Type);
+        var status = await StatusAsync(rig, new WclV2RateLimitSnapshot(155.42, 18000, 0.8634, rig.Now, rig.Now.AddMinutes(20)));
+        var json = System.Text.Json.JsonSerializer.Serialize(status, NinjaBotCore.Services.Api.RaidRecapLiveEndpoints.Json);
+        Assert.DoesNotContain("PRIVATE", json);
+        Assert.DoesNotContain("PRIVATE", status.Text());
+        // The shape the web admin page reads.
+        Assert.Contains("\"warcraft_logs\":{\"points_spent\":155.4,\"limit_per_hour\":18000,\"usage_percent\":0.9,\"checked_at\":", json);
+        Assert.Contains("\"last_error_where\":\"discovery " + Server + "\"", json);
+        Assert.Contains("\"cards\":{\"live\":0,\"ended\":0,\"stopped\":0,\"deleted\":0}", json);
+    }
+
+    private static async Task SetServerAsync(Rig rig, bool enabled, ulong channel)
+    {
+        using var scope = rig.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+        var settings = await db.RaidRecapLiveSettings.SingleAsync(s => s.DiscordGuildId == (long)Server);
+        settings.Enabled = enabled;
+        settings.ChannelId = (long)channel;
+        await db.SaveChangesAsync();
     }
 
     [Fact]

@@ -17,6 +17,8 @@
 - The live card shows kicks and dispels for the latest pull: how many, the top kickers and dispellers, and what was dispelled most.
 - Two raids in one night each get a card. A zone change, a newer log, or a night appended to the same log starts a new card, and the previous card closes as Raid ended unless a second team is still raiding. Two people logging the same raid get one card. Mythic+ and other non-raid fights no longer appear on the card, and a card ends after an hour without a raid pull.
 - Live card discovery asks WarcraftLogs for the guild's newest 10 reports instead of 100.
+- `/raid-recap-rollout Status` shows the live card watcher's health: cards by state, the last sweep, the last error, WarcraftLogs points used this hour and the latest card events with reasons. The same is served at `GET /api/raid-recap-live/health` for the web admin page, and every card end or stop is logged with its reason.
+- A stopped live card picks up again with its raid's next pull: after a WarcraftLogs outage, after an officer turns the card off and on, or when the rollout covers the server again. A deleted card stays gone unless an officer turns the card on again.
 - The private recap's Bosses view and *Still progressing* card now show a pull strip: boss health left on each pull, in order.
 
 ## [v3.2.7] - 2026-08-23

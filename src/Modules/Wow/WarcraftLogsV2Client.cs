@@ -46,6 +46,7 @@ namespace NinjaBotCore.Modules.Wow
         // Quota observations and rechecks are serialized, including recovery after a reset.
         private readonly SemaphoreSlim _rateLimitGate = new(1, 1);
         private WclV2RateLimitData _lastRateLimitData;
+        private WclV2RateLimitSnapshot _rateLimitSnapshot;
         private DateTimeOffset _lastRateLimitCheck = DateTimeOffset.MinValue;
         private DateTimeOffset _rateLimitResetAt = DateTimeOffset.MinValue;
         private DateTimeOffset _nextQuotaProbeAt = DateTimeOffset.MinValue;
@@ -214,6 +215,7 @@ namespace NinjaBotCore.Modules.Wow
             _lastRateLimitData = data;
             _lastRateLimitCheck = now;
             _rateLimitResetAt = now.AddSeconds(data.PointsResetIn);
+            _rateLimitSnapshot = new WclV2RateLimitSnapshot(data.PointsSpentThisHour, data.LimitPerHour, data.UsagePercent, now, _rateLimitResetAt);
             _nextQuotaProbeAt = data.UsagePercent >= CriticalThreshold
                 ? (recovery && _rateLimitResetAt < now + QuotaRetryDelay ? now + QuotaRetryDelay : _rateLimitResetAt)
                 : now;
@@ -224,6 +226,9 @@ namespace NinjaBotCore.Modules.Wow
         }
 
         private DateTimeOffset RetryAfterUtc => new(Interlocked.Read(ref _retryAfterUtcTicks), TimeSpan.Zero);
+
+        /// <summary>The last WarcraftLogs points reading, or null before the first. Read without locking: it is replaced whole.</summary>
+        public WclV2RateLimitSnapshot LastRateLimit => Volatile.Read(ref _rateLimitSnapshot);
 
         private InvalidOperationException QuotaBlocked()
         {

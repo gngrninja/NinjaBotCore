@@ -13,8 +13,15 @@ namespace NinjaBotCore.Database
         /// <summary>The raid finished and the card shows its final summary.</summary>
         Ended = 1,
 
-        /// <summary>Watching stopped early: the card was deleted, access was lost or the server turned it off.</summary>
-        Stopped = 2
+        /// <summary>
+        /// Watching stopped early: it kept failing, the server turned it off or the rollout no
+        /// longer covers the server. It picks up again if its raid is still going when the
+        /// server is next checked for a new log.
+        /// </summary>
+        Stopped = 2,
+
+        /// <summary>Someone deleted the card. It stays gone unless an officer turns the card on again.</summary>
+        Deleted = 3
     }
 
     /// <summary>

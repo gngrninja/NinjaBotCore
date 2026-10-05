@@ -15,6 +15,7 @@ public static class RaidRecapRegistration
         // Live card: posted once per raid log and refreshed while the raid runs.
         .AddSingleton<IRaidRecapLiveDiscord, RaidRecapLiveDiscord>()
         .AddSingleton<RaidRecapLiveGate>()
+        .AddSingleton(_ => new RaidRecapLiveHealth())
         .AddSingleton(sp => new RaidRecapLiveCoordinator(
             sp.GetRequiredService<IServiceScopeFactory>(),
             sp.GetRequiredService<IRaidRecapSource>(),
@@ -22,5 +23,6 @@ public static class RaidRecapRegistration
             sp.GetRequiredService<RaidRecapCache>(),
             sp.GetRequiredService<RaidRecapLiveGate>(),
             sp.GetRequiredService<IRaidRecapLiveDiscord>(),
-            sp.GetRequiredService<ILogger<RaidRecapLiveCoordinator>>()));
+            sp.GetRequiredService<ILogger<RaidRecapLiveCoordinator>>(),
+            health: sp.GetRequiredService<RaidRecapLiveHealth>()));
 }

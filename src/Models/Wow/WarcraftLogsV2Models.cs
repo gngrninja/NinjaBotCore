@@ -443,6 +443,9 @@ namespace NinjaBotCore.Models.Wow
         public WclV2RateLimitData RateLimitData { get; set; }
     }
 
+    /// <summary>One WarcraftLogs points reading: spent and limit this hour, when it was read and when the hour resets.</summary>
+    public sealed record WclV2RateLimitSnapshot(double Spent, double LimitPerHour, double UsagePercent, DateTimeOffset CheckedAt, DateTimeOffset ResetsAt);
+
     public class WclV2RateLimitData
     {
         [JsonProperty("limitPerHour")]

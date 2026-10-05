@@ -99,6 +99,12 @@ public sealed class RaidRecapLiveCoordinator
     /// <summary>At most this many cards are live in one server at once.</summary>
     public const int MaxCardsPerServer = 2;
 
+    /// <summary>
+    /// A card is revived at most once in this long, so a card whose edits keep failing while
+    /// its log reads fine does not stop and come back all night.
+    /// </summary>
+    public static readonly TimeSpan RevivalBackoff = TimeSpan.FromMinutes(30);
+
     private readonly IServiceScopeFactory _scopes;
     private readonly IRaidRecapSource _source;
     private readonly RaidRecapService _service;
@@ -115,6 +121,7 @@ public sealed class RaidRecapLiveCoordinator
     private readonly Dictionary<long, DateTimeOffset> _lastDiscovery = new();
     private readonly Dictionary<string, ReportMemory> _highlights = new();
     private readonly Dictionary<long, DateTimeOffset> _lastPull = new();
+    private readonly Dictionary<long, DateTimeOffset> _revivedAt = new();
 
     public RaidRecapLiveCoordinator(
         IServiceScopeFactory scopes,
@@ -124,7 +131,8 @@ public sealed class RaidRecapLiveCoordinator
         RaidRecapLiveGate gate,
         IRaidRecapLiveDiscord discord,
         ILogger<RaidRecapLiveCoordinator> logger,
-        Func<DateTimeOffset>? clock = null)
+        Func<DateTimeOffset>? clock = null,
+        RaidRecapLiveHealth? health = null)
     {
         _scopes = scopes;
         _source = source;
@@ -134,14 +142,21 @@ public sealed class RaidRecapLiveCoordinator
         _discord = discord;
         _logger = logger;
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
+        Health = health ?? new RaidRecapLiveHealth(_clock);
     }
+
+    /// <summary>What the watcher did lately, for the owner.</summary>
+    public RaidRecapLiveHealth Health { get; }
 
     public async Task RunSweepAsync(CancellationToken ct)
     {
         await _sync.WaitAsync(ct);
         try
         {
-            await SweepAsync(ct);
+            var started = _clock();
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            var (killSwitch, watching, checkedServers) = await SweepAsync(ct);
+            Health.Sweep(started, timer.Elapsed, killSwitch, watching, checkedServers);
         }
         finally
         {
@@ -163,7 +178,7 @@ public sealed class RaidRecapLiveCoordinator
                 .ToListAsync();
             foreach (var card in cards)
             {
-                await StopAsync(card);
+                await StopAsync(card, "turned off");
             }
 
             await db.SaveChangesAsync();
@@ -174,13 +189,46 @@ public sealed class RaidRecapLiveCoordinator
         }
     }
 
-    private async Task SweepAsync(CancellationToken ct)
+    /// <summary>
+    /// For when an officer turns the feature on. A card someone deleted is allowed back as a
+    /// new post, and the server is checked on the next sweep, so a raid that is going gets its
+    /// card within a minute.
+    /// </summary>
+    public async Task StartServerAsync(ulong guildId)
+    {
+        await _sync.WaitAsync();
+        try
+        {
+            using var scope = _scopes.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+            var id = checked((long)guildId);
+            var since = (_clock() - MaxWatch).UtcDateTime;
+            var cards = await db.RaidRecapLiveCards
+                .Where(c => c.DiscordGuildId == id && c.State == RaidRecapLiveState.Deleted && c.StartedAt > since)
+                .ToListAsync();
+            foreach (var card in cards)
+            {
+                card.State = RaidRecapLiveState.Stopped;
+                card.MessageId = 0;
+            }
+
+            await db.SaveChangesAsync();
+            _lastDiscovery.Remove(id);
+        }
+        finally
+        {
+            _sync.Release();
+        }
+    }
+
+    /// <summary>Returns whether the kill switch is on, how many cards are watched and how many servers were checked.</summary>
+    private async Task<(bool KillSwitch, int Watching, int Checked)> SweepAsync(CancellationToken ct)
     {
         var mode = await _gate.ModeAsync();
         if (mode == RaidRecapRolloutMode.Off)
         {
             // Kill switch: the sweep makes no WarcraftLogs calls and no Discord calls.
-            return;
+            return (true, 0, 0);
         }
 
         Dictionary<long, long?> enabled;
@@ -206,6 +254,11 @@ public sealed class RaidRecapLiveCoordinator
         foreach (var code in _highlights.Keys.Where(code => !watched.Contains(code)).ToArray())
         {
             _highlights.Remove(code);
+        }
+
+        foreach (var card in _revivedAt.Where(r => _clock() - r.Value >= RevivalBackoff).Select(r => r.Key).ToArray())
+        {
+            _revivedAt.Remove(card);
         }
 
         var allowed = new Dictionary<long, bool>();
@@ -266,6 +319,8 @@ public sealed class RaidRecapLiveCoordinator
                 watching++;
             }
         }
+
+        return (false, watching, checkedServers);
     }
 
     /// <summary>Runs one unit of work so that its failure cannot stop the rest of the sweep.</summary>
@@ -282,6 +337,7 @@ public sealed class RaidRecapLiveCoordinator
         catch (Exception ex)
         {
             _logger.LogWarning("Raid recap live {What} failed for {Id} ({Type})", what, id, ex.GetType().Name);
+            Health.Error($"{what} {id}", ex);
             return false;
         }
     }
@@ -314,7 +370,7 @@ public sealed class RaidRecapLiveCoordinator
         var now = _clock();
         if (!serverOn)
         {
-            await StopAsync(card);
+            await StopAsync(card, "turned off");
             return;
         }
 
@@ -324,7 +380,7 @@ public sealed class RaidRecapLiveCoordinator
             // the card claim to be live for ever.
             if (now - Utc(card.LastChangedAt) >= EndAfter || now - Utc(card.StartedAt) >= MaxWatch)
             {
-                await StopAsync(card);
+                await StopAsync(card, "outside the rollout");
             }
 
             return;
@@ -382,7 +438,9 @@ public sealed class RaidRecapLiveCoordinator
                     {
                         // Someone deleted the card. Respect that and stop.
                         Forget(card);
-                        card.State = RaidRecapLiveState.Stopped;
+                        card.State = RaidRecapLiveState.Deleted;
+                        card.LastChangedAt = now.UtcDateTime;
+                        Note(card, RaidRecapLiveEventKind.Deleted);
                         return;
                     }
 
@@ -402,6 +460,10 @@ public sealed class RaidRecapLiveCoordinator
             {
                 Forget(card);
                 card.State = RaidRecapLiveState.Ended;
+                Note(card, RaidRecapLiveEventKind.Ended, replaced ? "next raid in the log"
+                    : now - Utc(card.StartedAt) >= MaxWatch ? "watched 8 hours"
+                    : RaidQuiet(full, session, now) ? "no raid pull for an hour"
+                    : "log quiet 30 minutes");
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -413,6 +475,7 @@ public sealed class RaidRecapLiveCoordinator
             // The WarcraftLogs budget is spent for now. That is not this card's fault, so it
             // does not count against it. Try again at the next refresh.
             _logger.LogInformation("Raid recap live refresh for card {CardId} waits for WarcraftLogs quota", card.Id);
+            Health.QuotaWait();
         }
         catch (Exception ex)
         {
@@ -426,16 +489,20 @@ public sealed class RaidRecapLiveCoordinator
         card.Failures++;
         _logger.LogWarning("Raid recap live refresh failed for card {CardId} ({Reason}), attempt {Failures}",
             card.Id, reason, card.Failures);
+        Health.Error($"refresh {card.Id}", reason);
         if (card.Failures >= MaxFailures)
         {
-            await StopAsync(card);
+            await StopAsync(card, $"kept failing ({reason})");
         }
     }
 
-    private async Task StopAsync(RaidRecapLiveCard card)
+    private async Task StopAsync(RaidRecapLiveCard card, string reason)
     {
         Forget(card);
         card.State = RaidRecapLiveState.Stopped;
+        // When it stopped: only raid activity after this brings it back.
+        card.LastChangedAt = _clock().UtcDateTime;
+        Note(card, RaidRecapLiveEventKind.Stopped, reason);
         if (card.MessageId == 0)
         {
             return;
@@ -451,6 +518,14 @@ public sealed class RaidRecapLiveCoordinator
         {
             _logger.LogDebug("Raid recap live stop notice failed for card {CardId} ({Type})", card.Id, ex.GetType().Name);
         }
+    }
+
+    /// <summary>Logs what happened to a card and keeps it for the owner's health view.</summary>
+    private void Note(RaidRecapLiveCard card, string kind, string? reason = null)
+    {
+        _logger.LogInformation("Raid recap live card {CardId} {Kind} for guild {GuildId}, report {Report} ({Reason})",
+            card.Id, kind, card.DiscordGuildId, card.ReportCode, reason ?? "-");
+        Health.Event(kind, card.DiscordGuildId, card.Id, card.ReportCode, card.GuildName, reason);
     }
 
     private void Forget(RaidRecapLiveCard card)
@@ -490,6 +565,7 @@ public sealed class RaidRecapLiveCoordinator
         }
         catch (Exception ex) when (IsQuota(ex))
         {
+            Health.QuotaWait();
             return false;
         }
 
@@ -552,12 +628,21 @@ public sealed class RaidRecapLiveCoordinator
                     await db.SaveChangesAsync(CancellationToken.None);
                 }
 
-                // Live already, stopped on purpose, or nothing new since it closed.
-                continue;
+                // A stopped card picks up again below, like a new card would start, but only for
+                // a raid pull after it stopped: a log the team has moved on from stays stopped.
+                // Live already, deleted, or nothing new since it closed: leave it.
+                if (existing.State != RaidRecapLiveState.Stopped
+                    || now - Utc(existing.StartedAt) >= MaxWatch
+                    || RaidRecapLiveSessions.LastActivityAt(full, latest) is not { } sinceStop
+                    || sinceStop <= Utc(existing.LastChangedAt)
+                    || (_revivedAt.TryGetValue(existing.Id, out var revived) && now - revived < RevivalBackoff))
+                {
+                    continue;
+                }
             }
 
-            // A new card needs a raid that is actually going on: a pull in progress or a
-            // recent one. A raid that finished hours ago in a log kept live by keys is not.
+            // A card needs a raid that is actually going on: a pull in progress or a recent
+            // one. A raid that finished hours ago in a log kept live by keys is not.
             if (!latest.HasPullInProgress
                 && (RaidRecapLiveSessions.LastActivityAt(full, latest) is not { } recent || now - recent >= EndAfter))
             {
@@ -578,7 +663,9 @@ public sealed class RaidRecapLiveCoordinator
                 continue;
             }
 
-            return await PostAsync(db, guild, channel, wow, candidate, full, sessions, latest, now, ct);
+            return existing != null
+                ? await ReviveAsync(db, existing, channel, now)
+                : await PostAsync(db, guild, channel, wow, candidate, full, sessions, latest, now, ct);
         }
 
         return false;
@@ -653,6 +740,11 @@ public sealed class RaidRecapLiveCoordinator
             try
             {
                 await FinishAsync(card, full, sessions, session, now, ct);
+                if (card.State == RaidRecapLiveState.Ended)
+                {
+                    Note(card, RaidRecapLiveEventKind.Ended,
+                        card.ReportCode == newFull.Code ? "next raid in the log" : "another log took over");
+                }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -705,6 +797,7 @@ public sealed class RaidRecapLiveCoordinator
         if (card.MessageId == 0)
         {
             card.State = RaidRecapLiveState.Stopped;
+            Note(card, RaidRecapLiveEventKind.Stopped, "never posted");
             return;
         }
 
@@ -714,7 +807,9 @@ public sealed class RaidRecapLiveCoordinator
             RaidRecapView.Live(report, Info(card, full, sessions, session, closed: true), ended: true, now, highlights));
         if (result == RaidRecapLiveEdit.Missing)
         {
-            card.State = RaidRecapLiveState.Stopped;
+            card.State = RaidRecapLiveState.Deleted;
+            card.LastChangedAt = now.UtcDateTime;
+            Note(card, RaidRecapLiveEventKind.Deleted);
             return;
         }
 
@@ -797,8 +892,31 @@ public sealed class RaidRecapLiveCoordinator
         card.MessageId = checked((long)message.Value);
         card.Fingerprint = Fingerprint(report, ended: false);
         await db.SaveChangesAsync(CancellationToken.None);
-        _logger.LogInformation("Raid recap live card posted for guild {GuildId}, report {Report}, raid from {Start} ms",
-            guild, full.Code, session.StartMs);
+        Note(card, RaidRecapLiveEventKind.Posted, card.ZoneName);
+        return true;
+    }
+
+    /// <summary>
+    /// A stopped card whose raid is still going is watched again. Its refresh on the next
+    /// sweep redraws it: in place, or as a new post when the server's card channel has
+    /// changed since. The old message then keeps saying it stopped.
+    /// </summary>
+    private async Task<bool> ReviveAsync(NinjaBotEntities db, RaidRecapLiveCard card, long channel, DateTimeOffset now)
+    {
+        if (card.ChannelId != channel)
+        {
+            card.ChannelId = channel;
+            card.MessageId = 0;
+        }
+
+        _revivedAt[card.Id] = now;
+        card.State = RaidRecapLiveState.Live;
+        card.Failures = 0;
+        card.Fingerprint = null;
+        card.LastChangedAt = now.UtcDateTime;
+        card.LastCheckedAt = (now - QuietRefreshInterval).UtcDateTime;
+        await db.SaveChangesAsync(CancellationToken.None);
+        Note(card, RaidRecapLiveEventKind.Revived, card.MessageId == 0 ? "new post" : "in place");
         return true;
     }
 
@@ -819,7 +937,9 @@ public sealed class RaidRecapLiveCoordinator
             RaidRecapView.Live(report, Info(card, full, sessions, session), ended: false, now, highlights));
         if (result == RaidRecapLiveEdit.Missing)
         {
-            card.State = RaidRecapLiveState.Stopped;
+            card.State = RaidRecapLiveState.Deleted;
+            card.LastChangedAt = now.UtcDateTime;
+            Note(card, RaidRecapLiveEventKind.Deleted);
             await db.SaveChangesAsync(CancellationToken.None);
             return false;
         }
@@ -835,7 +955,7 @@ public sealed class RaidRecapLiveCoordinator
         card.LastChangedAt = now.UtcDateTime;
         card.LastCheckedAt = now.UtcDateTime;
         await db.SaveChangesAsync(CancellationToken.None);
-        _logger.LogInformation("Raid recap live card resumed for guild {GuildId}, report {Report}", card.DiscordGuildId, full.Code);
+        Note(card, RaidRecapLiveEventKind.Resumed, "raid pull after the card closed");
         return true;
     }
 
@@ -910,6 +1030,7 @@ public sealed class RaidRecapLiveCoordinator
                     {
                         known.Attempts[utilityKey]--;
                         budgetSpent = true;
+                        Health.QuotaWait();
                     }
                     catch (Exception ex) when (ReportMoved(ex))
                     {
@@ -969,6 +1090,7 @@ public sealed class RaidRecapLiveCoordinator
                 // cannot succeed. Stop reading until the next redraw.
                 known.Attempts[key]--;
                 budgetSpent = true;
+                Health.QuotaWait();
                 break;
             }
             catch (Exception ex)
