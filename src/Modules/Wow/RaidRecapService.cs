@@ -8,7 +8,7 @@ namespace NinjaBotCore.Modules.Wow;
 
 public interface IRaidRecapSource
 {
-    Task<IReadOnlyList<WclV2Report>> GetRaidRecapReportsAsync(string guild,string realm,string region);
+    Task<IReadOnlyList<WclV2Report>> GetRaidRecapReportsAsync(string guild,string realm,string region,int limit);
     Task<RaidRecapReport> GetRaidRecapReportAsync(string code);
     Task<JObject> GetRaidRecapScopedTableAsync(RaidRecapReport report,RaidRecapFight fight,bool healing);
     Task<RaidRecapAnalysis> GetRaidRecapAnalysisAsync(RaidRecapReport report,RaidRecapFight fight,string metric,System.Threading.CancellationToken cancellationToken=default);
@@ -17,6 +17,8 @@ public interface IRaidRecapSource
 /// <summary>Only called while the owning session transition is locked, including its final render.</summary>
 public sealed partial class RaidRecapService
 {
+    /// <summary>Reports the picker pages through: the most WarcraftLogs returns in one request.</summary>
+    public const int PickerReports=100;
     private readonly IRaidRecapSource _source;
     private readonly RaidRecapCache _cache;
     public RaidRecapService(IRaidRecapSource source,RaidRecapCache cache) { _source=source; _cache=cache; }
@@ -24,8 +26,8 @@ public sealed partial class RaidRecapService
     {
         s.OutputHelp=false; s.ResetComparison();
         var key=GuildKey(guild,realm,region);
-        var reports=(IReadOnlyList<WclV2Report>)await _cache.GetAsync(key,async()=>await _source.GetRaidRecapReportsAsync(guild,realm,region),TimeSpan.FromSeconds(30));
-        s.Reports=reports.GroupBy(r=>RaidRecapRules.ReportCode(r.Code)).Select(g=>g.First()).OrderByDescending(r=>r.StartTime).Take(100).ToArray();
+        var reports=(IReadOnlyList<WclV2Report>)await _cache.GetAsync(key,async()=>await _source.GetRaidRecapReportsAsync(guild,realm,region,PickerReports),TimeSpan.FromSeconds(30));
+        s.Reports=reports.GroupBy(r=>RaidRecapRules.ReportCode(r.Code)).Select(g=>g.First()).OrderByDescending(r=>r.StartTime).Take(PickerReports).ToArray();
         s.View="reports"; s.ReportPage=0;
         s.GuildName=guild; s.GuildRegion=region;
     }

@@ -36,10 +36,26 @@ public class RaidRecapBoundaryTests
         var h=new RaidRecapTransportTests.Handler { Result="""
         {"data":{"reportData":{"reports":{"data":[{"code":"AbCdEfGh12345678","title":"Old","startTime":1},{"code":"ZbCdEfGh12345678","title":"New","startTime":2}]}}}}
         """ };
-        var result=await RaidRecapTransportTests.Client(h).GetRaidRecapReportsAsync("Guild","realm","us");
+        var result=await RaidRecapTransportTests.Client(h).GetRaidRecapReportsAsync("Guild","realm","us",100);
         Assert.Equal("New",result[0].Title);
         Assert.DoesNotContain("fights",(string)Assert.Single(h.Queries)["query"]);
         h.Result="{\"errors\":[{\"message\":\"denied\"}],\"data\":{\"reportData\":{\"reports\":{\"data\":[]}}}}";
-        await Assert.ThrowsAsync<InvalidOperationException>(()=>RaidRecapTransportTests.Client(h).GetRaidRecapReportsAsync("Guild","realm","us"));
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>RaidRecapTransportTests.Client(h).GetRaidRecapReportsAsync("Guild","realm","us",100));
+    }
+
+    [Fact]
+    public async Task DiscoveryAsksForTheGivenLimitAndRejectsMoreRows()
+    {
+        var h=new RaidRecapTransportTests.Handler { Result="""
+        {"data":{"reportData":{"reports":{"data":[{"code":"AbCdEfGh12345678","title":"Old","startTime":1},{"code":"ZbCdEfGh12345678","title":"New","startTime":2}]}}}}
+        """ };
+        Assert.Equal(2,(await RaidRecapTransportTests.Client(h).GetRaidRecapReportsAsync("Guild","realm","us",2)).Count);
+        var sent=Assert.Single(h.Queries);
+        Assert.Equal(2,(int)sent["variables"]["limit"]);
+        Assert.Contains("limit: $limit",(string)sent["query"]);
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>RaidRecapTransportTests.Client(h).GetRaidRecapReportsAsync("Guild","realm","us",1));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(()=>RaidRecapTransportTests.Client(h).GetRaidRecapReportsAsync("Guild","realm","us",0));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(()=>RaidRecapTransportTests.Client(h).GetRaidRecapReportsAsync("Guild","realm","us",101));
+        Assert.Equal(2,h.Queries.Count);
     }
 }

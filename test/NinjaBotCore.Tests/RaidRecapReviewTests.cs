@@ -27,7 +27,7 @@ public class RaidRecapReviewTests
         public readonly List<(RaidRecapReport Report,RaidRecapFight Fight,string Metric)> Calls=new();
         public RaidRecapReport Report;
         public Func<RaidRecapFight,Task<RaidRecapAnalysis>> Load=_=>Task.FromResult(new RaidRecapAnalysis("deaths",true,null));
-        public Task<IReadOnlyList<WclV2Report>> GetRaidRecapReportsAsync(string g,string r,string z)=>throw new Exception("Unexpected discovery");
+        public Task<IReadOnlyList<WclV2Report>> GetRaidRecapReportsAsync(string g,string r,string z,int l)=>throw new Exception("Unexpected discovery");
         public Task<RaidRecapReport> GetRaidRecapReportAsync(string code)=>Task.FromResult(Report);
         public Task<JObject> GetRaidRecapScopedTableAsync(RaidRecapReport r,RaidRecapFight f,bool h)=>throw new Exception("Unexpected table");
         public Task<RaidRecapAnalysis> GetRaidRecapAnalysisAsync(RaidRecapReport r,RaidRecapFight f,string m,CancellationToken t=default)

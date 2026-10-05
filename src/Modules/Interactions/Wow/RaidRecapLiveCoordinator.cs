@@ -53,6 +53,13 @@ public sealed class RaidRecapLiveCoordinator
     /// <summary>How many of a guild's newest live logs are looked at for a raid.</summary>
     public const int MaxCandidateReports = 3;
 
+    /// <summary>
+    /// How many of a guild's newest reports discovery asks for. Room for members' dungeon logs
+    /// started after the raid log; a log appended to an older report is found only while it is
+    /// among these.
+    /// </summary>
+    public const int DiscoveryReports = 10;
+
     public const int MaxFailures = 10;
 
     /// <summary>How many pulls one redraw may read from WarcraftLogs.</summary>
@@ -475,9 +482,10 @@ public sealed class RaidRecapLiveCoordinator
         IReadOnlyList<WclV2Report> reports;
         try
         {
+            // Its own cache entry: the picker's list is longer, and must not get this short one.
             reports = (IReadOnlyList<WclV2Report>)await _cache.GetAsync(
-                RaidRecapService.GuildKey(wow.Name, wow.Realm, wow.Region),
-                async () => await _source.GetRaidRecapReportsAsync(wow.Name, wow.Realm, wow.Region),
+                "live:" + RaidRecapService.GuildKey(wow.Name, wow.Realm, wow.Region),
+                async () => await _source.GetRaidRecapReportsAsync(wow.Name, wow.Realm, wow.Region, DiscoveryReports),
                 TimeSpan.FromSeconds(30));
         }
         catch (Exception ex) when (IsQuota(ex))

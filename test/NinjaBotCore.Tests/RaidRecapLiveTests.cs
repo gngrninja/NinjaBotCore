@@ -107,7 +107,7 @@ public class RaidRecapLiveTests
                 NullLogger<RaidRecapLiveCoordinator>.Instance, () => Now);
 
             Report = Build(Wipe(1, 0, 62));
-            Source.Setup(x => x.GetRaidRecapReportsAsync("Synthetic Guild", "area-52", "us")).ReturnsAsync(() => Listed.ToArray());
+            Source.Setup(x => x.GetRaidRecapReportsAsync("Synthetic Guild", "area-52", "us", RaidRecapLiveCoordinator.DiscoveryReports)).ReturnsAsync(() => Listed.ToArray());
             Source.Setup(x => x.GetRaidRecapReportAsync(Code)).ReturnsAsync(() => Report);
             Source.Setup(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), "deaths", It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new RaidRecapAnalysis("deaths", true, null)
@@ -322,7 +322,7 @@ public class RaidRecapLiveTests
         if (missing is "kill-switch" or "not-owner-server" or "server-off" or "cannot-post" or "no-guild")
         {
             // Refused before any WarcraftLogs call is spent.
-            rig.Source.Verify(x => x.GetRaidRecapReportsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+            rig.Source.Verify(x => x.GetRaidRecapReportsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>()), Times.Never);
             rig.Source.Verify(x => x.GetRaidRecapReportAsync(It.IsAny<string>()), Times.Never);
         }
     }
@@ -340,10 +340,31 @@ public class RaidRecapLiveTests
             rig.Now = rig.Now.AddSeconds(30);
         }
 
-        rig.Source.Verify(x => x.GetRaidRecapReportsAsync("Synthetic Guild", "area-52", "us"), Times.Once);
+        rig.Source.Verify(x => x.GetRaidRecapReportsAsync("Synthetic Guild", "area-52", "us", RaidRecapLiveCoordinator.DiscoveryReports), Times.Once);
         rig.Now = rig.Now.AddMinutes(1);
         await rig.SweepAsync();
-        rig.Source.Verify(x => x.GetRaidRecapReportsAsync("Synthetic Guild", "area-52", "us"), Times.Exactly(2));
+        rig.Source.Verify(x => x.GetRaidRecapReportsAsync("Synthetic Guild", "area-52", "us", RaidRecapLiveCoordinator.DiscoveryReports), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task DiscoveryAsksForAShortListAndNeverSharesThePickersList()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.List(minutesSinceLastEvent: 2);
+        rig.Source.Setup(x => x.GetRaidRecapReportsAsync("Synthetic Guild", "area-52", "us", RaidRecapService.PickerReports))
+            .ReturnsAsync(() => rig.Listed.ToArray());
+
+        // An officer opens the private recap moments after the sweep, inside the cache lifetime.
+        await rig.SweepAsync();
+        var picker = new RaidRecapSessions().Create(1, 2, 3);
+        await rig.Service.DiscoverAsync(picker, "Synthetic Guild", "area-52", "us");
+
+        Assert.Single(rig.Discord.Sent);
+        Assert.Equal(rig.Listed.Count, picker.Reports.Count);
+        rig.Source.Verify(x => x.GetRaidRecapReportsAsync("Synthetic Guild", "area-52", "us", RaidRecapLiveCoordinator.DiscoveryReports), Times.Once);
+        rig.Source.Verify(x => x.GetRaidRecapReportsAsync("Synthetic Guild", "area-52", "us", RaidRecapService.PickerReports), Times.Once);
+        Assert.True(RaidRecapLiveCoordinator.DiscoveryReports > RaidRecapLiveCoordinator.MaxCandidateReports);
     }
 
     [Fact]
@@ -698,8 +719,8 @@ public class RaidRecapLiveTests
         }
 
         var asked = new List<string>();
-        rig.Source.Setup(x => x.GetRaidRecapReportsAsync(It.IsAny<string>(), "area-52", "us"))
-            .Callback<string, string, string>((guild, _, _) => asked.Add(guild))
+        rig.Source.Setup(x => x.GetRaidRecapReportsAsync(It.IsAny<string>(), "area-52", "us", RaidRecapLiveCoordinator.DiscoveryReports))
+            .Callback<string, string, string, int>((guild, _, _, _) => asked.Add(guild))
             .ReturnsAsync(Array.Empty<WclV2Report>());
 
         // Even straight after a restart, one sweep checks only a few servers.
@@ -980,7 +1001,7 @@ public class RaidRecapLiveTests
         await rig.SweepAsync();
 
         Assert.Empty(rig.Discord.Sent);
-        rig.Source.Verify(x => x.GetRaidRecapReportsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        rig.Source.Verify(x => x.GetRaidRecapReportsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>()), Times.Never);
     }
 
     // ===== The card =====

@@ -75,9 +75,9 @@ The sections below describe behaviour, limits and safety rules. Where they quote
 - The latest wipe and the latest kill are read in full. Earlier wipes are read for deaths only, and earlier kills for the damage and healing tables only.
 - Roughly 120 to 160 API points per live raid per hour. These are estimates from third-party measurements.
 - At most 20 cards are refreshed at once across all servers.
-- Servers without a live card are checked for a new log every 5 minutes, at most 5 servers per sweep, longest-waiting first.
+- Each opted-in server is checked for a new log every 5 minutes, at most 5 servers per sweep, longest-waiting first. A check asks for the guild's newest 10 reports, not the picker's 100, and opens at most 3 that are live. A night appended to an older report is found only while that report is among the newest 10.
 - The bot needs View Channel, Send Messages and Read Message History in the card's channel.
-- The card reads through the same caches as the private recap.
+- The card reads logs and pulls through the same caches as the private recap. The report list is cached separately, because the two ask for different lengths.
 
 **State** is in three tables: `RaidRecapLiveSettings` (per server), `RaidRecapLiveCards` (one row per posted card, unique per server, report and raid start) and `RaidRecapRollout` (one row). Watching resumes after a restart. Migrations: `AddRaidRecapLive`, then `SplitRaidRecapLiveCardsByRaid`, which adds the raid start and zone to each card. Cards made before it hold 0 and cover the first raid in their log.
 

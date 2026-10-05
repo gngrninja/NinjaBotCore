@@ -68,19 +68,22 @@ public partial class WarcraftLogsV2Client : IRaidRecapSource, IRaidRecapTargetSo
         return report;
     }
 
-    public async Task<System.Collections.Generic.IReadOnlyList<NinjaBotCore.Models.Wow.WclV2Report>> GetRaidRecapReportsAsync(string guild, string realm, string region)
+    /// <summary>The guild's newest reports, at most <paramref name="limit"/> (1 to 100).</summary>
+    public async Task<System.Collections.Generic.IReadOnlyList<NinjaBotCore.Models.Wow.WclV2Report>> GetRaidRecapReportsAsync(string guild, string realm, string region, int limit)
     {
         if (string.IsNullOrWhiteSpace(guild) || guild.Length > 100 || string.IsNullOrWhiteSpace(realm) || realm.Length > 100 || region is not ("us" or "eu" or "kr" or "tw" or "cn"))
             throw new ArgumentException("Specify realm, guild, region (us/eu/kr/tw/cn), or use /setguild first.");
+        if (limit is < 1 or > 100)
+            throw new ArgumentOutOfRangeException(nameof(limit), "WarcraftLogs returns 1 to 100 reports per request.");
         const string query = """
-            query($guild: String!, $realm: String!, $region: String!) {
-              reportData { reports(guildName: $guild, guildServerSlug: $realm, guildServerRegion: $region, limit: 100) {
+            query($guild: String!, $realm: String!, $region: String!, $limit: Int!) {
+              reportData { reports(guildName: $guild, guildServerSlug: $realm, guildServerRegion: $region, limit: $limit) {
                 data { code title startTime endTime zone { id name } }
               } }
             }
             """;
-        var data = await RecapQueryAsync(query, new { guild, realm, region });
-        if (data["reports"]?["data"] is not JArray reports || reports.Count > 100)
+        var data = await RecapQueryAsync(query, new { guild, realm, region, limit });
+        if (data["reports"]?["data"] is not JArray reports || reports.Count > limit)
             throw new InvalidOperationException("Recent reports are unavailable.");
         var parsed = reports.ToObject<System.Collections.Generic.List<NinjaBotCore.Models.Wow.WclV2Report>>();
         foreach (var report in parsed) RaidRecapRules.ReportCode(report.Code);

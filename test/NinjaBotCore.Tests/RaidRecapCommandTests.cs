@@ -111,15 +111,15 @@ public class RaidRecapCommandTests
     public async Task AssociatedGuildIsResolvedOnlyAfterDeferral()
     {
         var h=new Harness();h.Discord.Setup(x=>x.GuildAsync(h.Context.Object)).Returns(()=>{ Assert.True(h.Deferred); return Task.FromResult(new RaidRecapGuild("Guild","realm","us")); });
-        h.Source.Setup(x=>x.GetRaidRecapReportsAsync("Guild","realm","us")).ReturnsAsync(Array.Empty<NinjaBotCore.Models.Wow.WclV2Report>());
+        h.Source.Setup(x=>x.GetRaidRecapReportsAsync("Guild","realm","us",RaidRecapService.PickerReports)).ReturnsAsync(Array.Empty<NinjaBotCore.Models.Wow.WclV2Report>());
         await h.Module.StartAsync();Assert.Contains("No reports",RaidRecapPanelTests.Text(h.Edited.Components.Value));
     }
     [Fact]
     public async Task OverrideDoesNotUseAssociatedRealmSlug()
     {
-        var h=new Harness();h.Source.Setup(x=>x.GetRaidRecapReportsAsync("Other","new-realm","eu")).ReturnsAsync(Array.Empty<NinjaBotCore.Models.Wow.WclV2Report>());
+        var h=new Harness();h.Source.Setup(x=>x.GetRaidRecapReportsAsync("Other","new-realm","eu",RaidRecapService.PickerReports)).ReturnsAsync(Array.Empty<NinjaBotCore.Models.Wow.WclV2Report>());
         await h.Module.StartAsync(guild:"New Realm, Other, eu");
-        h.Source.Verify(x=>x.GetRaidRecapReportsAsync("Other","new-realm","eu"),Times.Once);
+        h.Source.Verify(x=>x.GetRaidRecapReportsAsync("Other","new-realm","eu",RaidRecapService.PickerReports),Times.Once);
         h.Discord.Verify(x=>x.GuildAsync(It.IsAny<IInteractionContext>()),Times.Never);
     }
     [Theory]
@@ -128,7 +128,7 @@ public class RaidRecapCommandTests
     public async Task FailedReportSelectionKeepsPickerAndShowsRecoveryGuidance(bool returnToReports)
     {
         var h=new Harness();
-        h.Source.Setup(x=>x.GetRaidRecapReportsAsync("Guild","realm","us")).ReturnsAsync(new[]
+        h.Source.Setup(x=>x.GetRaidRecapReportsAsync("Guild","realm","us",RaidRecapService.PickerReports)).ReturnsAsync(new[]
         {
             new NinjaBotCore.Models.Wow.WclV2Report { Code="AbCdEfGh12345678",Title="Available raid",StartTime=2 },
             new NinjaBotCore.Models.Wow.WclV2Report { Code="ZbCdEfGh12345678",Title="Unavailable raid",StartTime=1 }

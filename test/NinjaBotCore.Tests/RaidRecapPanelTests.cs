@@ -32,18 +32,18 @@ public class RaidRecapPanelTests
     public async Task ConcurrentDiscoverySingleFlightsByGuildIdentity()
     {
         var source=new Mock<IRaidRecapSource>();var completion=new TaskCompletionSource<System.Collections.Generic.IReadOnlyList<WclV2Report>>(TaskCreationOptions.RunContinuationsAsynchronously);
-        source.Setup(x=>x.GetRaidRecapReportsAsync("Guild","realm","us")).Returns(completion.Task);
+        source.Setup(x=>x.GetRaidRecapReportsAsync("Guild","realm","us",RaidRecapService.PickerReports)).Returns(completion.Task);
         var service=new RaidRecapService(source.Object,new RaidRecapCache());
         var a=service.DiscoverAsync(Session(),"Guild","realm","us");var b=service.DiscoverAsync(Session(),"Guild","realm","us");
         completion.SetResult(Array.Empty<WclV2Report>());await Task.WhenAll(a,b);
-        source.Verify(x=>x.GetRaidRecapReportsAsync("Guild","realm","us"),Times.Once);
+        source.Verify(x=>x.GetRaidRecapReportsAsync("Guild","realm","us",RaidRecapService.PickerReports),Times.Once);
     }
 
     [Fact]
     public async Task DiscoveryDoesNotLoadDetailsAndPickerPagesReachAllReports()
     {
         var source=new Mock<IRaidRecapSource>(MockBehavior.Strict);
-        source.Setup(x=>x.GetRaidRecapReportsAsync("Guild","realm","us")).ReturnsAsync(Enumerable.Range(1,26).Select(i=>new WclV2Report { Code=$"A{i:000000000000000}",Title="Raid "+i,StartTime=i }).ToArray());
+        source.Setup(x=>x.GetRaidRecapReportsAsync("Guild","realm","us",RaidRecapService.PickerReports)).ReturnsAsync(Enumerable.Range(1,26).Select(i=>new WclV2Report { Code=$"A{i:000000000000000}",Title="Raid "+i,StartTime=i }).ToArray());
         var service=new RaidRecapService(source.Object,new RaidRecapCache()); var s=Session();
         await service.DiscoverAsync(s,"Guild","realm","us");
         var options=Assert.Single(Flatten(RaidRecapView.Build(s).Components).OfType<SelectMenuComponent>()).Options;
@@ -51,7 +51,7 @@ public class RaidRecapPanelTests
         await service.ApplyAsync(s,"reports_next",null);
         options=Assert.Single(Flatten(RaidRecapView.Build(s).Components).OfType<SelectMenuComponent>()).Options;
         Assert.Single(options); Assert.Equal("25",options.First().Value);
-        source.Verify(x=>x.GetRaidRecapReportsAsync("Guild","realm","us"),Times.Once);
+        source.Verify(x=>x.GetRaidRecapReportsAsync("Guild","realm","us",RaidRecapService.PickerReports),Times.Once);
         source.VerifyNoOtherCalls();
     }
     [Fact]
