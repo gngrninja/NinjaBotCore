@@ -568,6 +568,81 @@ public class RaidRecapLiveTests
         Assert.Empty(rig.Discord.Sent);
     }
 
+    [Fact]
+    public async Task WclAuthenticationSnapshotIsAdditiveToLiveHealthJson()
+    {
+        using var rig = new Rig();
+        using var scope = rig.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+        var auth = new global::NinjaBot.WarcraftLogs.WclAuthHealthSnapshot(rig.Now, 2, rig.Now, rig.Now, rig.Now.AddSeconds(30), true);
+        var build = typeof(RaidRecapLiveStatus).GetMethod("BuildAsync");
+        var args = new List<object> { db, RaidRecapRolloutMode.OwnerServers, rig.Coordinator.Health.Snapshot(), null, rig.Now };
+        if (build.GetParameters().Length == 6) args.Add(auth);
+        var status = await (Task<RaidRecapLiveStatus>)build.Invoke(null, args.ToArray());
+        var json = JObject.Parse(System.Text.Json.JsonSerializer.Serialize(status, NinjaBotCore.Services.Api.RaidRecapLiveEndpoints.Json));
+        Assert.True(json["warcraft_logs_auth"]?["unavailable"]?.Value<bool>());
+        Assert.Equal(2, json["warcraft_logs_auth"]?["consecutive_auth_failures"]?.Value<int>());
+        Assert.NotNull(json["cards"]); Assert.Equal(JTokenType.Null, json["warcraft_logs"]?.Type);
+    }
+
+    private sealed class AuthClock(Func<DateTimeOffset> now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now();
+    }
+
+    private sealed class AuthHandler : System.Net.Http.HttpMessageHandler
+    {
+        public bool Reject = true;
+        public bool RejectOAuth;
+        public int Tokens;
+        protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, CancellationToken ct)
+        {
+            var oauth = request.RequestUri.AbsolutePath.Contains("oauth");
+            if (oauth) Tokens++;
+            var response = new System.Net.Http.HttpResponseMessage(oauth ? RejectOAuth ? System.Net.HttpStatusCode.Unauthorized : System.Net.HttpStatusCode.OK : Reject ? System.Net.HttpStatusCode.Unauthorized : System.Net.HttpStatusCode.OK)
+            {
+                Content = new System.Net.Http.StringContent(oauth ? "{\"access_token\":\"synthetic\",\"expires_in\":31104000}"
+                    : "{\"data\":{\"rateLimitData\":{\"limitPerHour\":1000,\"pointsSpentThisHour\":1,\"pointsResetIn\":3600},\"reportData\":{\"report\":{\"code\":\"AbCdEfGh12345678\",\"revision\":1,\"fights\":[]}}}}")
+            };
+            if (oauth && RejectOAuth) response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromMinutes(5));
+            return Task.FromResult(response);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AuthOutageFromRealClientDoesNotConsumeCardBudgetAndNextCycleRecovers(bool oauthOutage)
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync(); rig.List(minutesSinceLastEvent: 1); await rig.SweepAsync();
+        using var handler = new AuthHandler { RejectOAuth = oauthOutage };
+        var factory = new Mock<System.Net.Http.IHttpClientFactory>();
+        factory.Setup(x => x.CreateClient(It.IsAny<string>())).Returns(() => new System.Net.Http.HttpClient(handler, false));
+        var config = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
+        var client = new WarcraftLogsV2Client(config, factory.Object, NullLogger<WarcraftLogsV2Client>.Instance, new AuthClock(() => rig.Now));
+        rig.Source.Setup(x => x.GetRaidRecapReportAsync(Code)).Returns(async () => { await client.GetRaidRecapReportAsync(Code); return rig.Report; });
+        for (var i = 0; i < RaidRecapLiveCoordinator.MaxFailures * 2; i++)
+        {
+            rig.Now = rig.Now.AddMinutes(4);
+            await rig.SweepAsync();
+            var waiting = Assert.Single(await rig.CardsAsync());
+            Assert.Equal(RaidRecapLiveState.Live, waiting.State);
+            Assert.Equal(0, waiting.Failures);
+            Assert.Equal(rig.Now.UtcDateTime, waiting.LastCheckedAt);
+        }
+        Assert.Single(rig.Discord.Sent); Assert.Empty(rig.Discord.Edits);
+        if (oauthOutage) Assert.True(handler.Tokens < RaidRecapLiveCoordinator.MaxFailures * 2);
+        handler.Reject = false; handler.RejectOAuth = false;
+        rig.Now = rig.Now.AddMinutes(4);
+        rig.Report = rig.Build(Wipe(1, 0, 62), Wipe(2, (rig.Now - Start).TotalMinutes - 5, 41)) with { EndTime = rig.Now.ToUnixTimeMilliseconds() };
+        await rig.SweepAsync();
+        Assert.Single(rig.Discord.Sent); Assert.Single(rig.Discord.Edits);
+        Assert.Equal(RaidRecapLiveState.Live, Assert.Single(await rig.CardsAsync()).State);
+        await rig.SweepAsync();
+        Assert.Single(rig.Discord.Sent); Assert.Single(rig.Discord.Edits);
+    }
+
     [Theory]
     [InlineData("Warcraft Logs quota unavailable. Retry in 60s.")]
     [InlineData("Warcraft Logs quota check timed out. Try again later.")]

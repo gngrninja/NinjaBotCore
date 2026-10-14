@@ -41,7 +41,8 @@ namespace NinjaBotCore.Services.Api
                     await gate.ModeAsync(),
                     coordinator.Health.Snapshot(),
                     deps.ServiceProvider.GetService<WarcraftLogsV2Client>()?.LastRateLimit,
-                    DateTimeOffset.UtcNow);
+                    DateTimeOffset.UtcNow,
+                    deps.ServiceProvider.GetService<WarcraftLogsV2Client>()?.AuthHealth);
                 return Results.Json(status, Json);
             });
         }

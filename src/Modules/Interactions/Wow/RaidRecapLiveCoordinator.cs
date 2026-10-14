@@ -470,6 +470,11 @@ public sealed class RaidRecapLiveCoordinator
         {
             throw;
         }
+        catch (global::NinjaBot.WarcraftLogs.WclAuthenticationUnavailableException)
+        {
+            // A shared dependency outage is not a card failure. Keep LastCheckedAt/cadence;
+            // the client owns deduplicated outage/recovery logs and the refresh cooldown.
+        }
         catch (Exception ex) when (IsQuota(ex))
         {
             // The WarcraftLogs budget is spent for now. That is not this card's fault, so it

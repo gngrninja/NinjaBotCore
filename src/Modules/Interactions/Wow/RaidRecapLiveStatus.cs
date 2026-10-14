@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using NinjaBotCore.Database;
 using NinjaBotCore.Models.Wow;
+using NinjaBot.WarcraftLogs;
 
 namespace NinjaBotCore.Modules.Interactions.Wow;
 
@@ -50,14 +51,16 @@ public sealed record RaidRecapLiveStatus(
     int PostedLastDay,
     IReadOnlyList<RaidRecapLiveCardView> Live,
     RaidRecapLiveWatcher Watcher,
-    RaidRecapLiveWarcraftLogs? WarcraftLogs)
+    RaidRecapLiveWarcraftLogs? WarcraftLogs,
+    WclAuthHealthSnapshot? WarcraftLogsAuth = null)
 {
     public static async Task<RaidRecapLiveStatus> BuildAsync(
         NinjaBotEntities db,
         RaidRecapRolloutMode mode,
         RaidRecapLiveHealthSnapshot health,
         WclV2RateLimitSnapshot? points,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        WclAuthHealthSnapshot? auth = null)
     {
         var servers = await db.RaidRecapLiveSettings.CountAsync(s => s.Enabled);
         var states = await db.RaidRecapLiveCards.AsNoTracking()
@@ -104,7 +107,7 @@ public sealed record RaidRecapLiveStatus(
             live,
             watcher,
             points == null ? null : new RaidRecapLiveWarcraftLogs(
-                Math.Round(points.Spent, 1), points.LimitPerHour, Math.Round(points.UsagePercent, 1), points.CheckedAt, points.ResetsAt));
+                Math.Round(points.Spent, 1), points.LimitPerHour, Math.Round(points.UsagePercent, 1), points.CheckedAt, points.ResetsAt), auth);
     }
 
     public static string Describe(RaidRecapRolloutMode mode) => mode switch

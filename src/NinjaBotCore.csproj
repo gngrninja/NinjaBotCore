@@ -4,6 +4,8 @@
     <TargetFramework>net9.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../services/NinjaBotHelpers/WarcraftLogs/WclAuthentication.cs" Link="Modules/Wow/WclAuthentication.cs" />
+    <Compile Include="../services/NinjaBotHelpers/WarcraftLogs/WclResponseBody.cs" Link="Modules/Wow/WclResponseBody.cs" />
     <PackageReference Include="Discord.Net" Version="3.18.0" />
     <PackageReference Include="Discord.Net.Commands" Version="3.18.0" />
     <PackageReference Include="Discord.Net.Core" Version="3.18.0" />

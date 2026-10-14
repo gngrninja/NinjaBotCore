@@ -15,6 +15,7 @@ using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NinjaBotCore.Models.Wow;
+using NinjaBot.WarcraftLogs;
 
 namespace NinjaBotCore.Modules.Wow
 {
@@ -39,7 +40,8 @@ namespace NinjaBotCore.Modules.Wow
         private readonly IConfigurationRoot _config;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly TimeProvider _clock;
-        private WclV2TokenResponse _currentToken;
+        private readonly WclAuthentication _auth;
+        public WclAuthHealthSnapshot AuthHealth => _auth.Health;
         private readonly string _clientId;
         private readonly string _clientSecret;
 
@@ -54,7 +56,6 @@ namespace NinjaBotCore.Modules.Wow
         private int _requestCounter = 0;
         private static readonly TimeSpan QuotaCheckTimeout = TimeSpan.FromSeconds(15);
         private static readonly TimeSpan QuotaRetryDelay = TimeSpan.FromSeconds(30);
-        private const int MaxResponseBytes = 4 * 1024 * 1024;
 
         // Current raid tier cache (7 day TTL - boss encounters are static data that only changes when new raids release)
         // Using ConcurrentDictionary for thread-safety (singleton service, static cache)
@@ -88,6 +89,7 @@ namespace NinjaBotCore.Modules.Wow
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
             _config = config;
             _logger = logger;
+            _auth = new WclAuthentication(_clock, logger);
             _httpClientFactory = httpClientFactory;
             _clientId = _config["WclClientId"];
             _clientSecret = _config["WclClientSecret"];
@@ -116,51 +118,19 @@ namespace NinjaBotCore.Modules.Wow
         /// <summary>
         /// Gets a valid OAuth access token, refreshing if necessary
         /// </summary>
-        private async Task<string> GetAccessTokenAsync(CancellationToken cancellationToken = default)
+        private async Task<(string Value, long Lifetime)> FetchAccessTokenAsync(CancellationToken cancellationToken)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            // Return cached token if still valid
-            if (_currentToken != null && !_currentToken.IsExpired)
-            {
-                return _currentToken.AccessToken;
-            }
-
-            // Request new token using client credentials flow
             using var request = new HttpRequestMessage(HttpMethod.Post, TokenUrl);
-
-            // OAuth requires Basic authentication with client_id:client_secret
             var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_clientId}:{_clientSecret}"));
             request.Headers.Authorization = new AuthenticationHeaderValue("Basic", credentials);
-
-            var formData = new Dictionary<string, string>
-            {
-                { "grant_type", "client_credentials" }
-            };
-            request.Content = new FormUrlEncodedContent(formData);
-
-            try
-            {
-                using var client = _httpClientFactory.CreateClient();
-                // ResponseHeadersRead stops HttpClient's timeout at the headers; retain it for the body.
-                using var requestBudget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                requestBudget.CancelAfter(client.Timeout);
-                using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, requestBudget.Token);
-                EnsureWclSuccess(response, "OAuth");
-
-                var content = await ReadResponseAsync(response, requestBudget.Token);
-                _currentToken = ParseResponse<WclV2TokenResponse>(content);
-                if (string.IsNullOrWhiteSpace(_currentToken.AccessToken))
-                    throw new InvalidOperationException("WCL OAuth response omitted the access token.");
-                _currentToken.ExpiresAt = DateTime.UtcNow.AddSeconds(_currentToken.ExpiresIn - 60); // 60s buffer
-
-                _logger.LogInformation($"WarcraftLogs v2 OAuth token acquired, expires in {_currentToken.ExpiresIn}s");
-                return _currentToken.AccessToken;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError("Failed to get WarcraftLogs v2 OAuth token ({ErrorType})", ex.GetType().Name);
-                throw;
-            }
+            request.Content = new FormUrlEncodedContent(new Dictionary<string, string> { ["grant_type"] = "client_credentials" });
+            using var client = _httpClientFactory.CreateClient();
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                throw new WclOAuthFailureException(response, _clock.GetUtcNow());
+            var content = await ReadResponseAsync(response, cancellationToken);
+            var token = JsonConvert.DeserializeObject<WclV2TokenResponse>(content);
+            return (token?.AccessToken, token?.ExpiresIn ?? 0);
         }
 
         /// <summary>
@@ -185,6 +155,7 @@ namespace NinjaBotCore.Modules.Wow
                 return new WclV2RateLimitData { LimitPerHour = limit, PointsSpentThisHour = spent, PointsResetIn = (int)reset };
             }
             catch (OperationCanceledException) { throw; }
+            catch (WclAuthenticationUnavailableException) { throw; }
             catch (Exception ex)
             {
                 _logger.LogWarning("Failed to fetch rate limit data ({ErrorType})", ex.GetType().Name);
@@ -299,18 +270,17 @@ namespace NinjaBotCore.Modules.Wow
         /// </summary>
         private async Task<GraphQLResponse<T>> ExecuteGraphQLInternalAsync<T>(string query, object variables = null, WowGameVersion gameVersion = WowGameVersion.Retail, CancellationToken cancellationToken = default)
         {
-            var token = await GetAccessTokenAsync(cancellationToken);
-            var apiUrl = GetApiUrl(gameVersion);
-
-            using var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            var json = JsonConvert.SerializeObject(new GraphQLRequest { Query = query, Variables = variables });
-            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
-
             using var client = _httpClientFactory.CreateClient();
             using var requestBudget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             requestBudget.CancelAfter(client.Timeout);
-            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, requestBudget.Token);
+            var json = JsonConvert.SerializeObject(new GraphQLRequest { Query = query, Variables = variables });
+            using var response = await _auth.SendAsync(FetchAccessTokenAsync, async (token, ct) =>
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, GetApiUrl(gameVersion));
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+                return await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            }, requestBudget.Token, cancellationToken);
             EnsureWclSuccess(response, "GraphQL");
             var content = await ReadResponseAsync(response, requestBudget.Token);
             var result = ParseResponse<GraphQLResponse<T>>(content);
@@ -331,6 +301,8 @@ namespace NinjaBotCore.Modules.Wow
                 await CheckRateLimitAsync(cancellationToken);
                 return result;
             }
+            catch (WclAuthenticationUnavailableException) { throw; }
+            catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
                 _logger.LogError("GraphQL execution failed ({ErrorType})", ex.GetType().Name);
@@ -388,46 +360,8 @@ namespace NinjaBotCore.Modules.Wow
             }
         }
 
-        private static async Task<string> ReadResponseAsync(HttpResponseMessage response, CancellationToken cancellationToken)
-        {
-            using var raw = await response.Content.ReadAsStreamAsync(cancellationToken);
-            Stream decoded = raw;
-            var wrappers = new List<Stream>();
-            try
-            {
-                // Handler automatic decompression removes its encoding header. Decode remaining
-                // encodings before counting bytes, so compressed/chunked payloads cannot evade the cap.
-                foreach (var encoding in response.Content.Headers.ContentEncoding.Reverse())
-                {
-                    decoded = encoding.ToLowerInvariant() switch
-                    {
-                        "gzip" => new GZipStream(decoded, CompressionMode.Decompress, leaveOpen: true),
-                        "deflate" => new ZLibStream(decoded, CompressionMode.Decompress, leaveOpen: true),
-                        "br" => new BrotliStream(decoded, CompressionMode.Decompress, leaveOpen: true),
-                        "identity" => decoded,
-                        _ => throw new InvalidOperationException("Unsupported WCL response encoding.")
-                    };
-                    if (!encoding.Equals("identity", StringComparison.OrdinalIgnoreCase)) wrappers.Add(decoded);
-                }
-                using var body = new MemoryStream();
-                var buffer = new byte[8192];
-                while (true)
-                {
-                    var remaining = MaxResponseBytes + 1 - (int)body.Length;
-                    var read = await decoded.ReadAsync(buffer.AsMemory(0, Math.Min(buffer.Length, remaining)), cancellationToken);
-                    if (read == 0) break;
-                    if (body.Length + read > MaxResponseBytes)
-                        throw new InvalidOperationException("WCL response exceeds the 4 MiB limit.");
-                    body.Write(buffer, 0, read);
-                }
-                cancellationToken.ThrowIfCancellationRequested();
-                return Encoding.UTF8.GetString(body.GetBuffer(), 0, (int)body.Length);
-            }
-            finally
-            {
-                for (var i = wrappers.Count - 1; i >= 0; i--) wrappers[i].Dispose();
-            }
-        }
+        private static Task<string> ReadResponseAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+            => WclResponseBody.ReadAsync(response, cancellationToken);
 
         /// <summary>
         /// Gets latest reports for multiple guilds in a single batched GraphQL query

@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using NinjaBotHelpers.WarcraftLogs.Auth;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
@@ -19,8 +20,11 @@ public class WarcraftLogsClient
     private readonly ILogger<WarcraftLogsClient> _logger;
     private readonly HelpersConfiguration _config;
     private readonly ResiliencePipeline<HttpResponseMessage> _resiliencePipeline;
+    private static readonly ResiliencePropertyKey<int> RetriesRemaining = new("wcl-transient-retries");
 
-    private WclV2TokenResponse? _currentToken;
+    private readonly WclAuthentication _auth;
+    private readonly TimeProvider _clock;
+    public WclAuthHealthSnapshot AuthHealth => _auth.Health;
     private WclV2RateLimitData? _lastRateLimitData;
     private DateTime _lastRateLimitCheck = DateTime.MinValue;
     private int _requestCounter = 0;
@@ -46,7 +50,12 @@ public class WarcraftLogsClient
     }
 
     public WarcraftLogsClient(HttpClient httpClient, ILogger<WarcraftLogsClient> logger, HelpersConfiguration config)
+        : this(httpClient, logger, config, TimeProvider.System) { }
+
+    internal WarcraftLogsClient(HttpClient httpClient, ILogger<WarcraftLogsClient> logger, HelpersConfiguration config, TimeProvider clock)
     {
+        _clock = clock;
+        _auth = new WclAuthentication(clock, logger);
         _httpClient = httpClient;
         _logger = logger;
         _config = config;
@@ -59,18 +68,29 @@ public class WarcraftLogsClient
                 Delay = TimeSpan.FromSeconds(2),
                 BackoffType = DelayBackoffType.Exponential,
                 UseJitter = true,
-                ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
-                    .Handle<HttpRequestException>()
-                    .Handle<TaskCanceledException>()
-                    .HandleResult(response =>
-                        (int)response.StatusCode == 429 ||
-                        (int)response.StatusCode >= 500),
+                ShouldHandle = args =>
+                {
+                    var status = (int?)args.Outcome.Result?.StatusCode;
+                    var transient = args.Outcome.Exception is HttpRequestException or TaskCanceledException || status == 429 || status >= 500;
+                    if (!transient || !args.Context.Properties.TryGetValue(RetriesRemaining, out var remaining) || remaining <= 0)
+                        return ValueTask.FromResult(false);
+                    // One transient budget for the whole logical request, not a fresh budget after auth replay.
+                    args.Context.Properties.Set(RetriesRemaining, remaining - 1);
+                    return ValueTask.FromResult(true);
+                },
+                DelayGenerator = args =>
+                {
+                    var retry = args.Outcome.Result?.Headers.RetryAfter;
+                    var delay = retry?.Delta ?? (retry?.Date - _clock.GetUtcNow());
+                    return ValueTask.FromResult<TimeSpan?>(delay is { } value ? (value < TimeSpan.Zero ? TimeSpan.Zero : value) : null);
+                },
                 OnRetry = args =>
                 {
                     var statusCode = args.Outcome.Result?.StatusCode.ToString() ?? "Exception";
                     _logger.LogWarning(
                         "[WCL] Retry attempt {AttemptNumber}. Status: {StatusCode}",
                         args.AttemptNumber, statusCode);
+                    args.Outcome.Result?.Dispose();
                     return ValueTask.CompletedTask;
                 }
             })
@@ -105,43 +125,51 @@ public class WarcraftLogsClient
     /// <summary>
     /// Gets a valid OAuth access token, refreshing if necessary
     /// </summary>
-    private async Task<string> GetAccessTokenAsync(CancellationToken cancellationToken = default)
+    private async Task<(string Value, long Lifetime)> FetchAccessTokenAsync(CancellationToken ct)
     {
-        // Return cached token if still valid
-        if (_currentToken != null && !_currentToken.IsExpired)
-        {
-            return _currentToken.AccessToken;
-        }
-
-        _logger.LogInformation("Requesting new WarcraftLogs OAuth token...");
-
         using var request = new HttpRequestMessage(HttpMethod.Post, TokenUrl);
-
-        // OAuth requires Basic authentication with client_id:client_secret
         var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_config.WclClientId}:{_config.WclClientSecret}"));
         request.Headers.Authorization = new AuthenticationHeaderValue("Basic", credentials);
+        request.Content = new FormUrlEncodedContent(new Dictionary<string, string> { ["grant_type"] = "client_credentials" });
+        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!response.IsSuccessStatusCode)
+            throw new WclOAuthFailureException(response, _clock.GetUtcNow());
+        var content = await WclResponseBody.ReadAsync(response, ct);
+        var token = JsonConvert.DeserializeObject<WclV2TokenResponse>(content);
+        return (token?.AccessToken!, token?.ExpiresIn ?? 0);
+    }
 
-        var formData = new Dictionary<string, string>
+    private async Task<GraphQLResponse<T>> SendGraphQLAsync<T>(string query, object? variables, WowGameVersion gameVersion, CancellationToken cancellationToken)
+    {
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(_httpClient.Timeout);
+        var json = JsonConvert.SerializeObject(new GraphQLRequest { Query = query, Variables = variables });
+        var context = ResilienceContextPool.Shared.Get(budget.Token);
+        context.Properties.Set(RetriesRemaining, 3);
+        try
         {
-            { "grant_type", "client_credentials" }
-        };
-        request.Content = new FormUrlEncodedContent(formData);
-
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        _currentToken = JsonConvert.DeserializeObject<WclV2TokenResponse>(content);
-
-        if (_currentToken == null)
-        {
-            throw new InvalidOperationException("Failed to parse OAuth token response");
+            using var response = await _auth.SendAsync(FetchAccessTokenAsync, (token, ct) =>
+                _resiliencePipeline.ExecuteAsync(async retryContext =>
+                {
+                    using var request = new HttpRequestMessage(HttpMethod.Post, GetApiUrl(gameVersion));
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                    request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+                    return await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, retryContext.CancellationToken);
+                }, context).AsTask(), budget.Token, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                throw new HttpRequestException($"WCL GraphQL failed with HTTP {(int)response.StatusCode}.", null, response.StatusCode);
+            var content = await WclResponseBody.ReadAsync(response, budget.Token);
+            try
+            {
+                var result = JsonConvert.DeserializeObject<GraphQLResponse<T>>(content)
+                    ?? throw new InvalidOperationException("WCL returned a null response.");
+                if (result.Errors?.Count > 0)
+                    _logger.LogWarning("[WCL] GraphQL response contained {ErrorCount} errors", result.Errors.Count);
+                return result;
+            }
+            catch (JsonException) { throw new InvalidOperationException("Failed to parse WCL response."); }
         }
-
-        _currentToken.ExpiresAt = DateTime.UtcNow.AddSeconds(_currentToken.ExpiresIn - 60); // 60s buffer
-
-        _logger.LogInformation("WarcraftLogs OAuth token acquired, expires in {ExpiresIn}s", _currentToken.ExpiresIn);
-        return _currentToken.AccessToken;
+        finally { ResilienceContextPool.Shared.Return(context); }
     }
 
     /// <summary>
@@ -175,53 +203,7 @@ public class WarcraftLogsClient
                 _lastRateLimitData?.UsagePercent ?? 0);
         }
 
-        var token = await GetAccessTokenAsync(cancellationToken);
-        var apiUrl = GetApiUrl(gameVersion);
-
-        var graphqlRequest = new GraphQLRequest
-        {
-            Query = query,
-            Variables = variables
-        };
-        var json = JsonConvert.SerializeObject(graphqlRequest);
-
-        // Use Polly resilience pipeline - must recreate request for each retry (POST)
-        using var response = await _resiliencePipeline.ExecuteAsync(async ct =>
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
-            return await _httpClient.SendAsync(request, ct);
-        }, cancellationToken);
-
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            _logger.LogError("GraphQL request failed: {StatusCode} - {Content}", response.StatusCode, content);
-            throw new HttpRequestException($"GraphQL request failed: {response.StatusCode}");
-        }
-
-        var result = JsonConvert.DeserializeObject<GraphQLResponse<T>>(content);
-
-        if (result == null)
-        {
-            throw new InvalidOperationException("Failed to deserialize GraphQL response");
-        }
-
-        if (result.Errors != null && result.Errors.Count > 0)
-        {
-            // Group errors by message for cleaner logging
-            var errorGroups = result.Errors
-                .GroupBy(e => e.Message)
-                .Select(g => new { Message = g.Key, Count = g.Count() })
-                .ToList();
-
-            foreach (var group in errorGroups)
-            {
-                _logger.LogWarning("GraphQL error: {Message} (occurred {Count} time(s))", group.Message, group.Count);
-            }
-        }
+        var result = await SendGraphQLAsync<T>(query, variables, gameVersion, cancellationToken);
 
         // Check rate limits proactively - at warning threshold or periodically
         _requestCounter++;
@@ -246,24 +228,8 @@ public class WarcraftLogsClient
         try
         {
             var query = @"query { rateLimitData { limitPerHour pointsSpentThisHour pointsResetIn } }";
-            var token = await GetAccessTokenAsync(cancellationToken);
-            var apiUrl = GetApiUrl(gameVersion);
-
-            var graphqlRequest = new GraphQLRequest { Query = query };
-            var json = JsonConvert.SerializeObject(graphqlRequest);
-
-            using var response = await _resiliencePipeline.ExecuteAsync(async ct =>
+            var result = await SendGraphQLAsync<WclV2RateLimitResponse>(query, null, gameVersion, cancellationToken);
             {
-                using var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                request.Content = new StringContent(json, Encoding.UTF8, "application/json");
-                return await _httpClient.SendAsync(request, ct);
-            }, cancellationToken);
-
-            if (response.IsSuccessStatusCode)
-            {
-                var content = await response.Content.ReadAsStringAsync(cancellationToken);
-                var result = JsonConvert.DeserializeObject<GraphQLResponse<WclV2RateLimitResponse>>(content);
                 _lastRateLimitData = result?.Data?.RateLimitData;
                 _lastRateLimitCheck = DateTime.UtcNow;
 
@@ -281,9 +247,11 @@ public class WarcraftLogsClient
                 }
             }
         }
+        catch (OperationCanceledException) { throw; }
+        catch (WclAuthenticationUnavailableException) { throw; }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to fetch rate limit data");
+            _logger.LogWarning("Failed to fetch rate limit data ({ErrorType})", ex.GetType().Name);
         }
     }
 
@@ -459,7 +427,7 @@ public class WarcraftLogsClient
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[WCL Batch] Failed to parse result for {GuildName}-{ServerSlug}", guildName, serverSlug);
+                    _logger.LogWarning("[WCL Batch] Failed to parse result ({ErrorType})", ex.GetType().Name);
                     batchResult.GuildsWithNoReports.Add(guildKey);
                 }
             }
@@ -474,9 +442,11 @@ public class WarcraftLogsClient
 
             return batchResult;
         }
+        catch (WclAuthenticationUnavailableException) { throw; }
+        catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[WCL Batch] Failed to execute batch query");
+            _logger.LogError("[WCL Batch] Failed to execute batch query ({ErrorType})", ex.GetType().Name);
             throw;
         }
     }

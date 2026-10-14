@@ -4,6 +4,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>NinjaBotHelpers</RootNamespace>
+    <DefineConstants>$(DefineConstants);NINJABOT_HELPERS</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>

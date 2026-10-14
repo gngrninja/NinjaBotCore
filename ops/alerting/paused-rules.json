@@ -1,0 +1,538 @@
+{
+  "formatVersion": 1,
+  "group": {
+    "folderUID": "cfdlg9jvphpfkd",
+    "intervalSeconds": 60,
+    "name": "ninjabot-health"
+  },
+  "rules": [
+    {
+      "annotations": {
+        "recovery": "Error signal cleared; this does not prove application health.",
+        "summary": "NinjaBot core: at least 5 error lines in 10 minutes, sustained for 5 minutes."
+      },
+      "condition": "B",
+      "data": [
+        {
+          "datasourceUid": "afdlfkc5oc1s0e",
+          "model": {
+            "datasource": {
+              "type": "loki",
+              "uid": "afdlfkc5oc1s0e"
+            },
+            "editorMode": "code",
+            "expr": "sum(count_over_time({container=\"/ninjabot\"} |~ \"( ERR]| FTL]|^fail:|^crit:)\" !~ \"Shard [0-9]+ disconnected:\" [10m])) or vector(0)",
+            "instant": true,
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "instant",
+            "range": false,
+            "refId": "A"
+          },
+          "queryType": "instant",
+          "refId": "A",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          }
+        },
+        {
+          "datasourceUid": "__expr__",
+          "model": {
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            },
+            "expression": "$A >= 5",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "B",
+            "type": "math"
+          },
+          "queryType": "",
+          "refId": "B",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          }
+        }
+      ],
+      "execErrState": "Alerting",
+      "folderUID": "cfdlg9jvphpfkd",
+      "for": "5m",
+      "isPaused": true,
+      "labels": {
+        "application": "ninjabot",
+        "service": "core",
+        "severity": "warning",
+        "signal": "errors"
+      },
+      "noDataState": "OK",
+      "ruleGroup": "ninjabot-health",
+      "title": "NinjaBot core errors",
+      "uid": "nb-core-errors"
+    },
+    {
+      "annotations": {
+        "recovery": "Error signal cleared; this does not prove application health.",
+        "summary": "NinjaBot core: fatal, critical or unhandled-exception signal in the last 10 minutes."
+      },
+      "condition": "B",
+      "data": [
+        {
+          "datasourceUid": "afdlfkc5oc1s0e",
+          "model": {
+            "datasource": {
+              "type": "loki",
+              "uid": "afdlfkc5oc1s0e"
+            },
+            "editorMode": "code",
+            "expr": "sum(count_over_time({container=\"/ninjabot\"} |~ \"( FTL]|^crit:|(?i:unhandled exception))\" !~ \"Shard [0-9]+ disconnected:\" [10m])) or vector(0)",
+            "instant": true,
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "instant",
+            "range": false,
+            "refId": "A"
+          },
+          "queryType": "instant",
+          "refId": "A",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          }
+        },
+        {
+          "datasourceUid": "__expr__",
+          "model": {
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            },
+            "expression": "$A > 0",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "B",
+            "type": "math"
+          },
+          "queryType": "",
+          "refId": "B",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          }
+        }
+      ],
+      "execErrState": "Alerting",
+      "folderUID": "cfdlg9jvphpfkd",
+      "for": "0s",
+      "isPaused": true,
+      "labels": {
+        "application": "ninjabot",
+        "service": "core",
+        "severity": "critical",
+        "signal": "fatal"
+      },
+      "noDataState": "OK",
+      "ruleGroup": "ninjabot-health",
+      "title": "NinjaBot core fatal",
+      "uid": "nb-core-fatal"
+    },
+    {
+      "annotations": {
+        "recovery": "Error signal cleared; this does not prove application health.",
+        "summary": "NinjaBot helpers: at least 5 error lines in 10 minutes, sustained for 5 minutes."
+      },
+      "condition": "B",
+      "data": [
+        {
+          "datasourceUid": "afdlfkc5oc1s0e",
+          "model": {
+            "datasource": {
+              "type": "loki",
+              "uid": "afdlfkc5oc1s0e"
+            },
+            "editorMode": "code",
+            "expr": "sum(count_over_time({container=\"/ninjabot-helpers\"} |~ \"( ERR]| FTL]|^fail:|^crit:)\" !~ \"Shard [0-9]+ disconnected:\" [10m])) or vector(0)",
+            "instant": true,
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "instant",
+            "range": false,
+            "refId": "A"
+          },
+          "queryType": "instant",
+          "refId": "A",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          }
+        },
+        {
+          "datasourceUid": "__expr__",
+          "model": {
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            },
+            "expression": "$A >= 5",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "B",
+            "type": "math"
+          },
+          "queryType": "",
+          "refId": "B",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          }
+        }
+      ],
+      "execErrState": "Alerting",
+      "folderUID": "cfdlg9jvphpfkd",
+      "for": "5m",
+      "isPaused": true,
+      "labels": {
+        "application": "ninjabot",
+        "service": "helpers",
+        "severity": "warning",
+        "signal": "errors"
+      },
+      "noDataState": "OK",
+      "ruleGroup": "ninjabot-health",
+      "title": "NinjaBot helpers errors",
+      "uid": "nb-helpers-errors"
+    },
+    {
+      "annotations": {
+        "recovery": "Error signal cleared; this does not prove application health.",
+        "summary": "NinjaBot helpers: fatal, critical or unhandled-exception signal in the last 10 minutes."
+      },
+      "condition": "B",
+      "data": [
+        {
+          "datasourceUid": "afdlfkc5oc1s0e",
+          "model": {
+            "datasource": {
+              "type": "loki",
+              "uid": "afdlfkc5oc1s0e"
+            },
+            "editorMode": "code",
+            "expr": "sum(count_over_time({container=\"/ninjabot-helpers\"} |~ \"( FTL]|^crit:|(?i:unhandled exception))\" !~ \"Shard [0-9]+ disconnected:\" [10m])) or vector(0)",
+            "instant": true,
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "instant",
+            "range": false,
+            "refId": "A"
+          },
+          "queryType": "instant",
+          "refId": "A",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          }
+        },
+        {
+          "datasourceUid": "__expr__",
+          "model": {
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            },
+            "expression": "$A > 0",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "B",
+            "type": "math"
+          },
+          "queryType": "",
+          "refId": "B",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          }
+        }
+      ],
+      "execErrState": "Alerting",
+      "folderUID": "cfdlg9jvphpfkd",
+      "for": "0s",
+      "isPaused": true,
+      "labels": {
+        "application": "ninjabot",
+        "service": "helpers",
+        "severity": "critical",
+        "signal": "fatal"
+      },
+      "noDataState": "OK",
+      "ruleGroup": "ninjabot-health",
+      "title": "NinjaBot helpers fatal",
+      "uid": "nb-helpers-fatal"
+    },
+    {
+      "annotations": {
+        "recovery": "Error signal cleared; this does not prove application health.",
+        "summary": "NinjaBot web: at least 5 error lines in 10 minutes, sustained for 5 minutes."
+      },
+      "condition": "B",
+      "data": [
+        {
+          "datasourceUid": "afdlfkc5oc1s0e",
+          "model": {
+            "datasource": {
+              "type": "loki",
+              "uid": "afdlfkc5oc1s0e"
+            },
+            "editorMode": "code",
+            "expr": "sum(count_over_time({container=\"/ninjabot-web-prod\"} |~ \"( ERR]| FTL]|^fail:|^crit:)\" !~ \"Shard [0-9]+ disconnected:\" [10m])) or vector(0)",
+            "instant": true,
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "instant",
+            "range": false,
+            "refId": "A"
+          },
+          "queryType": "instant",
+          "refId": "A",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          }
+        },
+        {
+          "datasourceUid": "__expr__",
+          "model": {
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            },
+            "expression": "$A >= 5",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "B",
+            "type": "math"
+          },
+          "queryType": "",
+          "refId": "B",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          }
+        }
+      ],
+      "execErrState": "Alerting",
+      "folderUID": "cfdlg9jvphpfkd",
+      "for": "5m",
+      "isPaused": true,
+      "labels": {
+        "application": "ninjabot",
+        "service": "web",
+        "severity": "warning",
+        "signal": "errors"
+      },
+      "noDataState": "OK",
+      "ruleGroup": "ninjabot-health",
+      "title": "NinjaBot web errors",
+      "uid": "nb-web-errors"
+    },
+    {
+      "annotations": {
+        "recovery": "Error signal cleared; this does not prove application health.",
+        "summary": "NinjaBot web: fatal, critical or unhandled-exception signal in the last 10 minutes."
+      },
+      "condition": "B",
+      "data": [
+        {
+          "datasourceUid": "afdlfkc5oc1s0e",
+          "model": {
+            "datasource": {
+              "type": "loki",
+              "uid": "afdlfkc5oc1s0e"
+            },
+            "editorMode": "code",
+            "expr": "sum(count_over_time({container=\"/ninjabot-web-prod\"} |~ \"( FTL]|^crit:|(?i:unhandled exception))\" !~ \"Shard [0-9]+ disconnected:\" [10m])) or vector(0)",
+            "instant": true,
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "instant",
+            "range": false,
+            "refId": "A"
+          },
+          "queryType": "instant",
+          "refId": "A",
+          "relativeTimeRange": {
+            "from": 600,
+            "to": 0
+          }
+        },
+        {
+          "datasourceUid": "__expr__",
+          "model": {
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            },
+            "expression": "$A > 0",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "B",
+            "type": "math"
+          },
+          "queryType": "",
+          "refId": "B",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          }
+        }
+      ],
+      "execErrState": "Alerting",
+      "folderUID": "cfdlg9jvphpfkd",
+      "for": "0s",
+      "isPaused": true,
+      "labels": {
+        "application": "ninjabot",
+        "service": "web",
+        "severity": "critical",
+        "signal": "fatal"
+      },
+      "noDataState": "OK",
+      "ruleGroup": "ninjabot-health",
+      "title": "NinjaBot web fatal",
+      "uid": "nb-web-fatal"
+    },
+    {
+      "annotations": {
+        "recovery": "An authenticated WCL API success was observed with no newer or tied unavailable marker in the lookback.",
+        "summary": "NinjaBot core WCL authentication remains unavailable after recovery attempts."
+      },
+      "condition": "B",
+      "data": [
+        {
+          "datasourceUid": "afdlfkc5oc1s0e",
+          "model": {
+            "datasource": {
+              "type": "loki",
+              "uid": "afdlfkc5oc1s0e"
+            },
+            "editorMode": "code",
+            "expr": "(max(max_over_time({container=\"/ninjabot\"} |= \"[WCL Auth] state=unavailable\" | label_format event_ts=\"{{ __timestamp__ | unixEpochNanos }}\" | unwrap event_ts | __error__=\"\" [24h])) or (max(max_over_time({container=\"/ninjabot\"} |= \"[WCL Auth] state=recovered\" | label_format event_ts=\"{{ __timestamp__ | unixEpochNanos }}\" | unwrap event_ts | __error__=\"\" [24h])) * 0)) >= bool (max(max_over_time({container=\"/ninjabot\"} |= \"[WCL Auth] state=recovered\" | label_format event_ts=\"{{ __timestamp__ | unixEpochNanos }}\" | unwrap event_ts | __error__=\"\" [24h])) or vector(0))",
+            "instant": true,
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "instant",
+            "range": false,
+            "refId": "A"
+          },
+          "queryType": "instant",
+          "refId": "A",
+          "relativeTimeRange": {
+            "from": 86400,
+            "to": 0
+          }
+        },
+        {
+          "datasourceUid": "__expr__",
+          "model": {
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            },
+            "expression": "$A > 0",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "B",
+            "type": "math"
+          },
+          "queryType": "",
+          "refId": "B",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          }
+        }
+      ],
+      "execErrState": "Alerting",
+      "folderUID": "cfdlg9jvphpfkd",
+      "for": "2m",
+      "isPaused": true,
+      "labels": {
+        "application": "ninjabot",
+        "service": "core",
+        "severity": "warning",
+        "signal": "wcl-auth"
+      },
+      "noDataState": "KeepLast",
+      "ruleGroup": "ninjabot-health",
+      "title": "NinjaBot core WCL authentication unavailable",
+      "uid": "nb-wcl-auth"
+    },
+    {
+      "annotations": {
+        "recovery": "An authenticated WCL API success was observed with no newer or tied unavailable marker in the lookback.",
+        "summary": "NinjaBot helpers WCL authentication remains unavailable after recovery attempts."
+      },
+      "condition": "B",
+      "data": [
+        {
+          "datasourceUid": "afdlfkc5oc1s0e",
+          "model": {
+            "datasource": {
+              "type": "loki",
+              "uid": "afdlfkc5oc1s0e"
+            },
+            "editorMode": "code",
+            "expr": "(max(max_over_time({container=\"/ninjabot-helpers\"} |= \"[WCL Auth] state=unavailable\" | label_format event_ts=\"{{ __timestamp__ | unixEpochNanos }}\" | unwrap event_ts | __error__=\"\" [24h])) or (max(max_over_time({container=\"/ninjabot-helpers\"} |= \"[WCL Auth] state=recovered\" | label_format event_ts=\"{{ __timestamp__ | unixEpochNanos }}\" | unwrap event_ts | __error__=\"\" [24h])) * 0)) >= bool (max(max_over_time({container=\"/ninjabot-helpers\"} |= \"[WCL Auth] state=recovered\" | label_format event_ts=\"{{ __timestamp__ | unixEpochNanos }}\" | unwrap event_ts | __error__=\"\" [24h])) or vector(0))",
+            "instant": true,
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "queryType": "instant",
+            "range": false,
+            "refId": "A"
+          },
+          "queryType": "instant",
+          "refId": "A",
+          "relativeTimeRange": {
+            "from": 86400,
+            "to": 0
+          }
+        },
+        {
+          "datasourceUid": "__expr__",
+          "model": {
+            "datasource": {
+              "type": "__expr__",
+              "uid": "__expr__"
+            },
+            "expression": "$A > 0",
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": "B",
+            "type": "math"
+          },
+          "queryType": "",
+          "refId": "B",
+          "relativeTimeRange": {
+            "from": 0,
+            "to": 0
+          }
+        }
+      ],
+      "execErrState": "Alerting",
+      "folderUID": "cfdlg9jvphpfkd",
+      "for": "2m",
+      "isPaused": true,
+      "labels": {
+        "application": "ninjabot",
+        "service": "helpers",
+        "severity": "warning",
+        "signal": "wcl-auth"
+      },
+      "noDataState": "KeepLast",
+      "ruleGroup": "ninjabot-health",
+      "title": "NinjaBot helpers WCL authentication unavailable",
+      "uid": "nb-helpers-wcl-auth"
+    }
+  ]
+}
