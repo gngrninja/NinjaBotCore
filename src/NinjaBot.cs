@@ -139,6 +139,7 @@ namespace NinjaBotCore
                 .AddSingleton<WeeklyKeyHistoryRefreshService>()
                 .AddSingleton<PushGroupMaintenanceService>()
                 .AddSingleton<RaidRecapLiveService>()
+                .AddSingleton<ForeverService>()
                 .AddSingleton<AudioService>()
                 .AddWarcraftClients(_config["WoWClient"], _config["WoWSecret"])         
                 .AddSingleton<LoggingService>();                   
@@ -203,6 +204,10 @@ namespace NinjaBotCore
             // Live raid recap cards: finds live guild logs and keeps their card updated
             var raidRecapLive = serviceProvider.GetRequiredService<RaidRecapLiveService>();
             await raidRecapLive.StartAsync(CancellationToken.None);
+
+            // Forever roster: drop a member's shares when they leave a server
+            serviceProvider.GetRequiredService<ForeverService>()
+                .Attach(serviceProvider.GetRequiredService<DiscordShardedClient>());
 
             // RealmWatcherService runs in separate NinjaBotHelpers container
 

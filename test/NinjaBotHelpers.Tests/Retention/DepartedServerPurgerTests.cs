@@ -134,6 +134,10 @@ public class DepartedServerPurgerTests
         var owned = db.Model.GetEntityTypes().Select(e => new { Entity = e, Owner = e.GetProperties().SingleOrDefault(p => new[] { "ServerId", "ServerID", "GuildId", "DiscordGuildId" }.Contains(p.Name)) })
             .Where(x => x.Owner != null && x.Entity.ClrType != typeof(DiscordServer)).ToList();
         Assert.Equal(owned.Select(x => (x.Entity.GetTableName()!, x.Owner!.GetColumnName())).OrderBy(x => x.Item1), DepartedServerPurger.DirectTables.OrderBy(x => x.Table));
+        // Forever mains/shares are server-owned rows pointing at a user-owned character that must survive.
+        var character = new ForeverCharacter { UserId = 999, FirstName = "fixture", LastName = "fixture", NormalizedFirstName = "FIXTURE", NormalizedLastName = "FIXTURE", CreatedAt = Now, UpdatedAt = Now };
+        db.ForeverCharacters.Add(character);
+        await db.SaveChangesAsync();
         foreach (var x in owned.Where(x => x.Entity.ClrType != typeof(Note)))
         {
             foreach (long id in new long[] { 101, 202 })
@@ -144,6 +148,7 @@ public class DepartedServerPurgerTests
                     if (prop.ClrType == typeof(string)) prop.PropertyInfo!.SetValue(entity, "fixture");
                     if (prop.ClrType == typeof(DateTime)) prop.PropertyInfo!.SetValue(entity, Now);
                 }
+                x.Entity.FindProperty(nameof(ForeverMain.CharacterId))?.PropertyInfo!.SetValue(entity, character.Id);
                 x.Owner!.PropertyInfo!.SetValue(entity, id);
                 db.Add(entity);
             }
@@ -164,6 +169,6 @@ public class DepartedServerPurgerTests
         Assert.Equal(PurgeResult.Deleted, await new DepartedServerPurger(f.ConnectionString, Absent()).PurgeAsync(new(101, Now.AddDays(-31)), Now, false, default));
         foreach (var x in owned)
             Assert.Equal(x.Entity.ClrType == typeof(WowCharAssociation) ? 2 : 1, await f.Count(x.Entity.GetTableName()!));
-        foreach (string table in new[] { "PollOptions", "PollVotes", "PushGroupSignups", "UserPushGroupSettings", "WowGuildRosterMembers", "DiscordServers" }) Assert.Equal(1, await f.Count(table));
+        foreach (string table in new[] { "PollOptions", "PollVotes", "PushGroupSignups", "UserPushGroupSettings", "WowGuildRosterMembers", "DiscordServers", "ForeverCharacters" }) Assert.Equal(1, await f.Count(table));
     }
 }

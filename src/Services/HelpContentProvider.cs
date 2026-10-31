@@ -222,14 +222,16 @@ namespace NinjaBotCore.Services
 
                         // Get choices if any
                         var choices = new List<string>();
-                        if (param.ParameterType.IsEnum)
+                        var enumType = Nullable.GetUnderlyingType(param.ParameterType) ?? param.ParameterType;
+                        if (enumType.IsEnum)
                         {
-                            choices = Enum.GetNames(param.ParameterType).ToList();
+                            choices = Enum.GetNames(enumType).ToList();
                         }
 
                         parameters.Add(new ScannedParameter
                         {
-                            Name = param.Name ?? "param",
+                            // The option name users actually type, e.g. "first-name", not the C# parameter name.
+                            Name = summaryAttr?.Name ?? param.Name ?? "param",
                             Description = summaryAttr?.Description ?? "",
                             Type = paramType,
                             Required = isRequired,
@@ -289,6 +291,7 @@ namespace NinjaBotCore.Services
                 .Where(c => c.ModuleName.Contains("Wow") &&
                            !classicModules.Contains(c.ModuleTypeName) &&
                            !nonRetailModules.Contains(c.ModuleTypeName) &&
+                           !IsForeverModule(c) &&
                            c.Permission != "owner")
                 .Select(ToHelpCommand)
                 .OrderBy(c => c.Name)
@@ -325,6 +328,26 @@ namespace NinjaBotCore.Services
                     Description = "Classic and Vanilla WoW guild management and logs",
                     PermissionLevel = "public",
                     Commands = wowClassicCommands
+                });
+            }
+
+            // WoW Forever
+            var wowForeverCommands = commands
+                .Where(IsForeverModule)
+                .Select(ToHelpCommand)
+                .OrderBy(c => c.Name)
+                .ToList();
+
+            if (wowForeverCommands.Any())
+            {
+                categories.Add(new HelpCategory
+                {
+                    Id = "wow_forever",
+                    Name = "WoW Forever",
+                    Emoji = "🌄",
+                    Description = "Forever guild setup, your characters and the opt-in server roster",
+                    PermissionLevel = "public",
+                    Commands = wowForeverCommands
                 });
             }
 
@@ -440,6 +463,9 @@ namespace NinjaBotCore.Services
 
             return categories;
         }
+
+        private static bool IsForeverModule(ScannedCommand c)
+            => c.ModuleName.Contains("Wow") && c.ModuleTypeName.StartsWith("Forever");
 
         private static HelpCommand ToHelpCommand(ScannedCommand c)
         {

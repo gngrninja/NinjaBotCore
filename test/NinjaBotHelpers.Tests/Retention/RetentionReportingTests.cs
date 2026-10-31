@@ -79,6 +79,9 @@ public class RetentionReportingTests(ITestOutputHelper output)
         {
             var owned = db.Model.GetEntityTypes().Select(e => new { Entity = e, Owner = e.GetProperties().SingleOrDefault(p => new[] { "ServerId", "ServerID", "GuildId", "DiscordGuildId" }.Contains(p.Name)) })
                 .Where(x => x.Owner != null && x.Entity.ClrType != typeof(DiscordServer) && x.Entity.ClrType != typeof(Note));
+            var character = new ForeverCharacter { UserId = 999, FirstName = "PRIVATE_SENTINEL", LastName = "PRIVATE_SENTINEL", NormalizedFirstName = "PRIVATE_SENTINEL", NormalizedLastName = "PRIVATE_SENTINEL", CreatedAt = Now, UpdatedAt = Now };
+            db.ForeverCharacters.Add(character);
+            await db.SaveChangesAsync();
             foreach (var x in owned)
                 foreach (long id in new long[] { 101, 202 })
                 {
@@ -88,6 +91,7 @@ public class RetentionReportingTests(ITestOutputHelper output)
                         if (p.ClrType == typeof(string)) p.PropertyInfo!.SetValue(entity, "PRIVATE_SENTINEL");
                         if (p.ClrType == typeof(DateTime)) p.PropertyInfo!.SetValue(entity, Now);
                     }
+                    x.Entity.FindProperty(nameof(ForeverMain.CharacterId))?.PropertyInfo!.SetValue(entity, character.Id);
                     x.Owner!.PropertyInfo!.SetValue(entity, id); db.Add(entity);
                 }
             await db.SaveChangesAsync();

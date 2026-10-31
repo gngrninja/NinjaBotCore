@@ -82,6 +82,10 @@ namespace NinjaBotCore.Database
         public virtual DbSet<RaidRecapLiveSettings> RaidRecapLiveSettings { get; set; }
         public virtual DbSet<RaidRecapLiveCard> RaidRecapLiveCards { get; set; }
         public virtual DbSet<RaidRecapRollout> RaidRecapRollout { get; set; }
+        public virtual DbSet<ForeverGuild> ForeverGuilds { get; set; }
+        public virtual DbSet<ForeverCharacter> ForeverCharacters { get; set; }
+        public virtual DbSet<ForeverMain> ForeverMains { get; set; }
+        public virtual DbSet<ForeverRosterShare> ForeverRosterShares { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -147,6 +151,41 @@ namespace NinjaBotCore.Database
                 entity.HasIndex(e => new { e.UserId, e.WeekStartUtc, e.DungeonSlug })
                     .IsUnique()
                     .HasDatabaseName("IX_WeeklyKeyHistory_UserId_WeekStartUtc_DungeonSlug");
+            });
+
+            modelBuilder.Entity<ForeverCharacter>(entity =>
+            {
+                // A user can't add the same name twice in a region, but two users can both claim it.
+                entity.HasIndex(e => new { e.UserId, e.Region, e.NormalizedFirstName, e.NormalizedLastName })
+                    .IsUnique()
+                    .HasDatabaseName("IX_ForeverCharacters_UserId_Region_Name");
+            });
+
+            modelBuilder.Entity<ForeverMain>(entity =>
+            {
+                entity.HasOne(e => e.Character)
+                    .WithMany()
+                    .HasForeignKey(e => e.CharacterId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasIndex(e => new { e.DiscordGuildId, e.UserId })
+                    .IsUnique()
+                    .HasDatabaseName("IX_ForeverMains_DiscordGuildId_UserId");
+            });
+
+            modelBuilder.Entity<ForeverRosterShare>(entity =>
+            {
+                entity.HasOne(e => e.Character)
+                    .WithMany()
+                    .HasForeignKey(e => e.CharacterId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasIndex(e => new { e.DiscordGuildId, e.CharacterId })
+                    .IsUnique()
+                    .HasDatabaseName("IX_ForeverRosterShares_DiscordGuildId_CharacterId");
+
+                entity.HasIndex(e => new { e.DiscordGuildId, e.UserId })
+                    .HasDatabaseName("IX_ForeverRosterShares_DiscordGuildId_UserId");
             });
         }
 

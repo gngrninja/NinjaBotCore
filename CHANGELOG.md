@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### WoW Forever
+
+- Added `/forever guild set|view|unset|roster`. Officers set the server's Forever guild (name, region, ruleset, faction) separately from Retail and Classic, and turn the member roster on or off.
+- Added `/forever char add|list|edit|remove|main`. Characters have a first name and a surname with no realm, belong to the member rather than the server, and have a main per server. Nothing is written to the Retail character table or sent to Blizzard, Raider.IO or WarcraftLogs.
+- Added `/forever roster view|share|unshare`. Characters stay private until shared. The roster shows only current members' characters that match the guild, and leaving a server removes your shares there.
+- `/help` has a WoW Forever category and shows the option names people actually type.
+
 ### Raid Recap
 
 - `/raid-recap` now follows the `/char` WarcraftLogs cards: guild header with the server icon, emoji view buttons, parse dots, compact numbers, `m:ss` durations and a single footer.

@@ -506,6 +506,166 @@ namespace NinjaBotCore.Migrations
                     b.ToTable("FindWowCheeves");
                 });
 
+            modelBuilder.Entity("NinjaBotCore.Database.ForeverCharacter", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int?>("Class")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Faction")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("NormalizedFirstName")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("NormalizedLastName")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("Region")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Ruleset")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Region", "NormalizedFirstName", "NormalizedLastName")
+                        .IsUnique()
+                        .HasDatabaseName("IX_ForeverCharacters_UserId_Region_Name");
+
+                    b.ToTable("ForeverCharacters");
+                });
+
+            modelBuilder.Entity("NinjaBotCore.Database.ForeverGuild", b =>
+                {
+                    b.Property<long>("DiscordGuildId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Faction")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("Region")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("RosterEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Ruleset")
+                        .HasColumnType("integer");
+
+                    b.Property<long?>("SetById")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("SetByName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("TimeSet")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("DiscordGuildId");
+
+                    b.ToTable("ForeverGuilds");
+                });
+
+            modelBuilder.Entity("NinjaBotCore.Database.ForeverMain", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CharacterId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("DiscordGuildId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("SetAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CharacterId");
+
+                    b.HasIndex("DiscordGuildId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_ForeverMains_DiscordGuildId_UserId");
+
+                    b.ToTable("ForeverMains");
+                });
+
+            modelBuilder.Entity("NinjaBotCore.Database.ForeverRosterShare", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CharacterId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("DiscordGuildId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("SharedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CharacterId");
+
+                    b.HasIndex("DiscordGuildId", "CharacterId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_ForeverRosterShares_DiscordGuildId_CharacterId");
+
+                    b.HasIndex("DiscordGuildId", "UserId")
+                        .HasDatabaseName("IX_ForeverRosterShares_DiscordGuildId_UserId");
+
+                    b.ToTable("ForeverRosterShares");
+                });
+
             modelBuilder.Entity("NinjaBotCore.Database.Giphy", b =>
                 {
                     b.Property<long>("Id")
@@ -2814,6 +2974,28 @@ namespace NinjaBotCore.Migrations
                         .HasForeignKey("AchCategoryCatId");
 
                     b.Navigation("AchCategory");
+                });
+
+            modelBuilder.Entity("NinjaBotCore.Database.ForeverMain", b =>
+                {
+                    b.HasOne("NinjaBotCore.Database.ForeverCharacter", "Character")
+                        .WithMany()
+                        .HasForeignKey("CharacterId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Character");
+                });
+
+            modelBuilder.Entity("NinjaBotCore.Database.ForeverRosterShare", b =>
+                {
+                    b.HasOne("NinjaBotCore.Database.ForeverCharacter", "Character")
+                        .WithMany()
+                        .HasForeignKey("CharacterId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Character");
                 });
 
             modelBuilder.Entity("NinjaBotCore.Database.PollOption", b =>

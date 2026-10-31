@@ -60,6 +60,31 @@ Example:
 ```
 /setclassicguild "Disorder" "Rattlegore"
 ```
+
+### WoW Forever: guild, characters and roster
+
+Forever has no realms, and a character's full name (first name + surname) is unique per region. Everything below is self-reported, so NinjaBot doesn't verify it with Blizzard, and every reply is only visible to you.
+
+Officers (Kick Members) set the server's guild and choose whether the roster is on:
+```
+/forever guild set name:"Synthetic Guild" region:US ruleset:PvP faction:Horde
+/forever guild roster enabled:True
+```
+
+Members add their own characters. Region, ruleset and faction default to the server's guild:
+```
+/forever char add first-name:Asha surname:Brightvale class:Priest
+/forever char main character:Asha Brightvale
+```
+
+Characters are private until you share them to a server's roster. The roster only shows current members' characters that match the guild's region, ruleset and faction:
+```
+/forever roster share character:Asha Brightvale
+/forever roster view
+```
+
+Leaving a server removes your shares and main there. `/forever char remove` deletes a character everywhere.
+
 ## WoW Commands
 
 ### [Warcraft Logs](https://www.warcraftlogs.com) Auto Log Poster (Retail and Classic)
