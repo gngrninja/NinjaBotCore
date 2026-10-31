@@ -17,6 +17,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
     /// </summary>
     [Group("sync", "Static data sync control")]
     [RequireOwner]
+    [NinjaBotCore.Attributes.OwnerGuildOnly]
     public class SyncCommands : NinjaBotBaseModule
     {
         private readonly ILogger<SyncCommands> _logger;

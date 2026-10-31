@@ -1684,6 +1684,7 @@ public class RaidRecapLiveTests
         using var timer = services.GetRequiredService<NinjaBotCore.Services.RaidRecapLiveService>();
         Assert.NotNull(timer);
         Assert.NotNull(ActivatorUtilities.CreateInstance<RaidRecapLiveCommands>(services));
+        Assert.NotNull(ActivatorUtilities.CreateInstance<RaidRecapRolloutCommands>(services));
     }
 
     [Theory]
@@ -1702,11 +1703,11 @@ public class RaidRecapLiveTests
     {
         const RaidRecapRolloutMode mine = RaidRecapRolloutMode.OwnerServers;
         Assert.Equal("Rollout is **limited to servers you are a member of**.",
-            RaidRecapLiveCommands.RolloutLine(mine, mine, requested: false));
-        var same = RaidRecapLiveCommands.RolloutLine(mine, mine, requested: true);
+            RaidRecapRolloutCommands.RolloutLine(mine, mine, requested: false));
+        var same = RaidRecapRolloutCommands.RolloutLine(mine, mine, requested: true);
         Assert.Contains("already set", same);
         Assert.DoesNotContain("Changed from", same);
-        var changed = RaidRecapLiveCommands.RolloutLine(RaidRecapRolloutMode.Off, mine, requested: true);
+        var changed = RaidRecapRolloutCommands.RolloutLine(RaidRecapRolloutMode.Off, mine, requested: true);
         Assert.Equal("Rollout is **off everywhere**. Changed from limited to servers you are a member of.", changed);
     }
 

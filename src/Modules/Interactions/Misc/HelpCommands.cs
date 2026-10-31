@@ -225,33 +225,5 @@ namespace NinjaBotCore.Modules.Interactions.Misc
             var ownerId = _config.GetValue<ulong>("OwnerId");
             return userId == ownerId;
         }
-
-        [SlashCommand("regenerate-help", "Regenerate help-commands.json by scanning all slash commands")]
-        [RequireOwner]
-        public async Task RegenerateHelp()
-        {
-            await DeferAsync(ephemeral: true);
-
-            try
-            {
-                _helpProvider.RegenerateHelpContent();
-
-                var content = HelpContent;
-                var commandCount = content?.Metadata?.TotalCommands ?? 0;
-                var categoryCount = content?.Categories?.Count ?? 0;
-
-                await FollowupAsync(
-                    $"✅ Successfully regenerated help-commands.json!\n\n" +
-                    $"**Commands found:** {commandCount}\n" +
-                    $"**Categories:** {categoryCount}\n" +
-                    $"**Last updated:** {content?.Metadata?.LastUpdated ?? "unknown"}",
-                    ephemeral: true);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error regenerating help file");
-                await FollowupAsync($"❌ Error regenerating help file: {ex.Message}", ephemeral: true);
-            }
-        }
     }
 }

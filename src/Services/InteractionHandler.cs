@@ -79,30 +79,55 @@ namespace NinjaBotCore.Services
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to register slash commands. Bot will continue running, but commands may not be available. " +
-                    "Common causes: Missing 'applications.commands' scope in OAuth2 URL, or bot was kicked and re-invited without proper permissions.");
+                _logger.LogError(ex, "Failed to register slash commands. Bot will continue running, but commands may be missing or stale. " +
+                    "Common causes: over Discord's command limits, or missing 'applications.commands' scope in OAuth2 URL.");
                 // Don't throw - allow bot to continue running even if command registration fails
             }
         }
+
+        // Bot-owner tools ([OwnerGuildOnly]) are registered only to this server, not globally
+        private const ulong DefaultOwnerGuildId = 249709417963061248;
 
         private async Task RegisterCommandsAsync()
         {
             // Context & Slash commands can be automatically registered, but this process needs to happen after the client enters the READY state.
             // Since Global Commands take around 1 hour to register, we should use a test guild to instantly update and test our commands.
             // This method is called once after all shards are ready to avoid duplicate registrations.
+            var (globalModules, ownerModules) = SlashCommandLimits.Split(_handler.Modules);
+
             if (NinjaBot.IsDebug())
             {
+                // The test guild gets everything, owner tools included
                 _logger.LogInformation("All shards ready - Registering {Count} slash commands to test guild {GuildId}",
                     _handler.SlashCommands.Count,
                     _configuration["testGuild"]);
-                await _handler.RegisterCommandsToGuildAsync(Convert.ToUInt64(_configuration["testGuild"]), true);
+                await _handler.AddModulesToGuildAsync(Convert.ToUInt64(_configuration["testGuild"]), true,
+                    globalModules.Concat(ownerModules).ToArray());
                 _logger.LogInformation("Successfully registered commands to test guild");
+                return;
             }
-            else
+
+            var globalCount = SlashCommandLimits.TopLevelCount(globalModules);
+            if (globalCount > SlashCommandLimits.MaxTopLevelCommands)
             {
-                _logger.LogInformation("All shards ready - Registering {Count} slash commands globally", _handler.SlashCommands.Count);
-                await _handler.RegisterCommandsGloballyAsync(true);
-                _logger.LogInformation("Successfully registered commands globally");
+                _logger.LogError("{Count} top-level slash commands is over Discord's global limit of {Max}. Discord will reject the update and commands will stay stale",
+                    globalCount, SlashCommandLimits.MaxTopLevelCommands);
+            }
+
+            _logger.LogInformation("All shards ready - Registering {Count} top-level slash commands globally", globalCount);
+            await _handler.RegisterCommandsGloballyAsync(true);
+            _logger.LogInformation("Successfully registered commands globally");
+
+            var ownerGuild = _configuration.GetValue<ulong?>("ownerGuild") ?? DefaultOwnerGuildId;
+            try
+            {
+                await _handler.AddModulesToGuildAsync(ownerGuild, true, ownerModules);
+                _logger.LogInformation("Registered {Count} owner commands to server {GuildId}",
+                    SlashCommandLimits.TopLevelCount(ownerModules), ownerGuild);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Couldn't register owner commands to server {GuildId}. Is the bot in that server?", ownerGuild);
             }
         }
 

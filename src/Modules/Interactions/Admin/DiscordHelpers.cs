@@ -742,51 +742,6 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             await FollowupAsync(embed: embed.Build(), ephemeral: true);
         }
 
-        [SlashCommand("blocklist", "block a user from using the bot")]
-        [RequireOwner]
-        public async Task BlockList(IGuildUser user, string reason = null)
-        {
-            var embed = new EmbedBuilder();
-            StringBuilder sb = new StringBuilder();
-            try
-            {
-                await WithDbAsync(async db =>
-                {
-                    var getUser = await db.Blacklist
-                        .Where(b => b.DiscordUserId == (long)user.Id)
-                        .FirstOrDefaultAsync();
-                    if (getUser != null)
-                    {
-                        sb.AppendLine($"Removing {user.Username} from blocklist");
-                        db.Blacklist.Remove(getUser);
-                    }
-                    else
-                    {
-                        if (string.IsNullOrEmpty(reason))
-                        {
-                            reason = "just because";
-                        }
-                        db.Blacklist.Add(new Blacklist
-                        {
-                            DiscordUserId = (long)user.Id,
-                            DiscordUserName = user.Username,
-                            Reason = reason,
-                            WhenBlacklisted = DateTime.UtcNow
-                        });
-                        sb.AppendLine($"Adding [**{user.Username}**] to blocklist -> [*{reason}*]");
-                    }
-                    embed.Title = "[Blocklist]";
-                    embed.Description = sb.ToString();
-                    await db.SaveChangesAsync();
-                });
-            }
-            catch (Exception ex)
-            {
-                sb.AppendLine($"Error updating blocklist for [{user.Username}] -> [{ex.Message}]");
-            }
-            await RespondAsync(embed: embed.Build(), ephemeral: true);
-        }
-
         [SlashCommand("clear", "clear x amount of messages from a channel")]
         [RequireBotPermission(GuildPermission.ManageMessages)]
         [RequireUserPermission(GuildPermission.ManageMessages)]

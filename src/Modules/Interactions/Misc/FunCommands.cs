@@ -26,14 +26,6 @@ namespace NinjaBotCore.Modules.Interactions.Fun
             _config = config;
         }
 
-        [SlashCommand("setstatus", "set status of the bot")]
-        [RequireOwner]
-        public async Task SetStatus(string args = null)
-        {                        
-            await _client.SetGameAsync(args);
-            await RespondAsync(text: $"Status set to {args}", ephemeral: true);
-        }
-
         [SlashCommand("support-ninjabot", "Support NinjaBot!")]
         public async Task SupportNinjaBot()
         {

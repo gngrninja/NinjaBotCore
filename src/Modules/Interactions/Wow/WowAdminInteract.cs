@@ -22,7 +22,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace NinjaBotCore.Modules.Interactions.Wow
 {
-    // Interaction modules must be public and inherit from an IInteractionModuleBase
+    // Owner tools: registered only to the owner's server
+    [OwnerGuildOnly]
     public class WowAdminInteract : NinjaBotBaseModule
     {
         private WowApi _wowApi;
@@ -755,7 +756,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         }
 
         [SlashCommand("wow-list-duplicates", "List WoW guild associations with duplicate ServerIds")]
-        [RequireUserPermission(GuildPermission.Administrator)]
+        [Discord.Interactions.RequireOwner]
         public async Task ListDuplicateGuilds()
         {
             await DeferAsync();
@@ -825,7 +826,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         }
 
         [SlashCommand("wow-cleanup-duplicates", "Remove duplicate guild associations, keeping only the latest entry per ServerId")]
-        [RequireUserPermission(GuildPermission.Administrator)]
+        [Discord.Interactions.RequireOwner]
         public async Task CleanupDuplicates(
             [Summary("confirm", "Type 'DELETE' to confirm permanent deletion")] string confirm = "")
         {
@@ -951,7 +952,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         }
 
         [SlashCommand("wow-cleanup-null-slugs", "Remove WoW guild associations with null LocalRealmSlug")]
-        [RequireUserPermission(GuildPermission.Administrator)]
+        [Discord.Interactions.RequireOwner]
         public async Task CleanupNullSlugs()
         {
             await DeferAsync();

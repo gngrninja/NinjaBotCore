@@ -146,6 +146,9 @@ namespace NinjaBotCore.Services
 
             foreach (var moduleType in interactionModules)
             {
+                // Owner tools only exist in the owner's server, so they're not in help
+                if (IsOwnerGuildOnly(moduleType)) continue;
+
                 // Compose the group prefix from the module AND any declaring modules —
                 // nested [Group] classes (e.g. keys → board) must produce "keys board",
                 // not just "board".
@@ -466,6 +469,13 @@ namespace NinjaBotCore.Services
 
         private static bool IsForeverModule(ScannedCommand c)
             => c.ModuleName.Contains("Wow") && c.ModuleTypeName.StartsWith("Forever");
+
+        private static bool IsOwnerGuildOnly(Type moduleType)
+        {
+            for (var t = moduleType; t != null; t = t.DeclaringType)
+                if (t.GetCustomAttribute<NinjaBotCore.Attributes.OwnerGuildOnlyAttribute>() != null) return true;
+            return false;
+        }
 
         private static HelpCommand ToHelpCommand(ScannedCommand c)
         {

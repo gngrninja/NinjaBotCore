@@ -15,18 +15,17 @@ using NinjaBotCore.Modules.Interactions.Wow.CharViews;
 namespace NinjaBotCore.Modules.Interactions.Wow;
 
 /// <summary>
-/// The two switches for the live raid recap: officers turn it on for their server, and the
-/// bot owner decides which servers are eligible at all.
+/// Officers turn the live raid recap on for their server. Which servers are eligible at all
+/// is the owner's switch in <see cref="RaidRecapRolloutCommands"/>.
 /// </summary>
 public class RaidRecapLiveCommands : InteractionModuleBase<IInteractionContext>
 {
-    private const string Title = "Live raid recap";
+    internal const string Title = "Live raid recap";
 
     private readonly IServiceScopeFactory _scopes;
     private readonly RaidRecapLiveGate _gate;
     private readonly RaidRecapLiveCoordinator _coordinator;
     private readonly IRaidRecapLiveDiscord _discord;
-    private readonly NinjaBotCore.Modules.Wow.WarcraftLogsV2Client _warcraftLogs;
     private readonly ILogger<RaidRecapLiveCommands> _logger;
 
     public RaidRecapLiveCommands(
@@ -34,14 +33,12 @@ public class RaidRecapLiveCommands : InteractionModuleBase<IInteractionContext>
         RaidRecapLiveGate gate,
         RaidRecapLiveCoordinator coordinator,
         IRaidRecapLiveDiscord discord,
-        NinjaBotCore.Modules.Wow.WarcraftLogsV2Client warcraftLogs,
         ILogger<RaidRecapLiveCommands> logger)
     {
         _scopes = scopes;
         _gate = gate;
         _coordinator = coordinator;
         _discord = discord;
-        _warcraftLogs = warcraftLogs;
         _logger = logger;
     }
 
@@ -98,48 +95,6 @@ public class RaidRecapLiveCommands : InteractionModuleBase<IInteractionContext>
         {
             _logger.LogWarning("Raid recap live toggle failed ({Type})", ex.GetType().Name);
             await NoticeAsync("Something went wrong changing the live raid recap. Try again shortly.", Color.Orange);
-        }
-    }
-
-    [Discord.Interactions.RequireOwner]
-    [SlashCommand("raid-recap-rollout", "Bot owner: choose which servers may use the live raid recap")]
-    public async Task RolloutAsync(
-        [Summary("mode", "Where the live raid recap is available")]
-        [Choice("Status", "status")]
-        [Choice("Off (kill switch)", "off")]
-        [Choice("My servers", "mine")]
-        [Choice("Everyone", "everyone")]
-        string mode = "status")
-    {
-        await DeferAsync(ephemeral: true);
-        try
-        {
-            RaidRecapRolloutMode? requested = mode switch
-            {
-                "off" => RaidRecapRolloutMode.Off,
-                "mine" => RaidRecapRolloutMode.OwnerServers,
-                "everyone" => RaidRecapRolloutMode.Everyone,
-                _ => null
-            };
-            var previous = await _gate.ModeAsync();
-            if (requested.HasValue && requested.Value != previous)
-            {
-                await _gate.SetModeAsync(requested.Value);
-            }
-
-            var current = await _gate.ModeAsync();
-            using var scope = _scopes.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
-            var status = await RaidRecapLiveStatus.BuildAsync(
-                db, current, _coordinator.Health.Snapshot(), _warcraftLogs.LastRateLimit, DateTimeOffset.UtcNow);
-            await NoticeAsync(
-                RolloutLine(current, previous, requested.HasValue) + "\n" + status.Text(),
-                current == RaidRecapRolloutMode.Off ? Color.LightGrey : Color.Green);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning("Raid recap rollout change failed ({Type})", ex.GetType().Name);
-            await NoticeAsync("Something went wrong changing the rollout. Try again shortly.", Color.Orange);
         }
     }
 
@@ -228,28 +183,6 @@ public class RaidRecapLiveCommands : InteractionModuleBase<IInteractionContext>
         settings.SetByName = name.Length <= 100 ? name : name[..100];
         settings.TimeSet = DateTime.UtcNow;
     }
-
-    /// <summary>Says "changed" only when the mode really is different from before.</summary>
-    public static string RolloutLine(RaidRecapRolloutMode current, RaidRecapRolloutMode previous, bool requested)
-    {
-        var line = $"Rollout is **{Describe(current)}**";
-        if (!requested)
-        {
-            return line + ".";
-        }
-
-        return current == previous
-            ? line + ". It was already set to that, so nothing changed."
-            : line + $". Changed from {Describe(previous)}.";
-    }
-
-    private static string Describe(RaidRecapRolloutMode mode) => mode switch
-    {
-        RaidRecapRolloutMode.Off => "off everywhere",
-        RaidRecapRolloutMode.OwnerServers => "limited to servers you are a member of",
-        RaidRecapRolloutMode.Everyone => "open to every server",
-        _ => "unknown"
-    };
 
     private Task NoticeAsync(string message, Color accent) =>
         Context.Interaction.ModifyToV2Async(WowCardV2.Notice(Title, message, accent).Build());

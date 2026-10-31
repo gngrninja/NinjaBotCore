@@ -28,6 +28,12 @@
 - A stopped live card picks up again with its raid's next pull: after a WarcraftLogs outage, after an officer turns the card off and on, or when the rollout covers the server again. A deleted card stays gone unless an officer turns the card on again.
 - The private recap's Bosses view and *Still progressing* card now show a pull strip: boss health left on each pull, in order.
 
+### Commands
+
+- Bot-owner commands are registered only in the owner's server (`ownerGuild` in config, defaults to the home server), not globally. This frees 34 of Discord's 100 global command slots, and other servers no longer see them in their `/` menu.
+- `wow-list-duplicates`, `wow-cleanup-duplicates` and `wow-cleanup-null-slugs` are owner-only. They act on every server's guild links but only needed Administrator in the server they were run from.
+- Tests check every command against Discord's limits (100 top-level commands, 25 subcommands, options and choices, name and description lengths, 8000 characters per command), and startup logs an error if the global list is over 100.
+
 ## [v3.2.7] - 2026-08-23
 
 ### Raider.IO Insights
