@@ -323,6 +323,17 @@ public sealed class RaidRecapLiveCoordinator
         return (false, watching, checkedServers);
     }
 
+    /// <summary>
+    /// The guild's newest reports, as discovery reads them. Shared with the rollout selection, so
+    /// checking a server there costs no extra WarcraftLogs call when discovery just looked.
+    /// </summary>
+    public async Task<IReadOnlyList<WclV2Report>> NewestReportsAsync(RaidRecapGuild wow) =>
+        // Its own cache entry: the picker's list is longer, and must not get this short one.
+        (IReadOnlyList<WclV2Report>)await _cache.GetAsync(
+            "live:" + RaidRecapService.GuildKey(wow.Name, wow.Realm, wow.Region),
+            async () => await _source.GetRaidRecapReportsAsync(wow.Name, wow.Realm, wow.Region, DiscoveryReports),
+            TimeSpan.FromSeconds(30));
+
     /// <summary>Runs one unit of work so that its failure cannot stop the rest of the sweep.</summary>
     private async Task<bool> ContainAsync(Func<Task<bool>> work, string what, long id, CancellationToken ct)
     {
@@ -562,11 +573,7 @@ public sealed class RaidRecapLiveCoordinator
         IReadOnlyList<WclV2Report> reports;
         try
         {
-            // Its own cache entry: the picker's list is longer, and must not get this short one.
-            reports = (IReadOnlyList<WclV2Report>)await _cache.GetAsync(
-                "live:" + RaidRecapService.GuildKey(wow.Name, wow.Realm, wow.Region),
-                async () => await _source.GetRaidRecapReportsAsync(wow.Name, wow.Realm, wow.Region, DiscoveryReports),
-                TimeSpan.FromSeconds(30));
+            reports = await NewestReportsAsync(wow);
         }
         catch (Exception ex) when (IsQuota(ex))
         {

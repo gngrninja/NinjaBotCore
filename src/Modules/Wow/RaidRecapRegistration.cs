@@ -24,5 +24,11 @@ public static class RaidRecapRegistration
             sp.GetRequiredService<RaidRecapLiveGate>(),
             sp.GetRequiredService<IRaidRecapLiveDiscord>(),
             sp.GetRequiredService<ILogger<RaidRecapLiveCoordinator>>(),
-            health: sp.GetRequiredService<RaidRecapLiveHealth>()));
+            health: sp.GetRequiredService<RaidRecapLiveHealth>()))
+        .AddSingleton(sp => new RaidRecapLiveSelection(
+            sp.GetRequiredService<IServiceScopeFactory>(),
+            sp.GetRequiredService<IRaidRecapLiveDiscord>(),
+            sp.GetRequiredService<RaidRecapLiveGate>(),
+            sp.GetRequiredService<RaidRecapLiveCoordinator>(),
+            sp.GetRequiredService<ILogger<RaidRecapLiveSelection>>()));
 }

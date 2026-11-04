@@ -10,7 +10,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow;
 
 /// <summary>
 /// Decides which servers may use the live raid recap. The bot owner sets the mode; during
-/// rollout only servers the owner is a member of are allowed.
+/// rollout only servers the owner is a member of are allowed, plus any the owner selected.
 /// </summary>
 public sealed class RaidRecapLiveGate
 {
@@ -64,18 +64,33 @@ public sealed class RaidRecapLiveGate
         {
             case RaidRecapRolloutMode.Everyone:
                 return true;
+            case RaidRecapRolloutMode.Selected:
+                return await IsSelectedAsync(guildId) || await OwnerIsMemberAsync(guildId);
             case RaidRecapRolloutMode.OwnerServers:
-                foreach (var owner in await _discord.OwnerIdsAsync())
-                {
-                    if (await _discord.IsMemberAsync(guildId, owner))
-                    {
-                        return true;
-                    }
-                }
-
-                return false;
+                return await OwnerIsMemberAsync(guildId);
             default:
                 return false;
         }
+    }
+
+    private async Task<bool> OwnerIsMemberAsync(ulong guildId)
+    {
+        foreach (var owner in await _discord.OwnerIdsAsync())
+        {
+            if (await _discord.IsMemberAsync(guildId, owner))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private async Task<bool> IsSelectedAsync(ulong guildId)
+    {
+        using var scope = _scopes.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+        var id = checked((long)guildId);
+        return await db.RaidRecapLiveSettings.AsNoTracking().AnyAsync(s => s.DiscordGuildId == id && s.Selected);
     }
 }

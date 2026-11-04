@@ -52,7 +52,8 @@ public sealed record RaidRecapLiveStatus(
     IReadOnlyList<RaidRecapLiveCardView> Live,
     RaidRecapLiveWatcher Watcher,
     RaidRecapLiveWarcraftLogs? WarcraftLogs,
-    WclAuthHealthSnapshot? WarcraftLogsAuth = null)
+    WclAuthHealthSnapshot? WarcraftLogsAuth = null,
+    int ServersSelected = 0)
 {
     public static async Task<RaidRecapLiveStatus> BuildAsync(
         NinjaBotEntities db,
@@ -63,6 +64,7 @@ public sealed record RaidRecapLiveStatus(
         WclAuthHealthSnapshot? auth = null)
     {
         var servers = await db.RaidRecapLiveSettings.CountAsync(s => s.Enabled);
+        var selected = await db.RaidRecapLiveSettings.CountAsync(s => s.Selected);
         var states = await db.RaidRecapLiveCards.AsNoTracking()
             .GroupBy(c => c.State)
             .Select(g => new { State = g.Key, Count = g.Count() })
@@ -107,13 +109,15 @@ public sealed record RaidRecapLiveStatus(
             live,
             watcher,
             points == null ? null : new RaidRecapLiveWarcraftLogs(
-                Math.Round(points.Spent, 1), points.LimitPerHour, Math.Round(points.UsagePercent, 1), points.CheckedAt, points.ResetsAt), auth);
+                Math.Round(points.Spent, 1), points.LimitPerHour, Math.Round(points.UsagePercent, 1), points.CheckedAt, points.ResetsAt), auth,
+            selected);
     }
 
     public static string Describe(RaidRecapRolloutMode mode) => mode switch
     {
         RaidRecapRolloutMode.Off => "off",
         RaidRecapRolloutMode.OwnerServers => "my servers",
+        RaidRecapRolloutMode.Selected => "selected servers",
         RaidRecapRolloutMode.Everyone => "everyone",
         _ => "unknown"
     };
@@ -123,7 +127,9 @@ public sealed record RaidRecapLiveStatus(
     {
         var text = new StringBuilder();
         var invariant = System.Globalization.CultureInfo.InvariantCulture;
-        text.AppendLine($"Servers opted in: **{ServersOn}**");
+        text.AppendLine(ServersSelected > 0
+            ? $"Servers opted in: **{ServersOn}** · selected for the rollout: {ServersSelected}"
+            : $"Servers opted in: **{ServersOn}**");
         text.AppendLine($"Cards: **{Cards.Live}** live of {RaidRecapLiveCoordinator.MaxLiveCards} allowed · {Cards.Ended} ended · {Cards.Stopped} stopped · {Cards.Deleted} deleted · {PostedLastDay} posted in the last day");
         text.AppendLine(Watcher.LastSweepAt is { } swept
             ? $"Last sweep: {Stamp(swept)}{(Watcher.KillSwitch ? " (kill switch on, nothing checked)" : string.Create(invariant, $", {Watcher.LastSweepMs:0} ms, {Watcher.CardsWatched} watched, {Watcher.ServersChecked} servers checked"))}"

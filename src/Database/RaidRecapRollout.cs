@@ -15,7 +15,10 @@ namespace NinjaBotCore.Database
         OwnerServers = 1,
 
         /// <summary>Every server.</summary>
-        Everyone = 2
+        Everyone = 2,
+
+        /// <summary>Servers the bot owner selected, plus the servers the owner is a member of.</summary>
+        Selected = 3
     }
 
     /// <summary>The bot owner's global switch for the live raid recap. A single row, Id 1.</summary>

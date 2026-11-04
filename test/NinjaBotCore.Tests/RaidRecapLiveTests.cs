@@ -257,6 +257,313 @@ public class RaidRecapLiveTests
         Assert.False(await rig.Gate.AllowsAsync(Server));
     }
 
+    // ===== Rollout selection =====
+
+    private const ulong LogChannel = 31;
+
+    private static RaidRecapLiveSelection Selection(Rig rig) => new(
+        rig.Services.GetRequiredService<IServiceScopeFactory>(), rig.Discord, rig.Gate, rig.Coordinator,
+        NullLogger<RaidRecapLiveSelection>.Instance, () => rig.Now);
+
+    /// <summary>
+    /// A server whose /watchlogs channel got its latest New log some days ago. When given, its
+    /// guild's Warcraft Logs reports ended that many days ago.
+    /// </summary>
+    private static async Task SeedActiveAsync(Rig rig, ulong server, int logsPosted, double daysSinceLog,
+        bool association = true, bool watching = true, double[] reportDaysAgo = null, string guild = null)
+    {
+        guild ??= $"Synthetic Guild {server}";
+        if (reportDaysAgo != null)
+        {
+            rig.Source.Setup(x => x.GetRaidRecapReportsAsync(guild, "area-52", "us", RaidRecapLiveCoordinator.DiscoveryReports))
+                .ReturnsAsync(() => reportDaysAgo
+                    .Select((days, i) => new WclV2Report { Code = $"Synthetic{server}r{i}", EndTime = rig.Now.AddDays(-days).ToUnixTimeMilliseconds() })
+                    .ToArray());
+        }
+
+        using var scope = rig.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+        if (association)
+        {
+            db.WowGuildAssociations.Add(new WowGuildAssociations
+            {
+                ServerId = (long)server,
+                ServerName = $"Synthetic server {server}",
+                WowGuild = guild,
+                WowRealm = "Area 52",
+                LocalRealmSlug = "area-52",
+                WowRegion = "us"
+            });
+        }
+
+        db.LogMonitoring.Add(new LogMonitoring
+        {
+            ServerId = (long)server,
+            ServerName = $"Synthetic server {server}",
+            ChannelId = (long)LogChannel,
+            ChannelName = "logs",
+            MonitorLogs = watching,
+            LatestLogRetail = rig.Now.AddDays(-daysSinceLog).UtcDateTime
+        });
+        for (var i = 0; i < logsPosted; i++)
+        {
+            db.WclPosted.Add(new WclPosted { ServerId = (long)server, ChannelId = (long)LogChannel, ReportId = $"Synthetic{server}x{i}" });
+        }
+
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task<RaidRecapLiveSettings> SettingsAsync(Rig rig, ulong server)
+    {
+        using var scope = rig.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<NinjaBotEntities>().RaidRecapLiveSettings
+            .AsNoTracking().FirstOrDefaultAsync(s => s.DiscordGuildId == (long)server);
+    }
+
+    [Fact]
+    public async Task SelectedModeAllowsSelectedServersAndTheOwnersOwn()
+    {
+        using var rig = new Rig();
+        await SeedActiveAsync(rig, 77, logsPosted: 1, daysSinceLog: 1);
+        await rig.Gate.SetModeAsync(RaidRecapRolloutMode.Selected);
+        Assert.True(await rig.Gate.AllowsAsync(Server));
+        Assert.False(await rig.Gate.AllowsAsync(77));
+
+        Assert.Equal(RaidRecapLiveSelectStatus.TurnedOn, await Selection(rig).SelectAsync(77, Owner, "owner"));
+        Assert.True(await rig.Gate.AllowsAsync(77));
+
+        // The selection only counts while the rollout is limited to selected servers.
+        await rig.Gate.SetModeAsync(RaidRecapRolloutMode.OwnerServers);
+        Assert.False(await rig.Gate.AllowsAsync(77));
+        await rig.Gate.SetModeAsync(RaidRecapRolloutMode.Selected);
+
+        Assert.True(await Selection(rig).UnselectAsync(77));
+        Assert.False(await Selection(rig).UnselectAsync(77));
+        Assert.False(await rig.Gate.AllowsAsync(77));
+        Assert.True(await rig.Gate.AllowsAsync(Server));
+    }
+
+    [Fact]
+    public async Task MostActiveRanksServersWithARecentLogByLogsPostedAndChecksWarcraftLogs()
+    {
+        using var rig = new Rig();
+        await SeedActiveAsync(rig, 10, logsPosted: 2, daysSinceLog: 1, reportDaysAgo: new[] { 1.0 });
+        await SeedActiveAsync(rig, 11, logsPosted: 5, daysSinceLog: 3, reportDaysAgo: new[] { 3.0, 2.5, 10 });
+        await SeedActiveAsync(rig, 12, logsPosted: 5, daysSinceLog: 0.5, reportDaysAgo: new[] { 0.5 });
+        await SeedActiveAsync(rig, 13, logsPosted: 9, daysSinceLog: 8, reportDaysAgo: new[] { 1.0 });
+        await SeedActiveAsync(rig, 14, logsPosted: 9, daysSinceLog: 1, watching: false, reportDaysAgo: new[] { 1.0 });
+        await SeedActiveAsync(rig, 15, logsPosted: 7, daysSinceLog: 2, association: false);
+        // Re-ran /setguild this week, which also sets the latest log time, but hasn't logged in weeks.
+        await SeedActiveAsync(rig, 16, logsPosted: 6, daysSinceLog: 1, reportDaysAgo: new[] { 20.0 });
+        await SeedActiveAsync(rig, 17, logsPosted: 1, daysSinceLog: 1);
+        rig.Source.Setup(x => x.GetRaidRecapReportsAsync("Synthetic Guild 17", "area-52", "us", RaidRecapLiveCoordinator.DiscoveryReports))
+            .ThrowsAsync(new InvalidOperationException("Warcraft Logs quota unavailable. Retry in 60s."));
+
+        var (candidates, active) = await Selection(rig).MostActiveAsync(3);
+
+        // 13's last New log is over a week old and 14 stopped watching logs.
+        Assert.Equal(6, active);
+        // Servers that can't take the card don't use up a place. Equal counts: latest log first.
+        Assert.Equal(new long[] { 15, 16, 12, 11, 10 }, candidates.Select(c => c.ServerId));
+        Assert.Equal(new[] { 7, 6, 5, 5, 2 }, candidates.Select(c => c.LogsPosted));
+        Assert.Equal(new[]
+        {
+            RaidRecapLiveSelectStatus.NoGuild, RaidRecapLiveSelectStatus.NoRecentLog,
+            RaidRecapLiveSelectStatus.Ready, RaidRecapLiveSelectStatus.Ready, RaidRecapLiveSelectStatus.Ready
+        }, candidates.Select(c => c.Status));
+        Assert.Equal(new int?[] { null, 0, 1, 2, 1 }, candidates.Select(c => c.ReportsThisWeek));
+        Assert.Equal(rig.Now.AddDays(-2.5).UtcDateTime, candidates[3].LatestReport.Value, TimeSpan.FromMilliseconds(1));
+        Assert.Equal(new long[] { 15, 16, 12 }, (await Selection(rig).MostActiveAsync(1)).Candidates.Select(c => c.ServerId));
+
+        // When Warcraft Logs can't be asked, the list stops there rather than failing on every server.
+        var stopped = (await Selection(rig).MostActiveAsync(10)).Candidates;
+        Assert.Equal(new long[] { 15, 16, 12, 11, 10, 17 }, stopped.Select(c => c.ServerId));
+        Assert.Equal(RaidRecapLiveSelectStatus.Unchecked, stopped[^1].Status);
+
+        // Ranking changes nothing.
+        Assert.Empty(rig.Discord.Sent);
+        Assert.Null(await SettingsAsync(rig, 12));
+    }
+
+    [Fact]
+    public async Task SelectionStopsAtTheCap()
+    {
+        using var rig = new Rig();
+        var selection = Selection(rig);
+        for (ulong server = 100; server < 100 + RaidRecapLiveSelection.MaxSelect; server++)
+        {
+            await SeedActiveAsync(rig, server, logsPosted: 1, daysSinceLog: 1);
+            Assert.Equal(RaidRecapLiveSelectStatus.TurnedOn, await selection.SelectAsync(server, Owner, "owner"));
+        }
+
+        await SeedActiveAsync(rig, 99, logsPosted: 50, daysSinceLog: 1, reportDaysAgo: new[] { 1.0 });
+        Assert.Equal(RaidRecapLiveSelectStatus.Full, await selection.SelectAsync(99, Owner, "owner"));
+        var full = Assert.Single((await selection.MostActiveAsync(5)).Candidates);
+        Assert.Equal((99L, RaidRecapLiveSelectStatus.Full), (full.ServerId, full.Status));
+        Assert.Equal(RaidRecapLiveSelection.MaxSelect, rig.Discord.Sent.Count);
+        Assert.Null(await SettingsAsync(rig, 99));
+
+        // Servers already selected can still be selected again, and a removal frees a place.
+        Assert.Equal(RaidRecapLiveSelectStatus.AlreadyOn, await selection.SelectAsync(100, Owner, "owner"));
+        Assert.True(await selection.UnselectAsync(100));
+        Assert.Equal(RaidRecapLiveSelectStatus.TurnedOn, await selection.SelectAsync(99, Owner, "owner"));
+    }
+
+    [Fact]
+    public async Task SelectingTurnsTheCardOnInTheLogChannelAndTellsTheServerOnce()
+    {
+        using var rig = new Rig();
+        await SeedActiveAsync(rig, 10, logsPosted: 2, daysSinceLog: 1);
+        var selection = Selection(rig);
+
+        Assert.Equal(RaidRecapLiveSelectStatus.TurnedOn, await selection.SelectAsync(10, Owner, "owner"));
+
+        var notice = Assert.Single(rig.Discord.Sent);
+        Assert.Equal(LogChannel, notice.Channel);
+        var text = Text(notice.Card);
+        Assert.Contains(RaidRecapLiveSelection.NoticeTitle, text);
+        Assert.Contains("Synthetic Guild", text);
+        Assert.Contains("`/raid-recap-live state:Off`", text);
+        var settings = await SettingsAsync(rig, 10);
+        Assert.True(settings.Enabled);
+        Assert.True(settings.Selected);
+        Assert.Equal((long)LogChannel, settings.ChannelId);
+        Assert.Equal((long)Owner, settings.SetById);
+        Assert.Equal(rig.Now.UtcDateTime, settings.NoticeSentAt);
+
+        // Selecting again, or again after being removed, never repeats the message.
+        Assert.Equal(RaidRecapLiveSelectStatus.AlreadyOn, await selection.SelectAsync(10, Owner, "owner"));
+        Assert.True(await selection.UnselectAsync(10));
+        Assert.Equal(RaidRecapLiveSelectStatus.AlreadyOn, await selection.SelectAsync(10, Owner, "owner"));
+        Assert.Single(rig.Discord.Sent);
+        Assert.True((await SettingsAsync(rig, 10)).Selected);
+    }
+
+    [Fact]
+    public async Task AServerThatTurnedTheCardOffStaysOff()
+    {
+        using var rig = new Rig();
+        await SeedActiveAsync(rig, 10, logsPosted: 2, daysSinceLog: 1);
+        var selection = Selection(rig);
+        await selection.SelectAsync(10, Owner, "owner");
+        await selection.UnselectAsync(10);
+        using (var scope = rig.Services.CreateScope())
+        {
+            // An officer ran /raid-recap-live state:Off.
+            var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+            (await db.RaidRecapLiveSettings.SingleAsync()).Enabled = false;
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Equal(RaidRecapLiveSelectStatus.TurnedOff, Assert.Single((await selection.MostActiveAsync(5)).Candidates).Status);
+        Assert.Equal(RaidRecapLiveSelectStatus.TurnedOff, await selection.SelectAsync(10, Owner, "owner"));
+
+        Assert.Single(rig.Discord.Sent);
+        var settings = await SettingsAsync(rig, 10);
+        Assert.False(settings.Enabled);
+        // Still selected, so the officers can turn it back on themselves.
+        Assert.True(settings.Selected);
+
+        // Off is kept even when the server never had the card on.
+        await SeedActiveAsync(rig, 11, logsPosted: 2, daysSinceLog: 1);
+        using (var scope = rig.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+            db.RaidRecapLiveSettings.Add(new RaidRecapLiveSettings { DiscordGuildId = 11, Enabled = false });
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Equal(RaidRecapLiveSelectStatus.TurnedOff, await selection.SelectAsync(11, Owner, "owner"));
+        Assert.Single(rig.Discord.Sent);
+        Assert.False((await SettingsAsync(rig, 11)).Enabled);
+    }
+
+    [Theory]
+    [InlineData("no-guild", RaidRecapLiveSelectStatus.NoGuild)]
+    [InlineData("not-watching", RaidRecapLiveSelectStatus.NoLogChannel)]
+    [InlineData("cannot-post", RaidRecapLiveSelectStatus.CannotPost)]
+    [InlineData("send-unavailable", RaidRecapLiveSelectStatus.NoticeFailed)]
+    [InlineData("send-throws", RaidRecapLiveSelectStatus.NoticeFailed)]
+    public async Task ServersThatCantTakeTheCardAreSkippedAndLeftAlone(string problem, RaidRecapLiveSelectStatus expected)
+    {
+        using var rig = new Rig();
+        await SeedActiveAsync(rig, 10, logsPosted: 2, daysSinceLog: 1,
+            association: problem != "no-guild", watching: problem != "not-watching");
+        rig.Discord.Postable = problem != "cannot-post";
+        rig.Discord.SendUnavailable = problem == "send-unavailable";
+        if (problem == "send-throws") rig.Discord.SendThrows = new TimeoutException();
+
+        Assert.Equal(expected, await Selection(rig).SelectAsync(10, Owner, "owner"));
+
+        // Never turned on without the server being told.
+        Assert.Empty(rig.Discord.Sent);
+        Assert.Null(await SettingsAsync(rig, 10));
+    }
+
+    [Fact]
+    public async Task ASelectedServerGetsItsCardOnTheNextSweep()
+    {
+        using var rig = new Rig();
+        rig.Discord.OwnerServers.Clear();
+        await SeedActiveAsync(rig, Server, logsPosted: 2, daysSinceLog: 1, guild: "Synthetic Guild");
+        await rig.Gate.SetModeAsync(RaidRecapRolloutMode.Selected);
+        rig.List(minutesSinceLastEvent: 2);
+        await rig.SweepAsync();
+        Assert.Empty(rig.Discord.Sent);
+
+        Assert.Equal(RaidRecapLiveSelectStatus.TurnedOn, await Selection(rig).SelectAsync(Server, Owner, "owner"));
+        await rig.SweepAsync();
+
+        Assert.Equal(2, rig.Discord.Sent.Count);
+        Assert.Equal(LogChannel, rig.Discord.Sent[1].Channel);
+        Assert.Contains("🔴 **LIVE**", Text(rig.Discord.Sent[1].Card));
+        Assert.Single(await rig.CardsAsync());
+
+        var status = await StatusAsync(rig, null);
+        Assert.Equal("selected servers", status.Rollout);
+        Assert.Equal(1, status.ServersSelected);
+        Assert.Contains("Servers opted in: **1** · selected for the rollout: 1", status.Text());
+
+        // Removing the server stops its live card now, not once it goes quiet.
+        Assert.True(await Selection(rig).UnselectAsync(Server));
+        Assert.Equal(RaidRecapLiveState.Stopped, Assert.Single(await rig.CardsAsync()).State);
+        Assert.True((await SettingsAsync(rig, Server)).Enabled);
+    }
+
+    [Fact]
+    public void SelectionTextsDescribeEveryOutcomeAndFitInOneMessage()
+    {
+        Assert.All(Enum.GetValues<RaidRecapLiveSelectStatus>(), s => Assert.NotEqual("unknown", RaidRecapRolloutCommands.Describe(s)));
+
+        var many = Enumerable.Range(1, 40)
+            .Select(i => new RaidRecapLiveCandidate(1000 + i, new string('W', 60), i, i % 11, Start.UtcDateTime, RaidRecapLiveSelectStatus.NoRecentLog))
+            .ToList();
+        many[0] = many[0] with { ReportsThisWeek = null, LatestReport = null, Status = RaidRecapLiveSelectStatus.CannotPost };
+        var text = RaidRecapRolloutCommands.CandidateText(many, 120, preview: true);
+        Assert.StartsWith("**120** servers got a New log in the last 7 days, ranked by logs posted.", text);
+        Assert.Contains("Nothing has changed.", text);
+        Assert.Contains($"1. {new string('W', 40)} · 1 log posted · skipped, can't post in its log channel", text);
+        Assert.Contains($"2. {new string('W', 40)} · 2 logs posted · 2 this week, last <t:{Start.ToUnixTimeSeconds()}:R> · skipped, no Warcraft Logs report this week", text);
+        Assert.Contains("· 10+ this week", text);
+        Assert.Contains(" more.", text);
+        Assert.True(text.Length <= 3600, $"{text.Length} characters");
+
+        var selected = RaidRecapRolloutCommands.SelectedText(new[]
+        {
+            new RaidRecapLiveSelected(10, "Synthetic server", true, 31, Start.UtcDateTime),
+            new RaidRecapLiveSelected(11, "Other server", false, 31, null)
+        }, RaidRecapRolloutMode.Selected);
+        Assert.Contains("Rollout is **limited to servers you selected or are a member of**. **2** servers are selected.", selected);
+        Assert.Contains("• Synthetic server `10` · on in <#31> · told", selected);
+        Assert.Contains("• Other server `11` · turned off by the server", selected);
+        Assert.EndsWith("Changed from limited to servers you are a member of.",
+            RaidRecapRolloutCommands.RolloutLine(RaidRecapRolloutMode.Selected, RaidRecapRolloutMode.OwnerServers, requested: true));
+
+        var notice = RaidRecapLiveSelection.NoticeText("Synthetic *Guild*");
+        Assert.Contains("Synthetic \\*Guild\\*", notice);
+        Assert.True(notice.Length < 1000, $"{notice.Length} characters");
+    }
+
     // ===== Found =====
 
     [Fact]
@@ -1658,6 +1965,7 @@ public class RaidRecapLiveTests
         var commands = help.GetHelpContent().Categories.SelectMany(c => c.Commands).ToArray();
         Assert.Contains(commands, c => c.Name == "raid-recap-live");
         Assert.DoesNotContain(commands, c => c.Name == "raid-recap-rollout");
+        Assert.DoesNotContain(commands, c => c.Name == "raid-recap-select");
     }
 
     [Fact]
@@ -1681,6 +1989,7 @@ public class RaidRecapLiveTests
         Assert.IsType<RaidRecapLiveDiscord>(services.GetRequiredService<IRaidRecapLiveDiscord>());
         Assert.NotNull(services.GetRequiredService<RaidRecapLiveGate>());
         Assert.NotNull(services.GetRequiredService<RaidRecapLiveCoordinator>());
+        Assert.NotNull(services.GetRequiredService<RaidRecapLiveSelection>());
         using var timer = services.GetRequiredService<NinjaBotCore.Services.RaidRecapLiveService>();
         Assert.NotNull(timer);
         Assert.NotNull(ActivatorUtilities.CreateInstance<RaidRecapLiveCommands>(services));

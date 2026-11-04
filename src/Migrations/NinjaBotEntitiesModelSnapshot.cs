@@ -1312,6 +1312,12 @@ namespace NinjaBotCore.Migrations
                     b.Property<bool>("Enabled")
                         .HasColumnType("boolean");
 
+                    b.Property<DateTime?>("NoticeSentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("Selected")
+                        .HasColumnType("boolean");
+
                     b.Property<long?>("SetById")
                         .HasColumnType("bigint");
 

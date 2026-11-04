@@ -76,12 +76,16 @@ public class RaidRecapLiveCommands : InteractionModuleBase<IInteractionContext>
                     await TurnOnAsync(db, settings, channel, allowed);
                     return;
                 case "off":
-                    if (settings != null)
+                    // Saved even when it was never on, so the rollout never turns it on later.
+                    if (settings == null)
                     {
-                        settings.Enabled = false;
-                        Stamp(settings);
-                        await db.SaveChangesAsync();
+                        settings = new RaidRecapLiveSettings { DiscordGuildId = id };
+                        db.RaidRecapLiveSettings.Add(settings);
                     }
+
+                    settings.Enabled = false;
+                    Stamp(settings);
+                    await db.SaveChangesAsync();
 
                     await _coordinator.StopServerAsync(guildId);
                     await NoticeAsync("The live raid recap is **off** for this server. Any card that was live has stopped updating.", Color.LightGrey);

@@ -6,7 +6,10 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace NinjaBotCore.Database
 {
-    /// <summary>Per-server switch for the live raid recap card, set by an officer.</summary>
+    /// <summary>
+    /// Per-server switch for the live raid recap card, set by an officer, or by the bot owner
+    /// when they select the server for the rollout.
+    /// </summary>
     public class RaidRecapLiveSettings
     {
         [Key]
@@ -24,5 +27,14 @@ namespace NinjaBotCore.Database
         public string? SetByName { get; set; }
 
         public DateTime? TimeSet { get; set; }
+
+        /// <summary>The bot owner picked this server for the rollout (rollout mode Selected).</summary>
+        public bool Selected { get; set; }
+
+        /// <summary>
+        /// When the one-time message about the card and how to turn it off was posted. Set only
+        /// for servers the rollout turned on, so it is never sent twice.
+        /// </summary>
+        public DateTime? NoticeSentAt { get; set; }
     }
 }

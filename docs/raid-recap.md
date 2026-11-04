@@ -61,15 +61,25 @@ The sections below describe behaviour, limits and safety rules. Where they quote
 - **Final card only:** the typical gap between pulls (the middle gap), and the players with the most top-three finishes across the night's latest twelve kills. A player counts once per kill and needs two kills to be listed.
 - **Open my recap** opens the private `/raid-recap` for that log, for whoever pressed it, on the latest pull's deaths. Its custom ID holds only the report code, so it keeps working after a restart.
 
-**Two switches**
+**Switches**
 | Switch | Who | What |
 |---|---|---|
 | `/raid-recap-live state:` On, Off or Status, optional `channel:` | Officers (Kick Members, same as `/watchlogs`) | Turns the card on or off for the server. The channel defaults to the `/watchlogs` channel, then to where the command was run. Needs `/setguild`. |
-| `/raid-recap-rollout mode:` Off, My servers, Everyone or Status | Bot owner only | Chooses which servers are eligible. Off is the kill switch: the watcher makes no WarcraftLogs calls and no Discord calls. **Open my recap** on cards already posted still works, the same as running `/raid-recap`. Hidden from help. |
+| `/raid-recap-rollout mode:` Off, My servers, Selected servers and mine, Everyone or Status | Bot owner only | Chooses which servers are eligible. Off is the kill switch: the watcher makes no WarcraftLogs calls and no Discord calls. **Open my recap** on cards already posted still works, the same as running `/raid-recap`. Hidden from help. |
+| `/raid-recap-select action:` List selected servers, Preview most active, Select most active, Add a server or Remove a server; `count:` (default 20, at most 25), `server:` (an ID) | Bot owner only, in the owner's server | Picks servers for the *Selected servers* rollout and turns the card on for them. Hidden from help. |
 
 **Health.** `/raid-recap-rollout mode:Status` shows the bot owner the cards by state and how many were posted in the last day, the last sweep (how long it took, cards watched, servers checked), the last error and how many errors there were in the last hour, waits for WarcraftLogs points, the WarcraftLogs points used this hour as last read, and the latest five card events. Every card event is also logged with its reason: posted, resumed after a break, revived after a stop, ended (next raid in the log, a newer log took over, log quiet 30 minutes, no raid pull for an hour, or watched 8 hours), stopped (turned off, outside the rollout, kept failing, never posted) or deleted. The same numbers are served as JSON at `GET /api/raid-recap-live/health` on the commands API, behind its `X-Api-Key`, for the web admin page. Server IDs are strings there. The watcher's history is kept in memory only, so it starts empty after a restart; the card counts come from the database. Errors are kept by type, never by message.
 
 **Rollout gate.** In *My servers* mode a server is eligible only while the bot owner is a member of it. The bot already holds each server's member list, so the check normally costs no Discord call. Right after a restart, while member lists are still downloading, it asks Discord directly. Joining a server makes it eligible and leaving removes it. The default mode is *My servers*, and nothing is posted anywhere until an officer turns the card on.
+
+**Selected servers.** *Selected servers and mine* adds the servers the bot owner picked with `/raid-recap-select` to the owner's own servers.
+- **Most active** means the server's `/watchlogs` channel got a New log in the last 7 days. Those servers are ranked by how many logs the bot has posted for them, then by the latest log. Going down that list, each pick is checked with Warcraft Logs for a report in the last 7 days, using the same cached report list as live discovery, because `/setguild` and turning on `/watchlogs` also set the latest log time. *Preview most active* shows the list and changes nothing. Servers that can't take the card are listed with the reason and don't use up a place: no single WoW guild set, no `/watchlogs` channel, the bot can't see, post or read history there, or no Warcraft Logs report this week. If Warcraft Logs can't be asked, for example when the points have run out, the list ends there, because the rest would fail the same way.
+- **Selecting a server turns the card on in its `/watchlogs` channel** and posts a one-time message there: what the card shows, and that anyone with Kick Members can turn it off with `/raid-recap-live state:Off` or move it with `state:On channel:`. If the message can't be posted, the card is not turned on. The message is never sent twice, even if the server is removed and selected again.
+- **A server whose officers turned the card off stays off**, including one that ran `state:Off` without ever having the card on. *Select most active* skips it. *Add a server* marks it selected without turning it on, so its officers can turn it back on themselves. A server that already had the card on keeps its channel and gets no message.
+- Selecting servers while the rollout is *My servers* moves it to *Selected servers and mine*, which still covers every server it did. While the rollout is off (kill switch), selecting is refused, so nobody is told about a card that won't post.
+- **Removing a server** takes it out of the selection. Unless the bot owner is a member, a live card there stops right away, and no new one posts while the rollout is limited to selected servers. Its own on or off setting stays, so it would post again under *Everyone*.
+- **At most 25 servers are selected.** At most 20 cards are live at once, and busy servers raid on the same nights. 25 is also well inside the 50 servers that discovery (5 per 30 second sweep) keeps on their 5 minute check. Removing a server frees its place.
+- If one server fails while selecting the most active, the rest still go ahead and the reply says which one failed.
 
 **Cost and limits**
 - One log read per refresh. Each pull is read once and remembered for as long as a live card watches the log.
@@ -82,7 +92,7 @@ The sections below describe behaviour, limits and safety rules. Where they quote
 - The bot needs View Channel, Send Messages and Read Message History in the card's channel.
 - The card reads logs and pulls through the same caches as the private recap. The report list is cached separately, because the two ask for different lengths.
 
-**State** is in three tables: `RaidRecapLiveSettings` (per server), `RaidRecapLiveCards` (one row per posted card, unique per server, report and raid start) and `RaidRecapRollout` (one row). Watching resumes after a restart. Migrations: `AddRaidRecapLive`, then `SplitRaidRecapLiveCardsByRaid`, which adds the raid start and zone to each card. Cards made before it hold 0 and cover the first raid in their log.
+**State** is in three tables: `RaidRecapLiveSettings` (per server), `RaidRecapLiveCards` (one row per posted card, unique per server, report and raid start) and `RaidRecapRollout` (one row). Watching resumes after a restart. Migrations: `AddRaidRecapLive`, then `SplitRaidRecapLiveCardsByRaid`, which adds the raid start and zone to each card. Cards made before it hold 0 and cover the first raid in their log. `AddRaidRecapLiveSelection` adds `Selected` and `NoticeSentAt` to each server's settings.
 
 The existing `/watchlogs` "New log" post is unchanged.
 
