@@ -92,7 +92,7 @@ The sections below describe behaviour, limits and safety rules. Where they quote
 - The bot needs View Channel, Send Messages and Read Message History in the card's channel.
 - The card reads logs and pulls through the same caches as the private recap. The report list is cached separately, because the two ask for different lengths.
 
-**State** is in three tables: `RaidRecapLiveSettings` (per server), `RaidRecapLiveCards` (one row per posted card, unique per server, report and raid start) and `RaidRecapRollout` (one row). Watching resumes after a restart. Migrations: `AddRaidRecapLive`, then `SplitRaidRecapLiveCardsByRaid`, which adds the raid start and zone to each card. Cards made before it hold 0 and cover the first raid in their log. `AddRaidRecapLiveSelection` adds `Selected` and `NoticeSentAt` to each server's settings.
+**State** is in three tables: `RaidRecapLiveSettings` (per server), `RaidRecapLiveCards` (one row per posted card, unique per server, report and raid start) and `RaidRecapRollout` (one row). Watching resumes after a restart. Migrations: `AddRaidRecapLive`, then `SplitRaidRecapLiveCardsByRaid`, which adds the raid start and zone to each card. Cards made before it hold 0 and cover the first raid in their log. `AddRaidRecapLiveSelection` adds `Selected` and `NoticeSentAt` to each server's settings. A server's settings and cards are deleted with the rest of its data 30 days after the bot leaves it.
 
 The existing `/watchlogs` "New log" post is unchanged.
 

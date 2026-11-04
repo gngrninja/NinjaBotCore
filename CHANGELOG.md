@@ -29,6 +29,7 @@
 - The private recap's Bosses view and *Still progressing* card now show a pull strip: boss health left on each pull, in order.
 - The live card can be rolled out to selected servers: `/raid-recap-rollout` has a *Selected servers and mine* mode, and `/raid-recap-select` (owner server only) previews and selects the most active servers (a New log in the last 7 days, ranked by logs posted, each confirmed with a Warcraft Logs report this week), or adds or removes one by ID, up to 25. Selecting a server turns the card on in its `/watchlogs` channel and posts a one-time message there on how to turn it off. A server that turned the card off stays off.
 - `/raid-recap-live state:Off` is saved even in a server that never had the card on.
+- Live card settings and cards are deleted with the rest of a server's data 30 days after the bot leaves it.
 
 ### Commands
 
