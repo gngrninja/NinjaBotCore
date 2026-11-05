@@ -30,12 +30,25 @@
 - The live card can be rolled out to selected servers: `/raid-recap-rollout` has a *Selected servers and mine* mode, and `/raid-recap-select` (owner server only) previews and selects the most active servers (a New log in the last 7 days, ranked by logs posted, each confirmed with a Warcraft Logs report this week), or adds or removes one by ID, up to 25. Selecting a server turns the card on in its `/watchlogs` channel and posts a one-time message there on how to turn it off. A server that turned the card off stays off.
 - `/raid-recap-live state:Off` is saved even in a server that never had the card on.
 - Live card settings and cards are deleted with the rest of a server's data 30 days after the bot leaves it.
+- A live card waits out a WarcraftLogs sign-in outage without counting it against the card. `/raid-recap-rollout Status` says when sign-in is failing, and the health JSON adds `warcraft_logs_auth`.
+- The rollout and each server's live card can be managed from the web: the commands API serves the rollout mode, the selected servers, *Preview most active*, select, add and remove for the admin page (bot owner only), and turning a server's card on or off for its dashboard. `/raid-recap-live` and the dashboard share the same rules.
+- *Preview* and *Select most active* skip only the one server when Warcraft Logs reports an error about its guild, such as a guild that never logged, instead of ending the list there.
+- Selecting servers runs one at a time, so two selections at once can't post the one-time message twice or pass the 25-server cap. An officer who turns the card off while the message is posting keeps it off.
+- A selected server whose card is already on, but where the bot can no longer post, is skipped instead of taking a place. A server the bot has left no longer uses up a place, and the selected list says the bot left.
+- The `/watchlogs` channel for the card is the one with the latest New log; a row that never had a log no longer comes first in PostgreSQL.
 
 ### Commands
 
 - Bot-owner commands are registered only in the owner's server (`ownerGuild` in config, defaults to the home server), not globally. This frees 34 of Discord's 100 global command slots, and other servers no longer see them in their `/` menu.
 - `wow-list-duplicates`, `wow-cleanup-duplicates` and `wow-cleanup-null-slugs` are owner-only. They act on every server's guild links but only needed Administrator in the server they were run from.
 - Tests check every command against Discord's limits (100 top-level commands, 25 subcommands, options and choices, name and description lengths, 8000 characters per command), and startup logs an error if the global list is over 100.
+
+### Warcraft Logs
+
+- When WarcraftLogs rejects the bot's token, the bot and the helpers service get a new one and retry the request once. If the new token is rejected too, requests pause for 30 seconds, doubling to at most 5 minutes while it keeps failing. Each outage is logged as `[WCL Auth] state=unavailable` (at most every 5 minutes) and the recovery as `state=recovered`.
+- The helpers service no longer waits out a Retry-After longer than its request deadline; it reports the real status straight away.
+- A rate limit check that fails after a successful query no longer throws away that query's result.
+- Grafana alert rules for errors, fatal errors and WarcraftLogs sign-in are kept offline in `ops/alerting`.
 
 ## [v3.2.7] - 2026-08-23
 

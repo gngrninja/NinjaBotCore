@@ -262,6 +262,10 @@ namespace NinjaBotCore.Modules.Wow
             {
                 _logger.LogWarning("[WCL v2] Periodic quota check timed out");
             }
+            catch (WclAuthenticationUnavailableException)
+            {
+                // The query itself succeeded. The auth policy has already logged the outage.
+            }
             finally { if (acquired) _rateLimitGate.Release(); }
         }
 

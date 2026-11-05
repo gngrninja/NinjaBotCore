@@ -197,4 +197,29 @@ namespace NinjaBotCore.Services.Api
         [property: JsonPropertyName("set_by_id")] string? SetById,
         [property: JsonPropertyName("set_by_name")] string? SetByName
     );
+
+    /// <summary>Request body for setting the live raid recap rollout mode (bot owner only).</summary>
+    public record UpdateRaidRecapRolloutRequest(
+        [property: JsonPropertyName("mode")] string? Mode,
+        [property: JsonPropertyName("user_id")] string? UserId
+    );
+
+    /// <summary>
+    /// Request body for selecting servers for the live raid recap rollout (bot owner only). With a
+    /// server_id it selects that server, otherwise the count most active.
+    /// </summary>
+    public record RaidRecapSelectRequest(
+        [property: JsonPropertyName("server_id")] string? ServerId,
+        [property: JsonPropertyName("count")] int? Count,
+        [property: JsonPropertyName("user_id")] string? UserId,
+        [property: JsonPropertyName("username")] string? Username
+    );
+
+    /// <summary>Request body for turning a server's live raid recap card on or off.</summary>
+    public record UpdateRaidRecapLiveRequest(
+        [property: JsonPropertyName("enabled")] bool? Enabled,
+        [property: JsonPropertyName("channel_id")] string? ChannelId,
+        [property: JsonPropertyName("user_id")] string? UserId,
+        [property: JsonPropertyName("username")] string? Username
+    );
 }

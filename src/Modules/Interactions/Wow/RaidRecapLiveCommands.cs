@@ -1,15 +1,11 @@
 #nullable enable
 
 using System;
-using System.Linq;
 using System.Threading.Tasks;
 using Discord;
 using Discord.Interactions;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NinjaBotCore.Common;
-using NinjaBotCore.Database;
 using NinjaBotCore.Modules.Interactions.Wow.CharViews;
 
 namespace NinjaBotCore.Modules.Interactions.Wow;
@@ -22,23 +18,12 @@ public class RaidRecapLiveCommands : InteractionModuleBase<IInteractionContext>
 {
     internal const string Title = "Live raid recap";
 
-    private readonly IServiceScopeFactory _scopes;
-    private readonly RaidRecapLiveGate _gate;
-    private readonly RaidRecapLiveCoordinator _coordinator;
-    private readonly IRaidRecapLiveDiscord _discord;
+    private readonly RaidRecapLiveSwitch _switch;
     private readonly ILogger<RaidRecapLiveCommands> _logger;
 
-    public RaidRecapLiveCommands(
-        IServiceScopeFactory scopes,
-        RaidRecapLiveGate gate,
-        RaidRecapLiveCoordinator coordinator,
-        IRaidRecapLiveDiscord discord,
-        ILogger<RaidRecapLiveCommands> logger)
+    public RaidRecapLiveCommands(RaidRecapLiveSwitch liveSwitch, ILogger<RaidRecapLiveCommands> logger)
     {
-        _scopes = scopes;
-        _gate = gate;
-        _coordinator = coordinator;
-        _discord = discord;
+        _switch = liveSwitch;
         _logger = logger;
     }
 
@@ -64,34 +49,29 @@ public class RaidRecapLiveCommands : InteractionModuleBase<IInteractionContext>
             }
 
             var guildId = Context.Guild.Id;
-            var id = checked((long)guildId);
-            using var scope = _scopes.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
-            var settings = await db.RaidRecapLiveSettings.FirstOrDefaultAsync(s => s.DiscordGuildId == id);
-            var allowed = await _gate.AllowsAsync(guildId);
-
             switch (state)
             {
                 case "on":
-                    await TurnOnAsync(db, settings, channel, allowed);
+                    var result = await _switch.TurnOnAsync(guildId, channel?.Id, Context.Channel.Id, Context.User.Id, Context.User.Username ?? "");
+                    await (result.Status switch
+                    {
+                        RaidRecapLiveSwitchStatus.NotAvailable => NoticeAsync(NotAvailableText, Color.Orange),
+                        RaidRecapLiveSwitchStatus.NoGuild => NoticeAsync("This server has no WoW guild set. Run `/setguild` first, then turn the live raid recap on.", Color.Orange),
+                        RaidRecapLiveSwitchStatus.CannotPost => NoticeAsync($"I can't keep a card updated in <#{result.ChannelId}>. Give me View Channel, Send Messages and Read Message History there, or pick another channel.", Color.Orange),
+                        RaidRecapLiveSwitchStatus.On => NoticeAsync(
+                            $"The live raid recap is **on**.\n"
+                            + $"When the next raid log for **{NinjaBotCore.Modules.Wow.RaidRecapRules.Text(result.GuildName ?? "", 80)}** goes live, "
+                            + $"I'll post one card in <#{result.ChannelId}> and keep it updated until the raid ends.",
+                            Color.Green),
+                        _ => NoticeAsync("Pick a `channel` for the card.", Color.Orange)
+                    });
                     return;
                 case "off":
-                    // Saved even when it was never on, so the rollout never turns it on later.
-                    if (settings == null)
-                    {
-                        settings = new RaidRecapLiveSettings { DiscordGuildId = id };
-                        db.RaidRecapLiveSettings.Add(settings);
-                    }
-
-                    settings.Enabled = false;
-                    Stamp(settings);
-                    await db.SaveChangesAsync();
-
-                    await _coordinator.StopServerAsync(guildId);
+                    await _switch.TurnOffAsync(guildId, Context.User.Id, Context.User.Username ?? "");
                     await NoticeAsync("The live raid recap is **off** for this server. Any card that was live has stopped updating.", Color.LightGrey);
                     return;
                 default:
-                    await StatusAsync(db, settings, allowed);
+                    await StatusAsync(await _switch.StateAsync(guildId));
                     return;
             }
         }
@@ -102,90 +82,27 @@ public class RaidRecapLiveCommands : InteractionModuleBase<IInteractionContext>
         }
     }
 
-    private async Task TurnOnAsync(NinjaBotEntities db, RaidRecapLiveSettings? settings, ITextChannel? channel, bool allowed)
+    private const string NotAvailableText = "The live raid recap is in a limited rollout and isn't available in this server yet.";
+
+    private async Task StatusAsync(RaidRecapLiveServerState state)
     {
-        var guildId = Context.Guild.Id;
-        var id = checked((long)guildId);
-        if (!allowed)
+        if (!state.Available)
         {
-            await NoticeAsync("The live raid recap is in a limited rollout and isn't available in this server yet.", Color.Orange);
+            await NoticeAsync(NotAvailableText, Color.LightGrey);
             return;
         }
 
-        var guild = await RaidRecapDiscord.FindGuildAsync(db, guildId);
-        if (guild == null)
-        {
-            await NoticeAsync("This server has no WoW guild set. Run `/setguild` first, then turn the live raid recap on.", Color.Orange);
-            return;
-        }
-
-        // An explicit channel wins, then the /watchlogs channel, then wherever this was run.
-        var target = channel?.Id;
-        if (target == null)
-        {
-            var watched = await db.LogMonitoring.AsNoTracking()
-                .Where(l => l.ServerId == id && l.MonitorLogs)
-                .Select(l => (long?)l.ChannelId)
-                .FirstOrDefaultAsync();
-            target = watched > 0 ? (ulong)watched.Value : Context.Channel.Id;
-        }
-
-        if (!_discord.CanPost(guildId, target.Value))
-        {
-            await NoticeAsync($"I can't keep a card updated in <#{target}>. Give me View Channel, Send Messages and Read Message History there, or pick another channel.", Color.Orange);
-            return;
-        }
-
-        if (settings == null)
-        {
-            settings = new RaidRecapLiveSettings { DiscordGuildId = id };
-            db.RaidRecapLiveSettings.Add(settings);
-        }
-
-        settings.Enabled = true;
-        settings.ChannelId = checked((long)target.Value);
-        Stamp(settings);
-        await db.SaveChangesAsync();
-        await _coordinator.StartServerAsync(guildId);
-        await NoticeAsync(
-            $"The live raid recap is **on**.\n"
-            + $"When the next raid log for **{NinjaBotCore.Modules.Wow.RaidRecapRules.Text(guild.Name, 80)}** goes live, "
-            + $"I'll post one card in <#{target}> and keep it updated until the raid ends.",
-            Color.Green);
-    }
-
-    private async Task StatusAsync(NinjaBotEntities db, RaidRecapLiveSettings? settings, bool allowed)
-    {
-        var id = checked((long)Context.Guild.Id);
-        if (!allowed)
-        {
-            await NoticeAsync("The live raid recap is in a limited rollout and isn't available in this server yet.", Color.LightGrey);
-            return;
-        }
-
-        if (settings?.Enabled != true || settings.ChannelId == null)
+        if (!state.On)
         {
             await NoticeAsync("The live raid recap is **off** for this server. Run `/raid-recap-live state:On` to turn it on.", Color.LightGrey);
             return;
         }
 
-        var live = await db.RaidRecapLiveCards.AsNoTracking()
-            .Where(c => c.DiscordGuildId == id && c.State == RaidRecapLiveState.Live)
-            .OrderByDescending(c => c.StartedAt)
-            .FirstOrDefaultAsync();
-        var text = $"The live raid recap is **on**, posting in <#{settings.ChannelId}>.\n";
-        text += live == null
+        var text = $"The live raid recap is **on**, posting in <#{state.ChannelId}>.\n";
+        text += state.Live == null
             ? "No raid is live right now. I check for a new log every few minutes."
-            : $"A raid is live: https://discord.com/channels/{Context.Guild.Id}/{live.ChannelId}/{live.MessageId}";
+            : $"A raid is live: https://discord.com/channels/{Context.Guild.Id}/{state.Live.ChannelId}/{state.Live.MessageId}";
         await NoticeAsync(text, Color.Green);
-    }
-
-    private void Stamp(RaidRecapLiveSettings settings)
-    {
-        settings.SetById = checked((long)Context.User.Id);
-        var name = Context.User.Username ?? "";
-        settings.SetByName = name.Length <= 100 ? name : name[..100];
-        settings.TimeSet = DateTime.UtcNow;
     }
 
     private Task NoticeAsync(string message, Color accent) =>

@@ -30,5 +30,11 @@ public static class RaidRecapRegistration
             sp.GetRequiredService<IRaidRecapLiveDiscord>(),
             sp.GetRequiredService<RaidRecapLiveGate>(),
             sp.GetRequiredService<RaidRecapLiveCoordinator>(),
-            sp.GetRequiredService<ILogger<RaidRecapLiveSelection>>()));
+            sp.GetRequiredService<ILogger<RaidRecapLiveSelection>>()))
+        // The officers' on/off switch, shared by /raid-recap-live and the web dashboard.
+        .AddSingleton(sp => new RaidRecapLiveSwitch(
+            sp.GetRequiredService<IServiceScopeFactory>(),
+            sp.GetRequiredService<RaidRecapLiveGate>(),
+            sp.GetRequiredService<RaidRecapLiveCoordinator>(),
+            sp.GetRequiredService<IRaidRecapLiveDiscord>()));
 }

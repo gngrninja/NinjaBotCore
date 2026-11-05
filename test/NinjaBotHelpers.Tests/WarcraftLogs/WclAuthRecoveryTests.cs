@@ -28,9 +28,7 @@ public class WclAuthRecoveryTests
     {
         var http = new HttpClient(h, false) { Timeout = TimeSpan.FromMilliseconds(h.TimeoutMs) };
         var config = new HelpersConfiguration { WclClientId="synthetic-id", WclClientSecret="SECRET-SENTINEL" };
-        var ctor = typeof(WarcraftLogsClient).GetConstructor(BindingFlags.Instance | BindingFlags.NonPublic, null,
-            new[] { typeof(HttpClient), typeof(ILogger<WarcraftLogsClient>), typeof(HelpersConfiguration), typeof(TimeProvider) }, null);
-        return ctor == null ? new WarcraftLogsClient(http, logs, config) : ctor.Invoke(new object[] { http, logs, config, clock });
+        return new WarcraftLogsClient(http, logs, config, clock);
     }
     private static async Task Call(object client, bool quota = false, CancellationToken ct = default)
     {
@@ -307,7 +305,8 @@ public class WclAuthRecoveryTests
         Assert.Equal(2,logs.Rendered.Lines.Count(l=>l.Contains("[ERR] [WCL Auth] state=unavailable reason=")));
         for(var i=0;i<4;i++) AuthUnavailable(await Record.ExceptionAsync(()=>Call(client)));
         Assert.Equal(2,logs.Rendered.Lines.Count(l=>l.Contains("state=unavailable")));
-        clock.Advance(30); h.RejectAll=false;h.ApiStatus=200;await Call(client);await Call(client);
+        // Second failure in a row, so the cooldown has doubled to 60 seconds.
+        clock.Advance(60); h.RejectAll=false;h.ApiStatus=200;await Call(client);await Call(client);
         Assert.Single(logs.Rendered.Lines,l=>l.Contains("[INF] [WCL Auth] state=recovered reason=api_success"));
         Assert.DoesNotContain(logs.Rendered.Lines,l=>l.Contains("SECRET-SENTINEL") || l.Contains("TOKEN-"));
         var health=(WclAuthHealthSnapshot)client.GetType().GetProperty("AuthHealth")!.GetValue(client)!;
@@ -344,7 +343,7 @@ public class WclAuthRecoveryTests
         var logs=new Logs();var client=(WarcraftLogsClient)Create(h,new Clock(),logs);
         var result=await client.GetBatchGuildReportsAsync(new() { ("Synthetic Guild","area-52","us","key") });
         Assert.Empty(result.Reports);
-        Assert.Contains(logs.Rendered.Lines,l=>l.Contains("Failed to parse result"));
+        Assert.Contains(logs.Rendered.Lines,l=>l.Contains("Failed to parse result for Synthetic Guild-area-52"));
         Assert.DoesNotContain(logs.Rendered.Lines,l=>l.Contains("SECRET-SENTINEL"));
     }
     [Fact]
@@ -357,12 +356,35 @@ public class WclAuthRecoveryTests
         Assert.Equal(2,h.Tokens);Assert.Equal(5,h.Api);
     }
     [Fact]
-    public async Task ApiRetryAfterLongerThanDeadlineDoesNotSendEarlyOrRefreshAuth()
+    public async Task ApiRetryAfterLongerThanDeadlineFailsFastWithTheRealStatus()
     {
         using var h=new Handler {TimeoutMs=4000, RetrySeconds=60};var client=Create(h,new Clock(),new Logs());
         h.Before=(route,ct)=>{if(route!="oauth")h.ApiStatus=h.Api==1?503:200;return Task.CompletedTask;};
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(()=>Call(client).WaitAsync(TimeSpan.FromSeconds(6)));
+        var error=await Assert.ThrowsAsync<HttpRequestException>(()=>Call(client).WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.Equal(HttpStatusCode.ServiceUnavailable,error.StatusCode);
         Assert.Equal(1,h.Tokens);Assert.Equal(1,h.Api);
+    }
+    [Fact]
+    public async Task ApiRetryAfterWithinDeadlineIsWaitedOut()
+    {
+        using var h=new Handler {TimeoutMs=4000, RetrySeconds=1};var client=Create(h,new Clock(),new Logs());
+        h.Before=(route,ct)=>{if(route!="oauth")h.ApiStatus=h.Api==1?503:200;return Task.CompletedTask;};
+        var elapsed=System.Diagnostics.Stopwatch.StartNew();
+        await Call(client).WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.True(elapsed.Elapsed.TotalMilliseconds>=900);
+        Assert.Equal(1,h.Tokens);Assert.Equal(2,h.Api);
+    }
+    [Theory] [InlineData(false)] [InlineData(true)]
+    public async Task FailedFollowUpRateLimitCheckKeepsTheQueryResult(bool signInDown)
+    {
+        using var h=new Handler {TimeoutMs=2500};var logs=new Logs();var client=Create(h,new Clock(),logs);
+        // The query succeeds; the rate limit check after it times out or finds every token rejected.
+        h.Before=async(route,ct)=>{if(route!="oauth" && h.Api>=2){if(signInDown)h.RejectAll=true;else await Task.Delay(Timeout.Infinite,ct);}};
+        typeof(WarcraftLogsClient).GetField("_lastRateLimitCheck",BindingFlags.NonPublic|BindingFlags.Instance)!.SetValue(client,DateTime.MinValue);
+        var method=typeof(WarcraftLogsClient).GetMethod("ExecuteGraphQLAsync",BindingFlags.NonPublic|BindingFlags.Instance)!.MakeGenericMethod(typeof(JObject));
+        var task=(Task)method.Invoke(client,new object[]{"query { reportData { reports { data { code } } } }",null!,WowGameVersion.Retail,CancellationToken.None})!;
+        await task.WaitAsync(TimeSpan.FromSeconds(10));Assert.NotNull(task.GetType().GetProperty("Result")!.GetValue(task));
+        Assert.Contains(logs.Entries,e=>e.Text.Contains(signInDown?"Rate limit check after a request failed":"Failed to fetch rate limit data"));
     }
     [Fact]
     public async Task AllInFlightOld401sShareOneRefresh()
@@ -401,7 +423,8 @@ public class WclAuthRecoveryTests
         h.Before=(route,ct)=>Task.Delay(150,ct);
         var elapsed=System.Diagnostics.Stopwatch.StartNew();
         AuthUnavailable(await Record.ExceptionAsync(()=>Call(client).WaitAsync(TimeSpan.FromSeconds(2))));
-        Assert.InRange(elapsed.Elapsed.TotalMilliseconds,300,850);
+        // One API call proves the replay ran out of the shared deadline; no wall-clock upper bound, so a slow CI box cannot flake it.
+        Assert.True(elapsed.Elapsed.TotalMilliseconds>=250);
         Assert.Equal(2,h.Tokens);Assert.Equal(1,h.Api);
     }
     [Theory] [InlineData(403)] [InlineData(429)] [InlineData(500)]

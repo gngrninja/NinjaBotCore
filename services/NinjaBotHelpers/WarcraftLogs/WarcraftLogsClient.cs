@@ -21,6 +21,8 @@ public class WarcraftLogsClient
     private readonly HelpersConfiguration _config;
     private readonly ResiliencePipeline<HttpResponseMessage> _resiliencePipeline;
     private static readonly ResiliencePropertyKey<int> RetriesRemaining = new("wcl-transient-retries");
+    private static readonly ResiliencePropertyKey<long> RequestStarted = new("wcl-request-started");
+    private static readonly TimeSpan RetryWindow = TimeSpan.FromSeconds(5);
 
     private readonly WclAuthentication _auth;
     private readonly TimeProvider _clock;
@@ -74,16 +76,18 @@ public class WarcraftLogsClient
                     var transient = args.Outcome.Exception is HttpRequestException or TaskCanceledException || status == 429 || status >= 500;
                     if (!transient || !args.Context.Properties.TryGetValue(RetriesRemaining, out var remaining) || remaining <= 0)
                         return ValueTask.FromResult(false);
+                    // Waiting past the request deadline, or so close to it that the retry cannot finish,
+                    // would only turn this status into a timeout.
+                    if (RetryAfter(args.Outcome.Result) is { } wait && _httpClient.Timeout != Timeout.InfiniteTimeSpan &&
+                        args.Context.Properties.TryGetValue(RequestStarted, out var started) &&
+                        wait + TimeSpan.FromTicks(Math.Min(RetryWindow.Ticks, _httpClient.Timeout.Ticks / 4))
+                            >= _httpClient.Timeout - System.Diagnostics.Stopwatch.GetElapsedTime(started))
+                        return ValueTask.FromResult(false);
                     // One transient budget for the whole logical request, not a fresh budget after auth replay.
                     args.Context.Properties.Set(RetriesRemaining, remaining - 1);
                     return ValueTask.FromResult(true);
                 },
-                DelayGenerator = args =>
-                {
-                    var retry = args.Outcome.Result?.Headers.RetryAfter;
-                    var delay = retry?.Delta ?? (retry?.Date - _clock.GetUtcNow());
-                    return ValueTask.FromResult<TimeSpan?>(delay is { } value ? (value < TimeSpan.Zero ? TimeSpan.Zero : value) : null);
-                },
+                DelayGenerator = args => ValueTask.FromResult(RetryAfter(args.Outcome.Result)),
                 OnRetry = args =>
                 {
                     var statusCode = args.Outcome.Result?.StatusCode.ToString() ?? "Exception";
@@ -106,6 +110,14 @@ public class WarcraftLogsClient
     /// Check if the client is configured with valid credentials
     /// </summary>
     public bool IsConfigured => !string.IsNullOrEmpty(_config.WclClientId) && !string.IsNullOrEmpty(_config.WclClientSecret);
+
+    /// <summary>The wait WarcraftLogs asked for, or null for the normal backoff.</summary>
+    private TimeSpan? RetryAfter(HttpResponseMessage? response)
+    {
+        var retry = response?.Headers.RetryAfter;
+        var delay = retry?.Delta ?? (retry?.Date - _clock.GetUtcNow());
+        return delay is { } value ? (value < TimeSpan.Zero ? TimeSpan.Zero : value) : null;
+    }
 
     /// <summary>
     /// Gets the appropriate API endpoint URL based on game version
@@ -141,11 +153,13 @@ public class WarcraftLogsClient
 
     private async Task<GraphQLResponse<T>> SendGraphQLAsync<T>(string query, object? variables, WowGameVersion gameVersion, CancellationToken cancellationToken)
     {
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budget.CancelAfter(_httpClient.Timeout);
         var json = JsonConvert.SerializeObject(new GraphQLRequest { Query = query, Variables = variables });
         var context = ResilienceContextPool.Shared.Get(budget.Token);
         context.Properties.Set(RetriesRemaining, 3);
+        context.Properties.Set(RequestStarted, started);
         try
         {
             using var response = await _auth.SendAsync(FetchAccessTokenAsync, (token, ct) =>
@@ -213,7 +227,15 @@ public class WarcraftLogsClient
 
         if (shouldCheck)
         {
-            await CheckRateLimitAsync(gameVersion, cancellationToken);
+            try
+            {
+                await CheckRateLimitAsync(gameVersion, cancellationToken);
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                // The query already succeeded; a failed check must not throw its result away.
+                _logger.LogWarning("[WCL] Rate limit check after a request failed ({ErrorType})", ex.GetType().Name);
+            }
             _requestCounter = 0;
         }
 
@@ -247,7 +269,8 @@ public class WarcraftLogsClient
                 }
             }
         }
-        catch (OperationCanceledException) { throw; }
+        // Only the caller's cancellation escapes; a check that ran out of time is just a warning.
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (WclAuthenticationUnavailableException) { throw; }
         catch (Exception ex)
         {
@@ -427,7 +450,8 @@ public class WarcraftLogsClient
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning("[WCL Batch] Failed to parse result ({ErrorType})", ex.GetType().Name);
+                    _logger.LogWarning("[WCL Batch] Failed to parse result for {GuildName}-{ServerSlug} ({ErrorType})",
+                        guildName, serverSlug, ex.GetType().Name);
                     batchResult.GuildsWithNoReports.Add(guildKey);
                 }
             }

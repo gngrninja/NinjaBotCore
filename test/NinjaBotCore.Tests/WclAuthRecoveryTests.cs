@@ -303,7 +303,8 @@ public class WclAuthRecoveryTests
         Assert.Equal(2,logs.Rendered.Lines.Count(l=>l.Contains("[ERR] [WCL Auth] state=unavailable reason=")));
         for(var i=0;i<4;i++) AuthUnavailable(await Record.ExceptionAsync(()=>Call(client)));
         Assert.Equal(2,logs.Rendered.Lines.Count(l=>l.Contains("state=unavailable")));
-        clock.Advance(30); h.RejectAll=false;h.ApiStatus=200;await Call(client);await Call(client);
+        // Second failure in a row, so the cooldown has doubled to 60 seconds.
+        clock.Advance(60); h.RejectAll=false;h.ApiStatus=200;await Call(client);await Call(client);
         Assert.Single(logs.Rendered.Lines,l=>l.Contains("[INF] [WCL Auth] state=recovered reason=api_success"));
         Assert.DoesNotContain(logs.Rendered.Lines,l=>l.Contains("SECRET-SENTINEL") || l.Contains("TOKEN-"));
         var health=(WclAuthHealthSnapshot)client.GetType().GetProperty("AuthHealth")!.GetValue(client)!;
@@ -370,8 +371,56 @@ public class WclAuthRecoveryTests
         h.Before=(route,ct)=>Task.Delay(150,ct);
         var elapsed=System.Diagnostics.Stopwatch.StartNew();
         AuthUnavailable(await Record.ExceptionAsync(()=>Call(client).WaitAsync(TimeSpan.FromSeconds(2))));
-        Assert.InRange(elapsed.Elapsed.TotalMilliseconds,300,850);
+        // One API call proves the replay ran out of the shared deadline; no wall-clock upper bound, so a slow CI box cannot flake it.
+        Assert.True(elapsed.Elapsed.TotalMilliseconds>=250);
         Assert.Equal(2,h.Tokens);Assert.Equal(1,h.Api);
+    }
+    [Fact]
+    public async Task ContinuingFailuresBackOffUpToFiveMinutesAndSuccessStartsOver()
+    {
+        using var h=new Handler {OAuthStatus=500};var clock=new Clock();var client=Create(h,clock,new Logs());
+        foreach(var wait in new[]{30,60,120,240,300,300})
+        {
+            AuthUnavailable(await Record.ExceptionAsync(()=>Call(client)));var tokens=h.Tokens;
+            clock.Advance(wait-1);AuthUnavailable(await Record.ExceptionAsync(()=>Call(client)));Assert.Equal(tokens,h.Tokens);
+            clock.Advance(1);
+        }
+        h.OAuthStatus=200;await Call(client);
+        h.RejectAll=true;AuthUnavailable(await Record.ExceptionAsync(()=>Call(client)));
+        clock.Advance(30);h.RejectAll=false;await Call(client);
+    }
+    [Fact]
+    public async Task ReplayRejectedAfterAnotherRequestRetiredItsTokenReportsApiRejected()
+    {
+        var auth=new WclAuthentication(new Clock(),new Logs());
+        var issued=0;var calls=0;var held=Signal();
+        var release=new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<(string,long)> Fetch(CancellationToken ct)=>Task.FromResult(($"T{Interlocked.Increment(ref issued)}",3600L));
+        Task<HttpResponseMessage> Send(string token,CancellationToken ct)
+        {
+            if(token=="T2" && Interlocked.Increment(ref calls)==1){held.TrySetResult();return release.Task;}
+            return Task.FromResult(new HttpResponseMessage(token=="T3"?HttpStatusCode.OK:HttpStatusCode.Unauthorized));
+        }
+        // The first request's replay with T2 is held while a second request finds T2 rejected,
+        // retires it and succeeds with T3. Then the held replay is rejected as well.
+        var first=auth.SendAsync(Fetch,Send,CancellationToken.None,CancellationToken.None);
+        await held.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        using(var ok=await auth.SendAsync(Fetch,Send,CancellationToken.None,CancellationToken.None)) Assert.Equal(HttpStatusCode.OK,ok.StatusCode);
+        release.SetResult(new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        var error=Assert.IsType<WclAuthenticationUnavailableException>(await Record.ExceptionAsync(()=>first));
+        Assert.Equal("api_rejected",error.Reason);Assert.Equal(HttpStatusCode.Unauthorized,error.StatusCode);
+        Assert.False(auth.Health.Unavailable);
+    }
+    [Fact]
+    public async Task SignInFailureInTheFollowUpQuotaCheckKeepsTheQueryResult()
+    {
+        using var h=new Handler();var client=Create(h,new Clock(),new Logs());
+        // The query succeeds; the quota check that follows it finds every token rejected.
+        h.Before=(route,ct)=>{if(route!="oauth" && h.Api>=2)h.RejectAll=true;return Task.CompletedTask;};
+        var method=typeof(WarcraftLogsV2Client).GetMethod("ExecuteGraphQLAsync",BindingFlags.NonPublic|BindingFlags.Instance)!.MakeGenericMethod(typeof(JObject));
+        var task=(Task)method.Invoke(client,new object[]{"query { reportData { reports { data { code } } } }",null!,WowGameVersion.Retail,CancellationToken.None})!;
+        await task;Assert.NotNull(task.GetType().GetProperty("Result")!.GetValue(task));
+        Assert.Equal(2,h.Tokens);Assert.Equal(3,h.Api);
     }
     [Theory] [InlineData(403)] [InlineData(429)] [InlineData(500)]
     public async Task OtherStatusesNeverRefreshAuthentication(int status)

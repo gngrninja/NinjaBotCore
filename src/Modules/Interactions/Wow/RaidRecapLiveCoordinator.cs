@@ -481,10 +481,13 @@ public sealed class RaidRecapLiveCoordinator
         {
             throw;
         }
-        catch (global::NinjaBot.WarcraftLogs.WclAuthenticationUnavailableException)
+        catch (global::NinjaBot.WarcraftLogs.WclAuthenticationUnavailableException ex)
         {
             // A shared dependency outage is not a card failure. Keep LastCheckedAt/cadence;
             // the client owns deduplicated outage/recovery logs and the refresh cooldown.
+            // It still counts as a watcher error, so Status and /admin show the outage. It is
+            // not this card's fault, so the error is filed under sign-in.
+            Health.Error("WarcraftLogs sign-in", ex);
         }
         catch (Exception ex) when (IsQuota(ex))
         {
@@ -1038,6 +1041,12 @@ public sealed class RaidRecapLiveCoordinator
                     {
                         throw;
                     }
+                    catch (global::NinjaBot.WarcraftLogs.WclAuthenticationUnavailableException)
+                    {
+                        // WarcraftLogs sign-in is down for every read, which is not this pull's fault.
+                        known.Attempts[utilityKey]--;
+                        budgetSpent = true;
+                    }
                     catch (Exception ex) when (IsQuota(ex))
                     {
                         known.Attempts[utilityKey]--;
@@ -1095,6 +1104,14 @@ public sealed class RaidRecapLiveCoordinator
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 throw;
+            }
+            catch (global::NinjaBot.WarcraftLogs.WclAuthenticationUnavailableException)
+            {
+                // WarcraftLogs sign-in is down for every read, which is not this pull's fault.
+                // Stop reading until the next redraw.
+                known.Attempts[key]--;
+                budgetSpent = true;
+                break;
             }
             catch (Exception ex) when (IsQuota(ex))
             {

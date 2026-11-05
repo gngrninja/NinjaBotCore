@@ -74,7 +74,8 @@ internal sealed class WclAuthentication(TimeProvider clock, ILogger logger)
                     _current = null;
                     if (attempt != 0) FailLocked("api_rejected", HttpStatusCode.Unauthorized, refreshFailure: false);
                 }
-                if (attempt != 0) throw UnavailableLocked();
+                // The replacement was rejected too. Say so, even when another request already retired it.
+                if (attempt != 0) throw new WclAuthenticationUnavailableException("api_rejected", HttpStatusCode.Unauthorized, _health.NextRetryAt ?? clock.GetUtcNow());
             }
             token = await GetAsync(fetch, ct, callerCancellation).ConfigureAwait(false);
         }
@@ -141,9 +142,13 @@ internal sealed class WclAuthentication(TimeProvider clock, ILogger logger)
     private void FailLocked(string reason, HttpStatusCode? status, bool refreshFailure, TimeSpan? retryDelay = null)
     {
         var now = clock.GetUtcNow();
+        var failures = _health.ConsecutiveAuthFailures + 1;
+        // Back off while failures continue: 30 s, 60 s, 2 min, 4 min, then the 5-minute cap.
+        var backoff = 30 * Math.Pow(2, Math.Min(failures - 1, 4));
         _reason = reason; _status = status;
-        _health = _health with { Unavailable = true, ConsecutiveAuthFailures = _health.ConsecutiveAuthFailures + 1,
-            LastRefreshFailure = refreshFailure ? now : _health.LastRefreshFailure, NextRetryAt = now.AddSeconds(Math.Clamp(retryDelay?.TotalSeconds ?? 30, 30, 300)) };
+        _health = _health with { Unavailable = true, ConsecutiveAuthFailures = failures,
+            LastRefreshFailure = refreshFailure ? now : _health.LastRefreshFailure,
+            NextRetryAt = now.AddSeconds(Math.Clamp(Math.Max(retryDelay?.TotalSeconds ?? 0, backoff), 30, 300)) };
         RemindLocked();
     }
     private void RemindLocked()

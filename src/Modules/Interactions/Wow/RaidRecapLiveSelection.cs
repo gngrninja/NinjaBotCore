@@ -3,6 +3,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using Discord;
 using Microsoft.EntityFrameworkCore;
@@ -46,6 +48,9 @@ public enum RaidRecapLiveSelectStatus
     /// <summary>Warcraft Logs could not be asked, for example when the points ran out.</summary>
     Unchecked,
 
+    /// <summary>Warcraft Logs answered but couldn't look up the guild, for example a guild that never logged.</summary>
+    LookupFailed,
+
     /// <summary>The selection is full.</summary>
     Full,
 
@@ -60,8 +65,11 @@ public enum RaidRecapLiveSelectStatus
 public sealed record RaidRecapLiveCandidate(
     long ServerId, string Name, int LogsPosted, int? ReportsThisWeek, DateTime? LatestReport, RaidRecapLiveSelectStatus Status);
 
-/// <summary>A server the bot owner selected, and whether its card is on.</summary>
-public sealed record RaidRecapLiveSelected(long ServerId, string Name, bool Enabled, long? ChannelId, DateTime? NoticeSentAt);
+/// <summary>
+/// A server the bot owner selected, and whether its card is on. A server the bot has left is
+/// listed so it can be removed, but doesn't use up a place.
+/// </summary>
+public sealed record RaidRecapLiveSelected(long ServerId, string Name, bool Enabled, long? ChannelId, DateTime? NoticeSentAt, bool BotPresent = true);
 
 /// <summary>
 /// The bot owner's pick of servers for the live raid recap rollout. Selecting a server turns
@@ -88,6 +96,10 @@ public sealed class RaidRecapLiveSelection
     private readonly RaidRecapLiveCoordinator _coordinator;
     private readonly ILogger<RaidRecapLiveSelection> _logger;
     private readonly Func<DateTimeOffset> _clock;
+
+    // Selecting checks the cap, posts the message and then saves. Two at once, say the Discord
+    // command and the web admin page, could post the message twice or pass the cap.
+    private readonly SemaphoreSlim _sync = new(1, 1);
 
     public RaidRecapLiveSelection(
         IServiceScopeFactory scopes,
@@ -132,7 +144,7 @@ public sealed class RaidRecapLiveSelection
             .GroupBy(p => p.ServerId)
             .Select(g => new { ServerId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(p => p.ServerId, p => p.Count);
-        var slots = MaxSelect - await db.RaidRecapLiveSettings.CountAsync(s => s.Selected);
+        var slots = MaxSelect - await SelectedCountAsync(db);
 
         var candidates = new List<RaidRecapLiveCandidate>();
         var ready = 0;
@@ -161,7 +173,7 @@ public sealed class RaidRecapLiveSelection
                 candidate = await ConfirmAsync(candidate, check.Guild!, now);
                 if (candidate.Status == RaidRecapLiveSelectStatus.Unchecked)
                 {
-                    // Out of points or unreachable: asking about the rest would fail the same way.
+                    // Out of points, signed out or unreachable: asking about the rest would fail the same way.
                     candidates.Add(candidate);
                     break;
                 }
@@ -193,7 +205,12 @@ public sealed class RaidRecapLiveSelection
         catch (Exception ex)
         {
             _logger.LogWarning("Raid recap live selection couldn't check {Server} ({Type})", candidate.ServerId, ex.GetType().Name);
-            return candidate with { Status = RaidRecapLiveSelectStatus.Unchecked };
+            // Only a failure every guild would hit ends the list. An error about this guild,
+            // such as one that never logged, skips just this server.
+            return candidate with
+            {
+                Status = IsOutage(ex) ? RaidRecapLiveSelectStatus.Unchecked : RaidRecapLiveSelectStatus.LookupFailed
+            };
         }
 
         var since = (now - ActiveWindow).ToUnixTimeMilliseconds();
@@ -207,27 +224,44 @@ public sealed class RaidRecapLiveSelection
         return candidate with { ReportsThisWeek = thisWeek, LatestReport = latest };
     }
 
+    /// <summary>Out of points, WarcraftLogs sign-in down, the network or a timeout.</summary>
+    private static bool IsOutage(Exception ex) =>
+        RaidRecapLiveCoordinator.IsQuota(ex) || ex is HttpRequestException or TimeoutException or TaskCanceledException;
+
     /// <summary>
     /// Selects the server. Turns the card on and posts the one-time message, unless the card is
     /// already on or an officer turned it off.
     /// </summary>
     public async Task<RaidRecapLiveSelectStatus> SelectAsync(ulong guildId, ulong ownerId, string ownerName)
     {
+        await _sync.WaitAsync();
+        try
+        {
+            return await SelectLockedAsync(guildId, ownerId, ownerName);
+        }
+        finally
+        {
+            _sync.Release();
+        }
+    }
+
+    private async Task<RaidRecapLiveSelectStatus> SelectLockedAsync(ulong guildId, ulong ownerId, string ownerName)
+    {
         using var scope = _scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
         var id = checked((long)guildId);
         var (status, selected, guild, channel) = await CheckAsync(db, guildId);
         if (!selected && status is RaidRecapLiveSelectStatus.Ready or RaidRecapLiveSelectStatus.AlreadyOn or RaidRecapLiveSelectStatus.TurnedOff
-            && await db.RaidRecapLiveSettings.CountAsync(s => s.Selected) >= MaxSelect)
+            && await SelectedCountAsync(db) >= MaxSelect)
         {
             return RaidRecapLiveSelectStatus.Full;
         }
 
-        var settings = await db.RaidRecapLiveSettings.FirstOrDefaultAsync(s => s.DiscordGuildId == id);
         if (status is RaidRecapLiveSelectStatus.AlreadyOn or RaidRecapLiveSelectStatus.TurnedOff)
         {
             // Selected, so the officers' own choice keeps working under the Selected rollout.
-            settings!.Selected = true;
+            var existing = await db.RaidRecapLiveSettings.FirstAsync(s => s.DiscordGuildId == id);
+            existing.Selected = true;
             await db.SaveChangesAsync();
             return status;
         }
@@ -251,13 +285,24 @@ public sealed class RaidRecapLiveSelection
             return RaidRecapLiveSelectStatus.NoticeFailed;
         }
 
+        // Read after the message posted: an officer may have turned the card off meanwhile, and
+        // that stays off. The message did post, so it is never sent again.
+        var now = _clock().UtcDateTime;
+        var settings = await db.RaidRecapLiveSettings.FirstOrDefaultAsync(s => s.DiscordGuildId == id);
+        if (settings is { Enabled: false })
+        {
+            settings.Selected = true;
+            settings.NoticeSentAt ??= now;
+            await db.SaveChangesAsync();
+            return RaidRecapLiveSelectStatus.TurnedOff;
+        }
+
         if (settings == null)
         {
             settings = new RaidRecapLiveSettings { DiscordGuildId = id };
             db.RaidRecapLiveSettings.Add(settings);
         }
 
-        var now = _clock().UtcDateTime;
         settings.Enabled = true;
         settings.ChannelId = channel.Value;
         settings.Selected = true;
@@ -273,13 +318,67 @@ public sealed class RaidRecapLiveSelection
     }
 
     /// <summary>
+    /// Selected servers only get the card while the rollout covers them. Moves "my servers" up to
+    /// "selected servers and mine", which still includes every server it did. Returns the mode
+    /// before, or null when the kill switch is on, so nobody is told about a card that won't post.
+    /// </summary>
+    public async Task<RaidRecapRolloutMode?> OpenForSelectedAsync()
+    {
+        var mode = await _gate.ModeAsync();
+        if (mode == RaidRecapRolloutMode.Off)
+        {
+            return null;
+        }
+
+        if (mode == RaidRecapRolloutMode.OwnerServers)
+        {
+            await _gate.SetModeAsync(RaidRecapRolloutMode.Selected);
+        }
+
+        return mode;
+    }
+
+    /// <summary>
+    /// Selects the most active servers that can take the card, as <see cref="MostActiveAsync"/>
+    /// ranks them. Returns every candidate with what happened to it.
+    /// </summary>
+    public async Task<(IReadOnlyList<RaidRecapLiveCandidate> Results, int Active)> SelectMostActiveAsync(int count, ulong ownerId, string ownerName)
+    {
+        var (candidates, active) = await MostActiveAsync(count);
+        var results = new List<RaidRecapLiveCandidate>();
+        foreach (var candidate in candidates)
+        {
+            var status = candidate.Status;
+            if (status is RaidRecapLiveSelectStatus.Ready or RaidRecapLiveSelectStatus.AlreadyOn)
+            {
+                try
+                {
+                    status = await SelectAsync((ulong)candidate.ServerId, ownerId, ownerName);
+                }
+                catch (Exception ex)
+                {
+                    // One server failing must not hide what happened to the others.
+                    _logger.LogWarning("Raid recap select failed for {Server} ({Type})", candidate.ServerId, ex.GetType().Name);
+                    status = RaidRecapLiveSelectStatus.Failed;
+                }
+            }
+
+            results.Add(candidate with { Status = status });
+        }
+
+        return (results, active);
+    }
+
+    /// <summary>
     /// Takes the server out of the selection. Its card setting is left as it is, so it stops only
     /// while the rollout is limited to selected servers, and then a live card stops right away.
     /// </summary>
     public async Task<bool> UnselectAsync(ulong guildId)
     {
-        using (var scope = _scopes.CreateScope())
+        await _sync.WaitAsync();
+        try
         {
+            using var scope = _scopes.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
             var id = checked((long)guildId);
             var settings = await db.RaidRecapLiveSettings.FirstOrDefaultAsync(s => s.DiscordGuildId == id && s.Selected);
@@ -290,6 +389,10 @@ public sealed class RaidRecapLiveSelection
 
             settings.Selected = false;
             await db.SaveChangesAsync();
+        }
+        finally
+        {
+            _sync.Release();
         }
 
         if (!await _gate.AllowsAsync(guildId))
@@ -309,17 +412,26 @@ public sealed class RaidRecapLiveSelection
             .OrderBy(s => s.DiscordGuildId)
             .ToListAsync();
         var ids = selected.Select(s => s.DiscordGuildId).ToList();
-        var names = (await db.DiscordServers.AsNoTracking()
+        var servers = (await db.DiscordServers.AsNoTracking()
                 .Where(d => ids.Contains(d.ServerId))
-                .Select(d => new { d.ServerId, d.ServerName })
+                .Select(d => new { d.ServerId, d.ServerName, d.BotPresent })
                 .ToListAsync())
-            .ToDictionary(d => d.ServerId, d => d.ServerName);
+            .ToDictionary(d => d.ServerId);
         return selected
             .Select(s => new RaidRecapLiveSelected(
-                s.DiscordGuildId, names.GetValueOrDefault(s.DiscordGuildId) ?? s.DiscordGuildId.ToString(),
-                s.Enabled && s.ChannelId != null, s.ChannelId, s.NoticeSentAt))
+                s.DiscordGuildId, servers.GetValueOrDefault(s.DiscordGuildId)?.ServerName ?? s.DiscordGuildId.ToString(),
+                s.Enabled && s.ChannelId != null, s.ChannelId, s.NoticeSentAt,
+                servers.GetValueOrDefault(s.DiscordGuildId)?.BotPresent ?? true))
             .ToList();
     }
+
+    /// <summary>
+    /// How many places are used. A server the bot has left doesn't count, so it can't block the
+    /// rollout for the 30 days until its data is purged.
+    /// </summary>
+    private static Task<int> SelectedCountAsync(NinjaBotEntities db) =>
+        db.RaidRecapLiveSettings.CountAsync(s => s.Selected
+            && !db.DiscordServers.Any(d => d.ServerId == s.DiscordGuildId && !d.BotPresent));
 
     /// <summary>The one-time message: what the card is, and how to turn it off or move it.</summary>
     public static string NoticeText(string guildName) =>
@@ -351,10 +463,13 @@ public sealed class RaidRecapLiveSelection
 
         if (settings?.ChannelId != null)
         {
-            return (RaidRecapLiveSelectStatus.AlreadyOn, selected, guild, settings.ChannelId);
+            // Already on, but discovery would never post where the bot can't, so it doesn't take a place.
+            return (_discord.CanPost(guildId, (ulong)settings.ChannelId.Value)
+                ? RaidRecapLiveSelectStatus.AlreadyOn
+                : RaidRecapLiveSelectStatus.CannotPost, selected, guild, settings.ChannelId);
         }
 
-        var channel = await LogChannelAsync(db, id);
+        var channel = await RaidRecapLiveSwitch.LogChannelAsync(db, id);
         if (channel == null)
         {
             return (RaidRecapLiveSelectStatus.NoLogChannel, selected, guild, null);
@@ -363,15 +478,5 @@ public sealed class RaidRecapLiveSelection
         return (_discord.CanPost(guildId, (ulong)channel.Value)
             ? RaidRecapLiveSelectStatus.Ready
             : RaidRecapLiveSelectStatus.CannotPost, selected, guild, channel);
-    }
-
-    private static async Task<long?> LogChannelAsync(NinjaBotEntities db, long id)
-    {
-        var channel = await db.LogMonitoring.AsNoTracking()
-            .Where(l => l.ServerId == id && l.MonitorLogs && l.ChannelId > 0)
-            .OrderByDescending(l => l.LatestLogRetail)
-            .Select(l => (long?)l.ChannelId)
-            .FirstOrDefaultAsync();
-        return channel;
     }
 }

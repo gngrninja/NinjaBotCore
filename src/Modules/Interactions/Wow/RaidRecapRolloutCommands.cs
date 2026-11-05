@@ -78,7 +78,7 @@ public class RaidRecapRolloutCommands : InteractionModuleBase<IInteractionContex
             using var scope = _scopes.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
             var status = await RaidRecapLiveStatus.BuildAsync(
-                db, current, _coordinator.Health.Snapshot(), _warcraftLogs.LastRateLimit, DateTimeOffset.UtcNow);
+                db, current, _coordinator.Health.Snapshot(), _warcraftLogs.LastRateLimit, DateTimeOffset.UtcNow, _warcraftLogs.AuthHealth);
             await NoticeAsync(
                 RolloutLine(current, previous, requested.HasValue) + "\n" + status.Text(),
                 current == RaidRecapRolloutMode.Off ? Color.LightGrey : Color.Green);
@@ -132,28 +132,7 @@ public class RaidRecapRolloutCommands : InteractionModuleBase<IInteractionContex
                         return;
                     }
 
-                    var (candidates, active) = await _selection.MostActiveAsync(count);
-                    var results = new List<RaidRecapLiveCandidate>();
-                    foreach (var candidate in candidates)
-                    {
-                        var status = candidate.Status;
-                        if (status is RaidRecapLiveSelectStatus.Ready or RaidRecapLiveSelectStatus.AlreadyOn)
-                        {
-                            try
-                            {
-                                status = await _selection.SelectAsync((ulong)candidate.ServerId, Context.User.Id, Context.User.Username ?? "");
-                            }
-                            catch (Exception ex)
-                            {
-                                // One server failing must not hide what happened to the others.
-                                _logger.LogWarning("Raid recap select failed for {Server} ({Type})", candidate.ServerId, ex.GetType().Name);
-                                status = RaidRecapLiveSelectStatus.Failed;
-                            }
-                        }
-
-                        results.Add(candidate with { Status = status });
-                    }
-
+                    var (results, active) = await _selection.SelectMostActiveAsync(count, Context.User.Id, Context.User.Username ?? "");
                     await NoticeAsync(switched + CandidateText(results, active, preview: false), Color.Green);
                     return;
                 }
@@ -188,26 +167,21 @@ public class RaidRecapRolloutCommands : InteractionModuleBase<IInteractionContex
     }
 
     /// <summary>
-    /// Selected servers only get the card while the rollout covers them. Moves "my servers" up to
-    /// "selected servers and mine", which still includes every server it did. Returns what changed,
-    /// or null when the kill switch is on, so nobody is told about a card that won't post.
+    /// Opens the rollout to selected servers. Returns what changed, or null when the kill switch
+    /// is on, after saying so.
     /// </summary>
     private async Task<string?> AllowSelectingAsync()
     {
-        var mode = await _gate.ModeAsync();
-        if (mode == RaidRecapRolloutMode.Off)
+        var mode = await _selection.OpenForSelectedAsync();
+        if (mode == null)
         {
             await NoticeAsync("The rollout is **off** (kill switch). Set `/raid-recap-rollout mode:` to selected servers first.", Color.Orange);
             return null;
         }
 
-        if (mode != RaidRecapRolloutMode.OwnerServers)
-        {
-            return "";
-        }
-
-        await _gate.SetModeAsync(RaidRecapRolloutMode.Selected);
-        return $"Rollout changed from {Describe(mode)} to {Describe(RaidRecapRolloutMode.Selected)}.\n";
+        return mode == RaidRecapRolloutMode.OwnerServers
+            ? $"Rollout changed from {Describe(mode.Value)} to {Describe(RaidRecapRolloutMode.Selected)}.\n"
+            : "";
     }
 
     public static string CandidateText(IReadOnlyList<RaidRecapLiveCandidate> candidates, int active, bool preview)
@@ -241,7 +215,7 @@ public class RaidRecapRolloutCommands : InteractionModuleBase<IInteractionContex
 
         AppendLines(text, selected
             .Select(s => $"• {NinjaBotCore.Modules.Wow.RaidRecapRules.Text(s.Name, 40)} `{s.ServerId}` · "
-                + (s.Enabled ? $"on in <#{s.ChannelId}>" : "turned off by the server")
+                + (!s.BotPresent ? "bot left the server" : s.Enabled ? $"on in <#{s.ChannelId}>" : "turned off by the server")
                 + (s.NoticeSentAt == null ? "" : " · told"))
             .ToList());
         return text.ToString().TrimEnd();
@@ -273,6 +247,7 @@ public class RaidRecapRolloutCommands : InteractionModuleBase<IInteractionContex
         RaidRecapLiveSelectStatus.NoticeFailed => "skipped, the message didn't post",
         RaidRecapLiveSelectStatus.NoRecentLog => "skipped, no Warcraft Logs report this week",
         RaidRecapLiveSelectStatus.Unchecked => "skipped, couldn't check Warcraft Logs",
+        RaidRecapLiveSelectStatus.LookupFailed => "skipped, Warcraft Logs couldn't look up its guild",
         RaidRecapLiveSelectStatus.Full => $"skipped, {RaidRecapLiveSelection.MaxSelect} servers are already selected",
         RaidRecapLiveSelectStatus.Failed => "skipped, something went wrong",
         _ => "unknown"

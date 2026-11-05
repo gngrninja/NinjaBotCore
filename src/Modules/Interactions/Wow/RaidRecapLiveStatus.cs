@@ -145,6 +145,13 @@ public sealed record RaidRecapLiveStatus(
         text.AppendLine(WarcraftLogs is { } points
             ? string.Create(invariant, $"WarcraftLogs: **{points.PointsSpent:N0}** of {points.LimitPerHour:N0} points this hour ({points.UsagePercent:0.#}%), read {Stamp(points.CheckedAt)}")
             : "WarcraftLogs: no points reading yet");
+        if (WarcraftLogsAuth is { Unavailable: true } auth)
+        {
+            var failures = auth.ConsecutiveAuthFailures;
+            text.AppendLine($"WarcraftLogs sign-in: **failing**, {failures} failed attempt{(failures == 1 ? "" : "s")} in a row, " +
+                (auth.LastApiSuccess is { } worked ? $"last worked {Stamp(worked)}" : "has not worked since the bot started"));
+        }
+
         foreach (var e in Watcher.Recent.Take(events))
         {
             text.AppendLine($"-# {Stamp(e.At)} · card {e.CardId} {e.Kind}{(string.IsNullOrEmpty(e.Reason) ? "" : $": {Clip(e.Reason)}")}");

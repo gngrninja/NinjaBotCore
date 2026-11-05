@@ -36,6 +36,8 @@ public class RaidRecapLiveTests
         public RaidRecapLiveEdit EditResult { get; set; } = RaidRecapLiveEdit.Updated;
         public bool SendUnavailable { get; set; }
         public Exception SendThrows { get; set; }
+        /// <summary>Runs while a message is posting, to change things mid-post.</summary>
+        public Action WhileSending { get; set; }
         public List<(ulong Channel, MessageComponent Card)> Sent { get; } = new();
         public List<(ulong Channel, ulong Message, MessageComponent Card)> Edits { get; } = new();
         public int MembershipChecks { get; private set; }
@@ -56,6 +58,7 @@ public class RaidRecapLiveTests
         {
             if (SendThrows != null) throw SendThrows;
             if (SendUnavailable) return Task.FromResult<ulong?>(null);
+            WhileSending?.Invoke();
             Sent.Add((channelId, card));
             return Task.FromResult<ulong?>((ulong)(4200 + Sent.Count));
         }
@@ -531,6 +534,83 @@ public class RaidRecapLiveTests
     }
 
     [Fact]
+    public async Task OneGuildWarcraftLogsCantFindDoesNotEndTheList()
+    {
+        using var rig = new Rig();
+        // A new guild that never logged: Warcraft Logs answers with an error about that guild only.
+        await SeedActiveAsync(rig, 10, logsPosted: 9, daysSinceLog: 1);
+        rig.Source.Setup(x => x.GetRaidRecapReportsAsync("Synthetic Guild 10", "area-52", "us", RaidRecapLiveCoordinator.DiscoveryReports))
+            .ThrowsAsync(new InvalidOperationException("No guild exists for this name/server/region."));
+        await SeedActiveAsync(rig, 11, logsPosted: 2, daysSinceLog: 1, reportDaysAgo: new[] { 1.0 });
+
+        var (candidates, _) = await Selection(rig).MostActiveAsync(5);
+
+        Assert.Equal(new long[] { 10, 11 }, candidates.Select(c => c.ServerId));
+        Assert.Equal(new[] { RaidRecapLiveSelectStatus.LookupFailed, RaidRecapLiveSelectStatus.Ready }, candidates.Select(c => c.Status));
+    }
+
+    [Fact]
+    public async Task AServerAlreadyOnWhereTheBotCantPostTakesNoPlace()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync(server: 10);
+        await SeedActiveAsync(rig, 10, logsPosted: 2, daysSinceLog: 1, association: false, reportDaysAgo: new[] { 1.0 });
+        rig.Discord.Postable = false;
+
+        Assert.Equal(RaidRecapLiveSelectStatus.CannotPost, Assert.Single((await Selection(rig).MostActiveAsync(5)).Candidates).Status);
+        Assert.Equal(RaidRecapLiveSelectStatus.CannotPost, await Selection(rig).SelectAsync(10, Owner, "owner"));
+        Assert.False((await SettingsAsync(rig, 10)).Selected);
+    }
+
+    [Fact]
+    public async Task AServerTheBotLeftDoesNotUseUpAPlace()
+    {
+        using var rig = new Rig();
+        var selection = Selection(rig);
+        for (ulong server = 100; server < 100 + RaidRecapLiveSelection.MaxSelect; server++)
+        {
+            await SeedActiveAsync(rig, server, logsPosted: 1, daysSinceLog: 1);
+            Assert.Equal(RaidRecapLiveSelectStatus.TurnedOn, await selection.SelectAsync(server, Owner, "owner"));
+        }
+
+        await SeedActiveAsync(rig, 99, logsPosted: 1, daysSinceLog: 1);
+        Assert.Equal(RaidRecapLiveSelectStatus.Full, await selection.SelectAsync(99, Owner, "owner"));
+        using (var scope = rig.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+            db.DiscordServers.Add(new DiscordServer { ServerId = 100, ServerName = "Synthetic departed server", BotPresent = false });
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Equal(RaidRecapLiveSelectStatus.TurnedOn, await selection.SelectAsync(99, Owner, "owner"));
+        var departed = (await selection.SelectedAsync()).Single(s => s.ServerId == 100);
+        Assert.False(departed.BotPresent);
+        Assert.Contains("bot left the server", RaidRecapRolloutCommands.SelectedText(new[] { departed }, RaidRecapRolloutMode.Selected));
+    }
+
+    [Fact]
+    public async Task AnOfficerTurningTheCardOffWhileTheMessagePostsIsKept()
+    {
+        using var rig = new Rig();
+        await SeedActiveAsync(rig, 10, logsPosted: 2, daysSinceLog: 1);
+        rig.Discord.WhileSending = () =>
+        {
+            using var scope = rig.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+            db.RaidRecapLiveSettings.Add(new RaidRecapLiveSettings { DiscordGuildId = 10, Enabled = false });
+            db.SaveChanges();
+        };
+
+        Assert.Equal(RaidRecapLiveSelectStatus.TurnedOff, await Selection(rig).SelectAsync(10, Owner, "owner"));
+
+        var settings = await SettingsAsync(rig, 10);
+        Assert.False(settings.Enabled);
+        Assert.True(settings.Selected);
+        // The message did post, so it is never sent again.
+        Assert.NotNull(settings.NoticeSentAt);
+    }
+
+    [Fact]
     public void SelectionTextsDescribeEveryOutcomeAndFitInOneMessage()
     {
         Assert.All(Enum.GetValues<RaidRecapLiveSelectStatus>(), s => Assert.NotEqual("unknown", RaidRecapRolloutCommands.Describe(s)));
@@ -562,6 +642,97 @@ public class RaidRecapLiveTests
         var notice = RaidRecapLiveSelection.NoticeText("Synthetic *Guild*");
         Assert.Contains("Synthetic \\*Guild\\*", notice);
         Assert.True(notice.Length < 1000, $"{notice.Length} characters");
+    }
+
+    // ===== Officers' switch (/raid-recap-live and the web dashboard) =====
+
+    private static RaidRecapLiveSwitch Switch(Rig rig) => new(
+        rig.Services.GetRequiredService<IServiceScopeFactory>(), rig.Gate, rig.Coordinator, rig.Discord, () => rig.Now);
+
+    [Fact]
+    public async Task TheSwitchTurnsTheCardOnInTheLogChannelUnlessAChannelIsGiven()
+    {
+        using var rig = new Rig();
+        await SeedActiveAsync(rig, Server, logsPosted: 1, daysSinceLog: 1, guild: "Synthetic Guild");
+        var live = Switch(rig);
+
+        var on = await live.TurnOnAsync(Server, null, Channel, Owner, "officer");
+        Assert.Equal((RaidRecapLiveSwitchStatus.On, (ulong?)LogChannel, "Synthetic Guild"), (on.Status, on.ChannelId, on.GuildName));
+        var settings = await SettingsAsync(rig, Server);
+        Assert.True(settings.Enabled);
+        Assert.Equal((long)LogChannel, settings.ChannelId);
+        Assert.Equal(((long?)Owner, "officer", (DateTime?)rig.Now.UtcDateTime), (settings.SetById, settings.SetByName, settings.TimeSet));
+        // Turning it on by hand is not the rollout, so nothing is posted and the server is not selected.
+        Assert.False(settings.Selected);
+        Assert.Null(settings.NoticeSentAt);
+        Assert.Empty(rig.Discord.Sent);
+
+        // An explicit channel wins.
+        Assert.Equal((ulong?)Channel, (await live.TurnOnAsync(Server, Channel, null, Owner, "officer")).ChannelId);
+        Assert.Equal((long)Channel, (await SettingsAsync(rig, Server)).ChannelId);
+
+        var state = await live.StateAsync(Server);
+        Assert.True(state.Available);
+        Assert.True(state.On);
+        Assert.False(state.TurnedOff);
+        Assert.Equal((long)Channel, state.ChannelId);
+        Assert.Equal((long)LogChannel, state.LogChannelId);
+        Assert.Equal("Synthetic Guild", state.WowGuild);
+        Assert.Null(state.Live);
+    }
+
+    [Fact]
+    public async Task TheSwitchRefusesWhatTheCardCantDo()
+    {
+        using var rig = new Rig();
+        var live = Switch(rig);
+
+        // Outside the rollout.
+        Assert.Equal(RaidRecapLiveSwitchStatus.NotAvailable, (await live.TurnOnAsync(77, Channel, null, Owner, "officer")).Status);
+        Assert.False((await live.StateAsync(77)).Available);
+
+        // No WoW guild.
+        Assert.Equal(RaidRecapLiveSwitchStatus.NoGuild, (await live.TurnOnAsync(Server, Channel, null, Owner, "officer")).Status);
+
+        // No channel given, no /watchlogs channel and nowhere the command was run (the web).
+        await SeedActiveAsync(rig, Server, logsPosted: 1, daysSinceLog: 1, watching: false, guild: "Synthetic Guild");
+        Assert.Equal(RaidRecapLiveSwitchStatus.NoChannel, (await live.TurnOnAsync(Server, null, null, Owner, "officer")).Status);
+
+        rig.Discord.Postable = false;
+        var refused = await live.TurnOnAsync(Server, Channel, null, Owner, "officer");
+        Assert.Equal((RaidRecapLiveSwitchStatus.CannotPost, (ulong?)Channel), (refused.Status, refused.ChannelId));
+
+        Assert.Null(await SettingsAsync(rig, Server));
+    }
+
+    [Fact]
+    public async Task TheSwitchSavesOffAndStopsTheLiveCard()
+    {
+        using var rig = new Rig();
+        var live = Switch(rig);
+
+        // Off is saved even in a server that never had the card, so the rollout leaves it off.
+        Assert.Equal(RaidRecapLiveSwitchStatus.Off, (await live.TurnOffAsync(77, Owner, "officer")).Status);
+        var off = await live.StateAsync(77);
+        Assert.True(off.TurnedOff);
+        Assert.False(off.On);
+        Assert.Equal("officer", off.SetByName);
+        await SeedActiveAsync(rig, 77, logsPosted: 1, daysSinceLog: 1);
+        Assert.Equal(RaidRecapLiveSelectStatus.TurnedOff, await Selection(rig).SelectAsync(77, Owner, "owner"));
+
+        await rig.EnrollAsync();
+        rig.List(minutesSinceLastEvent: 2);
+        await rig.SweepAsync();
+        var card = Assert.Single(await rig.CardsAsync());
+        Assert.Equal(card.Id, (await live.StateAsync(Server)).Live?.Id);
+
+        await live.TurnOffAsync(Server, Owner, "officer");
+        Assert.Equal(RaidRecapLiveState.Stopped, Assert.Single(await rig.CardsAsync()).State);
+        var state = await live.StateAsync(Server);
+        Assert.Null(state.Live);
+        Assert.True(state.TurnedOff);
+        // The channel is kept, so turning it back on can offer the same one.
+        Assert.Equal((long)Channel, state.ChannelId);
     }
 
     // ===== Found =====
@@ -882,14 +1053,20 @@ public class RaidRecapLiveTests
         using var scope = rig.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
         var auth = new global::NinjaBot.WarcraftLogs.WclAuthHealthSnapshot(rig.Now, 2, rig.Now, rig.Now, rig.Now.AddSeconds(30), true);
-        var build = typeof(RaidRecapLiveStatus).GetMethod("BuildAsync");
-        var args = new List<object> { db, RaidRecapRolloutMode.OwnerServers, rig.Coordinator.Health.Snapshot(), null, rig.Now };
-        if (build.GetParameters().Length == 6) args.Add(auth);
-        var status = await (Task<RaidRecapLiveStatus>)build.Invoke(null, args.ToArray());
+        var status = await RaidRecapLiveStatus.BuildAsync(db, RaidRecapRolloutMode.OwnerServers, rig.Coordinator.Health.Snapshot(), null, rig.Now, auth);
         var json = JObject.Parse(System.Text.Json.JsonSerializer.Serialize(status, NinjaBotCore.Services.Api.RaidRecapLiveEndpoints.Json));
         Assert.True(json["warcraft_logs_auth"]?["unavailable"]?.Value<bool>());
         Assert.Equal(2, json["warcraft_logs_auth"]?["consecutive_auth_failures"]?.Value<int>());
         Assert.NotNull(json["cards"]); Assert.Equal(JTokenType.Null, json["warcraft_logs"]?.Type);
+
+        // Status says so while sign-in fails, and stays quiet once it works.
+        Assert.Contains($"WarcraftLogs sign-in: **failing**, 2 failed attempts in a row, last worked <t:{rig.Now.ToUnixTimeSeconds()}:R>", status.Text());
+        var never = await RaidRecapLiveStatus.BuildAsync(db, RaidRecapRolloutMode.OwnerServers, rig.Coordinator.Health.Snapshot(), null, rig.Now,
+            auth with { LastApiSuccess = null, ConsecutiveAuthFailures = 1 });
+        Assert.Contains("WarcraftLogs sign-in: **failing**, 1 failed attempt in a row, has not worked since the bot started", never.Text());
+        var healthy = await RaidRecapLiveStatus.BuildAsync(db, RaidRecapRolloutMode.OwnerServers, rig.Coordinator.Health.Snapshot(), null, rig.Now,
+            auth with { ConsecutiveAuthFailures = 0, NextRetryAt = null, Unavailable = false });
+        Assert.DoesNotContain("sign-in", healthy.Text());
     }
 
     private sealed class AuthClock(Func<DateTimeOffset> now) : TimeProvider
@@ -938,6 +1115,11 @@ public class RaidRecapLiveTests
             Assert.Equal(0, waiting.Failures);
             Assert.Equal(rig.Now.UtcDateTime, waiting.LastCheckedAt);
         }
+        // Not the card's fault, but the watcher's health still shows the outage.
+        var health = rig.Coordinator.Health.Snapshot();
+        Assert.Equal("WclAuthenticationUnavailableException", health.LastError?.Type);
+        Assert.Equal("WarcraftLogs sign-in", health.LastError?.Where);
+        Assert.True(health.ErrorsLastHour > 0);
         Assert.Single(rig.Discord.Sent); Assert.Empty(rig.Discord.Edits);
         if (oauthOutage) Assert.True(handler.Tokens < RaidRecapLiveCoordinator.MaxFailures * 2);
         handler.Reject = false; handler.RejectOAuth = false;
@@ -2379,8 +2561,10 @@ public class RaidRecapLiveTests
         rig.Players.Verify(x => x.GetRaidRecapParsesAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), It.IsAny<bool>(), It.IsAny<RaidRecapRoster>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    [Fact]
-    public async Task SpentBudgetStopsReadingPullsAndDoesNotCountAgainstThem()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SpentBudgetStopsReadingPullsAndDoesNotCountAgainstThem(bool signInDown)
     {
         using var rig = new Rig();
         await rig.EnrollAsync();
@@ -2388,8 +2572,11 @@ public class RaidRecapLiveTests
         rig.List(minutesSinceLastEvent: 1);
         var wipes = Enumerable.Range(1, 4).Select(i => Wipe(i, (i - 1) * 6, 90 - i)).ToArray();
         rig.Report = rig.Build(wipes);
+        // A WarcraftLogs sign-in outage refuses every read the same way a spent budget does.
         rig.Source.Setup(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), "deaths", It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new InvalidOperationException("Warcraft Logs quota unavailable. Retry in 60s."));
+            .ThrowsAsync(signInDown
+                ? new global::NinjaBot.WarcraftLogs.WclAuthenticationUnavailableException("api_rejected", System.Net.HttpStatusCode.Unauthorized, rig.Now)
+                : new InvalidOperationException("Warcraft Logs quota unavailable. Retry in 60s."));
 
         await rig.SweepAsync();
         for (var i = 1; i <= 5; i++)
@@ -3373,6 +3560,30 @@ public class RaidRecapLiveTests
         rig.Source.Verify(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), "interrupts", It.IsAny<CancellationToken>()),
             Times.Exactly(RaidRecapLiveCoordinator.MaxPullAttempts));
         Assert.All(rig.Discord.Edits, e => Assert.DoesNotContain("PRIVATE", Text(e.Card)));
+    }
+
+    [Fact]
+    public async Task KicksAndDispelsRefusedWhileSignInIsDownAreNotGivenUp()
+    {
+        using var rig = new Rig();
+        await rig.EnrollAsync();
+        rig.Source.Setup(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), "interrupts", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new global::NinjaBot.WarcraftLogs.WclAuthenticationUnavailableException("api_rejected", System.Net.HttpStatusCode.Unauthorized, rig.Now));
+        rig.Now = Start.AddMinutes(12);
+        rig.List(minutesSinceLastEvent: 1);
+        var wipes = new[] { Wipe(1, 0, 80), Wipe(2, 6, 70) };
+        rig.Report = rig.Build(wipes);
+        await rig.SweepAsync();
+        for (var i = 1; i <= 4; i++)
+        {
+            rig.Now = rig.Now.AddMinutes(5);
+            rig.Report = rig.Build(wipes) with { EndTime = rig.Now.ToUnixTimeMilliseconds() };
+            await rig.SweepAsync();
+        }
+
+        // One refused read per redraw, more than the attempts a failing read gets.
+        rig.Source.Verify(x => x.GetRaidRecapAnalysisAsync(It.IsAny<RaidRecapReport>(), It.IsAny<RaidRecapFight>(), "interrupts", It.IsAny<CancellationToken>()),
+            Times.Exactly(5));
     }
 
     [Fact]
