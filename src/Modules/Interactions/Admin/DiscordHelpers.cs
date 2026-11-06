@@ -509,6 +509,14 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             await Context.Interaction.RespondWithModalAsync(mb.Build());
         }
 
+        /// <summary>Who turned greetings or partings on, so they can be told when posting stops working.</summary>
+        private void StampGreeting(ServerGreeting greeting)
+        {
+            greeting.SetById = (long)Context.User.Id;
+            greeting.SetByName = Context.User.Username;
+            greeting.TimeSet = DateTime.UtcNow;
+        }
+
         [SlashCommand("toggle-greetings", "toggle join/leave messages to be displayed in this channel")]
         [RequireUserPermission(GuildPermission.KickMembers)]
         [DefaultMemberPermissions(GuildPermission.KickMembers)]
@@ -537,18 +545,21 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                             currentSetting.GreetUsers = true;
                             currentSetting.GreetingChannelId = (long)Context.Channel.Id;
                             currentSetting.GreetingChannelName = Context.Channel.Name;
+                            StampGreeting(currentSetting);
                             sb.AppendLine("Greetings have been enabled!");
                         }
                     }
                     else
                     {
-                        db.ServerGreetings.Add(new ServerGreeting
+                        var greeting = new ServerGreeting
                         {
                             DiscordGuildId = (long)Context.Guild.Id,
                             GreetingChannelId = (long)Context.Channel.Id,
                             GreetingChannelName = Context.Channel.Name,
                             GreetUsers = true
-                        });
+                        };
+                        StampGreeting(greeting);
+                        db.ServerGreetings.Add(greeting);
                         sb.AppendLine("Greetings have been enabled!");
                     }
                     await db.SaveChangesAsync();
@@ -639,6 +650,7 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                         else
                         {
                             currentSetting.PartUsers = true;
+                            StampGreeting(currentSetting);
                             // Use parting channel if set, otherwise use greeting channel, otherwise use current channel
                             if (currentSetting.PartingChannelId == null)
                             {
@@ -649,12 +661,14 @@ namespace NinjaBotCore.Modules.Interactions.Admin
                     }
                     else
                     {
-                        db.ServerGreetings.Add(new ServerGreeting
+                        var greeting = new ServerGreeting
                         {
                             DiscordGuildId = (long)Context.Guild.Id,
                             PartingChannelId = (long)Context.Channel.Id,
                             PartUsers = true
-                        });
+                        };
+                        StampGreeting(greeting);
+                        db.ServerGreetings.Add(greeting);
                         sb.AppendLine("Parting messages have been enabled!");
                     }
                     await db.SaveChangesAsync();

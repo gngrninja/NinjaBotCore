@@ -18,6 +18,7 @@ public class RealmWatcherWorker : BackgroundService
     private readonly HelpersConfiguration _config;
     private readonly DiscordRestClient _discordClient;
     private readonly BlizzardApiClient _blizzardClient;
+    private readonly DeliveryProblemRecorder? _deliveryProblems;
 
     private const int ColorGreen = 0x2ECC71;
     private const int ColorRed = 0xE74C3C;
@@ -29,13 +30,15 @@ public class RealmWatcherWorker : BackgroundService
         IServiceScopeFactory scopeFactory,
         HelpersConfiguration config,
         DiscordRestClient discordClient,
-        BlizzardApiClient blizzardClient)
+        BlizzardApiClient blizzardClient,
+        DeliveryProblemRecorder? deliveryProblems = null)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
         _config = config;
         _discordClient = discordClient;
         _blizzardClient = blizzardClient;
+        _deliveryProblems = deliveryProblems;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -193,17 +196,26 @@ public class RealmWatcherWorker : BackgroundService
 
             if (sub.ChannelId.HasValue)
             {
-                var success = await _discordClient.SendChannelMessageAsync(
+                var delivery = await _discordClient.SendChannelMessageWithResultAsync(
                     (ulong)sub.ChannelId.Value, embed, cancellationToken);
 
-                if (success)
+                if (delivery.Success)
                 {
                     _logger.LogInformation("Sent realm alert to channel {ChannelId} for {RealmName}",
                         sub.ChannelId, sub.RealmName);
                     alertSent = true;
+                    if (_deliveryProblems != null)
+                    {
+                        await _deliveryProblems.DeliveredAsync(sub.GuildId, DeliveryFeature.RealmAlert, sub.ChannelId.Value);
+                    }
                 }
                 else
                 {
+                    if (delivery.IsExpectedConfigurationFailure && _deliveryProblems != null)
+                    {
+                        await _deliveryProblems.FailedAsync(sub.GuildId, DeliveryFeature.RealmAlert, sub.ChannelId.Value, delivery.DiscordCode);
+                    }
+
                     _logger.LogWarning("Failed to send alert to channel {ChannelId} for subscription {SubId}",
                         sub.ChannelId, sub.Id);
                 }

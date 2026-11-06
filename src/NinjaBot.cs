@@ -12,6 +12,7 @@ using Microsoft.Extensions.Configuration;
 using NinjaBotCore.Services;
 using NinjaBotCore.Services.Gearing;
 using NinjaBotCore.Common;
+using NinjaBotCore.Services.DeliveryProblems;
 using Serilog;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Http;
@@ -99,6 +100,14 @@ namespace NinjaBotCore
                 .AddSingleton<WowUtilities>()
                 .AddSingleton<WarcraftLogsV2Client>()
                 .AddRaidRecap()
+                .AddSingleton(sp => new DeliveryProblemRecorder(
+                    sp.GetRequiredService<IServiceScopeFactory>(),
+                    sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<DeliveryProblemRecorder>>()))
+                .AddSingleton<IDeliveryProblemDiscord, DeliveryProblemDiscord>()
+                .AddSingleton(sp => new DeliveryProblemService(
+                    sp.GetRequiredService<IServiceScopeFactory>(),
+                    sp.GetRequiredService<IDeliveryProblemDiscord>(),
+                    sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<DeliveryProblemService>>()))
                 .AddSingleton<UserInteraction>()
                 .AddSingleton<ModerationWatcherService>()
                 .AddSingleton<AwaySystemService>()

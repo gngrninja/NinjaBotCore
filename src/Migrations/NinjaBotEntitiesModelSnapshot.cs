@@ -457,6 +457,85 @@ namespace NinjaBotCore.Migrations
                     b.ToTable("CurrentRaidTier");
                 });
 
+            modelBuilder.Entity("NinjaBotCore.Database.DeliveryProblem", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("ChannelId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("DiscordCode")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("DismissedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Failures")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Feature")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("FirstSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastAttemptResult")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("LastAttemptRole")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("NotifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("NotifiedRole")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<long?>("NotifiedUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Problem")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Resolution")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("ServerId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LastSeenAt")
+                        .HasDatabaseName("IX_DeliveryProblems_LastSeenAt");
+
+                    b.HasIndex("ServerId", "Feature", "ChannelId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_DeliveryProblems_ServerId_Feature_ChannelId");
+
+                    b.ToTable("DeliveryProblems");
+                });
+
             modelBuilder.Entity("NinjaBotCore.Database.DiscordServer", b =>
                 {
                     b.Property<long>("ServerId")
@@ -784,6 +863,13 @@ namespace NinjaBotCore.Migrations
 
                     b.Property<string>("ServerName")
                         .HasColumnType("text");
+
+                    b.Property<long?>("SetById")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("SetByName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("VanillaReportId")
                         .HasColumnType("text");

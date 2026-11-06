@@ -35,6 +35,9 @@ public class HelpersDbContext : DbContext
     public DbSet<WowClassicGuild> WowClassicGuild { get; set; } = null!;
     public DbSet<WowVanillaGuild> WowVanillaGuild { get; set; } = null!;
 
+    // Delivery problems for the owner's Actionable Alerts page (shared with NinjaBotCore)
+    public DbSet<DeliveryProblem> DeliveryProblems { get; set; } = null!;
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -89,5 +92,10 @@ public class HelpersDbContext : DbContext
 
         modelBuilder.Entity<WowVanillaGuild>()
             .ToTable("WowVanillaGuild");
+
+        modelBuilder.Entity<DeliveryProblem>()
+            .ToTable("DeliveryProblems")
+            .HasIndex(e => new { e.ServerId, e.Feature, e.ChannelId })
+            .IsUnique();
     }
 }

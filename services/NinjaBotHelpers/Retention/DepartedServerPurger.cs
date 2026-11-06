@@ -26,7 +26,8 @@ public sealed class DepartedServerPurger(string connectionString, IDiscordMember
         ("RealmWatchSubscriptions", "GuildId"), ("ApiUsageLogs", "GuildId"),
         ("ForeverGuilds", "DiscordGuildId"), ("ForeverMains", "DiscordGuildId"),
         ("ForeverRosterShares", "DiscordGuildId"),
-        ("RaidRecapLiveSettings", "DiscordGuildId"), ("RaidRecapLiveCards", "DiscordGuildId")
+        ("RaidRecapLiveSettings", "DiscordGuildId"), ("RaidRecapLiveCards", "DiscordGuildId"),
+        ("DeliveryProblems", "ServerId")
     });
 
     public async Task<IReadOnlyList<DepartedServerCandidate>> FindCandidatesAsync(DateTime now, long afterServerId, int batchSize, CancellationToken ct)

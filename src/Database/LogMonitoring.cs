@@ -36,5 +36,11 @@ namespace NinjaBotCore.Database
         /// When we last checked WCL for Vanilla logs (for tiered checking)
         /// </summary>
         public DateTime? LastCheckedVanilla { get; set; }
+
+        /// <summary>Who turned log watching on, so they can be told when posts stop working.</summary>
+        public long? SetById { get; set; }
+
+        [MaxLength(100)]
+        public string SetByName { get; set; }
     }
 }

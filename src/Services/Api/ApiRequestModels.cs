@@ -222,4 +222,20 @@ namespace NinjaBotCore.Services.Api
         [property: JsonPropertyName("user_id")] string? UserId,
         [property: JsonPropertyName("username")] string? Username
     );
+    /// <summary>Request body for DMing about a delivery problem (bot owner only). "to" is setter or owner.</summary>
+    public record DeliveryProblemDmRequest(
+        [property: JsonPropertyName("to")] string? To,
+        [property: JsonPropertyName("user_id")] string? UserId
+    );
+
+    /// <summary>Request body for a delivery problem action that needs only the bot owner.</summary>
+    public record DeliveryProblemOwnerRequest(
+        [property: JsonPropertyName("user_id")] string? UserId
+    );
+
+    /// <summary>Request body for turning off or dismissing several delivery problems at once.</summary>
+    public record DeliveryProblemBatchRequest(
+        [property: JsonPropertyName("ids")] List<string>? Ids,
+        [property: JsonPropertyName("user_id")] string? UserId
+    );
 }

@@ -719,6 +719,59 @@ public class LogMonitoringWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task PostNewLogAsync_RecordsTheProblemForTheOwnerAndResolvesItWhenAPostWorks()
+    {
+        await SeedMonitoringConfig(serverId: 1001, channelId: 2001);
+        SetupDiscordFailure();
+        var recorder = new DeliveryProblemRecorder(
+            _serviceProvider.GetRequiredService<IServiceScopeFactory>(), NullLogger<DeliveryProblemRecorder>.Instance);
+        var worker = new LogMonitoringWorker(
+            _workerLogger.Object,
+            _serviceProvider.GetRequiredService<IServiceScopeFactory>(),
+            _config,
+            _discordClient,
+            _wclClient,
+            new Mock<IHttpClientFactory>().Object,
+            recorder);
+
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<HelpersDbContext>();
+        var guild = new GuildCheckInfo
+        {
+            ServerId = 1001,
+            GuildName = "Test Guild",
+            ServerSlug = "area-52",
+            ServerRegion = "us",
+            GuildKey = "retail_1001_Test Guild_area-52",
+            MonitoringConfig = await db.LogMonitoring.FirstAsync(m => m.ServerId == 1001),
+        };
+        var report = new WclV2Report
+        {
+            Code = "problemReport",
+            Title = "Report",
+            Owner = new WclV2User { Name = "Uploader" },
+            StartTime = 1700000000000,
+            EndTime = 1700003600000,
+            Zone = new WclV2Zone { Id = 1, Name = "Test Zone" },
+        };
+
+        await worker.PostNewLogAsync(guild, report, WowGameVersion.Retail, db, CancellationToken.None);
+
+        var problem = await db.DeliveryProblems.AsNoTracking().SingleAsync();
+        Assert.Equal((1001L, "new_log", 2001L), (problem.ServerId, problem.Feature, problem.ChannelId));
+        Assert.Equal("no_access", problem.Problem);
+        Assert.Equal(50001, problem.DiscordCode);
+        Assert.Null(problem.ResolvedAt);
+
+        SetupDiscordSuccess();
+        await worker.PostNewLogAsync(guild, report, WowGameVersion.Retail, db, CancellationToken.None);
+
+        problem = await db.DeliveryProblems.AsNoTracking().SingleAsync();
+        Assert.NotNull(problem.ResolvedAt);
+        Assert.Equal("delivered", problem.Resolution);
+    }
+
+    [Fact]
     public async Task PostNewLogAsync_HandlesNullMonitoringConfig()
     {
         var guild = new GuildCheckInfo

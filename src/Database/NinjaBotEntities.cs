@@ -86,6 +86,7 @@ namespace NinjaBotCore.Database
         public virtual DbSet<ForeverCharacter> ForeverCharacters { get; set; }
         public virtual DbSet<ForeverMain> ForeverMains { get; set; }
         public virtual DbSet<ForeverRosterShare> ForeverRosterShares { get; set; }
+        public virtual DbSet<DeliveryProblem> DeliveryProblems { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -133,6 +134,17 @@ namespace NinjaBotCore.Database
                     .IsUnique()
                     .HasFilter("\"WithdrewAt\" IS NULL")
                     .HasDatabaseName("IX_PushGroupSignups_ActiveSlot");
+            });
+
+            modelBuilder.Entity<DeliveryProblem>(entity =>
+            {
+                // One problem per feature and channel per server; a new failure updates it.
+                entity.HasIndex(e => new { e.ServerId, e.Feature, e.ChannelId })
+                    .IsUnique()
+                    .HasDatabaseName("IX_DeliveryProblems_ServerId_Feature_ChannelId");
+
+                entity.HasIndex(e => e.LastSeenAt)
+                    .HasDatabaseName("IX_DeliveryProblems_LastSeenAt");
             });
 
             modelBuilder.Entity<RaidRecapLiveCard>(entity =>

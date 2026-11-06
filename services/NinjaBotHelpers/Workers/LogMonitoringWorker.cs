@@ -20,6 +20,7 @@ public class LogMonitoringWorker : BackgroundService
     private readonly DiscordRestClient _discordClient;
     private readonly WarcraftLogsClient _wclClient;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly DeliveryProblemRecorder? _deliveryProblems;
 
     private const int ColorBlue = 0x3498DB;
     private const int MaxBatchSize = 50;
@@ -30,7 +31,8 @@ public class LogMonitoringWorker : BackgroundService
         HelpersConfiguration config,
         DiscordRestClient discordClient,
         WarcraftLogsClient wclClient,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        DeliveryProblemRecorder? deliveryProblems = null)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
@@ -38,6 +40,7 @@ public class LogMonitoringWorker : BackgroundService
         _discordClient = discordClient;
         _wclClient = wclClient;
         _httpClientFactory = httpClientFactory;
+        _deliveryProblems = deliveryProblems;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -407,6 +410,10 @@ public class LogMonitoringWorker : BackgroundService
         {
             _logger.LogInformation("[LogMonitoring] Posted new {GameVersion} log for [{GuildName}]: {ReportCode}",
                 gameVersion, guild.GuildName, report.Code);
+            if (_deliveryProblems != null)
+            {
+                await _deliveryProblems.DeliveredAsync(guild.ServerId, DeliveryFeature.NewLog, guild.MonitoringConfig.ChannelId);
+            }
 
             // Update the monitoring config with the new report ID
             var config = await db.LogMonitoring.FindAsync(new object[] { guild.MonitoringConfig.Id }, cancellationToken);
@@ -446,6 +453,12 @@ public class LogMonitoringWorker : BackgroundService
         }
         else
         {
+            // The server's setup, not an outage: keep it for the owner's Actionable Alerts page.
+            if (delivery.IsExpectedConfigurationFailure && _deliveryProblems != null)
+            {
+                await _deliveryProblems.FailedAsync(guild.ServerId, DeliveryFeature.NewLog, guild.MonitoringConfig.ChannelId, delivery.DiscordCode);
+            }
+
             _logger.LogDebug(
                 "[LogMonitoring] Delivery failed for channel {ChannelId} and {GuildName} (DiscordCode: {DiscordCode}, HTTP: {HttpStatus})",
                 channelId,

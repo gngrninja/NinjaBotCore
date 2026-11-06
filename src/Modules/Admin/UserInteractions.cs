@@ -26,6 +26,7 @@ namespace NinjaBotCore.Modules.Admin
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly IServiceProvider _services;
         private readonly WowCacheService _greetingCache;
+        private readonly DeliveryProblemRecorder _deliveryProblems;
         private readonly DiscordDeliveryFailurePolicy _deliveryFailurePolicy =
             new(TimeSpan.FromHours(6));
         private bool _disposed;
@@ -41,6 +42,7 @@ namespace NinjaBotCore.Modules.Admin
             _client = services.GetRequiredService<DiscordShardedClient>();
             _scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
             _greetingCache = services.GetRequiredService<WowCacheService>();
+            _deliveryProblems = services.GetService<DeliveryProblemRecorder>();
 
             services.GetRequiredService<DiscordShardedClient>().UserJoined += HandleGreeting;
             services.GetRequiredService<DiscordShardedClient>().UserLeft += HandleParting;
@@ -420,6 +422,7 @@ namespace NinjaBotCore.Modules.Admin
                 if (messageChannel == null)
                 {
                     LogUnavailableDeliveryChannel(guild.Id, requestedChannelId, "parting");
+                    await RecordMissingChannelAsync(guild.Id, DeliveryFeature.Leave, requestedChannelId);
                     return;
                 }
 
@@ -445,6 +448,7 @@ namespace NinjaBotCore.Modules.Admin
                 }
                 embed.WithColor(new Color(255, 0, 0));
                 await messageChannel.SendMessageAsync("", false, embed.Build());
+                await RecordDeliveredAsync(guild.Id, DeliveryFeature.Leave, messageChannel.Id);
             }
             catch (Discord.Net.HttpException ex)
                 when (DiscordDeliveryFailurePolicy.IsExpectedConfigurationFailure(
@@ -456,6 +460,7 @@ namespace NinjaBotCore.Modules.Admin
                     messageChannel?.Name,
                     "parting",
                     ex);
+                await RecordFailedAsync(guild.Id, DeliveryFeature.Leave, messageChannel?.Id ?? requestedChannelId, ex);
             }
             catch (Exception ex)
             {
@@ -489,6 +494,7 @@ namespace NinjaBotCore.Modules.Admin
                 if (messageChannel == null)
                 {
                     LogUnavailableDeliveryChannel(user.Guild.Id, requestedChannelId, "greeting");
+                    await RecordMissingChannelAsync(user.Guild.Id, DeliveryFeature.Welcome, requestedChannelId);
                     return;
                 }
 
@@ -515,6 +521,7 @@ namespace NinjaBotCore.Modules.Admin
                 }
                 embed.WithColor(new Color(0, 255, 0));
                 await messageChannel.SendMessageAsync("", false, embed.Build());
+                await RecordDeliveredAsync(user.Guild.Id, DeliveryFeature.Welcome, messageChannel.Id);
             }
             catch (Discord.Net.HttpException ex)
                 when (DiscordDeliveryFailurePolicy.IsExpectedConfigurationFailure(
@@ -526,6 +533,7 @@ namespace NinjaBotCore.Modules.Admin
                     messageChannel?.Name,
                     "greeting",
                     ex);
+                await RecordFailedAsync(user.Guild.Id, DeliveryFeature.Welcome, messageChannel?.Id ?? requestedChannelId, ex);
             }
             catch (Exception ex)
             {
@@ -540,6 +548,17 @@ namespace NinjaBotCore.Modules.Admin
             var guildId = user.Guild.Id;
             return await _greetingCache.GetServerGreetingAsync((long)guildId);
         }
+
+        // For the bot owner's Actionable Alerts page.
+        private Task RecordMissingChannelAsync(ulong guildId, string feature, ulong channelId) =>
+            _deliveryProblems?.FailedAsync(guildId, feature, channelId, DeliveryProblemKind.ChannelMissing, null) ?? Task.CompletedTask;
+
+        private Task RecordFailedAsync(ulong guildId, string feature, ulong channelId, Discord.Net.HttpException exception) =>
+            _deliveryProblems?.FailedAsync(guildId, feature, channelId, exception.DiscordCode.HasValue ? (int)exception.DiscordCode.Value : null)
+                ?? Task.CompletedTask;
+
+        private Task RecordDeliveredAsync(ulong guildId, string feature, ulong channelId) =>
+            _deliveryProblems?.DeliveredAsync(guildId, feature, channelId) ?? Task.CompletedTask;
 
         private void LogUnavailableDeliveryChannel(
             ulong guildId,

@@ -85,6 +85,9 @@ try
     });
 
     // Workers
+    builder.Services.AddSingleton<DeliveryProblemRecorder>(sp => new DeliveryProblemRecorder(
+        sp.GetRequiredService<IServiceScopeFactory>(),
+        sp.GetRequiredService<ILogger<DeliveryProblemRecorder>>()));
     builder.Services.AddHostedService<RealmWatcherWorker>();
     builder.Services.AddHostedService<StaticDataSyncWorker>();
     builder.Services.AddHostedService<LogMonitoringWorker>();

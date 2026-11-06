@@ -82,6 +82,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     if (shouldEnable)
                     {
                         updateGuild.LatestLogRetail = DateTime.UtcNow;
+                        updateGuild.SetById = (long)Context.User.Id;
+                        updateGuild.SetByName = SetByName();
                     }
                 }
                 else
@@ -94,7 +96,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         ChannelName = Context.Channel.Name,
                         MonitorLogs = shouldEnable,
                         LatestLog = DateTime.UtcNow,
-                        LatestLogRetail = shouldEnable ? DateTime.UtcNow : null
+                        LatestLogRetail = shouldEnable ? DateTime.UtcNow : null,
+                        SetById = shouldEnable ? (long)Context.User.Id : null,
+                        SetByName = shouldEnable ? SetByName() : null
                     });
                 }
 
@@ -556,6 +560,13 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var components = BuildTop10Components(encounterID, metric, difficulty, scope, currentTier, fightList);
 
             await FollowupAsync(embed: embed.Build(), components: components, ephemeral: true);
+        }
+
+        /// <summary>Who ran /watchlogs, trimmed to fit LogMonitoring.SetByName.</summary>
+        private string SetByName()
+        {
+            var name = Context.User.Username ?? "";
+            return name.Length <= 100 ? name : name[..100];
         }
 
         /// <summary>

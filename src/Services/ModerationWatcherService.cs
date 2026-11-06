@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Discord;
 using Discord.Rest;
 using Discord.WebSocket;
+using NinjaBotCore.Common;
 using NinjaBotCore.Database;
 using NinjaBotCore.Repositories;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,6 +29,8 @@ namespace NinjaBotCore.Services
             TimeSpan.FromMilliseconds(350),
             TimeSpan.FromMilliseconds(850)
         };
+        private readonly DeliveryProblemRecorder _deliveryProblems;
+        private readonly DiscordDeliveryFailurePolicy _deliveryFailurePolicy = new(TimeSpan.FromHours(6));
         private bool _disposed;
 
         public ModerationWatcherService(IServiceProvider services)
@@ -36,6 +39,7 @@ namespace NinjaBotCore.Services
             _client = services.GetRequiredService<DiscordShardedClient>();
             _scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
             _cache = services.GetRequiredService<IMemoryCache>();
+            _deliveryProblems = services.GetService<DeliveryProblemRecorder>();
             _recentBulkDeletes = new HashSet<ulong>();
             _bulkDeleteLock = new object();
 
@@ -97,7 +101,14 @@ namespace NinjaBotCore.Services
 
             try
             {
-                return guild.GetChannel((ulong)settings.ChannelId) as ISocketMessageChannel;
+                var channel = guild.GetChannel((ulong)settings.ChannelId) as ISocketMessageChannel;
+                if (channel == null && _deliveryProblems != null)
+                {
+                    await _deliveryProblems.FailedAsync(
+                        guild.Id, DeliveryFeature.ModerationLog, (ulong)settings.ChannelId, DeliveryProblemKind.ChannelMissing, null);
+                }
+
+                return channel;
             }
             catch (Exception ex)
             {
@@ -111,9 +122,34 @@ namespace NinjaBotCore.Services
             if (channel == null || embed == null)
                 return;
 
+            var guildId = (channel as SocketGuildChannel)?.Guild.Id ?? 0;
             try
             {
                 await channel.SendMessageAsync(embed: embed.Build());
+                if (_deliveryProblems != null)
+                {
+                    await _deliveryProblems.DeliveredAsync(guildId, DeliveryFeature.ModerationLog, channel.Id);
+                }
+            }
+            catch (Discord.Net.HttpException ex)
+                when (DiscordDeliveryFailurePolicy.IsExpectedConfigurationFailure(
+                    ex.DiscordCode.HasValue ? (int)ex.DiscordCode.Value : null))
+            {
+                // The server's setup, not a bot error: warn now and then, and keep it for the owner's review.
+                var code = (int)ex.DiscordCode!.Value;
+                if (_deliveryFailurePolicy.ShouldLog(guildId, channel.Id, code.ToString(), DateTimeOffset.UtcNow))
+                {
+                    _logger.LogWarning(
+                        "Skipping moderation log in guild {GuildId} on channel {ChannelId}: Discord rejected the configured channel (DiscordCode: {DiscordCode}). Further identical warnings are suppressed for 6 hours",
+                        guildId,
+                        channel.Id,
+                        code);
+                }
+
+                if (_deliveryProblems != null)
+                {
+                    await _deliveryProblems.FailedAsync(guildId, DeliveryFeature.ModerationLog, channel.Id, code);
+                }
             }
             catch (Exception ex)
             {

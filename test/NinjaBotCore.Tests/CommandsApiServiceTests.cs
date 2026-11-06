@@ -73,6 +73,12 @@ namespace NinjaBotCore.Tests
             services.AddRaidRecap();
             services.AddSingleton(Mock.Of<IRaidRecapSource>());
             services.AddSingleton(Mock.Of<IRaidRecapLiveDiscord>());
+            // Actionable alerts: Discord is a stub, the rest is real.
+            services.AddSingleton(Mock.Of<NinjaBotCore.Services.DeliveryProblems.IDeliveryProblemDiscord>());
+            services.AddSingleton(sp => new NinjaBotCore.Services.DeliveryProblems.DeliveryProblemService(
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<NinjaBotCore.Services.DeliveryProblems.IDeliveryProblemDiscord>(),
+                NullLogger<NinjaBotCore.Services.DeliveryProblems.DeliveryProblemService>.Instance));
             RootProvider = services.BuildServiceProvider();
 
             // Create simple dependencies for CommandsApiService constructor

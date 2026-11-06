@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Actionable alerts
+
+- The bot and the helpers record when Discord refuses a feature's post: New log posts, welcome and leave messages, the moderation log, realm status alerts and the word filter. Each problem says whether the channel was deleted, the bot can't see it or a permission is missing. A broken channel costs at most one database write an hour, and the next post that works resolves it.
+- Owner-only commands API endpoints under `/api/admin/delivery-problems` list the problems with what Discord says now (missing permissions, who set the feature up, the server owner, a DM preview) and let the owner DM the setter or owner, re-check, turn the feature off or dismiss it. Nothing is ever DMed or turned off automatically. See `docs/actionable-alerts.md`.
+- `/watchlogs`, `/toggle-greetings` and `/toggle-partings` record who turned them on.
+- Moderation log and word filter permission errors are throttled warnings instead of errors, so they no longer trip the error alert.
+- Departed servers' delivery problems are purged with the rest of their data.
+
 ### WoW Forever
 
 - Added `/forever guild set|view|unset|roster`. Officers set the server's Forever guild (name, region, ruleset, faction) separately from Retail and Classic, and turn the member roster on or off.

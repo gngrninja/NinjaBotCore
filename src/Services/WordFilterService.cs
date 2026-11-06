@@ -10,6 +10,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
+using NinjaBotCore.Common;
 using NinjaBotCore.Database;
 
 namespace NinjaBotCore.Services
@@ -25,6 +26,8 @@ namespace NinjaBotCore.Services
         private readonly DiscordShardedClient _client;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly MemoryCache _wordListCache;
+        private readonly DeliveryProblemRecorder _deliveryProblems;
+        private readonly DiscordDeliveryFailurePolicy _deliveryFailurePolicy = new(TimeSpan.FromHours(6));
         private bool _disposed;
 
         // Leet speak character substitutions
@@ -54,6 +57,7 @@ namespace NinjaBotCore.Services
             _logger = services.GetRequiredService<ILogger<WordFilterService>>();
             _client = services.GetRequiredService<DiscordShardedClient>();
             _scopeFactory = services.GetRequiredService<IServiceScopeFactory>();
+            _deliveryProblems = services.GetService<DeliveryProblemRecorder>();
 
             // Create dedicated cache for word lists
             _wordListCache = new MemoryCache(new MemoryCacheOptions
@@ -108,6 +112,31 @@ namespace NinjaBotCore.Services
                     await messageDetails.DeleteAsync();
                     _logger.LogInformation("Deleted message from {User} in {Guild} - contained blocked word",
                         messageDetails.Author.Username, guildChannel.Guild.Name);
+                    if (_deliveryProblems != null)
+                    {
+                        await _deliveryProblems.DeliveredAsync(guildChannel.Guild.Id, DeliveryFeature.WordFilter, guildChannel.Id);
+                    }
+                }
+            }
+            catch (Discord.Net.HttpException ex)
+                when (DiscordDeliveryFailurePolicy.IsExpectedConfigurationFailure(
+                    ex.DiscordCode.HasValue ? (int)ex.DiscordCode.Value : null))
+            {
+                // Missing Manage Messages in that channel: the server's setup, not a bot error.
+                var guildId = (messageDetails.Channel as SocketGuildChannel)?.Guild.Id ?? 0;
+                var code = (int)ex.DiscordCode!.Value;
+                if (_deliveryFailurePolicy.ShouldLog(guildId, messageDetails.Channel.Id, code.ToString(), DateTimeOffset.UtcNow))
+                {
+                    _logger.LogWarning(
+                        "Word filter can't delete messages in guild {GuildId} channel {ChannelId} (DiscordCode: {DiscordCode}). Further identical warnings are suppressed for 6 hours",
+                        guildId,
+                        messageDetails.Channel.Id,
+                        code);
+                }
+
+                if (_deliveryProblems != null)
+                {
+                    await _deliveryProblems.FailedAsync(guildId, DeliveryFeature.WordFilter, messageDetails.Channel.Id, code);
                 }
             }
             catch (Exception ex)
