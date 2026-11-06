@@ -41,7 +41,8 @@
 - A live card waits out a WarcraftLogs sign-in outage without counting it against the card. `/raid-recap-rollout Status` says when sign-in is failing, and the health JSON adds `warcraft_logs_auth`.
 - The rollout and each server's live card can be managed from the web: the commands API serves the rollout mode, the selected servers, *Preview most active*, select, add and remove for the admin page (bot owner only), and turning a server's card on or off for its dashboard. `/raid-recap-live` and the dashboard share the same rules.
 - *Preview* and *Select most active* skip only the one server when Warcraft Logs reports an error about its guild, such as a guild that never logged, instead of ending the list there.
-- Selecting servers runs one at a time, so two selections at once can't post the one-time message twice or pass the 25-server cap. An officer who turns the card off while the message is posting keeps it off.
+- Selecting servers runs one at a time, so two selections at once can't post the one-time message twice or pass the 25-server cap. An officer who turns the card off while the message is posting keeps it off, and one who turns it on in a channel of their own keeps that channel.
+- The kill switch is checked again for each server, so turning the rollout off during *Select most active* stops the run; the rest say the rollout was switched off. A server ID of 0 is refused instead of selecting the most active servers.
 - A selected server whose card is already on, but where the bot can no longer post, is skipped instead of taking a place. A server the bot has left no longer uses up a place, and the selected list says the bot left.
 - The `/watchlogs` channel for the card is the one with the latest New log; a row that never had a log no longer comes first in PostgreSQL.
 

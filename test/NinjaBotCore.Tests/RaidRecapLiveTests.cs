@@ -7,6 +7,7 @@ using Discord;
 using Discord.Interactions;
 using Discord.Rest;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -88,13 +89,15 @@ public class RaidRecapLiveTests
         public RaidRecapReport Report { get; set; }
         public List<WclV2Report> Listed { get; } = new();
 
-        public Rig()
+        public Rig(IInterceptor interceptor = null)
         {
             var database = Guid.NewGuid().ToString();
             Services = new ServiceCollection()
-                .AddDbContext<NinjaBotEntities>(options => options
-                    .UseInMemoryDatabase(database)
-                    .UseInternalServiceProvider(_efServices))
+                .AddDbContext<NinjaBotEntities>(options =>
+                {
+                    options.UseInMemoryDatabase(database).UseInternalServiceProvider(_efServices);
+                    if (interceptor != null) options.AddInterceptors(interceptor);
+                })
                 .BuildServiceProvider();
             Players = Source.As<IRaidRecapPlayerSource>();
             Targets = Source.As<IRaidRecapTargetSource>();
@@ -608,6 +611,100 @@ public class RaidRecapLiveTests
         Assert.True(settings.Selected);
         // The message did post, so it is never sent again.
         Assert.NotNull(settings.NoticeSentAt);
+    }
+
+    [Fact]
+    public async Task AnOfficerTurningTheCardOnWhileTheMessagePostsKeepsTheirChannel()
+    {
+        using var rig = new Rig();
+        await SeedActiveAsync(rig, 10, logsPosted: 2, daysSinceLog: 1);
+        rig.Discord.WhileSending = () =>
+        {
+            // /raid-recap-live state:On channel:#raid-card
+            using var scope = rig.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+            db.RaidRecapLiveSettings.Add(new RaidRecapLiveSettings { DiscordGuildId = 10, Enabled = true, ChannelId = 55, SetById = 901 });
+            db.SaveChanges();
+        };
+
+        Assert.Equal(RaidRecapLiveSelectStatus.AlreadyOn, await Selection(rig).SelectAsync(10, Owner, "owner"));
+
+        var settings = await SettingsAsync(rig, 10);
+        Assert.True(settings.Enabled);
+        Assert.Equal(55, settings.ChannelId);
+        Assert.Equal(901, settings.SetById);
+        Assert.True(settings.Selected);
+        Assert.NotNull(settings.NoticeSentAt);
+    }
+
+    /// <summary>
+    /// Adds an officer's row for the server just before the selection saves its own, then fails
+    /// that save as Postgres does on a duplicate key (the in-memory database throws its own error).
+    /// </summary>
+    private sealed class OfficerSavesFirst : SaveChangesInterceptor
+    {
+        public IServiceProvider Services { get; set; }
+        public bool Fired { get; private set; }
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (!Fired && Services != null
+                && eventData.Context!.ChangeTracker.Entries<RaidRecapLiveSettings>().Any(e => e.State == EntityState.Added))
+            {
+                Fired = true;
+                using var scope = Services.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
+                db.RaidRecapLiveSettings.Add(new RaidRecapLiveSettings { DiscordGuildId = 10, Enabled = true, ChannelId = 55, SetById = 901 });
+                await db.SaveChangesAsync(cancellationToken);
+                throw new DbUpdateException("duplicate key value violates unique constraint \"PK_RaidRecapLiveSettings\"");
+            }
+
+            return result;
+        }
+    }
+
+    [Fact]
+    public async Task AnOfficerSavingAtTheSameMomentIsReadAgainNotLost()
+    {
+        var officer = new OfficerSavesFirst();
+        using var rig = new Rig(officer);
+        await SeedActiveAsync(rig, 10, logsPosted: 2, daysSinceLog: 1);
+        officer.Services = rig.Services;
+
+        Assert.Equal(RaidRecapLiveSelectStatus.AlreadyOn, await Selection(rig).SelectAsync(10, Owner, "owner"));
+
+        Assert.True(officer.Fired);
+        var settings = await SettingsAsync(rig, 10);
+        Assert.Equal(55, settings.ChannelId);
+        Assert.Equal(901, settings.SetById);
+        Assert.True(settings.Selected);
+        Assert.NotNull(settings.NoticeSentAt);
+        Assert.Single(rig.Discord.Sent);
+    }
+
+    [Fact]
+    public async Task TheKillSwitchStopsASelectionRunPartWay()
+    {
+        using var rig = new Rig();
+        await SeedActiveAsync(rig, 10, logsPosted: 9, daysSinceLog: 1, reportDaysAgo: new[] { 1.0 });
+        await SeedActiveAsync(rig, 11, logsPosted: 8, daysSinceLog: 1, reportDaysAgo: new[] { 1.0 });
+        await SeedActiveAsync(rig, 12, logsPosted: 7, daysSinceLog: 1, reportDaysAgo: new[] { 1.0 });
+        await rig.Gate.SetModeAsync(RaidRecapRolloutMode.Selected);
+        // The owner hits the kill switch while the first server's message posts.
+        rig.Discord.WhileSending = () => rig.Gate.SetModeAsync(RaidRecapRolloutMode.Off).GetAwaiter().GetResult();
+
+        var (results, _) = await Selection(rig).SelectMostActiveAsync(3, Owner, "owner");
+
+        Assert.Equal(new long[] { 10, 11, 12 }, results.Select(r => r.ServerId));
+        Assert.Equal(new[]
+        {
+            RaidRecapLiveSelectStatus.TurnedOn, RaidRecapLiveSelectStatus.RolloutOff, RaidRecapLiveSelectStatus.RolloutOff
+        }, results.Select(r => r.Status));
+        Assert.Single(rig.Discord.Sent);
+        Assert.Null(await SettingsAsync(rig, 11));
+        Assert.Null(await SettingsAsync(rig, 12));
+        Assert.Equal(RaidRecapLiveSelectStatus.RolloutOff, await Selection(rig).SelectAsync(11, Owner, "owner"));
     }
 
     [Fact]

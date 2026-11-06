@@ -145,8 +145,9 @@ namespace NinjaBotCore.Services.Api
                     return Results.BadRequest(new { success = false, error = "Invalid request body" });
                 }
 
+                // No server_id selects the most active; one given must be a real ID, never 0.
                 ulong serverId = 0;
-                if (!string.IsNullOrWhiteSpace(body.ServerId) && !ulong.TryParse(body.ServerId.Trim(), out serverId))
+                if (!string.IsNullOrWhiteSpace(body.ServerId) && (!ulong.TryParse(body.ServerId.Trim(), out serverId) || serverId == 0))
                 {
                     return Results.BadRequest(new { success = false, error = "server_id must be a Discord server ID" });
                 }

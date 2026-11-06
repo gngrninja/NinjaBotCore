@@ -54,6 +54,9 @@ public enum RaidRecapLiveSelectStatus
     /// <summary>The selection is full.</summary>
     Full,
 
+    /// <summary>The kill switch went on before this server was selected, so nothing changed.</summary>
+    RolloutOff,
+
     /// <summary>Something went wrong selecting this server.</summary>
     Failed
 }
@@ -247,6 +250,13 @@ public sealed class RaidRecapLiveSelection
 
     private async Task<RaidRecapLiveSelectStatus> SelectLockedAsync(ulong guildId, ulong ownerId, string ownerName)
     {
+        // Checked for every server: the kill switch can go on during a long "select most
+        // active" run, and nobody is told about a card that won't post.
+        if (await _gate.ModeAsync() == RaidRecapRolloutMode.Off)
+        {
+            return RaidRecapLiveSelectStatus.RolloutOff;
+        }
+
         using var scope = _scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<NinjaBotEntities>();
         var id = checked((long)guildId);
@@ -285,16 +295,34 @@ public sealed class RaidRecapLiveSelection
             return RaidRecapLiveSelectStatus.NoticeFailed;
         }
 
-        // Read after the message posted: an officer may have turned the card off meanwhile, and
-        // that stays off. The message did post, so it is never sent again.
         var now = _clock().UtcDateTime;
+        try
+        {
+            return await SaveSelectedAsync(db, id, channel.Value, ownerId, ownerName, now);
+        }
+        catch (DbUpdateException)
+        {
+            // An officer's /raid-recap-live added the server's row at the same moment. Read it again.
+            db.ChangeTracker.Clear();
+            return await SaveSelectedAsync(db, id, channel.Value, ownerId, ownerName, now);
+        }
+    }
+
+    /// <summary>
+    /// Turns the card on after the message posted. Read only now: an officer may have turned
+    /// the card off meanwhile, which stays off, or on in a channel of their choosing, which is
+    /// kept. The message did post, so it is never sent again.
+    /// </summary>
+    private static async Task<RaidRecapLiveSelectStatus> SaveSelectedAsync(
+        NinjaBotEntities db, long id, long channel, ulong ownerId, string ownerName, DateTime now)
+    {
         var settings = await db.RaidRecapLiveSettings.FirstOrDefaultAsync(s => s.DiscordGuildId == id);
-        if (settings is { Enabled: false })
+        if (settings is { Enabled: false } or { ChannelId: not null })
         {
             settings.Selected = true;
             settings.NoticeSentAt ??= now;
             await db.SaveChangesAsync();
-            return RaidRecapLiveSelectStatus.TurnedOff;
+            return settings.Enabled ? RaidRecapLiveSelectStatus.AlreadyOn : RaidRecapLiveSelectStatus.TurnedOff;
         }
 
         if (settings == null)
@@ -304,7 +332,7 @@ public sealed class RaidRecapLiveSelection
         }
 
         settings.Enabled = true;
-        settings.ChannelId = channel.Value;
+        settings.ChannelId = channel;
         settings.Selected = true;
         settings.SetById = checked((long)ownerId);
         settings.SetByName = ownerName.Length <= 100 ? ownerName : ownerName[..100];

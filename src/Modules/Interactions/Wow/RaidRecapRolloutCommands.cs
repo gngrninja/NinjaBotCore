@@ -110,7 +110,7 @@ public class RaidRecapRolloutCommands : InteractionModuleBase<IInteractionContex
         try
         {
             ulong serverId = 0;
-            if (action is "add" or "remove" && !ulong.TryParse(server?.Trim(), out serverId))
+            if (action is "add" or "remove" && (!ulong.TryParse(server?.Trim(), out serverId) || serverId == 0))
             {
                 await NoticeAsync("Give the server's ID in `server` to add or remove it.", Color.Orange);
                 return;
@@ -249,6 +249,7 @@ public class RaidRecapRolloutCommands : InteractionModuleBase<IInteractionContex
         RaidRecapLiveSelectStatus.Unchecked => "skipped, couldn't check Warcraft Logs",
         RaidRecapLiveSelectStatus.LookupFailed => "skipped, Warcraft Logs couldn't look up its guild",
         RaidRecapLiveSelectStatus.Full => $"skipped, {RaidRecapLiveSelection.MaxSelect} servers are already selected",
+        RaidRecapLiveSelectStatus.RolloutOff => "skipped, the rollout was switched off",
         RaidRecapLiveSelectStatus.Failed => "skipped, something went wrong",
         _ => "unknown"
     };

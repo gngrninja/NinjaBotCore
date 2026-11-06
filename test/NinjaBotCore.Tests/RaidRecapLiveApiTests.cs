@@ -182,6 +182,20 @@ namespace NinjaBotCore.Tests
             _discord.Verify(d => d.SendAsync(It.IsAny<ulong>(), It.IsAny<MessageComponent>()), Times.Never);
         }
 
+        [Theory]
+        [InlineData("0")]
+        [InlineData("00000000000000000")]
+        public async Task Selection_RefusesAZeroServerIdInsteadOfSelectingTheMostActive(string serverId)
+        {
+            await SetModeAsync(RaidRecapRolloutMode.Selected);
+
+            var response = await _client.PostAsJsonAsync("/api/raid-recap-live/selection",
+                new { server_id = serverId, user_id = Owner.ToString(), username = "owner" });
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            _discord.Verify(d => d.SendAsync(It.IsAny<ulong>(), It.IsAny<MessageComponent>()), Times.Never);
+        }
+
         [Fact]
         public async Task Candidates_PreviewChangesNothing()
         {
