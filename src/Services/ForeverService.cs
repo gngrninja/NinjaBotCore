@@ -34,24 +34,42 @@ namespace NinjaBotCore.Services
 
     public sealed record ForeverRosterMember(long UserId, IReadOnlyList<ForeverCharacter> Characters, long? MainId);
 
-    public sealed record ForeverRoster(ForeverGuild Guild, IReadOnlyList<ForeverRosterMember> Members);
+    /// <summary>
+    /// <paramref name="Armory"/> is Blizzard's roster when the guild is matched to the armory and it answered.
+    /// <paramref name="ArmoryMissed"/> means it was asked and didn't, so only member-reported characters are known.
+    /// </summary>
+    public sealed record ForeverRoster(
+        ForeverGuild Guild,
+        IReadOnlyList<ForeverRosterMember> Members,
+        ForeverArmoryRoster? Armory = null,
+        bool ArmoryMissed = false);
+
+    /// <summary>A saved character with what the armory said about it, if it was asked.</summary>
+    public sealed record ForeverSavedCharacter(ForeverCharacter Character, ForeverArmoryCharacter? Armory, ForeverLookupStatus? Lookup);
+
+    /// <summary>A saved guild with what the armory said about it.</summary>
+    public sealed record ForeverSavedGuild(ForeverGuild Guild, ForeverArmoryGuild? Armory, ForeverLookupStatus Lookup);
 
     /// <summary>
-    /// WoW Forever guild and character associations. Everything here is self-reported and
-    /// manual: no Blizzard/Raider.IO/WCL calls, and nothing touches the Retail WowCharAssociation table.
+    /// WoW Forever guild and character associations. Members say which characters are theirs;
+    /// class, ruleset, faction and the guild roster come from Blizzard's armory when it has them.
+    /// Nothing proves ownership, and nothing touches the Retail WowCharAssociation table.
     /// </summary>
     public class ForeverService
     {
         public const string NoGuildMessage = "This server has no Forever guild yet. An officer can set one with `/forever guild set`.";
         public const string RosterOffMessage = "The Forever roster is turned off in this server. An officer can turn it on with `/forever guild roster`.";
+        public const string NotOnArmoryHint = "Characters appear on the armory at level 10, after they log out.";
         private const string NotFoundMessage = "Character not found. Pick one of yours from the list.";
 
         private readonly IServiceScopeFactory _scopeFactory;
+        private readonly IForeverArmory _armory;
         private readonly ILogger<ForeverService> _logger;
 
-        public ForeverService(IServiceScopeFactory scopeFactory, ILogger<ForeverService> logger)
+        public ForeverService(IServiceScopeFactory scopeFactory, IForeverArmory armory, ILogger<ForeverService> logger)
         {
             _scopeFactory = scopeFactory;
+            _armory = armory;
             _logger = logger;
         }
 
@@ -81,12 +99,37 @@ namespace NinjaBotCore.Services
         public Task<ForeverGuild?> GetGuildAsync(long guildId)
             => WithDbAsync(db => db.ForeverGuilds.AsNoTracking().FirstOrDefaultAsync(g => g.DiscordGuildId == guildId));
 
-        public async Task<ForeverResult<ForeverGuild>> SetGuildAsync(
-            long guildId, string? name, ForeverRegion region, ForeverRuleset ruleset, ForeverFaction faction,
+        /// <summary>
+        /// Saves the server's guild. The armory fills in the ruleset and faction and overrides what
+        /// was typed; a guild it doesn't have is saved as typed, which then needs both.
+        /// </summary>
+        public async Task<ForeverResult<ForeverSavedGuild>> SetGuildAsync(
+            long guildId, string? name, ForeverRegion region, ForeverRuleset? ruleset, ForeverFaction? faction,
             long setById, string? setByName)
         {
             if (!ForeverNames.TryCleanGuildName(name, out var cleanName, out var error))
-                return ForeverResult<ForeverGuild>.Fail(error);
+                return ForeverResult<ForeverSavedGuild>.Fail(error);
+
+            var lookup = await _armory.GetGuildAsync(region, cleanName);
+            var armory = lookup.Value;
+            var savedRuleset = armory?.Ruleset ?? ruleset;
+            var savedFaction = armory?.Faction ?? faction;
+            if (savedRuleset == null || savedFaction == null)
+            {
+                var missing = string.Join(" and ", new[] { savedRuleset == null ? "ruleset" : null, savedFaction == null ? "faction" : null }
+                    .Where(m => m != null));
+                return ForeverResult<ForeverSavedGuild>.Fail(lookup.Status switch
+                {
+                    ForeverLookupStatus.Found =>
+                        $"**{armory!.Name}** is on the armory, but with a {missing} I don't know yet. Please also pick: {missing}.",
+                    ForeverLookupStatus.NotFound =>
+                        $"I couldn't find **{cleanName}** on the {region} armory. Check the spelling and region, or also pick a {missing} to save it as typed.",
+                    _ =>
+                        $"Blizzard's armory didn't answer, so I can't fill in the details. Try again, or also pick a {missing} to save it as typed."
+                });
+            }
+
+            var savedName = armory != null && ForeverNames.TryCleanGuildName(armory.Name, out var armoryName, out _) ? armoryName : cleanName;
 
             async Task<ForeverGuild> Upsert(NinjaBotEntities db)
             {
@@ -96,10 +139,11 @@ namespace NinjaBotCore.Services
                     guild = new ForeverGuild { DiscordGuildId = guildId };
                     db.ForeverGuilds.Add(guild);
                 }
-                guild.Name = cleanName;
+                guild.Name = savedName;
                 guild.Region = region;
-                guild.Ruleset = ruleset;
-                guild.Faction = faction;
+                guild.Ruleset = savedRuleset.Value;
+                guild.Faction = savedFaction.Value;
+                guild.ArmorySlug = Truncate(armory?.Slug, ForeverGuild.MaxArmorySlugLength);
                 guild.SetById = setById;
                 guild.SetByName = Truncate(setByName, 100);
                 guild.TimeSet = DateTime.UtcNow;
@@ -107,15 +151,17 @@ namespace NinjaBotCore.Services
                 return guild;
             }
 
+            ForeverGuild saved;
             try
             {
-                return ForeverResult<ForeverGuild>.Success(await WithDbAsync(Upsert));
+                saved = await WithDbAsync(Upsert);
             }
             catch (DbUpdateException)
             {
                 // Two officers created it at the same moment; the row exists now, so update it.
-                return ForeverResult<ForeverGuild>.Success(await WithDbAsync(Upsert));
+                saved = await WithDbAsync(Upsert);
             }
+            return ForeverResult<ForeverSavedGuild>.Success(new ForeverSavedGuild(saved, armory, lookup.Status));
         }
 
         /// <summary>Removes the association. Shares stay but are invisible until a guild is set again.</summary>
@@ -152,22 +198,47 @@ namespace NinjaBotCore.Services
         public Task<ForeverCharacter?> GetCharacterAsync(long userId, long characterId) => WithDbAsync(db =>
             db.ForeverCharacters.AsNoTracking().FirstOrDefaultAsync(c => c.Id == characterId && c.UserId == userId));
 
-        public async Task<ForeverResult<ForeverCharacter>> AddCharacterAsync(long userId, long guildId, ForeverCharacterInput input)
+        /// <summary>
+        /// Adds a character. The armory fills in the class, ruleset and faction and overrides what was
+        /// typed; a character it doesn't have yet is saved as typed, with the server's guild as the default.
+        /// </summary>
+        public async Task<ForeverResult<ForeverSavedCharacter>> AddCharacterAsync(long userId, long guildId, ForeverCharacterInput input)
         {
             if (!ForeverNames.TryCleanPart(input.FirstName, "First name", out var first, out var error)
                 || !ForeverNames.TryCleanPart(input.LastName, "Surname", out var last, out error))
-                return ForeverResult<ForeverCharacter>.Fail(error);
+                return ForeverResult<ForeverSavedCharacter>.Fail(error);
 
             var guild = await GetGuildAsync(guildId);
             var region = input.Region ?? guild?.Region;
-            var ruleset = input.Ruleset ?? guild?.Ruleset;
-            var faction = input.Faction ?? guild?.Faction;
-            if (region == null || ruleset == null || faction == null)
+            if (region == null)
+                return ForeverResult<ForeverSavedCharacter>.Fail("This server has no Forever guild to take the region from, so please also pick a region.");
+
+            var lookup = await _armory.GetCharacterAsync(region.Value, first, last);
+            var armory = lookup.Value;
+            var ruleset = armory?.Ruleset ?? input.Ruleset ?? guild?.Ruleset;
+            var faction = armory?.Faction ?? input.Faction ?? guild?.Faction;
+            if (ruleset == null || faction == null)
             {
-                var missing = new[] { region == null ? "region" : null, ruleset == null ? "ruleset" : null, faction == null ? "faction" : null }
-                    .Where(m => m != null);
-                return ForeverResult<ForeverCharacter>.Fail(
-                    $"This server has no Forever guild to fill in defaults, so please also pick: {string.Join(", ", missing)}.");
+                var missing = string.Join(" and ", new[] { ruleset == null ? "ruleset" : null, faction == null ? "faction" : null }
+                    .Where(m => m != null));
+                return ForeverResult<ForeverSavedCharacter>.Fail(lookup.Status switch
+                {
+                    ForeverLookupStatus.Found =>
+                        $"**{armory!.FullName}** is on the armory, but with a {missing} I don't know yet. Please also pick: {missing}.",
+                    ForeverLookupStatus.NotFound =>
+                        $"**{ForeverNames.FullName(first, last)}** isn't on the {region} armory yet. {NotOnArmoryHint} To add it now, also pick a {missing}.",
+                    _ =>
+                        $"Blizzard's armory didn't answer, so I can't fill in the details. Try again, or also pick a {missing}."
+                });
+            }
+
+            // The armory's spelling is the character's real one (capitals, accents).
+            if (armory != null
+                && ForeverNames.TryCleanPart(armory.FirstName, "First name", out var armoryFirst, out _)
+                && ForeverNames.TryCleanPart(armory.Surname, "Surname", out var armoryLast, out _))
+            {
+                first = armoryFirst;
+                last = armoryLast;
             }
 
             var character = new ForeverCharacter
@@ -180,7 +251,7 @@ namespace NinjaBotCore.Services
                 Region = region.Value,
                 Ruleset = ruleset.Value,
                 Faction = faction.Value,
-                Class = input.Class,
+                Class = armory?.Class ?? input.Class,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
@@ -188,7 +259,7 @@ namespace NinjaBotCore.Services
             return await WithDbAsync(async db =>
             {
                 if (await IsDuplicateAsync(db, character, exceptId: null))
-                    return ForeverResult<ForeverCharacter>.Fail(DuplicateMessage(character));
+                    return ForeverResult<ForeverSavedCharacter>.Fail(DuplicateMessage(character));
 
                 db.ForeverCharacters.Add(character);
                 try
@@ -198,43 +269,62 @@ namespace NinjaBotCore.Services
                 catch (DbUpdateException)
                 {
                     // Lost a race with a double-submitted add; the unique index caught it.
-                    return ForeverResult<ForeverCharacter>.Fail(DuplicateMessage(character));
+                    return ForeverResult<ForeverSavedCharacter>.Fail(DuplicateMessage(character));
                 }
-                return ForeverResult<ForeverCharacter>.Success(character);
+                return ForeverResult<ForeverSavedCharacter>.Success(new ForeverSavedCharacter(character, armory, lookup.Status));
             });
         }
 
-        public async Task<ForeverResult<ForeverCharacter>> EditCharacterAsync(long userId, long characterId, ForeverCharacterInput changes)
+        /// <summary>What the armory says about a saved character now. Cached for a few minutes.</summary>
+        public Task<ForeverLookup<ForeverArmoryCharacter>> LookUpAsync(ForeverCharacter character)
+            => _armory.GetCharacterAsync(character.Region, character.FirstName, character.LastName);
+
+        /// <summary>
+        /// Edits a character, then checks the armory under its new name and region. As with adding,
+        /// the armory's class, ruleset, faction and spelling override what was typed, so an edit with
+        /// no changes brings a character added before it reached the armory up to date.
+        /// </summary>
+        public async Task<ForeverResult<ForeverSavedCharacter>> EditCharacterAsync(long userId, long characterId, ForeverCharacterInput changes)
         {
             string? first = null, last = null, error = string.Empty;
             if (changes.FirstName != null && !ForeverNames.TryCleanPart(changes.FirstName, "First name", out first, out error))
-                return ForeverResult<ForeverCharacter>.Fail(error);
+                return ForeverResult<ForeverSavedCharacter>.Fail(error);
             if (changes.LastName != null && !ForeverNames.TryCleanPart(changes.LastName, "Surname", out last, out error))
-                return ForeverResult<ForeverCharacter>.Fail(error);
+                return ForeverResult<ForeverSavedCharacter>.Fail(error);
+
+            var current = await GetCharacterAsync(userId, characterId);
+            if (current == null) return ForeverResult<ForeverSavedCharacter>.Fail(NotFoundMessage);
+
+            first ??= current.FirstName;
+            last ??= current.LastName;
+            var region = changes.Region ?? current.Region;
+            var lookup = await _armory.GetCharacterAsync(region, first, last);
+            var armory = lookup.Value;
+            if (armory != null
+                && ForeverNames.TryCleanPart(armory.FirstName, "First name", out var armoryFirst, out _)
+                && ForeverNames.TryCleanPart(armory.Surname, "Surname", out var armoryLast, out _))
+            {
+                first = armoryFirst;
+                last = armoryLast;
+            }
 
             return await WithDbAsync(async db =>
             {
                 var character = await db.ForeverCharacters.FirstOrDefaultAsync(c => c.Id == characterId && c.UserId == userId);
-                if (character == null) return ForeverResult<ForeverCharacter>.Fail(NotFoundMessage);
+                if (character == null) return ForeverResult<ForeverSavedCharacter>.Fail(NotFoundMessage);
 
-                if (first != null)
-                {
-                    character.FirstName = first;
-                    character.NormalizedFirstName = ForeverNames.Normalize(first);
-                }
-                if (last != null)
-                {
-                    character.LastName = last;
-                    character.NormalizedLastName = ForeverNames.Normalize(last);
-                }
-                character.Region = changes.Region ?? character.Region;
-                character.Ruleset = changes.Ruleset ?? character.Ruleset;
-                character.Faction = changes.Faction ?? character.Faction;
-                character.Class = changes.Class ?? character.Class;
+                character.FirstName = first;
+                character.NormalizedFirstName = ForeverNames.Normalize(first);
+                character.LastName = last;
+                character.NormalizedLastName = ForeverNames.Normalize(last);
+                character.Region = region;
+                character.Ruleset = armory?.Ruleset ?? changes.Ruleset ?? character.Ruleset;
+                character.Faction = armory?.Faction ?? changes.Faction ?? character.Faction;
+                character.Class = armory?.Class ?? changes.Class ?? character.Class;
                 character.UpdatedAt = DateTime.UtcNow;
 
                 if (await IsDuplicateAsync(db, character, exceptId: character.Id))
-                    return ForeverResult<ForeverCharacter>.Fail(DuplicateMessage(character));
+                    return ForeverResult<ForeverSavedCharacter>.Fail(DuplicateMessage(character));
 
                 try
                 {
@@ -242,9 +332,9 @@ namespace NinjaBotCore.Services
                 }
                 catch (DbUpdateException)
                 {
-                    return ForeverResult<ForeverCharacter>.Fail(DuplicateMessage(character));
+                    return ForeverResult<ForeverSavedCharacter>.Fail(DuplicateMessage(character));
                 }
-                return ForeverResult<ForeverCharacter>.Success(character);
+                return ForeverResult<ForeverSavedCharacter>.Success(new ForeverSavedCharacter(character, armory, lookup.Status));
             });
         }
 
@@ -364,7 +454,8 @@ namespace NinjaBotCore.Services
         });
 
         /// <summary>
-        /// Shared characters of current members that match the guild's region/ruleset/faction.
+        /// Shared characters of current members that match the guild's region/ruleset/faction, plus
+        /// Blizzard's roster when the guild is matched to the armory.
         /// <paramref name="isMember"/> must fail closed: unknown users are left out.
         /// </summary>
         public async Task<ForeverResult<ForeverRoster>> GetRosterAsync(long guildId, Func<long, bool> isMember)
@@ -373,7 +464,7 @@ namespace NinjaBotCore.Services
             if (guild == null) return ForeverResult<ForeverRoster>.Fail(NoGuildMessage);
             if (!guild.RosterEnabled) return ForeverResult<ForeverRoster>.Fail(RosterOffMessage);
 
-            return await WithDbAsync(async db =>
+            var roster = await WithDbAsync(async db =>
             {
                 var shared = await db.ForeverRosterShares.AsNoTracking()
                     .Where(s => s.DiscordGuildId == guildId)
@@ -401,8 +492,13 @@ namespace NinjaBotCore.Services
                     })
                     .ToList();
 
-                return ForeverResult<ForeverRoster>.Success(new ForeverRoster(guild, members));
+                return new ForeverRoster(guild, members);
             });
+
+            if (roster.Guild.ArmorySlug == null) return ForeverResult<ForeverRoster>.Success(roster);
+
+            var armory = await _armory.GetRosterAsync(roster.Guild.Region, roster.Guild.ArmorySlug);
+            return ForeverResult<ForeverRoster>.Success(roster with { Armory = armory.Value, ArmoryMissed = !armory.IsFound });
         }
 
         public Task<int> ForgetMemberAsync(long guildId, long userId) => WithDbAsync(async db =>

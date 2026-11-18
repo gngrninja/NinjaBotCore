@@ -648,6 +648,10 @@ namespace NinjaBotCore.Migrations
                     b.Property<long>("DiscordGuildId")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("ArmorySlug")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<int>("Faction")
                         .HasColumnType("integer");
 

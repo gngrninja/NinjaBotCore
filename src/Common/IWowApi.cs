@@ -1,10 +1,14 @@
 using System.Collections.Generic;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using NinjaBotCore.Models.Wow;
 
 namespace NinjaBotCore.Common
 {
+    /// <summary>A Blizzard API answer with its status. The body is empty unless the call succeeded.</summary>
+    public sealed record WowApiResponse(HttpStatusCode Status, string Body);
+
     public interface IWowApi
     {
         // Initialization
@@ -15,6 +19,7 @@ namespace NinjaBotCore.Common
         Task<string> GetAPIRequestAsync(string url, string region = "us", CancellationToken cancellationToken = default);
         Task<string> GetAPIRequestAsync(string url, bool fullUrl, CancellationToken cancellationToken = default);
         Task<string> GetAPIRequestAsync(string url, string locale, string region = "us", CancellationToken cancellationToken = default);
+        Task<WowApiResponse> TryGetAPIRequestAsync(string url, string region = "us", CancellationToken cancellationToken = default);
         Task<string> GetWowToken(string username, string password);
 
         // Character methods

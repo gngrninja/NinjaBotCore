@@ -148,6 +148,7 @@ namespace NinjaBotCore
                 .AddSingleton<WeeklyKeyHistoryRefreshService>()
                 .AddSingleton<PushGroupMaintenanceService>()
                 .AddSingleton<RaidRecapLiveService>()
+                .AddSingleton<IForeverArmory, ForeverArmory>()
                 .AddSingleton<ForeverService>()
                 .AddSingleton<AudioService>()
                 .AddWarcraftClients(_config["WoWClient"], _config["WoWSecret"])         

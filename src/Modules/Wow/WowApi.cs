@@ -297,6 +297,33 @@ namespace NinjaBotCore.Modules.Wow
             return await SendAuthorizedGetAsync(requestUrl, cancellationToken);
         }
 
+        /// <summary>
+        /// GET that hands back the status instead of throwing, for routes where "not found" is a
+        /// normal answer. Network failures still throw once the retries run out.
+        /// </summary>
+        public async Task<WowApiResponse> TryGetAPIRequestAsync(string url, string region = "us", CancellationToken cancellationToken = default)
+        {
+            var requestUrl = $"https://{region.ToLowerInvariant()}.api.blizzard.com{url}";
+            _logger.LogInformation("WoW API request to {RequestUrl}", requestUrl);
+
+            if (IsTokenMissingOrStale())
+            {
+                await ForceTokenRefreshAsync(GetCurrentToken(), cancellationToken);
+            }
+
+            var token = GetCurrentToken();
+            if (string.IsNullOrEmpty(token))
+            {
+                throw new InvalidOperationException("Blizzard API access token has not been initialized.");
+            }
+
+            using var response = await ExecuteWithReauthAsync(requestUrl, token, cancellationToken);
+            var body = response.IsSuccessStatusCode
+                ? await response.Content.ReadAsStringAsync(cancellationToken)
+                : string.Empty;
+            return new WowApiResponse(response.StatusCode, body);
+        }
+
         public async Task<string> GetWowToken(string username, string password)
         {
             try
@@ -388,20 +415,9 @@ namespace NinjaBotCore.Modules.Wow
         {
             try
             {
-                var response = await ExecuteRequestAsync(url, token, cancellationToken);
+                var response = await ExecuteWithReauthAsync(url, token, cancellationToken);
                 try
                 {
-                    if (response.StatusCode == HttpStatusCode.Unauthorized)
-                    {
-                        // Token revoked or expired early — re-auth once and retry the request.
-                        _logger.LogWarning("WoW API returned 401 for {RequestUrl}; refreshing token and retrying once", url);
-                        if (await ForceTokenRefreshAsync(token, cancellationToken))
-                        {
-                            response.Dispose();
-                            response = await ExecuteRequestAsync(url, GetCurrentToken(), cancellationToken);
-                        }
-                    }
-
                     response.EnsureSuccessStatusCode();
                     return await response.Content.ReadAsStringAsync(cancellationToken);
                 }
@@ -420,6 +436,31 @@ namespace NinjaBotCore.Modules.Wow
             catch (TaskCanceledException ex)
             {
                 _logger.LogError(ex, "WoW API request timed out for {RequestUrl}", url);
+                throw;
+            }
+        }
+
+        private async Task<HttpResponseMessage> ExecuteWithReauthAsync(string url, string token, CancellationToken cancellationToken)
+        {
+            var response = await ExecuteRequestAsync(url, token, cancellationToken);
+            try
+            {
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    // Token revoked or expired early — re-auth once and retry the request.
+                    _logger.LogWarning("WoW API returned 401 for {RequestUrl}; refreshing token and retrying once", url);
+                    if (await ForceTokenRefreshAsync(token, cancellationToken))
+                    {
+                        response.Dispose();
+                        response = await ExecuteRequestAsync(url, GetCurrentToken(), cancellationToken);
+                    }
+                }
+
+                return response;
+            }
+            catch
+            {
+                response.Dispose();
                 throw;
             }
         }

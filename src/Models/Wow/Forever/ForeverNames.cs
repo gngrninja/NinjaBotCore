@@ -1,5 +1,6 @@
 #nullable enable
 
+using System;
 using System.Globalization;
 using System.Linq;
 using System.Text;
@@ -59,6 +60,47 @@ namespace NinjaBotCore.Models.Wow.Forever
             => display.Trim().Normalize(NormalizationForm.FormC).ToUpperInvariant();
 
         public static string FullName(string first, string last) => $"{first} {last}";
+
+        /// <summary>Splits "First Surname" as typed into its two cleaned parts.</summary>
+        public static bool TrySplitFullName(string? input, out string first, out string last, out string error)
+        {
+            first = last = string.Empty;
+            var parts = (input ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length != 2)
+            {
+                error = "Type a first name and a surname, like `Asha Brightvale`.";
+                return false;
+            }
+
+            return TryCleanPart(parts[0], "First name", out first, out error)
+                && TryCleanPart(parts[1], "Surname", out last, out error);
+        }
+
+        /// <summary>
+        /// The armory's slug for one name: lowercase, apostrophes dropped, spaces as hyphens.
+        /// Blizzard hasn't documented the rule; this is what players found.
+        /// </summary>
+        public static string Slug(string name)
+        {
+            var sb = new StringBuilder(name.Length);
+            foreach (var c in name.Trim().Normalize(NormalizationForm.FormC).ToLowerInvariant())
+            {
+                if (c == '\'' || c == '’') continue;
+                if (char.IsWhiteSpace(c))
+                {
+                    if (sb.Length > 0 && sb[^1] != '-') sb.Append('-');
+                    continue;
+                }
+                sb.Append(c);
+            }
+            return sb.ToString().Trim('-');
+        }
+
+        /// <summary>A character's armory slug: first name and surname joined by a hyphen, no realm.</summary>
+        public static string CharacterSlug(string first, string last) => $"{Slug(first)}-{Slug(last)}";
+
+        public static string ArmoryUrl(ForeverRegion region, string characterSlug)
+            => $"https://worldofwarcraft.blizzard.com/en-us/forever/{region.ToString().ToLowerInvariant()}/armory/character/{Uri.EscapeDataString(characterSlug)}";
 
         public static bool TryCleanGuildName(string? input, out string name, out string error)
         {

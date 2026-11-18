@@ -63,25 +63,34 @@ Example:
 
 ### WoW Forever: guild, characters and roster
 
-Forever has no realms, and a character's full name (first name + surname) is unique per region. Everything below is self-reported, so NinjaBot doesn't verify it with Blizzard, and every reply is only visible to you.
+Forever has no realms, and a character's full name (first name + surname) is unique per region. NinjaBot reads class, ruleset, faction, level and guild rosters from Blizzard's armory when it has them. A character appears there at level 10, after it has logged out once; until then NinjaBot saves what you type. Nothing proves a character is yours, and every reply is only visible to you.
 
-Officers (Kick Members) set the server's guild and choose whether the roster is on:
+Officers (Kick Members) set the server's guild and choose whether the roster is on. The armory fills in the ruleset and faction, so add them only if the armory doesn't have the guild:
 ```
-/forever guild set name:"Synthetic Guild" region:US ruleset:PvP faction:Horde
+/forever guild set name:"Synthetic Guild" region:US
 /forever guild roster enabled:True
 ```
 
-Members add their own characters. Region, ruleset and faction default to the server's guild:
+Members add their own characters. The region defaults to the server's guild, and the armory fills in the class, ruleset and faction:
 ```
-/forever char add first-name:Asha surname:Brightvale class:Priest
+/forever char add first-name:Asha surname:Brightvale
 /forever char main character:Asha Brightvale
 ```
 
-Characters are private until you share them to a server's roster. The roster only shows current members' characters that match the guild's region, ruleset and faction:
+`/forever char edit` checks the armory again, so running it with only the character brings one you added earlier up to date.
+
+Look up anyone's armory card, with level, guild, talents, professions, deaths, quests and a gear view:
+```
+/forever char view character:Asha Brightvale region:EU
+```
+
+Characters are private until you share them to a server's roster. When the guild is matched to the armory, the roster is Blizzard's member list (level, class and rank) with the Discord name of whoever shared each character. Otherwise it shows only the shared characters that match the guild's region, ruleset and faction:
 ```
 /forever roster share character:Asha Brightvale
 /forever roster view
 ```
+
+Blizzard hasn't documented the Forever API, so every lookup is optional: when the armory doesn't answer, `/forever` works on what was typed.
 
 Leaving a server removes your shares and main there. `/forever char remove` deletes a character everywhere.
 

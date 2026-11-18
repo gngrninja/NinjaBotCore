@@ -53,4 +53,52 @@ public class ForeverNamesTests
         Assert.False(ForeverNames.TryCleanGuildName("", out _, out _));
         Assert.False(ForeverNames.TryCleanGuildName(new string('x', 65), out _, out _));
     }
+
+    [Theory]
+    [InlineData("Asha", "Brightvale", "asha-brightvale")]
+    [InlineData(" ASHA ", "brightvale", "asha-brightvale")]
+    [InlineData("D'arra", "O’Dawn", "darra-odawn")]
+    [InlineData("Mira-Lee", "Brightvale", "mira-lee-brightvale")]
+    [InlineData("Zoë", "Élan", "zoë-élan")]
+    public void A_character_slug_is_both_names_lowercased_without_apostrophes(string first, string last, string expected)
+        => Assert.Equal(expected, ForeverNames.CharacterSlug(first, last));
+
+    [Theory]
+    [InlineData("Synthetic Guild", "synthetic-guild")]
+    [InlineData("  Kael's   Chosen ", "kaels-chosen")]
+    [InlineData("ONE", "one")]
+    [InlineData(" ' ", "")]
+    public void A_guild_slug_turns_spaces_into_single_hyphens(string name, string expected)
+        => Assert.Equal(expected, ForeverNames.Slug(name));
+
+    [Fact]
+    public void Armory_links_are_per_region_and_escape_the_slug()
+    {
+        Assert.Equal("https://worldofwarcraft.blizzard.com/en-us/forever/eu/armory/character/asha-brightvale",
+            ForeverNames.ArmoryUrl(ForeverRegion.EU, "asha-brightvale"));
+        Assert.EndsWith("/forever/tw/armory/character/zo%C3%AB-%C3%A9lan", ForeverNames.ArmoryUrl(ForeverRegion.TW, "zoë-élan"));
+    }
+
+    [Theory]
+    [InlineData("asha brightvale", "Asha", "Brightvale")]
+    [InlineData("  Asha \t  Brightvale ", "Asha", "Brightvale")]
+    [InlineData("d'arra mira-lee", "D'arra", "Mira-lee")]
+    public void A_typed_full_name_splits_into_first_name_and_surname(string input, string first, string last)
+    {
+        Assert.True(ForeverNames.TrySplitFullName(input, out var gotFirst, out var gotLast, out var error), error);
+        Assert.Equal((first, last), (gotFirst, gotLast));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("Asha")]
+    [InlineData("Asha of Brightvale")]
+    [InlineData("Asha 2")]
+    [InlineData("0")]
+    public void Anything_but_two_valid_names_is_not_a_full_name(string input)
+    {
+        Assert.False(ForeverNames.TrySplitFullName(input, out _, out _, out var error));
+        Assert.NotEmpty(error);
+    }
 }

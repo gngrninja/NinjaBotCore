@@ -7,7 +7,7 @@ using NinjaBotCore.Models.Wow.Forever;
 
 namespace NinjaBotCore.Database
 {
-    /// <summary>The WoW Forever guild a Discord server declares. Self-reported, not verified.</summary>
+    /// <summary>The WoW Forever guild a Discord server declares. Nothing proves the server is that guild.</summary>
     public class ForeverGuild
     {
         [Key]
@@ -23,6 +23,12 @@ namespace NinjaBotCore.Database
         public ForeverRuleset Ruleset { get; set; }
 
         public ForeverFaction Faction { get; set; }
+
+        public const int MaxArmorySlugLength = 200;
+
+        /// <summary>The guild's slug on Blizzard's armory. Null when the armory didn't have it, so the guild is as typed.</summary>
+        [MaxLength(MaxArmorySlugLength)]
+        public string? ArmorySlug { get; set; }
 
         /// <summary>Members can only share characters to the roster while this is on.</summary>
         public bool RosterEnabled { get; set; }

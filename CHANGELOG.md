@@ -13,9 +13,14 @@
 ### WoW Forever
 
 - Added `/forever guild set|view|unset|roster`. Officers set the server's Forever guild (name, region, ruleset, faction) separately from Retail and Classic, and turn the member roster on or off.
-- Added `/forever char add|list|edit|remove|main`. Characters have a first name and a surname with no realm, belong to the member rather than the server, and have a main per server. Nothing is written to the Retail character table or sent to Blizzard, Raider.IO or WarcraftLogs.
+- Added `/forever char add|list|edit|remove|main`. Characters have a first name and a surname with no realm, belong to the member rather than the server, and have a main per server. Nothing is written to the Retail character table.
 - Added `/forever roster view|share|unshare`. Characters stay private until shared. The roster shows only current members' characters that match the guild, and leaving a server removes your shares there.
 - `/help` has a WoW Forever category and shows the option names people actually type.
+- `/forever char add` and `/forever guild set` look the character or guild up on Blizzard's armory and take the class, ruleset, faction and spelling from it, so only the name and region are needed. A character appears on the armory at level 10, after it has logged out once; until then it is saved as typed.
+- `/forever char edit` checks the armory too, so an edit with no changes brings an earlier character up to date.
+- Added `/forever char view`: an armory card for any Forever character, with level, guild, talents, item level, professions, deaths, quests and a gear view.
+- `/forever roster view` shows Blizzard's guild roster (level, class, rank) when the guild is matched to the armory, with the Discord name of whoever shared each character. Shared characters the armory doesn't list in the guild are still shown.
+- Blizzard hasn't documented the Forever API, so every lookup is optional. When the armory doesn't answer, `/forever` works on what members typed, and a missing character is not logged as an error.
 
 ### Raid Recap
 

@@ -11,8 +11,8 @@ using NinjaBotCore.Services;
 namespace NinjaBotCore.Modules.Interactions.Wow
 {
     /// <summary>
-    /// /forever: manual WoW Forever guild + character associations and an opt-in server roster.
-    /// All replies are ephemeral; nothing here calls a game API.
+    /// /forever: WoW Forever guild + character associations, an opt-in server roster and armory lookups.
+    /// All replies are ephemeral.
     /// </summary>
     [RequireContext(ContextType.Guild)]
     [Group("forever", "WoW Forever guild, characters and roster")]
@@ -37,10 +37,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             [SlashCommand("set", "Set this server's WoW Forever guild")]
             [RequireUserPermission(GuildPermission.KickMembers)]
             public async Task Set(
-                [Summary("name", "Guild name")] string name,
+                [Summary("name", "Guild name, as it's spelled in game")] string name,
                 [Summary("region", "Region")] ForeverRegion region,
-                [Summary("ruleset", "Ruleset")] ForeverRuleset ruleset,
-                [Summary("faction", "Faction")] ForeverFaction faction)
+                [Summary("ruleset", "Only needed if the armory doesn't have the guild")] ForeverRuleset? ruleset = null,
+                [Summary("faction", "Only needed if the armory doesn't have the guild")] ForeverFaction? faction = null)
             {
                 await DeferAsync(ephemeral: true);
                 var result = await _forever.SetGuildAsync((long)Context.Guild.Id, name, region, ruleset, faction,
@@ -50,7 +50,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     await FollowupAsync(result.Error, ephemeral: true);
                     return;
                 }
-                await FollowupAsync(embed: ForeverViews.Guild(result.Value!, Context.Guild.Name), ephemeral: true);
+                await FollowupAsync(embed: ForeverViews.Guild(result.Value!.Guild, Context.Guild.Name, result.Value), ephemeral: true);
             }
 
             [SlashCommand("view", "Show this server's WoW Forever guild")]
@@ -98,20 +98,22 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         public class ForeverCharCommands : NinjaBotBaseModule
         {
             private readonly ForeverService _forever;
+            private readonly IForeverArmory _armory;
 
-            public ForeverCharCommands(IServiceScopeFactory scopeFactory, ForeverService forever) : base(scopeFactory)
+            public ForeverCharCommands(IServiceScopeFactory scopeFactory, ForeverService forever, IForeverArmory armory) : base(scopeFactory)
             {
                 _forever = forever;
+                _armory = armory;
             }
 
             [SlashCommand("add", "Add a WoW Forever character (private until you share it)")]
             public async Task Add(
                 [Summary("first-name", "Character's first name")] string firstName,
                 [Summary("surname", "Character's surname")] string surname,
-                [Summary("class", "Class")] ForeverClass? characterClass = null,
                 [Summary("region", "Defaults to this server's Forever guild")] ForeverRegion? region = null,
-                [Summary("ruleset", "Defaults to this server's Forever guild")] ForeverRuleset? ruleset = null,
-                [Summary("faction", "Defaults to this server's Forever guild")] ForeverFaction? faction = null)
+                [Summary("class", "Only needed if the armory doesn't have the character yet")] ForeverClass? characterClass = null,
+                [Summary("ruleset", "Only needed if the armory doesn't have the character yet")] ForeverRuleset? ruleset = null,
+                [Summary("faction", "Only needed if the armory doesn't have the character yet")] ForeverFaction? faction = null)
             {
                 await DeferAsync(ephemeral: true);
                 var result = await _forever.AddCharacterAsync((long)Context.User.Id, (long)Context.Guild.Id,
@@ -122,6 +124,52 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     return;
                 }
                 await RespondWithCharacterAsync(result.Value!, "added");
+            }
+
+            [SlashCommand("view", "Look up a WoW Forever character on Blizzard's armory")]
+            public async Task View(
+                [Summary("character", "One of yours, or a first name and surname")][Autocomplete(typeof(ForeverLookupAutocomplete))] string character,
+                [Summary("region", "Defaults to this server's Forever guild")] ForeverRegion? region = null)
+            {
+                await DeferAsync(ephemeral: true);
+
+                string first, last;
+                ForeverRegion? lookupRegion;
+                var own = TryParseCharacter(character, out var id) ? await _forever.GetCharacterAsync((long)Context.User.Id, id) : null;
+                if (own != null)
+                {
+                    (first, last, lookupRegion) = (own.FirstName, own.LastName, region ?? own.Region);
+                }
+                else
+                {
+                    if (!ForeverNames.TrySplitFullName(character, out first, out last, out var error))
+                    {
+                        await FollowupAsync($"Pick one of your characters, or look anyone up by name. {error}", ephemeral: true);
+                        return;
+                    }
+                    lookupRegion = region ?? (await _forever.GetGuildAsync((long)Context.Guild.Id))?.Region;
+                }
+
+                if (lookupRegion == null)
+                {
+                    await FollowupAsync("This server has no Forever guild to take the region from, so please also pick a region.", ephemeral: true);
+                    return;
+                }
+
+                var card = await _armory.GetCardAsync(lookupRegion.Value, first, last);
+                if (!card.IsFound)
+                {
+                    await FollowupAsync(
+                        ForeverViews.CardMissing(ForeverNames.FullName(first, last), lookupRegion.Value, card.Status),
+                        allowedMentions: AllowedMentions.None, ephemeral: true);
+                    return;
+                }
+
+                await FollowupAsync(
+                    embed: ForeverViews.Card(card.Value!, ForeverViews.CardOverview),
+                    components: ForeverViews.CardButtons(Context.User.Id, card.Value!.Character, ForeverViews.CardOverview),
+                    allowedMentions: AllowedMentions.None,
+                    ephemeral: true);
             }
 
             [SlashCommand("list", "List your WoW Forever characters")]
@@ -136,7 +184,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 await FollowupAsync(embed: ForeverViews.CharacterList(characters, mainId, shared), ephemeral: true);
             }
 
-            [SlashCommand("edit", "Edit one of your WoW Forever characters")]
+            [SlashCommand("edit", "Edit one of your WoW Forever characters, or bring it up to date with the armory")]
             public async Task Edit(
                 [Summary("character", "Which character")][Autocomplete(typeof(ForeverCharacterAutocomplete))] string character,
                 [Summary("first-name", "New first name")] string? firstName = null,
@@ -193,8 +241,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     ephemeral: true);
             }
 
-            private async Task RespondWithCharacterAsync(Database.ForeverCharacter c, string verb)
+            private async Task RespondWithCharacterAsync(ForeverSavedCharacter saved, string verb)
             {
+                var c = saved.Character;
                 var userId = (long)Context.User.Id;
                 var guildId = (long)Context.Guild.Id;
                 var guild = await _forever.GetGuildAsync(guildId);
@@ -203,8 +252,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 var canShare = !isShared && guild is { RosterEnabled: true } && ForeverService.Matches(c, guild);
 
                 await FollowupAsync(
-                    embed: ForeverViews.CharacterSaved(c, verb, isMain, isShared),
+                    embed: ForeverViews.CharacterSaved(saved, verb, isMain, isShared),
                     components: ForeverViews.CharacterActions(Context.User.Id, c, isMain, canShare),
+                    allowedMentions: AllowedMentions.None,
                     ephemeral: true);
             }
         }
@@ -242,10 +292,10 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     return;
                 }
 
-                var pages = ForeverViews.RosterPages(roster, DisplayName);
+                var page = ForeverViews.RosterPage(roster, DisplayName, 0);
                 await FollowupAsync(
-                    embed: ForeverViews.Roster(roster.Guild, pages, 0),
-                    components: ForeverViews.RosterPager(Context.User.Id, 0, pages.Count),
+                    embed: page.Embed,
+                    components: ForeverViews.RosterPager(Context.User.Id, page.Page, page.PageCount),
                     allowedMentions: AllowedMentions.None,
                     ephemeral: true);
             }

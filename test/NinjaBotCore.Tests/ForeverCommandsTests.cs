@@ -29,6 +29,7 @@ public class ForeverCommandsTests
         var service = new InteractionService(client);
         var deps = new ServiceCollection()
             .AddSingleton<ILogger<ForeverService>>(NullLogger<ForeverService>.Instance)
+            .AddSingleton<IForeverArmory>(new FakeForeverArmory())
             .AddSingleton<ForeverService>()
             .BuildServiceProvider();
         await service.AddModuleAsync<ForeverCommands>(deps);
@@ -60,7 +61,7 @@ public class ForeverCommandsTests
 
         Assert.Equal(new[]
         {
-            "forever char add", "forever char edit", "forever char list", "forever char main", "forever char remove",
+            "forever char add", "forever char edit", "forever char list", "forever char main", "forever char remove", "forever char view",
             "forever guild roster", "forever guild set", "forever guild unset", "forever guild view",
             "forever roster share", "forever roster unshare", "forever roster view"
         }, commands.Select(FullName).OrderBy(n => n));
@@ -79,7 +80,16 @@ public class ForeverCommandsTests
         }
 
         var add = commands.Single(c => FullName(c) == "forever char add");
-        Assert.Equal(new[] { "first-name", "surname", "class", "region", "ruleset", "faction" }, add.Parameters.Select(p => p.Name));
+        Assert.Equal(new[] { "first-name", "surname", "region", "class", "ruleset", "faction" }, add.Parameters.Select(p => p.Name));
+        Assert.Equal(new[] { true, true, false, false, false, false }, add.Parameters.Select(p => p.IsRequired));
+
+        // The armory fills in the rest, so only the name and the region are asked for.
+        var set = commands.Single(c => FullName(c) == "forever guild set");
+        Assert.Equal(new[] { ("name", true), ("region", true), ("ruleset", false), ("faction", false) }, set.Parameters.Select(p => (p.Name, p.IsRequired)));
+
+        var view = commands.Single(c => FullName(c) == "forever char view");
+        Assert.Equal(new[] { ("character", true), ("region", false) }, view.Parameters.Select(p => (p.Name, p.IsRequired)));
+        Assert.IsType<ForeverLookupAutocomplete>(view.Parameters[0].AutocompleteHandler);
         Assert.Equal(new[] { "US", "EU", "KR", "TW" }, Choices(add.Parameters.Single(p => p.Name == "region")));
         Assert.Contains("Roleplay PvP", Choices(add.Parameters.Single(p => p.Name == "ruleset")));
         Assert.Equal(9, Choices(add.Parameters.Single(p => p.Name == "class")).Count);
@@ -107,6 +117,7 @@ public class ForeverCommandsTests
         Assert.Contains($"{ForeverViews.MainButtonPrefix}~*~*", ids);
         Assert.Contains($"{ForeverViews.ShareButtonPrefix}~*~*", ids);
         Assert.Contains($"{ForeverViews.RosterPagePrefix}~*~*", ids);
+        Assert.Contains($"{ForeverViews.CardButtonPrefix}~*~*~*~*~*", ids);
     }
 
     [Fact]
