@@ -1,15 +1,20 @@
 #nullable enable
 
+using System.Linq;
 using System.Threading.Tasks;
 using Discord;
 using Discord.Interactions;
 using Microsoft.Extensions.DependencyInjection;
+using NinjaBotCore.Common;
 using NinjaBotCore.Models.Wow.Forever;
 using NinjaBotCore.Services;
 
 namespace NinjaBotCore.Modules.Interactions.Wow
 {
-    /// <summary>Buttons on /forever replies. Every button is bound to the user it was shown to.</summary>
+    /// <summary>
+    /// Buttons and menus on /forever cards. Every one is bound to the user it was shown to, and each
+    /// click redraws the same message as a Components V2 card (older embed replies are upgraded in place).
+    /// </summary>
     [RequireContext(ContextType.Guild)]
     public class ForeverComponentHandlers : NinjaBotBaseModule
     {
@@ -31,7 +36,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var result = await _forever.SetMainAsync((long)Context.User.Id, (long)Context.Guild.Id, characterId);
             if (!result.Ok)
             {
-                await FollowupAsync(result.Error, ephemeral: true);
+                await ProblemAsync(result.Error);
                 return;
             }
             await RefreshCharacterCardAsync(characterId);
@@ -46,7 +51,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var result = await _forever.ShareAsync((long)Context.User.Id, (long)Context.Guild.Id, characterId);
             if (!result.Ok)
             {
-                await FollowupAsync(result.Error, ephemeral: true);
+                await ProblemAsync(result.Error);
                 return;
             }
             await RefreshCharacterCardAsync(characterId);
@@ -58,27 +63,57 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             if (!await GateOwner(userIdStr)) return;
             await DeferAsync();
 
-            // Re-read on every page: shares, membership and the roster switch can all change between clicks.
-            var result = await _forever.GetRosterAsync((long)Context.Guild.Id, id => Context.Guild.GetUser((ulong)id) != null);
-            if (!result.Ok)
+            var (page, sort) = ForeverViews.ParseRosterPage(pageStr);
+            await ShowRosterAsync(page, sort);
+        }
+
+        [ComponentInteraction(ForeverViews.RosterSortPrefix + "~*")]
+        public async Task OnRosterSort(string userIdStr, string[] selected)
+        {
+            if (!await GateOwner(userIdStr)) return;
+            await DeferAsync();
+
+            await ShowRosterAsync(0, ForeverViews.ParseSort(selected.FirstOrDefault()));
+        }
+
+        [ComponentInteraction(ForeverViews.RosterPickPrefix + "~*")]
+        public async Task OnRosterPick(string userIdStr, string[] selected)
+        {
+            if (!await GateOwner(userIdStr)) return;
+            var parts = (selected.FirstOrDefault() ?? string.Empty).Split('~');
+            if (parts.Length != 2
+                || !ForeverNames.TryCleanPart(parts[0], "First name", out var first, out _)
+                || !ForeverNames.TryCleanPart(parts[1], "Surname", out var last, out _))
             {
-                await ModifyOriginalResponseAsync(m =>
-                {
-                    m.Content = result.Error;
-                    m.Embed = null;
-                    m.Components = new ComponentBuilder().Build();
-                });
+                await RespondAsync("That menu is out of date. Run `/forever roster view` again.", ephemeral: true);
                 return;
             }
+            await DeferAsync();
 
-            var page = ForeverViews.RosterPage(result.Value!, id => Context.Guild.GetUser((ulong)id)?.DisplayName,
-                int.TryParse(pageStr, out var p) ? p : 0);
-            await ModifyOriginalResponseAsync(m =>
+            var guild = await _forever.GetGuildAsync((long)Context.Guild.Id);
+            if (guild == null)
             {
-                m.Embed = page.Embed;
-                m.Components = ForeverViews.RosterPager(Context.User.Id, page.Page, page.PageCount) ?? new ComponentBuilder().Build();
-                m.AllowedMentions = AllowedMentions.None;
-            });
+                await ProblemAsync(ForeverService.NoGuildMessage);
+                return;
+            }
+            await ShowCardAsync(guild.Region, first, last, ForeverViews.FromRoster + ForeverViews.CardOverview);
+        }
+
+        [ComponentInteraction(ForeverViews.OpenCardPrefix + "~*")]
+        public async Task OnOpenCard(string userIdStr, string[] selected)
+        {
+            if (!await GateOwner(userIdStr)) return;
+            await DeferAsync();
+
+            var character = ForeverCommands.TryParseCharacter(selected.FirstOrDefault() ?? string.Empty, out var id)
+                ? await _forever.GetCharacterAsync((long)Context.User.Id, id)
+                : null;
+            if (character == null)
+            {
+                await ProblemAsync("That character is gone. Run `/forever char list` again.");
+                return;
+            }
+            await ShowCardAsync(character.Region, character.FirstName, character.LastName, ForeverViews.CardOverview);
         }
 
         [ComponentInteraction(ForeverViews.CardButtonPrefix + "~*~*~*~*~*")]
@@ -94,22 +129,36 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             }
             await DeferAsync();
 
-            var region = (ForeverRegion)regionValue;
+            await ShowCardAsync((ForeverRegion)regionValue, first, last, view);
+        }
+
+        private async Task ShowCardAsync(ForeverRegion region, string first, string last, string view)
+        {
             var card = await _armory.GetCardAsync(region, first, last);
             if (!card.IsFound)
             {
-                await FollowupAsync(ForeverViews.CardMissing(ForeverNames.FullName(first, last), region, card.Status),
-                    allowedMentions: AllowedMentions.None, ephemeral: true);
+                await ProblemAsync(ForeverViews.CardMissing(ForeverNames.FullName(first, last), region, card.Status));
                 return;
             }
 
-            var shown = view == ForeverViews.CardGear ? ForeverViews.CardGear : ForeverViews.CardOverview;
-            await ModifyOriginalResponseAsync(m =>
+            var shown = (ForeverViews.IsFromRoster(view) ? ForeverViews.FromRoster : string.Empty)
+                + (ForeverViews.IsGear(view) ? ForeverViews.CardGear : ForeverViews.CardOverview);
+            await Context.Interaction.ModifyToV2Async(ForeverViews.Card(card.Value!, shown, Context.User.Id));
+        }
+
+        private async Task ShowRosterAsync(int page, ForeverRosterSort sort)
+        {
+            // Re-read on every page: shares, membership and the roster switch can all change between clicks.
+            var result = await _forever.GetRosterAsync((long)Context.Guild.Id, id => Context.Guild.GetUser((ulong)id) != null);
+            if (!result.Ok)
             {
-                m.Embed = ForeverViews.Card(card.Value!, shown);
-                m.Components = ForeverViews.CardButtons(Context.User.Id, card.Value!.Character, shown);
-                m.AllowedMentions = AllowedMentions.None;
-            });
+                await Context.Interaction.ModifyToV2Async(ForeverViews.Problem(result.Error));
+                return;
+            }
+
+            var shown = ForeverViews.RosterPage(result.Value!, id => Context.Guild.GetUser((ulong)id)?.DisplayName,
+                page, Context.User.Id, sort, Context.Guild.IconUrl);
+            await Context.Interaction.ModifyToV2Async(shown.Card);
         }
 
         private async Task RefreshCharacterCardAsync(long characterId)
@@ -128,13 +177,17 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             var armory = await _forever.LookUpAsync(character);
             var saved = new ForeverSavedCharacter(character, armory.Value, armory.Status);
 
-            await ModifyOriginalResponseAsync(m =>
-            {
-                m.Embed = ForeverViews.CharacterSaved(saved, verb, isMain, isShared);
-                m.Components = ForeverViews.CharacterActions(Context.User.Id, character, isMain, canShare) ?? new ComponentBuilder().Build();
-                m.AllowedMentions = AllowedMentions.None;
-            });
+            await Context.Interaction.ModifyToV2Async(
+                ForeverViews.CharacterSaved(saved, verb, isMain, isShared, Context.User.Id, canShare));
         }
+
+        /// <summary>A separate ephemeral note, so the card the button sits on stays as it was.</summary>
+        private Task ProblemAsync(string? message)
+            => FollowupAsync(
+                components: ForeverViews.Problem(message),
+                flags: MessageFlags.ComponentsV2,
+                allowedMentions: AllowedMentions.None,
+                ephemeral: true);
 
         private async Task<bool> GateOwner(string userIdStr)
         {

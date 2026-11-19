@@ -54,13 +54,15 @@ namespace NinjaBotCore.Models.Wow.Forever
     public sealed record ForeverArmoryStats(long? Deaths, long? Quests, long? Kills, long? Dungeons);
 
     /// <summary>Everything the character card shows. Only the profile is required; the rest is empty when its route didn't answer.</summary>
+    /// <param name="RenderUrl">Blizzard's full-body render. It can lag the portrait by hours.</param>
     public sealed record ForeverArmoryCard(
         ForeverArmoryCharacter Character,
         string? AvatarUrl,
         IReadOnlyList<ForeverArmoryItem> Gear,
         IReadOnlyList<ForeverArmoryProfession> Professions,
         IReadOnlyList<ForeverArmoryTalentTree> Talents,
-        ForeverArmoryStats? Stats);
+        ForeverArmoryStats? Stats,
+        string? RenderUrl = null);
 
     public sealed record ForeverArmoryGuild(
         long Id,

@@ -65,13 +65,20 @@ Example:
 
 Forever has no realms, and a character's full name (first name + surname) is unique per region. NinjaBot reads class, ruleset, faction, level and guild rosters from Blizzard's armory when it has them. A character appears there at level 10, after it has logged out once; until then NinjaBot saves what you type. Nothing proves a character is yours, and every reply is only visible to you.
 
+Start with `/forever help`. It lists the five setup steps (server guild, roster on, a character, your main, a share), ticks off the ones this server and you have done, and points at the next one you can do yourself:
+```
+/forever help
+```
+
 Officers (Kick Members) set the server's guild and choose whether the roster is on. The armory fills in the ruleset and faction, so add them only if the armory doesn't have the guild:
 ```
 /forever guild set name:"Synthetic Guild" region:US
 /forever guild roster enabled:True
 ```
 
-Members add their own characters. The region defaults to the server's guild, and the armory fills in the class, ruleset and faction:
+Blizzard has no search for Forever guilds or characters, so the suggestions come from what can be known. While you type a guild name, NinjaBot asks the armory about that exact name and shows the region, ruleset, faction and member count when it exists. It also offers the guilds your own saved characters are in.
+
+Members add their own characters. The region defaults to the server's guild, and the armory fills in the class, ruleset and faction. When the server's guild is matched to the armory and its roster is on, `first-name` and `surname` suggest guildmates from Blizzard's roster, so you can pick your character instead of spelling it:
 ```
 /forever char add first-name:Asha surname:Brightvale
 /forever char main character:Asha Brightvale
@@ -79,7 +86,7 @@ Members add their own characters. The region defaults to the server's guild, and
 
 `/forever char edit` checks the armory again, so running it with only the character brings one you added earlier up to date.
 
-Look up anyone's armory card, with level, guild, talents, professions, deaths, quests and a gear view:
+Look up anyone's armory card, with level, guild, talents, professions, deaths, quests and a Gear tab. `character` suggests your own characters, guildmates from Blizzard's roster and characters shared in the server, and checks a full name against the armory as you type it:
 ```
 /forever char view character:Asha Brightvale region:EU
 ```
@@ -89,6 +96,8 @@ Characters are private until you share them to a server's roster. When the guild
 /forever roster share character:Asha Brightvale
 /forever roster view
 ```
+
+The roster card counts the guild's classes and level 60s, sorts by rank, level, name or class, and has a menu that opens any listed character's armory card.
 
 Blizzard hasn't documented the Forever API, so every lookup is optional: when the armory doesn't answer, `/forever` works on what was typed.
 

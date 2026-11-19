@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -54,6 +55,8 @@ namespace NinjaBotCore.Services
         private readonly IWowApi _wowApi;
         private readonly IMemoryCache _cache;
         private readonly ILogger<ForeverArmory> _logger;
+        // Lookups on their way to Blizzard, so the same question asked twice at once is one request.
+        private readonly ConcurrentDictionary<string, Lazy<Task>> _pending = new();
 
         public ForeverArmory(IWowApi wowApi, IMemoryCache cache, ILogger<ForeverArmory> logger)
         {
@@ -97,18 +100,23 @@ namespace NinjaBotCore.Services
                     Detail(equipment.Result, ParseGear) ?? Array.Empty<ForeverArmoryItem>(),
                     Detail(professions.Result, ParseProfessions) ?? Array.Empty<ForeverArmoryProfession>(),
                     Detail(talents.Result, ParseTalents) ?? Array.Empty<ForeverArmoryTalentTree>(),
-                    Detail(statistics.Result, ParseStats)));
+                    Detail(statistics.Result, ParseStats),
+                    Detail(media.Result, ParseRender)));
             });
         }
 
-        public async Task<ForeverLookup<ForeverArmoryGuild>> GetGuildAsync(
+        public Task<ForeverLookup<ForeverArmoryGuild>> GetGuildAsync(
             ForeverRegion region, string guildName, CancellationToken cancellationToken = default)
         {
             var slug = ForeverNames.Slug(guildName);
-            if (slug.Length == 0) return ForeverLookup<ForeverArmoryGuild>.NotFound();
+            if (slug.Length == 0) return Task.FromResult(ForeverLookup<ForeverArmoryGuild>.NotFound());
 
-            var json = await GetAsync(region, $"/data/wow/guild/{Uri.EscapeDataString(slug)}", ProfileTimeout, cancellationToken);
-            return Map(json, o => ParseGuild(o, region, slug));
+            // Cached because autocomplete asks again on every pause in typing.
+            return CachedAsync($"forever:guild:{region}:{slug}", FoundLifetime, async () =>
+            {
+                var json = await GetAsync(region, $"/data/wow/guild/{Uri.EscapeDataString(slug)}", ProfileTimeout, cancellationToken);
+                return Map(json, o => ParseGuild(o, region, slug));
+            });
         }
 
         public Task<ForeverLookup<ForeverArmoryRoster>> GetRosterAsync(
@@ -180,16 +188,30 @@ namespace NinjaBotCore.Services
         {
             if (_cache.TryGetValue(key, out ForeverLookup<T>? cached) && cached != null) return cached;
 
-            var result = await load();
-            if (result.Status != ForeverLookupStatus.Unavailable)
+            // Autocomplete asks again on every pause in typing, often before the first answer is back.
+            var pending = _pending.GetOrAdd(key, _ => new Lazy<Task>(LoadAsync));
+            try
             {
-                _cache.Set(key, result, new MemoryCacheEntryOptions
-                {
-                    AbsoluteExpirationRelativeToNow = result.IsFound ? foundLifetime : NotFoundLifetime,
-                    Size = 1
-                });
+                return await (Task<ForeverLookup<T>>)pending.Value;
             }
-            return result;
+            finally
+            {
+                _pending.TryRemove(new KeyValuePair<string, Lazy<Task>>(key, pending));
+            }
+
+            async Task<ForeverLookup<T>> LoadAsync()
+            {
+                var result = await load();
+                if (result.Status != ForeverLookupStatus.Unavailable)
+                {
+                    _cache.Set(key, result, new MemoryCacheEntryOptions
+                    {
+                        AbsoluteExpirationRelativeToNow = result.IsFound ? foundLifetime : NotFoundLifetime,
+                        Size = 1
+                    });
+                }
+                return result;
+            }
         }
 
         // ===== Parsing =====
@@ -261,11 +283,15 @@ namespace NinjaBotCore.Services
             return new ForeverArmoryRoster(list);
         }
 
-        private static string? ParseAvatar(JObject o)
+        private static string? ParseAvatar(JObject o) => Asset(o, "avatar", "avatar-sd");
+
+        private static string? ParseRender(JObject o) => Asset(o, "main-raw", "main");
+
+        private static string? Asset(JObject o, params string[] keys)
         {
             if (o["assets"] is not JArray assets) return null;
-            var avatar = assets.FirstOrDefault(a => Text(a["key"]) == "avatar") ?? assets.FirstOrDefault(a => Text(a["key"]) == "avatar-sd");
-            var url = Text(avatar?["value"]);
+            var asset = keys.Select(key => assets.FirstOrDefault(a => Text(a["key"]) == key)).FirstOrDefault(a => a != null);
+            var url = Text(asset?["value"]);
             return Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps ? url : null;
         }
 

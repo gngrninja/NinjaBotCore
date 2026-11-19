@@ -119,17 +119,20 @@ public sealed class ForeverArmoryTests : IDisposable
     private readonly MemoryCache _cache = new(new MemoryCacheOptions { SizeLimit = 1000 });
     private readonly ForeverArmory _armory;
     private Exception _failure;
+    private TaskCompletionSource _gate;
 
     public ForeverArmoryTests()
     {
         var api = new Mock<IWowApi>();
         api.Setup(a => a.TryGetAPIRequestAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Returns((string url, string region, CancellationToken _) =>
+            .Returns(async (string url, string region, CancellationToken _) =>
             {
                 lock (_requests) _requests.Add((url, region));
                 if (_failure != null) throw _failure;
+                // A closed gate is Blizzard taking its time.
+                if (_gate != null) await _gate.Task;
                 var path = url[..url.IndexOf('?')];
-                return Task.FromResult(_routes.TryGetValue(path, out var response) ? response : new WowApiResponse(HttpStatusCode.NotFound, string.Empty));
+                return _routes.TryGetValue(path, out var response) ? response : new WowApiResponse(HttpStatusCode.NotFound, string.Empty);
             });
         _armory = new ForeverArmory(api.Object, _cache, NullLogger<ForeverArmory>.Instance);
     }
@@ -277,6 +280,7 @@ public sealed class ForeverArmoryTests : IDisposable
 
         Assert.Equal("Asha Brightvale", card.Character.FullName);
         Assert.Equal("https://render.worldofwarcraft.com/forever-us/character/64/4242-avatar.jpg", card.AvatarUrl);
+        Assert.Equal("https://render.worldofwarcraft.com/forever-us/character/64/4242-main-raw.png", card.RenderUrl);
         Assert.Equal(new[] { ("MAIN_HAND", "Main Hand", "Executor Staff", "COMMON", (int?)5), ("CHEST", "Chest", "White Linen Robe", "UNCOMMON", (int?)10) },
             card.Gear.Select(i => (i.Slot, i.SlotName, i.Name, i.Quality, i.ItemLevel)));
         Assert.Equal(new[] { ("Tailoring", 107, 150), ("Enchanting", 150, 225), ("Cooking", 20, 75) },
@@ -302,6 +306,7 @@ public sealed class ForeverArmoryTests : IDisposable
         var card = result.Value!;
         Assert.Equal(29, card.Character.Level);
         Assert.Null(card.AvatarUrl);
+        Assert.Null(card.RenderUrl);
         Assert.Empty(card.Gear);
         Assert.Empty(card.Professions);
         Assert.Empty(card.Talents);
@@ -351,6 +356,47 @@ public sealed class ForeverArmoryTests : IDisposable
 
         Assert.Equal(ForeverLookupStatus.NotFound, (await _armory.GetGuildAsync(ForeverRegion.EU, "Nobody Here")).Status);
         Assert.Equal(ForeverLookupStatus.NotFound, (await _armory.GetGuildAsync(ForeverRegion.EU, "'")).Status);
+    }
+
+    [Fact]
+    public async Task Guild_answers_are_remembered_because_autocomplete_asks_on_every_pause_in_typing()
+    {
+        Serve("/data/wow/guild/kaels-chosen", Guild);
+
+        await _armory.GetGuildAsync(ForeverRegion.EU, "Kael's Chosen");
+        await _armory.GetGuildAsync(ForeverRegion.EU, "kaels chosen");
+        await _armory.GetGuildAsync(ForeverRegion.EU, "Nobody Here");
+        await _armory.GetGuildAsync(ForeverRegion.EU, "Nobody Here");
+        Assert.Equal(2, _requests.Count);
+
+        // The same name in another region is another guild.
+        await _armory.GetGuildAsync(ForeverRegion.US, "Kael's Chosen");
+        Assert.Equal(3, _requests.Count);
+    }
+
+    [Fact]
+    public async Task The_same_question_asked_twice_at_once_is_one_request()
+    {
+        Serve("/data/wow/guild/kaels-chosen/roster", Roster);
+        _gate = new TaskCompletionSource();
+
+        var first = _armory.GetRosterAsync(ForeverRegion.EU, "kaels-chosen");
+        var second = _armory.GetRosterAsync(ForeverRegion.EU, "kaels-chosen");
+        var other = _armory.GetRosterAsync(ForeverRegion.US, "kaels-chosen");
+        Assert.False(first.IsCompleted);
+        Assert.Equal(2, _requests.Count);
+
+        _gate.SetResult();
+        Assert.Same(await first, await second);
+        Assert.Equal(3, (await first).Value!.Members.Count);
+        Assert.Equal(ForeverLookupStatus.Found, (await other).Status);
+
+        // Nothing is left waiting: an outage that wasn't remembered is asked about again.
+        _gate = null;
+        _routes["/data/wow/guild/down/roster"] = new WowApiResponse(HttpStatusCode.ServiceUnavailable, string.Empty);
+        await _armory.GetRosterAsync(ForeverRegion.EU, "down");
+        await _armory.GetRosterAsync(ForeverRegion.EU, "down");
+        Assert.Equal(4, _requests.Count);
     }
 
     [Fact]

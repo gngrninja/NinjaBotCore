@@ -21,6 +21,13 @@
 - Added `/forever char view`: an armory card for any Forever character, with level, guild, talents, item level, professions, deaths, quests and a gear view.
 - `/forever roster view` shows Blizzard's guild roster (level, class, rank) when the guild is matched to the armory, with the Discord name of whoever shared each character. Shared characters the armory doesn't list in the guild are still shown.
 - Blizzard hasn't documented the Forever API, so every lookup is optional. When the armory doesn't answer, `/forever` works on what members typed, and a missing character is not logged as an error.
+- Every `/forever` reply is now a Components V2 card in the same shell as `/char` and `/raid-recap`: a titled header, one accent colour, buttons inside the card and a single footer line. One-line confirmations and errors are small cards too. Buttons on replies sent before this keep working.
+- The `/forever char view` card takes the class's colour and shows the portrait, a level bar, and Overview and Gear tabs. Gear is grouped into armour, jewellery and weapons, with Blizzard's full-body render when it has one.
+- `/forever roster view` counts the guild's classes and level 60s, sorts by rank, level, name or class, shows the page it is on, and has a menu that opens any listed character's armory card with a button back to the roster.
+- `/forever char list` has a menu that opens a character's armory card, and a saved character's card links to its armory card. The guild card has a **View roster** button.
+- Autocomplete without a search endpoint (Blizzard has none for Forever): `/forever char view` suggests your characters, guildmates from Blizzard's roster and characters shared in the server, and checks a typed full name against the armory. `/forever char add` suggests guildmates for the first name and surname. `/forever guild set` checks the typed name in the chosen region, or in every region when none is chosen, and offers the guilds of your own characters.
+- Guild lookups are remembered for a few minutes, and the same armory question asked twice at once is one request, so typing does not multiply calls to Blizzard.
+- Added `/forever help`: a getting-started card with the five setup steps, the ones the server and the member have already done ticked off, and a pointer at the next step that member can do. It also lists the other commands and what to know about Forever. The empty guild and character cards point to it.
 
 ### Raid Recap
 

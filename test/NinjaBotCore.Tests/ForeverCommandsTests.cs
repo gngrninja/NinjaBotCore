@@ -15,6 +15,7 @@ using NinjaBotCore.Models.Wow.Forever;
 using NinjaBotCore.Modules.Interactions.Wow;
 using NinjaBotCore.Services;
 using Xunit;
+using static NinjaBotCore.Tests.ForeverCardReader;
 
 namespace NinjaBotCore.Tests;
 
@@ -63,8 +64,10 @@ public class ForeverCommandsTests
         {
             "forever char add", "forever char edit", "forever char list", "forever char main", "forever char remove", "forever char view",
             "forever guild roster", "forever guild set", "forever guild unset", "forever guild view",
+            "forever help",
             "forever roster share", "forever roster unshare", "forever roster view"
         }, commands.Select(FullName).OrderBy(n => n));
+        Assert.Empty(commands.Single(c => FullName(c) == "forever help").Parameters);
 
         foreach (var command in commands)
         {
@@ -90,6 +93,10 @@ public class ForeverCommandsTests
         var view = commands.Single(c => FullName(c) == "forever char view");
         Assert.Equal(new[] { ("character", true), ("region", false) }, view.Parameters.Select(p => (p.Name, p.IsRequired)));
         Assert.IsType<ForeverLookupAutocomplete>(view.Parameters[0].AutocompleteHandler);
+        // Blizzard has no search, so these suggest from the guild's roster and from asking the armory about the typed name.
+        Assert.All(add.Parameters.Take(2), p => Assert.IsType<ForeverNamePartAutocomplete>(p.AutocompleteHandler));
+        Assert.Equal(new[] { ForeverNamePartAutocomplete.FirstNameOption, ForeverNamePartAutocomplete.SurnameOption }, add.Parameters.Take(2).Select(p => p.Name));
+        Assert.IsType<ForeverGuildNameAutocomplete>(set.Parameters[0].AutocompleteHandler);
         Assert.Equal(new[] { "US", "EU", "KR", "TW" }, Choices(add.Parameters.Single(p => p.Name == "region")));
         Assert.Contains("Roleplay PvP", Choices(add.Parameters.Single(p => p.Name == "ruleset")));
         Assert.Equal(9, Choices(add.Parameters.Single(p => p.Name == "class")).Count);
@@ -118,6 +125,9 @@ public class ForeverCommandsTests
         Assert.Contains($"{ForeverViews.ShareButtonPrefix}~*~*", ids);
         Assert.Contains($"{ForeverViews.RosterPagePrefix}~*~*", ids);
         Assert.Contains($"{ForeverViews.CardButtonPrefix}~*~*~*~*~*", ids);
+        Assert.Contains($"{ForeverViews.RosterSortPrefix}~*", ids);
+        Assert.Contains($"{ForeverViews.RosterPickPrefix}~*", ids);
+        Assert.Contains($"{ForeverViews.OpenCardPrefix}~*", ids);
     }
 
     [Fact]
@@ -129,11 +139,38 @@ public class ForeverCommandsTests
 
         var forever = content.Categories.Single(c => c.Id == "wow_forever");
         Assert.Contains(forever.Commands, c => c.Name == "forever guild set" && c.Permission == "moderator");
+        Assert.Contains(forever.Commands, c => c.Name == "forever help" && c.Permission == "public");
         var add = forever.Commands.Single(c => c.Name == "forever char add");
         Assert.Equal("first-name", add.Parameters[0].Name);
         Assert.Contains("US", add.Parameters.Single(p => p.Name == "region").Choices!);
         Assert.DoesNotContain(content.Categories.Where(c => c.Id != "wow_forever").SelectMany(c => c.Commands),
             c => c.Name.StartsWith("forever "));
+    }
+
+    // The help card is written by hand, so this keeps it honest when a command is added, renamed or removed.
+    [Fact]
+    public async Task Forever_help_names_every_forever_command_and_only_real_ones()
+    {
+        using var service = await RegisterAsync();
+        var registered = service.SlashCommands.Select(FullName).Where(n => n.StartsWith("forever ")).ToHashSet();
+        var matched = new ForeverGuild { Name = "Synthetic", Region = ForeverRegion.US, Ruleset = ForeverRuleset.PvP, Faction = ForeverFaction.Horde, RosterEnabled = true };
+        var setups = new[]
+        {
+            new ForeverSetup(null, 0, null, 0, IsOfficer: false),
+            new ForeverSetup(null, 0, null, 0, IsOfficer: true),
+            new ForeverSetup(matched, 3, "Asha Brightvale", 2, IsOfficer: true)
+        };
+
+        foreach (var setup in setups)
+        {
+            var text = Text(ForeverViews.Help("Server", null, 7, setup));
+            // Commands are written in backticks, in full or shortened to "group command".
+            var named = Regex.Matches(text, @"`(?:/forever )?((?:guild|char|roster) [a-z]+)`").Select(m => "forever " + m.Groups[1].Value).ToHashSet();
+
+            Assert.Empty(named.Except(registered));
+            Assert.Empty(registered.Except(named).Except(new[] { "forever help" }));
+            Assert.Equal(Regex.Matches(text, "`").Count / 2, Regex.Matches(text, @"`(?:/forever )?(?:guild|char|roster) [a-z]+`|`/forever`").Count);
+        }
     }
 
     private static ForeverCharacter Character(long id, long user, string first) => new()
@@ -143,7 +180,7 @@ public class ForeverCommandsTests
     };
 
     [Fact]
-    public void Roster_pages_never_overflow_an_embed_and_keep_everyone()
+    public void Roster_pages_never_overflow_a_card_and_keep_everyone()
     {
         var guild = new ForeverGuild { Name = "*Synthetic* Guild", Region = ForeverRegion.US, Ruleset = ForeverRuleset.PvP, Faction = ForeverFaction.Horde, RosterEnabled = true };
         var members = Enumerable.Range(1, 60)
@@ -152,44 +189,54 @@ public class ForeverCommandsTests
                 u * 100))
             .ToList();
         var roster = new ForeverRoster(guild, members);
+        string Name(long id) => id == 3 ? null : $"User {id:D2}";
 
-        var pages = ForeverViews.RosterPages(roster, id => id == 3 ? null : $"User {id:D2}");
+        var pages = ForeverViews.RosterPages(roster, Name);
 
         Assert.True(pages.Count > 1);
         Assert.Equal(60, pages.Sum(p => p.Count));
         Assert.Contains(pages.SelectMany(p => p), e => e.Name == "Unknown member");
         for (var i = 0; i < pages.Count; i++)
         {
-            var embed = ForeverViews.Roster(guild, pages, i);
-            Assert.True(embed.Description.Length <= 4096);
-            Assert.Contains($"Page {i + 1}/{pages.Count}", embed.Footer!.Value.Text);
+            var page = ForeverViews.RosterPage(roster, Name, i, 7);
+            Assert.Equal((i, pages.Count), (page.Page, page.PageCount));
+            AssertFits(page.Card);
+            Assert.Contains(Buttons(page.Card), b => b.Label == $"Page {i + 1}/{pages.Count}" && b.IsDisabled);
         }
-        Assert.Contains(@"\*Synthetic\*", ForeverViews.Roster(guild, pages, 0).Title);
+        Assert.StartsWith(@"# 👥 \*Synthetic\* Guild roster", Text(ForeverViews.RosterPage(roster, Name, 0, 7).Card));
     }
 
     [Fact]
     public void Pager_and_actions_only_offer_what_applies()
     {
-        Assert.Null(ForeverViews.RosterPager(7, 0, 1));
-        var pager = ForeverViews.RosterPager(7, 0, 3)!;
-        var buttons = pager.Components.OfType<ActionRowComponent>().SelectMany(r => r.Components).OfType<ButtonComponent>().ToList();
-        Assert.True(buttons[0].IsDisabled);
-        Assert.False(buttons[1].IsDisabled);
-        Assert.Equal($"{ForeverViews.RosterPagePrefix}~7~1", buttons[1].CustomId);
+        var guild = new ForeverGuild { Name = "Synthetic", Region = ForeverRegion.US, Ruleset = ForeverRuleset.PvP, Faction = ForeverFaction.Horde, RosterEnabled = true };
+        ForeverRoster Roster(int count) => new(guild, Enumerable.Range(1, count)
+            .Select(u => new ForeverRosterMember(u, new[] { Character(u, u, "Asha") }, null)).ToList());
 
-        var c = Character(42, 7, "Asha");
-        Assert.Null(ForeverViews.CharacterActions(7, c, isMain: true, canShare: false));
-        var actions = ForeverViews.CharacterActions(7, c, isMain: false, canShare: true)!
-            .Components.OfType<ActionRowComponent>().SelectMany(r => r.Components).OfType<ButtonComponent>().Select(b => b.CustomId);
-        Assert.Equal(new[] { $"{ForeverViews.MainButtonPrefix}~7~42", $"{ForeverViews.ShareButtonPrefix}~7~42" }, actions);
+        Assert.Empty(Buttons(ForeverViews.RosterPage(Roster(3), _ => "Member", 0, 7).Card));
+        var buttons = Buttons(ForeverViews.RosterPage(Roster(40), _ => "Member", 0, 7).Card);
+        Assert.True(buttons[0].IsDisabled);
+        Assert.False(buttons[2].IsDisabled);
+        Assert.Equal($"{ForeverViews.RosterPagePrefix}~7~1r", buttons[2].CustomId);
+
+        var saved = new ForeverSavedCharacter(Character(42, 7, "Asha"), null, null);
+        Assert.Empty(Buttons(ForeverViews.CharacterSaved(saved, "saved", isMain: true, isShared: false, 7, canShare: false)));
+        Assert.Equal(
+            new[] { $"{ForeverViews.MainButtonPrefix}~7~42", $"{ForeverViews.ShareButtonPrefix}~7~42" },
+            Buttons(ForeverViews.CharacterSaved(saved, "saved", isMain: false, isShared: false, 7, canShare: true)).Select(b => b.CustomId));
+        // Already shared: sharing again isn't offered even if the caller could.
+        Assert.Equal(
+            new[] { $"{ForeverViews.MainButtonPrefix}~7~42" },
+            Buttons(ForeverViews.CharacterSaved(saved, "shared", isMain: false, isShared: true, 7, canShare: true)).Select(b => b.CustomId));
     }
 
     [Fact]
     public void Empty_states_tell_people_what_to_do()
     {
         var guild = new ForeverGuild { Name = "Synthetic", RosterEnabled = true };
-        Assert.Contains("/forever roster share", ForeverViews.Roster(guild, new(), 0).Description);
-        Assert.Contains("/forever char add", ForeverViews.CharacterList(Array.Empty<ForeverCharacter>(), null, new HashSet<long>()).Description);
-        Assert.Contains("/forever guild set", ForeverViews.NoGuild("Server").Description);
+        var empty = new ForeverRoster(guild, Array.Empty<ForeverRosterMember>());
+        Assert.Contains("/forever roster share", Text(ForeverViews.RosterPage(empty, _ => null, 0, 7).Card));
+        Assert.Contains("/forever char add", Text(ForeverViews.CharacterList(Array.Empty<ForeverCharacter>(), null, new HashSet<long>(), 7)));
+        Assert.Contains("/forever guild set", Text(ForeverViews.NoGuild("Server", null)));
     }
 }
