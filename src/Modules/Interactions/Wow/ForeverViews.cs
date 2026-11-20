@@ -42,6 +42,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         public const string OpenCardPrefix = "forever_open";
         public const string CardOverview = "o";
         public const string CardGear = "g";
+        public const string CardProfessions = "p";
         /// <summary>Leads the card's view code when it was opened from the roster, so the card offers the way back.</summary>
         public const string FromRoster = "r";
 
@@ -687,13 +688,19 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
         public static bool IsGear(string? view) => view != null && view.EndsWith(CardGear, StringComparison.Ordinal);
 
+        public static bool IsProfessions(string? view) => view != null && view.EndsWith(CardProfessions, StringComparison.Ordinal);
+
+        /// <summary>The tab a view code asks for. Anything the card doesn't know is the Overview.</summary>
+        public static string Tab(string? view) => IsGear(view) ? CardGear : IsProfessions(view) ? CardProfessions : CardOverview;
+
         public static bool IsFromRoster(string? view) => view != null && view.StartsWith(FromRoster, StringComparison.Ordinal);
 
-        /// <param name="view">"o" or "g", led by "r" when the card was opened from the roster.</param>
+        /// <param name="view">"o", "g" or "p", led by "r" when the card was opened from the roster.</param>
         public static MessageComponent Card(ForeverArmoryCard card, string view, ulong userId)
         {
             var c = card.Character;
-            var gear = IsGear(view);
+            var tab = Tab(view);
+            var gear = tab == CardGear;
             var fromRoster = IsFromRoster(view);
             var container = new ContainerBuilder().WithAccentColor(ClassColor(c.Class, c.Faction));
 
@@ -711,13 +718,18 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             }.Where(p => !string.IsNullOrWhiteSpace(p))));
             AddHeader(container, heading.ToString(), card.AvatarUrl, "Character portrait");
 
-            container.AddComponent(CardButtons(userId, c, gear, fromRoster));
+            container.AddComponent(CardButtons(userId, c, tab, fromRoster, card.Professions.Count > 0));
             AddDivider(container);
-            container.AddComponent(new TextDisplayBuilder(Clip(gear ? GearText(card) : OverviewText(card), MaxBodyChars)));
+            container.AddComponent(new TextDisplayBuilder(Clip(
+                gear ? GearText(card) : tab == CardProfessions ? ProfessionsText(card.Professions) : OverviewText(card), MaxBodyChars)));
             if (gear && card.RenderUrl != null)
                 container.AddComponent(new MediaGalleryBuilder().AddItem(card.RenderUrl, $"{c.FullName.Trim()} in game"));
 
-            AddFooter(container, "From Blizzard's armory · updates when the character logs out");
+            var footer = "From Blizzard's armory · updates when the character logs out";
+            // The Overview only links the primary professions; the Professions tab links them all.
+            if (!gear && card.Professions.Any(p => (p.IsPrimary || tab == CardProfessions) && ForeverProfessions.WowheadUrl(p.Id) != null))
+                footer += " · profession names open Wowhead";
+            AddFooter(container, footer);
             return new ComponentBuilderV2().AddComponent(container).Build();
         }
 
@@ -730,12 +742,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             if (card.Talents.Count > 0)
                 sb.Append("🌳 **Talents** ").Append(string.Join(" / ", card.Talents.Select(t => $"{Format.Sanitize(t.Name)} {t.Points}"))).Append('\n');
             if (c.ItemLevel is > 0) sb.Append("🛡️ **Item level** ").Append(c.ItemLevel).Append('\n');
-            if (card.Professions.Count > 0)
-            {
-                sb.Append("🧰 **Professions** ")
-                    .Append(string.Join(" · ", card.Professions.Select(p => $"{Format.Sanitize(p.Name)} {p.Skill}{(p.MaxSkill > 0 ? $"/{p.MaxSkill}" : "")}")))
-                    .Append('\n');
-            }
+            AppendProfessions(sb, card.Professions);
             if (card.Stats is { } stats)
             {
                 var parts = new[]
@@ -750,6 +757,96 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             if (c.LastSeen is { } seen) sb.Append("🕒 **Last seen** <t:").Append(seen.ToUnixTimeSeconds()).Append(":R>\n");
 
             return sb.Length == 0 ? "*The armory has no more details for this character yet.*" : sb.ToString().TrimEnd('\n');
+        }
+
+        // ===== Professions =====
+
+        private const int ShortBar = 10;
+        private const int LongBar = 20;
+
+        /// <summary>
+        /// The Overview's take: a short bar for each primary profession, with the secondary ones on
+        /// one small line. The Professions tab has the rest.
+        /// </summary>
+        private static void AppendProfessions(StringBuilder sb, IReadOnlyList<ForeverArmoryProfession> professions)
+        {
+            if (professions.Count == 0) return;
+            var scale = SkillScale(professions);
+            var primaries = professions.Where(p => p.IsPrimary).ToList();
+            var others = string.Join(" · ", professions.Where(p => !p.IsPrimary)
+                .Select(p => $"{ForeverProfessions.Emoji(p.Id)} {Format.Sanitize(p.Name)} {SkillText(p)}"));
+
+            if (primaries.Count == 0)
+            {
+                sb.Append("🧰 **Professions** ").Append(others).Append('\n');
+                return;
+            }
+
+            sb.Append("🧰 **Professions**\n");
+            foreach (var p in primaries)
+            {
+                sb.Append(ForeverProfessions.Emoji(p.Id)).Append(' ').Append(ProfessionName(p))
+                    .Append(" `").Append(SkillBar(p, scale, ShortBar)).Append("` ").Append(SkillText(p)).Append('\n');
+            }
+            if (others.Length > 0) sb.Append("-# ").Append(others).Append('\n');
+        }
+
+        /// <summary>The Professions tab: every profession with its rank, recipes known and a bar of the whole climb.</summary>
+        private static string ProfessionsText(IReadOnlyList<ForeverArmoryProfession> professions)
+        {
+            if (professions.Count == 0) return "*The armory has no professions for this character right now.*";
+
+            var scale = SkillScale(professions);
+            var sb = new StringBuilder();
+            foreach (var group in new[] { (Title: "Primary", Primary: true), (Title: "Secondary", Primary: false) })
+            {
+                var members = professions.Where(p => p.IsPrimary == group.Primary).ToList();
+                if (members.Count == 0) continue;
+
+                sb.Append("### ").Append(group.Title).Append('\n');
+                foreach (var p in members)
+                {
+                    sb.Append(ForeverProfessions.Emoji(p.Id)).Append(" **").Append(ProfessionName(p)).Append("**");
+                    if (ForeverProfessions.Rank(p.MaxSkill) is { } rank) sb.Append(" · ").Append(rank);
+                    if (p.Recipes > 0) sb.Append($" · {p.Recipes:N0} recipe{(p.Recipes == 1 ? "" : "s")}");
+                    sb.Append('\n');
+
+                    sb.Append('`').Append(SkillBar(p, scale, LongBar)).Append("` **").Append(p.Skill).Append("**");
+                    if (p.MaxSkill > 0) sb.Append(" / ").Append(p.MaxSkill);
+                    if (p.Skill >= scale) sb.Append(" · maxed");
+                    else if (p.MaxSkill > 0 && p.Skill >= p.MaxSkill && ForeverProfessions.NextRank(p.MaxSkill) is { } next)
+                        sb.Append(" · at the cap, ").Append(next).Append(" is next");
+                    sb.Append('\n');
+                }
+            }
+            sb.Append("-# █ skill · ▒ still to earn in the trained rank · ░ ranks not trained yet");
+            return sb.ToString();
+        }
+
+        /// <summary>The profession's name, linked to its Wowhead page when the bot knows it has one.</summary>
+        private static string ProfessionName(ForeverArmoryProfession p)
+            => ForeverProfessions.WowheadUrl(p.Id) is { } url ? $"[{Format.Sanitize(p.Name)}]({url})" : Format.Sanitize(p.Name);
+
+        private static string SkillText(ForeverArmoryProfession p) => p.MaxSkill > 0 ? $"{p.Skill}/{p.MaxSkill}" : p.Skill.ToString();
+
+        /// <summary>What a full bar stands for: Artisan's cap, or more if the armory reports a higher one.</summary>
+        private static int SkillScale(IEnumerable<ForeverArmoryProfession> professions)
+            => professions.Aggregate(ForeverProfessions.MaxSkill, (scale, p) => Math.Max(scale, Math.Max(p.Skill, p.MaxSkill)));
+
+        /// <summary>
+        /// One bar for the whole climb: solid for skill earned, medium for what is left in the rank the
+        /// character trained, light for ranks not trained yet. Any skill at all shows at least one block.
+        /// </summary>
+        private static string SkillBar(ForeverArmoryProfession p, int scale, int width)
+        {
+            var skill = Math.Max(p.Skill, 0);
+            var filled = (int)Math.Min((long)skill * width / scale, width);
+            if (skill > 0 && filled == 0) filled = 1;
+            // With no cap from the armory, or none left to earn, nothing is drawn as still to earn.
+            var trained = p.MaxSkill > skill
+                ? (int)Math.Clamp((long)Math.Ceiling(p.MaxSkill * (double)width / scale), filled, width)
+                : filled;
+            return new string('█', filled) + new string('▒', trained - filled) + new string('░', width - trained);
         }
 
         private static string GearText(ForeverArmoryCard card)
@@ -778,16 +875,25 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             return sb.ToString().TrimEnd('\n');
         }
 
-        /// <summary>The two view tabs, the way back to the roster when the card came from it, and a link to the armory.</summary>
-        private static ActionRowBuilder CardButtons(ulong userId, ForeverArmoryCharacter c, bool gear, bool fromRoster)
+        /// <summary>
+        /// The view tabs (Professions only when the character has any), the way back to the roster when
+        /// the card came from it, and a link to the armory: five buttons at most, which is all a row holds.
+        /// </summary>
+        private static ActionRowBuilder CardButtons(ulong userId, ForeverArmoryCharacter c, string tab, bool fromRoster, bool hasProfessions)
         {
             var row = new ActionRowBuilder();
             var origin = fromRoster ? FromRoster : "";
+            var tabs = new List<(string Code, string Label, string Emoji)> { (CardOverview, "Overview", "📋"), (CardGear, "Gear", "🛡️") };
+            if (hasProfessions) tabs.Add((CardProfessions, "Professions", ForeverProfessions.DefaultEmoji));
+
             // A name the bot wouldn't accept back, or an id past Discord's limit, just loses the tabs.
-            if (CardId(userId, origin + CardOverview, c) is { } overviewId && CardId(userId, origin + CardGear, c) is { } gearId)
+            if (CardId(userId, origin + CardOverview, c) != null)
             {
-                row.WithButton(new ButtonBuilder("Overview", overviewId, gear ? ButtonStyle.Primary : ButtonStyle.Success, emote: new Emoji("📋")));
-                row.WithButton(new ButtonBuilder("Gear", gearId, gear ? ButtonStyle.Success : ButtonStyle.Primary, emote: new Emoji("🛡️")));
+                foreach (var (code, label, emoji) in tabs)
+                {
+                    row.WithButton(new ButtonBuilder(label, CardId(userId, origin + code, c),
+                        code == tab ? ButtonStyle.Success : ButtonStyle.Primary, emote: new Emoji(emoji)));
+                }
             }
             if (fromRoster)
                 row.WithButton(new ButtonBuilder("Roster", RosterId(userId, 0, ForeverRosterSort.Rank), ButtonStyle.Secondary, emote: new Emoji("👥")));

@@ -51,7 +51,14 @@ public class ForeverViewsTests
             new ForeverArmoryItem("FINGER_1", "Ring 1", "Copper Band", "RARE", 14),
             new ForeverArmoryItem("HEAD", "Head", "Linen Hood", "UNCOMMON", 12)
         },
-        new[] { new ForeverArmoryProfession("Tailoring", 107, 150), new ForeverArmoryProfession("Fishing", 12, 0) },
+        new[]
+        {
+            new ForeverArmoryProfession("Tailoring", 107, 150, Id: 197, Recipes: 43),
+            // One the bot has never heard of, in the older shape with no cap.
+            new ForeverArmoryProfession("Rune_carving", 12, 0),
+            new ForeverArmoryProfession("Fishing", 150, 150, Id: 356, Recipes: 1, IsPrimary: false),
+            new ForeverArmoryProfession("First Aid", 300, 300, Id: 129, Recipes: 13, IsPrimary: false)
+        },
         new[] { new ForeverArmoryTalentTree("Frost", 15), new ForeverArmoryTalentTree("Fire", 5) },
         new ForeverArmoryStats(Deaths: 2, Quests: 1241, Kills: null, Dungeons: 5),
         Render);
@@ -271,10 +278,13 @@ public class ForeverViewsTests
             "-# ▰▰▰▰▱▱▱▱▱▱ level 29 of 60",
             "🌳 **Talents** Frost 15 / Fire 5",
             "🛡️ **Item level** 19",
-            "🧰 **Professions** Tailoring 107/150 · Fishing 12",
+            "🧰 **Professions**",
+            "🧵 [Tailoring](https://www.wowhead.com/forever/skill=197) `███▒▒░░░░░` 107/150",
+            @"🧰 Rune\_carving `█░░░░░░░░░` 12",
+            "-# 🎣 Fishing 150/150 · 🩹 First Aid 300/300",
             "💀 **Deaths** 2 · 📜 **Quests** 1,241 · 🏰 **Dungeons entered** 5",
             "🕒 **Last seen** <t:1794280327:R>",
-            "-# From Blizzard's armory · updates when the character logs out"
+            "-# From Blizzard's armory · updates when the character logs out · profession names open Wowhead"
         }, Lines(card));
         Assert.Equal(Avatar, Assert.Single(All<ThumbnailComponent>(card)).Media.Url);
         Assert.Equal(new Color(0x69CCF0), Accent(card));
@@ -307,6 +317,120 @@ public class ForeverViewsTests
         Assert.Contains("no gear", Text(gear));
         Assert.Empty(All<MediaGalleryComponent>(gear));
         AssertFits(gear);
+
+        // An old Professions button on a character who has since dropped them all.
+        var professions = ForeverViews.Card(bare, ForeverViews.CardProfessions, Caller);
+        Assert.Equal("*The armory has no professions for this character right now.*", Lines(professions)[3]);
+        Assert.Equal("-# From Blizzard's armory · updates when the character logs out", Lines(professions).Last());
+    }
+
+    [Fact]
+    public void Card_professions_tab_shows_rank_recipes_and_a_bar_of_the_whole_climb()
+    {
+        var card = ForeverViews.Card(Card(), ForeverViews.CardProfessions, Caller);
+
+        Assert.Equal("# 🔮 Asha Brightvale", Lines(card)[0]);
+        Assert.Equal(new[]
+        {
+            "### Primary",
+            "🧵 **[Tailoring](https://www.wowhead.com/forever/skill=197)** · Journeyman · 43 recipes",
+            "`███████▒▒▒░░░░░░░░░░` **107** / 150",
+            @"🧰 **Rune\_carving**",
+            "`█░░░░░░░░░░░░░░░░░░░` **12**",
+            "### Secondary",
+            "🎣 **[Fishing](https://www.wowhead.com/forever/skill=356)** · Journeyman · 1 recipe",
+            "`██████████░░░░░░░░░░` **150** / 150 · at the cap, Expert is next",
+            "🩹 **[First Aid](https://www.wowhead.com/forever/skill=129)** · Artisan · 13 recipes",
+            "`████████████████████` **300** / 300 · maxed",
+            "-# █ skill · ▒ still to earn in the trained rank · ░ ranks not trained yet",
+            "-# From Blizzard's armory · updates when the character logs out · profession names open Wowhead"
+        }, Lines(card).Skip(3));
+        Assert.Empty(All<MediaGalleryComponent>(card));
+        AssertFits(card);
+
+        // Five professions with the longest names Discord would ever see still fit.
+        var many = Enumerable.Range(0, 5).Select(i => new ForeverArmoryProfession(new string('*', 100), 299, 300, Id: 197, Recipes: 9999, IsPrimary: i < 2)).ToList();
+        AssertFits(ForeverViews.Card(Card() with { Professions = many }, ForeverViews.CardProfessions, Caller));
+        AssertFits(ForeverViews.Card(Card() with { Professions = many }, ForeverViews.CardOverview, Caller));
+    }
+
+    [Theory]
+    [InlineData(0, 75, "▒▒▒▒▒░░░░░░░░░░░░░░░")]
+    [InlineData(1, 75, "█▒▒▒▒░░░░░░░░░░░░░░░")]
+    [InlineData(75, 75, "█████░░░░░░░░░░░░░░░")]
+    [InlineData(152, 225, "██████████▒▒▒▒▒░░░░░")]
+    [InlineData(263, 300, "█████████████████▒▒▒")]
+    [InlineData(299, 300, "███████████████████▒")]
+    [InlineData(300, 300, "████████████████████")]
+    // Nothing the armory sends can push a bar past its ends.
+    [InlineData(-5, 0, "░░░░░░░░░░░░░░░░░░░░")]
+    [InlineData(40, 0, "██░░░░░░░░░░░░░░░░░░")]
+    public void A_skill_bar_is_solid_for_skill_medium_for_the_trained_rank_and_light_beyond(int skill, int cap, string bar)
+    {
+        var professions = new[] { new ForeverArmoryProfession("Mining", skill, cap, Id: 186) };
+
+        var body = All<TextDisplayComponent>(ForeverViews.Card(Card() with { Professions = professions }, ForeverViews.CardProfessions, Caller))[1].Content;
+
+        Assert.Contains($"`{bar}` **{skill}**", body);
+    }
+
+    [Fact]
+    public void Skill_bars_stretch_if_the_armory_ever_reports_more_than_artisan()
+    {
+        var professions = new[]
+        {
+            new ForeverArmoryProfession("Mining", 375, 375, Id: 186),
+            new ForeverArmoryProfession("Herbalism", 300, 300, Id: 182)
+        };
+
+        var lines = Lines(ForeverViews.Card(Card() with { Professions = professions }, ForeverViews.CardProfessions, Caller));
+
+        // A cap the bot has no name for gets no rank, and 300 is no longer the end of the bar.
+        Assert.Contains("⛏️ **[Mining](https://www.wowhead.com/forever/skill=186)**", lines);
+        Assert.Contains("`████████████████████` **375** / 375 · maxed", lines);
+        Assert.Contains("🌿 **[Herbalism](https://www.wowhead.com/forever/skill=182)** · Artisan", lines);
+        Assert.Contains("`████████████████░░░░` **300** / 300", lines);
+    }
+
+    [Fact]
+    public void Overview_puts_secondary_professions_on_one_line_when_there_are_no_primary_ones()
+    {
+        var professions = new[]
+        {
+            new ForeverArmoryProfession("Cooking", 20, 75, Id: 185, Recipes: 6, IsPrimary: false),
+            new ForeverArmoryProfession("Fishing", 1, 75, Id: 356, IsPrimary: false)
+        };
+
+        var overview = ForeverViews.Card(Card() with { Professions = professions }, ForeverViews.CardOverview, Caller);
+        Assert.Contains("🧰 **Professions** 🍳 Cooking 20/75 · 🎣 Fishing 1/75", Lines(overview));
+        // Nothing on this view is a link, so the footer doesn't promise one.
+        Assert.Equal("-# From Blizzard's armory · updates when the character logs out", Lines(overview).Last());
+
+        var tab = Lines(ForeverViews.Card(Card() with { Professions = professions }, ForeverViews.CardProfessions, Caller));
+        Assert.DoesNotContain("### Primary", tab);
+        Assert.Contains("🍳 **[Cooking](https://www.wowhead.com/forever/skill=185)** · Apprentice · 6 recipes", tab);
+        // Fishing's own ranks aren't recipes, so a fisher with nothing else known shows no count.
+        Assert.Contains("🎣 **[Fishing](https://www.wowhead.com/forever/skill=356)** · Apprentice", tab);
+        Assert.EndsWith("profession names open Wowhead", tab.Last());
+    }
+
+    [Fact]
+    public void Every_forever_profession_has_an_emoji_a_wowhead_page_and_a_rank_ladder()
+    {
+        // Blizzard's profession index for Forever, less its test entry.
+        var ids = new[] { 129, 164, 165, 171, 182, 185, 186, 197, 202, 333, 356, 393 };
+        Assert.Equal(ids, ForeverProfessions.KnownIds.OrderBy(id => id));
+        Assert.All(ids, id => Assert.Equal($"https://www.wowhead.com/forever/skill={id}", ForeverProfessions.WowheadUrl(id)));
+        Assert.Equal(ids.Length, ids.Select(id => ForeverProfessions.Emoji(id)).Distinct().Count());
+        Assert.DoesNotContain(ForeverProfessions.DefaultEmoji, ids.Select(id => ForeverProfessions.Emoji(id)));
+
+        // A profession added later, or the index's "Test Profession [DNT]", gets no link to nowhere.
+        Assert.Null(ForeverProfessions.WowheadUrl(2933));
+        Assert.Null(ForeverProfessions.WowheadUrl(null));
+        Assert.Equal(ForeverProfessions.DefaultEmoji, ForeverProfessions.Emoji(2933));
+
+        Assert.Equal(new[] { "Apprentice", "Journeyman", "Expert", "Artisan", null }, new[] { 75, 150, 225, 300, 310 }.Select(ForeverProfessions.Rank));
+        Assert.Equal(new[] { "Journeyman", "Expert", "Artisan", null, null }, new[] { 75, 150, 225, 300, 310 }.Select(ForeverProfessions.NextRank));
     }
 
     [Fact]
@@ -324,6 +448,8 @@ public class ForeverViewsTests
             + @"⚪ **Odd** Mystery \*Item\*",
             body);
         Assert.Equal(Render, Assert.Single(Assert.Single(All<MediaGalleryComponent>(card)).Items).Media.Url);
+        // No profession is named on this tab, so its footer doesn't mention Wowhead.
+        Assert.Equal("-# From Blizzard's armory · updates when the character logs out", Lines(card).Last());
         AssertFits(card);
     }
 
@@ -336,21 +462,33 @@ public class ForeverViewsTests
             {
                 ("Overview", $"{ForeverViews.CardButtonPrefix}~7~o~0~Asha~Brightvale", ButtonStyle.Success),
                 ("Gear", $"{ForeverViews.CardButtonPrefix}~7~g~0~Asha~Brightvale", ButtonStyle.Primary),
+                ("Professions", $"{ForeverViews.CardButtonPrefix}~7~p~0~Asha~Brightvale", ButtonStyle.Primary),
                 ("Armory", null, ButtonStyle.Link)
             },
             overview.Select(b => (b.Label, b.CustomId, b.Style)));
-        Assert.Equal(ArmoryLink, overview[2].Url);
+        Assert.Equal(ArmoryLink, overview[3].Url);
 
         var gear = Buttons(ForeverViews.Card(Card(), ForeverViews.CardGear, Caller));
-        Assert.Equal(new[] { ButtonStyle.Primary, ButtonStyle.Success, ButtonStyle.Link }, gear.Select(b => b.Style));
+        Assert.Equal(new[] { ButtonStyle.Primary, ButtonStyle.Success, ButtonStyle.Primary, ButtonStyle.Link }, gear.Select(b => b.Style));
+        var professions = Buttons(ForeverViews.Card(Card(), ForeverViews.CardProfessions, Caller));
+        Assert.Equal(new[] { ButtonStyle.Primary, ButtonStyle.Primary, ButtonStyle.Success, ButtonStyle.Link }, professions.Select(b => b.Style));
 
-        // Opened from the roster, the card remembers it and offers the way back.
-        var fromRoster = Buttons(ForeverViews.Card(Card(), ForeverViews.FromRoster + ForeverViews.CardGear, Caller));
+        // A character with no professions has no tab for them.
+        var none = Buttons(ForeverViews.Card(Card() with { Professions = Array.Empty<ForeverArmoryProfession>() }, ForeverViews.CardOverview, Caller));
+        Assert.Equal(new[] { "Overview", "Gear", "Armory" }, none.Select(b => b.Label));
+
+        // Opened from the roster, the card remembers it and offers the way back: a full row of five.
+        var fromRoster = Buttons(ForeverViews.Card(Card(), ForeverViews.FromRoster + ForeverViews.CardProfessions, Caller));
         Assert.Equal(
-            new[] { "forever_card~7~ro~0~Asha~Brightvale", "forever_card~7~rg~0~Asha~Brightvale", "forever_roster~7~0r", null },
+            new[] { "forever_card~7~ro~0~Asha~Brightvale", "forever_card~7~rg~0~Asha~Brightvale", "forever_card~7~rp~0~Asha~Brightvale", "forever_roster~7~0r", null },
             fromRoster.Select(b => b.CustomId));
-        Assert.Equal(ButtonStyle.Success, fromRoster[1].Style);
-        Assert.Equal("Roster", fromRoster[2].Label);
+        Assert.Equal(ButtonStyle.Success, fromRoster[2].Style);
+        Assert.Equal("Roster", fromRoster[3].Label);
+        Assert.Single(All<ActionRowComponent>(ForeverViews.Card(Card(), ForeverViews.FromRoster + ForeverViews.CardProfessions, Caller)));
+
+        // A view code the card doesn't know is the Overview.
+        Assert.Equal(new[] { "o", "g", "p", "o", "g", "p", "o", "o" },
+            new[] { "o", "g", "p", "ro", "rg", "rp", "x", null }.Select(ForeverViews.Tab));
 
         // Names the buttons couldn't carry back just lose the tabs; the link stays.
         var tooLong = new string('a', 40);

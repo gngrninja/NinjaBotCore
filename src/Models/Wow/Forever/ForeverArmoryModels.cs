@@ -47,7 +47,10 @@ namespace NinjaBotCore.Models.Wow.Forever
 
     public sealed record ForeverArmoryItem(string Slot, string SlotName, string Name, string? Quality, int? ItemLevel);
 
-    public sealed record ForeverArmoryProfession(string Name, int Skill, int MaxSkill);
+    /// <param name="MaxSkill">The cap of the rank the character has trained (75, 150, 225 or 300), not the game's cap. 0 when the armory didn't send one.</param>
+    /// <param name="Id">Blizzard's profession id (197 is Tailoring), or null when the armory didn't send one.</param>
+    /// <param name="Recipes">Recipes the character knows, not counting the profession's own ranks.</param>
+    public sealed record ForeverArmoryProfession(string Name, int Skill, int MaxSkill, int? Id = null, int Recipes = 0, bool IsPrimary = true);
 
     public sealed record ForeverArmoryTalentTree(string Name, int Points);
 

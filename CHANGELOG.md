@@ -27,6 +27,7 @@
 - `/forever char list` has a menu that opens a character's armory card, and a saved character's card links to its armory card. The guild card has a **View roster** button.
 - Autocomplete without a search endpoint (Blizzard has none for Forever): `/forever char view` suggests your characters, guildmates from Blizzard's roster and characters shared in the server, and checks a typed full name against the armory. `/forever char add` suggests guildmates for the first name and surname. `/forever guild set` checks the typed name in the chosen region, or in every region when none is chosen, and offers the guilds of your own characters.
 - Guild lookups are remembered for a few minutes, and the same armory question asked twice at once is one request, so typing does not multiply calls to Blizzard.
+- The `/forever char view` card shows professions as skill bars instead of a line of numbers, and has a **Professions** tab with each profession's rank, recipes known and a bar of the whole climb to 300. Profession names link to Wowhead's Forever page for the twelve professions that have one; a profession Blizzard adds later is shown without a link until it is added to `ForeverProfessions`.
 - Added `/forever help`: a getting-started card with the five setup steps, the ones the server and the member have already done ticked off, and a pointer at the next step that member can do. It also lists the other commands and what to know about Forever. The empty guild and character cards point to it.
 
 ### Raid Recap

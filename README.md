@@ -86,7 +86,7 @@ Members add their own characters. The region defaults to the server's guild, and
 
 `/forever char edit` checks the armory again, so running it with only the character brings one you added earlier up to date.
 
-Look up anyone's armory card, with level, guild, talents, professions, deaths, quests and a Gear tab. `character` suggests your own characters, guildmates from Blizzard's roster and characters shared in the server, and checks a full name against the armory as you type it:
+Look up anyone's armory card, with level, guild, talents, professions, deaths, quests, a Gear tab and a Professions tab. Each profession has a skill bar drawn against 300: solid for skill earned, medium for what is left in the trained rank and light for ranks not trained yet. The Professions tab adds the rank and the recipes known, and every profession name links to its page on Wowhead's Forever site. `character` suggests your own characters, guildmates from Blizzard's roster and characters shared in the server, and checks a full name against the armory as you type it:
 ```
 /forever char view character:Asha Brightvale region:EU
 ```

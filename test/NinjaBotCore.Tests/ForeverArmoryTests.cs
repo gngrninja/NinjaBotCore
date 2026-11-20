@@ -57,13 +57,17 @@ public sealed class ForeverArmoryTests : IDisposable
     private const string Professions = """
         {
           "primaries": [
-            { "profession": { "id": 197, "name": "Tailoring" }, "tiers": [ { "tier": { "name": "Tailoring" }, "skill_points": 107, "max_skill_points": 150 } ] },
+            { "profession": { "id": 197, "name": "Tailoring" }, "tiers": [ { "tier": { "name": "Tailoring" }, "skill_points": 107, "max_skill_points": 150,
+                "known_recipes": [ { "id": 2385, "name": "Brown Linen Vest" }, { "id": 2963, "name": "Bolt of Linen Cloth" } ] } ] },
             { "profession": { "id": 333, "name": "Enchanting" }, "tiers": [
-                { "tier": { "name": "Apprentice" }, "skill_points": 75, "max_skill_points": 75 },
-                { "tier": { "name": "Expert" }, "skill_points": 150, "max_skill_points": 225 } ] }
+                { "tier": { "name": "Apprentice" }, "skill_points": 75, "max_skill_points": 75, "known_recipes": [ { "id": 7418, "name": "Enchant Bracer - Minor Health" } ] },
+                { "tier": { "name": "Expert" }, "skill_points": 150, "max_skill_points": 225,
+                  "known_recipes": [ { "id": 7411, "name": "Enchanting" }, { "id": 7421, "name": "Runed Copper Rod" }, { "id": 7412, "name": "enchanting" }, { "id": 1 } ] } ] }
           ],
           "secondaries": [
-            { "profession": { "id": 185, "name": "Cooking" }, "skill_points": 20, "max_skill_points": 75 }
+            { "profession": { "id": 185, "name": "Cooking" }, "skill_points": 20, "max_skill_points": 75,
+              "known_recipes": [ { "id": 2550, "name": "Cooking" }, { "id": 2538, "name": "Charred Wolf Meat" } ] },
+            { "profession": { "name": "Fishing" }, "tiers": [ { "skill_points": 1, "max_skill_points": 75, "known_recipes": [ { "id": 7620, "name": "Fishing" } ] } ] }
           ]
         }
         """;
@@ -283,8 +287,11 @@ public sealed class ForeverArmoryTests : IDisposable
         Assert.Equal("https://render.worldofwarcraft.com/forever-us/character/64/4242-main-raw.png", card.RenderUrl);
         Assert.Equal(new[] { ("MAIN_HAND", "Main Hand", "Executor Staff", "COMMON", (int?)5), ("CHEST", "Chest", "White Linen Robe", "UNCOMMON", (int?)10) },
             card.Gear.Select(i => (i.Slot, i.SlotName, i.Name, i.Quality, i.ItemLevel)));
-        Assert.Equal(new[] { ("Tailoring", 107, 150), ("Enchanting", 150, 225), ("Cooking", 20, 75) },
+        Assert.Equal(new[] { ("Tailoring", 107, 150), ("Enchanting", 150, 225), ("Cooking", 20, 75), ("Fishing", 1, 75) },
             card.Professions.Select(p => (p.Name, p.Skill, p.MaxSkill)));
+        // Recipes are counted across every tier, without the profession's own ranks and nameless entries.
+        Assert.Equal(new[] { ((int?)197, 2, true), (333, 2, true), (185, 1, false), (null, 0, false) },
+            card.Professions.Select(p => (p.Id, p.Recipes, p.IsPrimary)));
         Assert.Equal(new[] { ("Frost", 15), ("Fire", 5) }, card.Talents.Select(t => (t.Name, t.Points)));
         Assert.Equal(new ForeverArmoryStats(Deaths: 2, Quests: 241, Kills: 2351, Dungeons: 5), card.Stats);
         Assert.Equal(6, _requests.Count);

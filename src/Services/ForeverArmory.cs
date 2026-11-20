@@ -321,8 +321,17 @@ namespace NinjaBotCore.Services
                     if (string.IsNullOrWhiteSpace(name)) continue;
 
                     // Skill sits on the profession's highest tier; older shapes put it on the profession.
-                    var tier = (p["tiers"] as JArray)?.OrderByDescending(t => Int(t["max_skill_points"]) ?? 0).FirstOrDefault() ?? p;
-                    list.Add(new ForeverArmoryProfession(name, Int(tier["skill_points"]) ?? 0, Int(tier["max_skill_points"]) ?? 0));
+                    var tiers = p["tiers"] as JArray;
+                    var tier = tiers?.OrderByDescending(t => Int(t["max_skill_points"]) ?? 0).FirstOrDefault() ?? p;
+                    // The armory lists the profession's own ranks among the recipes ("Mining" twice for a
+                    // miner who trained twice), so those are left out of the count.
+                    var recipes = (tiers ?? Enumerable.Repeat(p, 1))
+                        .SelectMany(t => t["known_recipes"] as JArray ?? Enumerable.Empty<JToken>())
+                        .Select(r => Text(r["name"]))
+                        .Count(recipe => !string.IsNullOrWhiteSpace(recipe) && !string.Equals(recipe, name, StringComparison.OrdinalIgnoreCase));
+                    list.Add(new ForeverArmoryProfession(
+                        name, Int(tier["skill_points"]) ?? 0, Int(tier["max_skill_points"]) ?? 0,
+                        Int(p["profession"]?["id"]), recipes, IsPrimary: group == "primaries"));
                 }
             }
             return list;

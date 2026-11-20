@@ -141,8 +141,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 return;
             }
 
-            var shown = (ForeverViews.IsFromRoster(view) ? ForeverViews.FromRoster : string.Empty)
-                + (ForeverViews.IsGear(view) ? ForeverViews.CardGear : ForeverViews.CardOverview);
+            var shown = (ForeverViews.IsFromRoster(view) ? ForeverViews.FromRoster : string.Empty) + ForeverViews.Tab(view);
             await Context.Interaction.ModifyToV2Async(ForeverViews.Card(card.Value!, shown, Context.User.Id));
         }
 
