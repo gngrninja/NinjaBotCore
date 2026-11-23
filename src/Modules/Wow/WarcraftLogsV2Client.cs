@@ -31,7 +31,9 @@ namespace NinjaBotCore.Modules.Wow
         /// <summary>Classic Fresh</summary>
         ClassicFresh,
         /// <summary>Vanilla Classic</summary>
-        Vanilla
+        Vanilla,
+        /// <summary>WoW Forever. Only the owner's probe asks this host so far; nothing else is built on it.</summary>
+        Forever
     }
 
     public partial class WarcraftLogsV2Client
@@ -77,6 +79,8 @@ namespace NinjaBotCore.Modules.Wow
         private const string ApiUrlClassic = "https://classic.warcraftlogs.com/api/v2/client";
         private const string ApiUrlClassicFresh = "https://fresh.warcraftlogs.com/api/v2/client";
         private const string ApiUrlVanilla = "https://vanilla.warcraftlogs.com/api/v2/client";
+        // The host exists; that it serves this API the way the other hosts do is what the probe finds out.
+        private const string ApiUrlForever = "https://forever.warcraftlogs.com/api/v2/client";
         private const int RateLimitCheckInterval = 10; // Check every 10 requests
         private const double WarningThreshold = 80.0; // Warn at 80% usage
         private const double CriticalThreshold = 95.0; // Stop at 95% usage
@@ -111,6 +115,7 @@ namespace NinjaBotCore.Modules.Wow
                 WowGameVersion.Classic => ApiUrlClassic,
                 WowGameVersion.ClassicFresh => ApiUrlClassicFresh,
                 WowGameVersion.Vanilla => ApiUrlVanilla,
+                WowGameVersion.Forever => ApiUrlForever,
                 _ => ApiUrlRetail
             };
         }
@@ -791,6 +796,23 @@ namespace NinjaBotCore.Modules.Wow
             {
                 _logger.LogError("Failed to get guild reports ({ErrorType})", ex.GetType().Name);
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// One query's raw answer, errors included, for looking at a host the bot hasn't used before.
+        /// Never throws: a failure comes back as its message.
+        /// </summary>
+        public async Task<string> RawQueryAsync(string query, object variables, WowGameVersion gameVersion, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var result = await ExecuteGraphQLInternalAsync<Newtonsoft.Json.Linq.JToken>(query, variables, gameVersion, cancellationToken);
+                return JsonConvert.SerializeObject(new { data = result.Data, errors = result.Errors }, Formatting.Indented);
+            }
+            catch (Exception ex)
+            {
+                return $"{ex.GetType().Name}: {ex.Message}";
             }
         }
 

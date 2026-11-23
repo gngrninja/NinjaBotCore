@@ -15,8 +15,9 @@ namespace NinjaBotCore.Services
 {
     /// <summary>
     /// What /forever autocomplete can offer. Blizzard has no search or list for Forever characters
-    /// or guilds, so suggestions come from three places: what the bot has saved, the server guild's
-    /// roster on the armory, and asking the armory about the exact name being typed.
+    /// or guilds, so those suggestions come from three places: what the bot has saved, the server
+    /// guild's roster on the armory, and asking the armory about the exact name being typed.
+    /// Recipes come from Blizzard's game data and items from TradeSkillMaster's price list.
     /// </summary>
     public static class ForeverSuggest
     {
@@ -135,38 +136,92 @@ namespace NinjaBotCore.Services
             return results;
         }
 
-        // ===== One part of a name, for adding a character =====
+        // ===== A character to save =====
 
         /// <summary>
-        /// Guildmates from Blizzard's roster whose name fits what's typed in this field and in the
-        /// other one. The label is the whole character; the value is only this field's part.
+        /// The typed name first (with what the armory said about it, when it answered), then guildmates
+        /// from Blizzard's roster the caller hasn't saved yet. Guildmates below level 10 are offered too:
+        /// the armory doesn't have them, but the roster does. Every value is a full name.
         /// </summary>
-        public static List<AutocompleteResult> NamePart(
-            IReadOnlyList<ForeverArmoryMember>? roster,
+        public static List<AutocompleteResult> Add(
             IReadOnlyList<Database.ForeverCharacter> own,
-            ForeverRegion region,
-            bool surnameField,
+            ForeverRegion? region,
             string input,
-            string? otherPart)
+            IReadOnlyList<ForeverArmoryMember>? roster = null,
+            ForeverLookup<ForeverArmoryCharacter>? live = null)
         {
-            var mine = own.Where(c => c.Region == region).Select(c => (c.NormalizedFirstName, c.NormalizedLastName)).ToHashSet();
-            var other = otherPart?.Trim() ?? string.Empty;
+            var results = new List<AutocompleteResult>();
+            var taken = own.Where(c => region == null || c.Region == region)
+                .Select(c => (c.NormalizedFirstName, c.NormalizedLastName)).ToHashSet();
 
-            return (roster ?? Array.Empty<ForeverArmoryMember>())
-                .Where(m => IsUsable(m.FirstName, m.Surname))
-                .Where(m => !mine.Contains((ForeverNames.Normalize(m.FirstName), ForeverNames.Normalize(m.Surname))))
-                .Select(m => (Member: m, This: surnameField ? m.Surname : m.FirstName, Other: surnameField ? m.FirstName : m.Surname))
-                .Where(e => other.Length == 0 || e.Other.StartsWith(other, StringComparison.OrdinalIgnoreCase))
-                .Where(e => input.Length == 0 || e.This.Contains(input, StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(e => input.Length > 0 && e.This.StartsWith(input, StringComparison.OrdinalIgnoreCase))
-                .ThenBy(e => e.Member.Rank ?? int.MaxValue)
-                .ThenByDescending(e => e.Member.Level)
-                .ThenBy(e => e.Member.FullName, StringComparer.OrdinalIgnoreCase)
+            if (ForeverNames.TrySplitFullName(input, out var first, out var last, out _))
+            {
+                var key = (ForeverNames.Normalize(first), ForeverNames.Normalize(last));
+                var found = live is { IsFound: true } ? live.Value : null;
+                var name = found != null && IsUsable(found.FirstName, found.Surname) ? found.FullName : ForeverNames.FullName(first, last);
+                var label = taken.Contains(key)
+                    ? $"{name} · already saved"
+                    : found != null
+                        ? Join(name, Kind(found.Level, found.Race, found.ClassName ?? found.Class?.ToString()), found.GuildName, "on the armory")
+                        : $"Save {name}";
+                if (label.Length <= 100)
+                {
+                    results.Add(new AutocompleteResult(label, name));
+                    taken.Add(key);
+                }
+            }
+
+            foreach (var m in Ranked(roster, input))
+            {
+                if (results.Count >= Max) break;
+                if (!taken.Add((ForeverNames.Normalize(m.FirstName), ForeverNames.Normalize(m.Surname)))) continue;
+                results.Add(new AutocompleteResult(Clip(Join(m.FullName, Kind(m.Level, null, m.Class?.ToString()), "guild roster")), m.FullName));
+            }
+
+            if (results.Count == 0) results.Add(new AutocompleteResult(LookupHint, "0"));
+            return results;
+        }
+
+        // ===== Recipes and items =====
+
+        public const string RecipeHint = "Type part of a recipe's name, like Linen Bag";
+        public const string ItemHint = "Type part of an item's name, like Copper Ore";
+        public const string LoadingHint = "Still loading the list. Type another letter in a moment";
+
+        /// <summary>Recipes whose name contains the text, names that start with it first. The value is the recipe's id.</summary>
+        public static List<AutocompleteResult> Recipes(ForeverRecipeList? recipes, string input)
+        {
+            if (recipes == null) return new List<AutocompleteResult> { new(LoadingHint, "0") };
+            if (input.Length == 0) return new List<AutocompleteResult> { new(RecipeHint, "0") };
+
+            var results = recipes.Recipes
+                .Where(r => r.Name.Contains(input, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(r => r.Name.StartsWith(input, StringComparison.OrdinalIgnoreCase))
+                .ThenBy(r => r.Name.Length)
+                .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
                 .Take(Max)
-                .Select(e => new AutocompleteResult(
-                    Clip(Join(e.Member.FullName, Kind(e.Member.Level, null, e.Member.Class?.ToString()))),
-                    e.This))
+                .Select(r => new AutocompleteResult(Clip(Join(r.Name, r.ProfessionName)), r.Id.ToString()))
                 .ToList();
+            if (results.Count == 0) results.Add(new AutocompleteResult($"No recipe has \"{Clip(input, 60)}\" in its name", "0"));
+            return results;
+        }
+
+        /// <summary>Priced items whose name contains the text: names that start with it first, then what sells most. The value is the item's id.</summary>
+        public static List<AutocompleteResult> Items(ForeverPriceSheet? prices, string input)
+        {
+            if (prices == null) return new List<AutocompleteResult> { new(LoadingHint, "0") };
+            if (input.Length == 0) return new List<AutocompleteResult> { new(ItemHint, "0") };
+
+            var results = prices.Items.Values
+                .Where(p => p.Name.Contains(input, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(p => p.Name.StartsWith(input, StringComparison.OrdinalIgnoreCase))
+                .ThenByDescending(p => p.SoldPerDay)
+                .ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+                .Take(Max)
+                .Select(p => new AutocompleteResult(Clip(Join(p.Name, ForeverMoney.Format(p.MarketValue))), p.ItemId.ToString()))
+                .ToList();
+            if (results.Count == 0) results.Add(new AutocompleteResult($"No priced item has \"{Clip(input, 60)}\" in its name", "0"));
+            return results;
         }
 
         // ===== Guild names =====
@@ -246,42 +301,6 @@ namespace NinjaBotCore.Services
     }
 
     /// <summary>
-    /// The caller's own Forever characters only. Returns the character Id as the value.
-    /// </summary>
-    public class ForeverCharacterAutocomplete : AutocompleteHandler
-    {
-        internal static IEnumerable<AutocompleteResult> Matches(IReadOnlyList<Database.ForeverCharacter> characters, string input, int max)
-            => ForeverSuggest.Own(characters, input, max);
-
-        public override async Task<AutocompletionResult> GenerateSuggestionsAsync(
-            IInteractionContext context,
-            IAutocompleteInteraction autocompleteInteraction,
-            IParameterInfo parameter,
-            IServiceProvider services)
-        {
-            try
-            {
-                var forever = services.GetRequiredService<ForeverService>();
-                var input = ForeverSuggest.Current(autocompleteInteraction);
-                var characters = await forever.GetCharactersAsync((long)context.User.Id);
-
-                if (characters.Count == 0)
-                {
-                    return AutocompletionResult.FromSuccess(
-                        new[] { new AutocompleteResult("No Forever characters yet — use /forever char add", "0") });
-                }
-
-                return AutocompletionResult.FromSuccess(ForeverSuggest.Own(characters, input, ForeverSuggest.Max));
-            }
-            catch (Exception ex)
-            {
-                services.GetService<ILogger<ForeverCharacterAutocomplete>>()?.LogError(ex, "Error in ForeverCharacterAutocomplete");
-                return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
-            }
-        }
-    }
-
-    /// <summary>
     /// For armory lookups: the caller's own characters (value: the Id), then anyone else by name:
     /// the name being typed, guildmates from Blizzard's roster and characters shared in this server.
     /// </summary>
@@ -310,7 +329,7 @@ namespace NinjaBotCore.Services
                 var region = ForeverSuggest.Region(autocompleteInteraction) ?? guild?.Region;
 
                 // The roster is the server's own guild, so it only fits lookups in that guild's region.
-                var rosterTask = guild != null && guild.RosterEnabled && region == guild.Region
+                var rosterTask = guild != null && region == guild.Region
                     ? forever.GetRosterAsync((long)guild.DiscordGuildId, ForeverSuggest.IsMember(context))
                     : Task.FromResult(ForeverResult<ForeverRoster>.Fail("no roster"));
                 var liveTask = region != null && ForeverNames.TrySplitFullName(input, out var first, out var last, out _)
@@ -337,14 +356,11 @@ namespace NinjaBotCore.Services
     }
 
     /// <summary>
-    /// For the first-name and surname fields of /forever char add: guildmates from Blizzard's roster
-    /// of this server's guild, so a member can pick their character instead of spelling it.
+    /// For /forever char add: the name being typed, checked against the armory, and guildmates from
+    /// Blizzard's roster of this server's guild, so a member can pick their character instead of spelling it.
     /// </summary>
-    public class ForeverNamePartAutocomplete : AutocompleteHandler
+    public class ForeverAddAutocomplete : AutocompleteHandler
     {
-        public const string FirstNameOption = "first-name";
-        public const string SurnameOption = "surname";
-
         public override async Task<AutocompletionResult> GenerateSuggestionsAsync(
             IInteractionContext context,
             IAutocompleteInteraction autocompleteInteraction,
@@ -355,28 +371,81 @@ namespace NinjaBotCore.Services
             {
                 var forever = services.GetRequiredService<ForeverService>();
                 var armory = services.GetRequiredService<IForeverArmory>();
+                var input = ForeverSuggest.Current(autocompleteInteraction);
                 var guild = context.Guild == null ? null : await forever.GetGuildAsync((long)context.Guild.Id);
                 var region = ForeverSuggest.Region(autocompleteInteraction) ?? guild?.Region;
-
-                // Nothing to suggest without a matched guild in the same region; the field still takes typed text.
-                if (guild?.ArmorySlug == null || !guild.RosterEnabled || region != guild.Region)
-                    return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
-
-                var surnameField = autocompleteInteraction.Data.Current.Name == SurnameOption;
-                var roster = await ForeverSuggest.WithinAsync(armory.GetRosterAsync(guild.Region, guild.ArmorySlug), ForeverSuggest.Budget);
                 var own = await forever.GetCharactersAsync((long)context.User.Id);
 
-                return AutocompletionResult.FromSuccess(ForeverSuggest.NamePart(
-                    roster?.Value?.Members,
-                    own,
-                    guild.Region,
-                    surnameField,
-                    ForeverSuggest.Current(autocompleteInteraction),
-                    ForeverSuggest.Option(autocompleteInteraction, surnameField ? FirstNameOption : SurnameOption)));
+                // The roster is the server's own guild, so it only fits a character in that guild's region.
+                var rosterTask = guild?.ArmorySlug != null && region == guild.Region
+                    ? armory.GetRosterAsync(guild.Region, guild.ArmorySlug)
+                    : Task.FromResult(ForeverLookup<ForeverArmoryRoster>.NotFound());
+                var liveTask = region != null && ForeverNames.TrySplitFullName(input, out var first, out var last, out _)
+                    ? armory.GetCharacterAsync(region.Value, first, last)
+                    : Task.FromResult(ForeverLookup<ForeverArmoryCharacter>.NotFound());
+
+                var roster = await ForeverSuggest.WithinAsync(rosterTask, ForeverSuggest.Budget);
+                // Both started together, so the second wait is only whatever is left of the first.
+                var live = await ForeverSuggest.WithinAsync(liveTask, TimeSpan.FromMilliseconds(200));
+
+                return AutocompletionResult.FromSuccess(ForeverSuggest.Add(own, region, input, roster?.Value?.Members, live));
             }
             catch (Exception ex)
             {
-                services.GetService<ILogger<ForeverNamePartAutocomplete>>()?.LogError(ex, "Error in ForeverNamePartAutocomplete");
+                services.GetService<ILogger<ForeverAddAutocomplete>>()?.LogError(ex, "Error in ForeverAddAutocomplete");
+                return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
+            }
+        }
+    }
+
+    /// <summary>For /forever craft: recipes by name, from Blizzard's list of what every profession can make.</summary>
+    public class ForeverRecipeAutocomplete : AutocompleteHandler
+    {
+        public override async Task<AutocompletionResult> GenerateSuggestionsAsync(
+            IInteractionContext context,
+            IAutocompleteInteraction autocompleteInteraction,
+            IParameterInfo parameter,
+            IServiceProvider services)
+        {
+            try
+            {
+                var catalog = services.GetRequiredService<IForeverCatalog>();
+                // The first question after a restart starts the load; it rarely finishes inside Discord's three seconds.
+                var recipes = catalog.RecipesIfLoaded
+                    ?? await ForeverSuggest.WithinAsync<ForeverRecipeList>(catalog.GetRecipesAsync()!, ForeverSuggest.Budget);
+                return AutocompletionResult.FromSuccess(ForeverSuggest.Recipes(recipes, ForeverSuggest.Current(autocompleteInteraction)));
+            }
+            catch (Exception ex)
+            {
+                services.GetService<ILogger<ForeverRecipeAutocomplete>>()?.LogError(ex, "Error in ForeverRecipeAutocomplete");
+                return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
+            }
+        }
+    }
+
+    /// <summary>For /forever price: items by name, from the region's TradeSkillMaster price list.</summary>
+    public class ForeverItemAutocomplete : AutocompleteHandler
+    {
+        public override async Task<AutocompletionResult> GenerateSuggestionsAsync(
+            IInteractionContext context,
+            IAutocompleteInteraction autocompleteInteraction,
+            IParameterInfo parameter,
+            IServiceProvider services)
+        {
+            try
+            {
+                var forever = services.GetRequiredService<ForeverService>();
+                var prices = services.GetRequiredService<IForeverPrices>();
+                var guild = context.Guild == null ? null : await forever.GetGuildAsync((long)context.Guild.Id);
+                var region = ForeverSuggest.Region(autocompleteInteraction) ?? guild?.Region ?? ForeverRegion.US;
+
+                var sheet = prices.IfLoaded(region)
+                    ?? await ForeverSuggest.WithinAsync<ForeverPriceSheet>(prices.GetAsync(region)!, ForeverSuggest.Budget);
+                return AutocompletionResult.FromSuccess(ForeverSuggest.Items(sheet, ForeverSuggest.Current(autocompleteInteraction)));
+            }
+            catch (Exception ex)
+            {
+                services.GetService<ILogger<ForeverItemAutocomplete>>()?.LogError(ex, "Error in ForeverItemAutocomplete");
                 return AutocompletionResult.FromSuccess(Enumerable.Empty<AutocompleteResult>());
             }
         }

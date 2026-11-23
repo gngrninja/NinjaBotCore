@@ -12,6 +12,10 @@ internal sealed class FakeForeverArmory : IForeverArmory
     private readonly Dictionary<(ForeverRegion, string), ForeverArmoryCharacter> _characters = new();
     private readonly Dictionary<(ForeverRegion, string), ForeverArmoryGuild> _guilds = new();
     private readonly Dictionary<(ForeverRegion, string), ForeverArmoryRoster> _rosters = new();
+    private readonly Dictionary<(ForeverRegion, string), ForeverArmoryProfessions> _professions = new();
+
+    /// <summary>How many times professions were asked for, by character slug.</summary>
+    public Dictionary<string, int> ProfessionAsks { get; } = new();
 
     /// <summary>Every lookup answers Unavailable, as when Blizzard is down or changed a route.</summary>
     public bool Down { get; set; }
@@ -67,6 +71,17 @@ internal sealed class FakeForeverArmory : IForeverArmory
     public Task<ForeverLookup<ForeverArmoryRoster>> GetRosterAsync(
         ForeverRegion region, string guildSlug, CancellationToken cancellationToken = default)
         => Answer(_rosters, (region, guildSlug));
+
+    /// <summary>Gives a character professions. One the armory has no professions for answers "not found".</summary>
+    public void AddProfessions(ForeverRegion region, string first, string last, params ForeverArmoryProfession[] professions)
+        => _professions[(region, ForeverNames.CharacterSlug(first, last))] = new ForeverArmoryProfessions(professions);
+
+    public Task<ForeverLookup<ForeverArmoryProfessions>> GetProfessionsAsync(
+        ForeverRegion region, string characterSlug, CancellationToken cancellationToken = default)
+    {
+        lock (ProfessionAsks) ProfessionAsks[characterSlug] = ProfessionAsks.GetValueOrDefault(characterSlug) + 1;
+        return Answer(_professions, (region, characterSlug));
+    }
 
     private Task<ForeverLookup<T>> Answer<T>(Dictionary<(ForeverRegion, string), T> known, (ForeverRegion, string) key) where T : class
         => Task.FromResult(Down

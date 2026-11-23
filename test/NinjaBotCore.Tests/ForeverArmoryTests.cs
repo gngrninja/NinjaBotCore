@@ -38,9 +38,22 @@ public sealed class ForeverArmoryTests : IDisposable
     private const string Equipment = """
         {
           "equipped_items": [
-            { "slot": { "type": "MAIN_HAND", "name": "Main Hand" }, "name": "Executor Staff", "quality": { "type": "COMMON", "name": "Common" }, "level": { "value": 5, "display_string": "Item Level 5" }, "item": { "id": 3277 } },
-            { "slot": { "type": "CHEST", "name": "Chest" }, "name": "White Linen Robe", "quality": { "type": "UNCOMMON", "name": "Uncommon" }, "level": { "value": 10 }, "item": { "id": 6241 } },
+            { "slot": { "type": "MAIN_HAND", "name": "Main Hand" }, "name": "Executor Staff", "quality": { "type": "COMMON", "name": "Common" }, "level": { "value": 5, "display_string": "Item Level 5" }, "item": { "id": 3277 },
+              "enchantments": [
+                { "display_string": "Enchanted: Weapon Damage +2", "enchantment_id": 241, "enchantment_slot": { "id": 0, "type": "PERMANENT" } },
+                { "display_string": "Flametongue 1", "enchantment_id": 5, "enchantment_slot": { "id": 8 } },
+                { "enchantment_id": 9 },
+                { "display_string": "enchanted:  " } ] },
+            { "slot": { "type": "CHEST", "name": "Chest" }, "name": "White Linen Robe", "quality": { "type": "UNCOMMON", "name": "Uncommon" }, "level": { "value": 10 }, "item": { "id": 6241 },
+              "enchantments": "none", "set": { "item_set": { "id": 2133, "name": "Synthetic Raiment" }, "items": [ { "item": { "id": 6241 }, "is_equipped": true } ] } },
+            { "slot": { "type": "LEGS", "name": "Legs" }, "name": "Patchwing Pants", "quality": { "type": "UNCOMMON" }, "level": { "value": 11 } },
             { "slot": { "type": "SHIRT", "name": "Shirt" }, "quality": { "type": "COMMON" } }
+          ],
+          "equipped_item_sets": [
+            { "display_string": "Synthetic Raiment (2/3)", "item_set": { "id": 2133, "name": "Synthetic Raiment" },
+              "items": [ { "item": { "id": 6241 }, "is_equipped": true }, { "item": { "id": 281283 }, "is_equipped": true }, { "item": { "id": 271214 } } ],
+              "effects": [ { "display_string": "Set: +5 Shadow Resistance.", "required_count": 2, "is_active": true }, { "display_string": "(3) Set: +10 Intellect.", "required_count": 3 } ] },
+            { "item_set": { "id": 7 }, "items": [], "effects": [] }
           ]
         }
         """;
@@ -285,8 +298,18 @@ public sealed class ForeverArmoryTests : IDisposable
         Assert.Equal("Asha Brightvale", card.Character.FullName);
         Assert.Equal("https://render.worldofwarcraft.com/forever-us/character/64/4242-avatar.jpg", card.AvatarUrl);
         Assert.Equal("https://render.worldofwarcraft.com/forever-us/character/64/4242-main-raw.png", card.RenderUrl);
-        Assert.Equal(new[] { ("MAIN_HAND", "Main Hand", "Executor Staff", "COMMON", (int?)5), ("CHEST", "Chest", "White Linen Robe", "UNCOMMON", (int?)10) },
-            card.Gear.Select(i => (i.Slot, i.SlotName, i.Name, i.Quality, i.ItemLevel)));
+        Assert.Equal(
+            new[]
+            {
+                ("MAIN_HAND", "Main Hand", "Executor Staff", "COMMON", (int?)5, (int?)3277),
+                ("CHEST", "Chest", "White Linen Robe", "UNCOMMON", 10, 6241),
+                ("LEGS", "Legs", "Patchwing Pants", "UNCOMMON", 11, null)
+            },
+            card.Gear.Select(i => (i.Slot, i.SlotName, i.Name, i.Quality, i.ItemLevel, i.Id)));
+        // An enchant loses the armory's "Enchanted:" lead; a weapon imbue has none to lose.
+        Assert.Equal(new[] { "Weapon Damage +2|Flametongue 1", "", "" }, card.Gear.Select(i => string.Join("|", i.Enchants!)));
+        // The armory's own list of sets wins over the copy on each piece.
+        Assert.Equal(new[] { new ForeverArmorySet("Synthetic Raiment", Equipped: 2, Pieces: 3, Id: 2133, ActiveBonuses: 1, Bonuses: 2) }, card.Sets);
         Assert.Equal(new[] { ("Tailoring", 107, 150), ("Enchanting", 150, 225), ("Cooking", 20, 75), ("Fishing", 1, 75) },
             card.Professions.Select(p => (p.Name, p.Skill, p.MaxSkill)));
         // Recipes are counted across every tier, without the profession's own ranks and nameless entries.
@@ -318,6 +341,102 @@ public sealed class ForeverArmoryTests : IDisposable
         Assert.Empty(card.Professions);
         Assert.Empty(card.Talents);
         Assert.Null(card.Stats);
+    }
+
+    [Fact]
+    public async Task Sets_are_read_off_the_pieces_when_the_armory_lists_none_and_each_set_once()
+    {
+        const string piece = """
+            "set": { "display_string": "Synthetic Raiment (2/5)", "item_set": { "id": 2133, "name": "Synthetic Raiment" },
+              "items": [ { "is_equipped": true }, { "is_equipped": true }, { "is_equipped": "yes" }, { }, { "is_equipped": false } ],
+              "effects": [ { "is_active": true }, { "is_active": true }, { "required_count": 5 } ] }
+            """;
+        Serve(AshaPath, Profile);
+        Serve(AshaPath + "/equipment", $$"""
+            {
+              "equipped_items": [
+                { "slot": { "type": "CHEST", "name": "Chest" }, "name": "Synthetic Garb", {{piece}} },
+                { "slot": { "type": "WAIST", "name": "Waist" }, "name": "Synthetic Sash", {{piece}} },
+                { "slot": { "type": "FEET", "name": "Feet" }, "name": "Plain Boots", "set": "none" },
+                { "slot": { "type": "HANDS", "name": "Hands" }, "name": "Other Gloves", "set": { "item_set": { "name": "Other Set" } } }
+              ]
+            }
+            """);
+
+        var card = (await _armory.GetCardAsync(ForeverRegion.US, "Asha", "Brightvale")).Value!;
+
+        Assert.Equal(
+            new[]
+            {
+                new ForeverArmorySet("Synthetic Raiment", Equipped: 2, Pieces: 5, Id: 2133, ActiveBonuses: 2, Bonuses: 3),
+                new ForeverArmorySet("Other Set", Equipped: 0, Pieces: 0)
+            },
+            card.Sets);
+        Assert.Equal(4, card.Gear.Count);
+        Assert.All(card.Gear, i => Assert.Empty(i.Enchants!));
+    }
+
+    [Theory]
+    [InlineData("""{ "equipped_items": [ "soon" ] }""")]
+    [InlineData("""{ "equipped_items": [ { "slot": "HEAD", "name": "Linen Hood" } ] }""")]
+    [InlineData("""{ "equipped_items": [ { "name": "Linen Hood", "enchantments": [ "sharp" ] } ] }""")]
+    public async Task Gear_in_a_shape_the_bot_does_not_read_leaves_the_card_without_gear(string equipment)
+    {
+        Serve(AshaPath, Profile);
+        Serve(AshaPath + "/equipment", equipment);
+
+        var result = await _armory.GetCardAsync(ForeverRegion.US, "Asha", "Brightvale");
+
+        Assert.Equal(ForeverLookupStatus.Found, result.Status);
+        Assert.Empty(result.Value!.Gear);
+        Assert.Equal(29, result.Value.Character.Level);
+    }
+
+    [Fact]
+    public async Task Professions_alone_are_one_request_and_carry_every_recipe_by_id_and_name()
+    {
+        Serve(AshaPath + "/professions", Professions);
+
+        var answer = await _armory.GetProfessionsAsync(ForeverRegion.US, "asha-brightvale");
+
+        Assert.True(answer.IsFound);
+        // Across both of Enchanting's tiers, without its own ranks ("Enchanting", "enchanting") and the nameless entry.
+        var enchanting = answer.Value!.Professions.Single(p => p.Name == "Enchanting");
+        Assert.Equal(
+            new[] { new ForeverKnownRecipe(7418, "Enchant Bracer - Minor Health"), new ForeverKnownRecipe(7421, "Runed Copper Rod") },
+            enchanting.Known);
+        Assert.All(answer.Value.Professions, p => Assert.Equal(p.Recipes, p.Known!.Count));
+        Assert.Empty(answer.Value.Professions.Single(p => p.Name == "Fishing").Known!);
+        lock (_requests)
+            Assert.Equal(("/profile/wow/character/asha-brightvale/professions?namespace=profile-forever-us&locale=en_US", "us"), Assert.Single(_requests));
+
+        // The card carries the same recipes, so its Professions tab can list them.
+        ServeWholeCard();
+        var card = (await _armory.GetCardAsync(ForeverRegion.US, "Asha", "Brightvale")).Value!;
+        Assert.Equal(enchanting.Known, card.Professions.Single(p => p.Name == "Enchanting").Known);
+
+        Assert.Equal(ForeverLookupStatus.NotFound, (await _armory.GetProfessionsAsync(ForeverRegion.US, "nobody-here")).Status);
+        Serve("/profile/wow/character/odd-shape/professions", """{ "primaries": "soon" }""");
+        Assert.Empty((await _armory.GetProfessionsAsync(ForeverRegion.US, "odd-shape")).Value!.Professions);
+        _failure = new TimeoutException("slow");
+        Assert.Equal(ForeverLookupStatus.Unavailable, (await _armory.GetProfessionsAsync(ForeverRegion.US, "asha-brightvale")).Status);
+    }
+
+    [Fact]
+    public async Task Sets_in_a_shape_the_bot_does_not_read_leave_the_gear_alone()
+    {
+        Serve(AshaPath, Profile);
+        Serve(AshaPath + "/equipment", """
+            {
+              "equipped_items": [ { "slot": { "type": "HEAD", "name": "Head" }, "name": "Linen Hood", "item": { "id": 4000 } } ],
+              "equipped_item_sets": [ { "item_set": { "name": "Synthetic Raiment" }, "items": [ "one" ] } ]
+            }
+            """);
+
+        var card = (await _armory.GetCardAsync(ForeverRegion.US, "Asha", "Brightvale")).Value!;
+
+        Assert.Equal("Linen Hood", Assert.Single(card.Gear).Name);
+        Assert.Null(card.Sets);
     }
 
     [Fact]

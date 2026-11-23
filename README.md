@@ -61,47 +61,56 @@ Example:
 /setclassicguild "Disorder" "Rattlegore"
 ```
 
-### WoW Forever: guild, characters and roster
+### WoW Forever: characters, roster, crafting and camps
 
-Forever has no realms, and a character's full name (first name + surname) is unique per region. NinjaBot reads class, ruleset, faction, level and guild rosters from Blizzard's armory when it has them. A character appears there at level 10, after it has logged out once; until then NinjaBot saves what you type. Nothing proves a character is yours, and every reply is only visible to you.
+Forever has no realms, and a character's full name (first name + surname) is unique per region. NinjaBot reads everything about a character from Blizzard's armory: class, level, ruleset, faction, gear, professions and the guild roster. A character appears there at level 10, after it has logged out once. Members only say which characters are theirs; nothing proves it, and every reply except the camp card is only visible to you.
 
-Start with `/forever help`. It lists the five setup steps (server guild, roster on, a character, your main, a share), ticks off the ones this server and you have done, and points at the next one you can do yourself:
+Start with `/forever help`. It lists the three setup steps (server guild, a character, the roster), ticks off the ones this server and you have done, and points at the next one you can do yourself:
 ```
 /forever help
 ```
 
-Officers (Kick Members) set the server's guild and choose whether the roster is on. The armory fills in the ruleset and faction, so add them only if the armory doesn't have the guild:
+Officers (Kick Members) set the server's guild. The armory fills in the spelling, ruleset and faction:
 ```
 /forever guild set name:"Synthetic Guild" region:US
-/forever guild roster enabled:True
 ```
 
 Blizzard has no search for Forever guilds or characters, so the suggestions come from what can be known. While you type a guild name, NinjaBot asks the armory about that exact name and shows the region, ruleset, faction and member count when it exists. It also offers the guilds your own saved characters are in.
 
-Members add their own characters. The region defaults to the server's guild, and the armory fills in the class, ruleset and faction. When the server's guild is matched to the armory and its roster is on, `first-name` and `surname` suggest guildmates from Blizzard's roster, so you can pick your character instead of spelling it:
+Members save their own characters. The region defaults to the server's guild, and `character` suggests guildmates from Blizzard's roster, so you can pick yours instead of spelling it. A guildmate below level 10 is saved from the guild's roster. The first character you save in a server becomes your main there:
 ```
-/forever char add first-name:Asha surname:Brightvale
-/forever char main character:Asha Brightvale
+/forever char add character:Asha Brightvale
+/forever char list
 ```
 
-`/forever char edit` checks the armory again, so running it with only the character brings one you added earlier up to date.
+`/forever char list` is where you manage them: pick a character to make it your main, show it on or hide it from this server's roster, open its armory card or remove it.
 
-Look up anyone's armory card, with level, guild, talents, professions, deaths, quests, a Gear tab and a Professions tab. Each profession has a skill bar drawn against 300: solid for skill earned, medium for what is left in the trained rank and light for ranks not trained yet. The Professions tab adds the rank and the recipes known, and every profession name links to its page on Wowhead's Forever site. `character` suggests your own characters, guildmates from Blizzard's roster and characters shared in the server, and checks a full name against the armory as you type it:
+Look up anyone's armory card, with level, guild, talents, professions, deaths, quests, a Gear tab and a Professions tab. Each profession has a skill bar drawn against 300: solid for skill earned, medium for what is left in the trained rank and light for ranks not trained yet. The Professions tab adds the rank, a menu that lists a profession's known recipes, and links to Wowhead's Forever site. The Gear tab lists each item on one line under Armor, Jewelry or Weapons, with its slot, item level and quality. It shows enchants under the item, set progress and the slots still empty, and item and set names link to Wowhead too:
 ```
 /forever char view character:Asha Brightvale region:EU
 ```
 
-Characters are private until you share them to a server's roster. When the guild is matched to the armory, the roster is Blizzard's member list (level, class and rank) with the Discord name of whoever shared each character. Otherwise it shows only the shared characters that match the guild's region, ruleset and faction:
+The roster is Blizzard's member list (level, class and rank). It counts the guild's classes and level 60s, sorts by rank, level, name or class, and has a menu that opens any listed character's armory card. Your Discord name shows next to a character only after you put it on the roster:
 ```
-/forever roster share character:Asha Brightvale
-/forever roster view
+/forever roster
 ```
 
-The roster card counts the guild's classes and level 60s, sorts by rank, level, name or class, and has a menu that opens any listed character's armory card.
+See what a recipe takes, what the materials cost against buying the item, and who in the guild can make it. The first time someone asks, NinjaBot reads the guild's professions from the armory (up to 600 characters, highest level first) and keeps them for six hours:
+```
+/forever craft recipe:Handstitched Leather Boots
+/forever price item:Light Leather
+```
 
-Blizzard hasn't documented the Forever API, so every lookup is optional: when the armory doesn't answer, `/forever` works on what was typed.
+Prices are [TradeSkillMaster](https://tradeskillmaster.com)'s regional averages: across every auction house of every ruleset and faction in the region, not your own house, and usually about a day old.
 
-Leaving a server removes your shares and main there. `/forever char remove` deletes a character everywhere.
+Post a camp card for everyone to join. It works out who brings which camp object (one per player), who can light the campfire, and which objects add nothing because a class at the camp already casts the buff they replace:
+```
+/forever camp note:Fishing night at Menethil
+```
+
+Blizzard hasn't documented the Forever API, so every lookup can fail: a card says so and nothing is saved from a guess.
+
+Leaving a server removes your main and your roster entries there. Removing a character from `/forever char list` deletes it everywhere.
 
 ## WoW Commands
 

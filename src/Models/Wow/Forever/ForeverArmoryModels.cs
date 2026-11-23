@@ -45,12 +45,25 @@ namespace NinjaBotCore.Models.Wow.Forever
         public string FullName => ForeverNames.FullName(FirstName, Surname);
     }
 
-    public sealed record ForeverArmoryItem(string Slot, string SlotName, string Name, string? Quality, int? ItemLevel);
+    /// <param name="Id">Blizzard's item id, which Wowhead uses too. Null when the armory didn't send one.</param>
+    /// <param name="Enchants">What the item is enchanted with, in the armory's words without its "Enchanted:" lead.</param>
+    public sealed record ForeverArmoryItem(
+        string Slot, string SlotName, string Name, string? Quality, int? ItemLevel, int? Id = null, IReadOnlyList<string>? Enchants = null);
+
+    /// <param name="Equipped">Pieces of the set the character is wearing, out of <paramref name="Pieces"/>.</param>
+    /// <param name="ActiveBonuses">Set bonuses those pieces have switched on, out of <paramref name="Bonuses"/>.</param>
+    public sealed record ForeverArmorySet(string Name, int Equipped, int Pieces, int? Id = null, int ActiveBonuses = 0, int Bonuses = 0);
 
     /// <param name="MaxSkill">The cap of the rank the character has trained (75, 150, 225 or 300), not the game's cap. 0 when the armory didn't send one.</param>
     /// <param name="Id">Blizzard's profession id (197 is Tailoring), or null when the armory didn't send one.</param>
     /// <param name="Recipes">Recipes the character knows, not counting the profession's own ranks.</param>
-    public sealed record ForeverArmoryProfession(string Name, int Skill, int MaxSkill, int? Id = null, int Recipes = 0, bool IsPrimary = true);
+    /// <param name="Known">Those recipes by Blizzard's recipe id and name, in the armory's order. Null when only the count is known.</param>
+    public sealed record ForeverArmoryProfession(
+        string Name, int Skill, int MaxSkill, int? Id = null, int Recipes = 0, bool IsPrimary = true,
+        IReadOnlyList<ForeverKnownRecipe>? Known = null);
+
+    /// <summary>A character's professions on their own, as the guild crafting index reads them.</summary>
+    public sealed record ForeverArmoryProfessions(IReadOnlyList<ForeverArmoryProfession> Professions);
 
     public sealed record ForeverArmoryTalentTree(string Name, int Points);
 
@@ -65,7 +78,8 @@ namespace NinjaBotCore.Models.Wow.Forever
         IReadOnlyList<ForeverArmoryProfession> Professions,
         IReadOnlyList<ForeverArmoryTalentTree> Talents,
         ForeverArmoryStats? Stats,
-        string? RenderUrl = null);
+        string? RenderUrl = null,
+        IReadOnlyList<ForeverArmorySet>? Sets = null);
 
     public sealed record ForeverArmoryGuild(
         long Id,

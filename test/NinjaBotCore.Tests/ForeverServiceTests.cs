@@ -45,140 +45,154 @@ public sealed class ForeverServiceTests : IAsyncLifetime
     private NinjaBotEntities Db() => new(new DbContextOptionsBuilder<NinjaBotEntities>()
         .UseSqlite(_connection).UseInternalServiceProvider(Ef).Options);
 
-    private async Task SetGuild(long server = ServerA, bool roster = true)
+    /// <summary>Puts the guild on the armory (Horde, PvP, US) and sets it as the server's.</summary>
+    private async Task SetGuild(long server = ServerA, params ForeverArmoryMember[] members)
     {
-        var result = await _forever.SetGuildAsync(server, "Synthetic Guild", ForeverRegion.US, ForeverRuleset.PvP, ForeverFaction.Horde, 1, "officer");
+        _armory.AddGuild(ForeverRegion.US, "Synthetic Guild", ForeverRuleset.PvP, ForeverFaction.Horde, members);
+        var result = await _forever.SetGuildAsync(server, "Synthetic Guild", ForeverRegion.US, 1, "officer");
         Assert.True(result.Ok, result.Error);
-        if (roster) Assert.True((await _forever.SetRosterEnabledAsync(server, true, 1, "officer")).Ok);
     }
 
+    /// <summary>Puts the character on the armory, in the guild's region, ruleset and faction unless told otherwise, and saves it.</summary>
     private async Task<ForeverCharacter> Add(long user, string first, string last = "Brightvale", long server = ServerA,
-        ForeverRegion? region = null, ForeverRuleset? ruleset = null, ForeverFaction? faction = null)
+        ForeverRegion region = ForeverRegion.US, ForeverFaction faction = ForeverFaction.Horde)
     {
-        var result = await _forever.AddCharacterAsync(user, server, new ForeverCharacterInput(first, last, region, ruleset, faction));
+        _armory.AddCharacter(region, first, last, ForeverClass.Priest, ForeverRuleset.PvP, faction);
+        var result = await _forever.AddCharacterAsync(user, server, first, last, region);
         Assert.True(result.Ok, result.Error);
         return result.Value!.Character;
     }
 
-    private Task<ForeverCharacter> AddUsPvpHorde(long user, string first, long server)
-        => Add(user, first, server: server, region: ForeverRegion.US, ruleset: ForeverRuleset.PvP, faction: ForeverFaction.Horde);
-
     [Fact]
-    public async Task Add_fills_context_from_the_server_guild_and_stays_private()
+    public async Task Add_takes_everything_from_the_armory_and_stays_off_the_roster()
     {
         await SetGuild();
-        var asha = await Add(Alice, "  asha ");
+        _armory.AddCharacter(ForeverRegion.US, "Asha", "McBright", ForeverClass.Mage, ForeverRuleset.Roleplay, ForeverFaction.Alliance, guild: "Synthetic Guild");
 
-        Assert.Equal("Asha", asha.FirstName);
-        Assert.Equal((ForeverRegion.US, ForeverRuleset.PvP, ForeverFaction.Horde), (asha.Region, asha.Ruleset, asha.Faction));
-        Assert.Null(await _forever.GetMainIdAsync(Alice, ServerA));
-        Assert.Empty(await _forever.GetSharedIdsAsync(Alice, ServerA));
-        Assert.Empty((await _forever.GetRosterAsync(ServerA, _ => true)).Value!.Members);
-    }
-
-    [Fact]
-    public async Task Add_without_a_guild_asks_for_the_missing_context()
-    {
-        var noRegion = await _forever.AddCharacterAsync(Alice, ServerA, new ForeverCharacterInput("Asha", "Brightvale"));
-        Assert.False(noRegion.Ok);
-        Assert.Contains("pick a region", noRegion.Error);
-
-        var result = await _forever.AddCharacterAsync(Alice, ServerA, new ForeverCharacterInput("Asha", "Brightvale", ForeverRegion.EU));
-
-        Assert.False(result.Ok);
-        Assert.Contains("isn't on the EU armory yet", result.Error);
-        Assert.Contains("level 10", result.Error);
-        Assert.Contains("ruleset and faction", result.Error);
-        Assert.Empty(await _forever.GetCharactersAsync(Alice));
-    }
-
-    [Fact]
-    public async Task Add_takes_class_ruleset_faction_and_spelling_from_the_armory_over_what_was_typed()
-    {
-        _armory.AddCharacter(ForeverRegion.EU, "Asha", "McBright", ForeverClass.Priest, ForeverRuleset.Roleplay, ForeverFaction.Alliance, guild: "Synthetic Guild");
-
-        var result = await _forever.AddCharacterAsync(Alice, ServerA,
-            new ForeverCharacterInput("asha", "mcbright", ForeverRegion.EU, ForeverRuleset.PvP, ForeverFaction.Horde, ForeverClass.Mage));
+        var result = await _forever.AddCharacterAsync(Alice, ServerA, "  asha ", "mcbright");
 
         Assert.True(result.Ok, result.Error);
         var saved = result.Value!;
         Assert.Equal(ForeverLookupStatus.Found, saved.Lookup);
         Assert.Equal("Synthetic Guild", saved.Armory!.GuildName);
+        // The armory's spelling, and its ruleset and faction rather than the server guild's.
         Assert.Equal("Asha McBright", saved.Character.FullName);
-        Assert.Equal((ForeverRegion.EU, ForeverRuleset.Roleplay, ForeverFaction.Alliance, (ForeverClass?)ForeverClass.Priest),
+        Assert.Equal((ForeverRegion.US, ForeverRuleset.Roleplay, ForeverFaction.Alliance, (ForeverClass?)ForeverClass.Mage),
             (saved.Character.Region, saved.Character.Ruleset, saved.Character.Faction, saved.Character.Class));
+        Assert.Empty(await _forever.GetSharedIdsAsync(Alice, ServerA));
+        Assert.Empty((await _forever.GetRosterAsync(ServerA, _ => true)).Value!.Members);
+    }
+
+    [Fact]
+    public async Task Add_needs_a_region_and_a_character_the_armory_has()
+    {
+        var noRegion = await _forever.AddCharacterAsync(Alice, ServerA, "Asha", "Brightvale");
+        Assert.False(noRegion.Ok);
+        Assert.Contains("pick a region", noRegion.Error);
+
+        var missing = await _forever.AddCharacterAsync(Alice, ServerA, "Asha", "Brightvale", ForeverRegion.EU);
+        Assert.False(missing.Ok);
+        Assert.Contains("isn't on the EU armory", missing.Error);
+        Assert.Contains("level 10", missing.Error);
 
         // The armory is asked in the character's own region, not the first one that has the name.
-        var us = await _forever.AddCharacterAsync(Alice, ServerA,
-            new ForeverCharacterInput("Asha", "McBright", ForeverRegion.US, ForeverRuleset.PvP, ForeverFaction.Horde));
-        Assert.Equal((ForeverLookupStatus?)ForeverLookupStatus.NotFound, us.Value!.Lookup);
-        Assert.Equal(ForeverRuleset.PvP, us.Value.Character.Ruleset);
-    }
-
-    [Fact]
-    public async Task Add_saves_what_was_typed_when_the_armory_has_nothing_or_is_down()
-    {
-        var typed = new ForeverCharacterInput("Asha", "Brightvale", ForeverRegion.US, ForeverRuleset.PvP, ForeverFaction.Horde, ForeverClass.Mage);
-
-        var missing = await _forever.AddCharacterAsync(Alice, ServerA, typed);
-        Assert.True(missing.Ok, missing.Error);
-        Assert.Equal((ForeverLookupStatus?)ForeverLookupStatus.NotFound, missing.Value!.Lookup);
-        Assert.Null(missing.Value.Armory);
-        Assert.Equal(ForeverClass.Mage, missing.Value.Character.Class);
+        _armory.AddCharacter(ForeverRegion.US, "Asha", "Brightvale");
+        Assert.False((await _forever.AddCharacterAsync(Alice, ServerA, "Asha", "Brightvale", ForeverRegion.EU)).Ok);
 
         _armory.Down = true;
-        var down = await _forever.AddCharacterAsync(Bob, ServerA, typed);
-        Assert.True(down.Ok, down.Error);
-        Assert.Equal((ForeverLookupStatus?)ForeverLookupStatus.Unavailable, down.Value!.Lookup);
+        var down = await _forever.AddCharacterAsync(Alice, ServerA, "Asha", "Brightvale", ForeverRegion.US);
+        Assert.False(down.Ok);
+        Assert.Equal(ForeverService.ArmoryDownMessage, down.Error);
 
-        var downAndIncomplete = await _forever.AddCharacterAsync(Bob, ServerA, new ForeverCharacterInput("Thalen", "Brightvale", ForeverRegion.US));
-        Assert.False(downAndIncomplete.Ok);
-        Assert.Contains("didn't answer", downAndIncomplete.Error);
+        Assert.False((await _forever.AddCharacterAsync(Alice, ServerA, "A", "Brightvale", ForeverRegion.US)).Ok);
+        Assert.Empty(await _forever.GetCharactersAsync(Alice));
     }
 
     [Fact]
-    public async Task A_ruleset_the_bot_does_not_know_yet_falls_back_to_what_was_typed()
+    public async Task A_guildmate_below_level_ten_is_saved_from_the_guilds_roster()
     {
+        await SetGuild(ServerA, FakeForeverArmory.Member("Mira", "Dawnsong", level: 6, characterClass: ForeverClass.Mage));
+
+        var young = await _forever.AddCharacterAsync(Alice, ServerA, "mira", "dawnsong");
+
+        Assert.True(young.Ok, young.Error);
+        Assert.Equal((ForeverLookupStatus?)ForeverLookupStatus.NotFound, young.Value!.Lookup);
+        Assert.Null(young.Value.Armory);
+        Assert.Equal(("Mira Dawnsong", ForeverRuleset.PvP, ForeverFaction.Horde, (ForeverClass?)ForeverClass.Mage),
+            (young.Value.Character.FullName, young.Value.Character.Ruleset, young.Value.Character.Faction, young.Value.Character.Class));
+
+        // Someone who isn't on the roster, or a lookup in another region, has nothing to be saved from.
+        Assert.False((await _forever.AddCharacterAsync(Alice, ServerA, "Thalen", "Dawnsong")).Ok);
+        Assert.False((await _forever.AddCharacterAsync(Bob, ServerA, "Mira", "Dawnsong", ForeverRegion.EU)).Ok);
+        // With the armory down there is no roster to save anyone from either.
+        _armory.Down = true;
+        Assert.False((await _forever.AddCharacterAsync(Bob, ServerA, "Mira", "Dawnsong")).Ok);
+    }
+
+    [Fact]
+    public async Task A_ruleset_the_bot_does_not_know_yet_is_refused_rather_than_guessed()
+    {
+        // Not even the server guild's ruleset stands in: the armory said it is something else.
+        await SetGuild();
         _armory.AddCharacter(ForeverRegion.US, "Asha", "Brightvale", ruleset: null, faction: ForeverFaction.Horde);
 
-        var unknown = await _forever.AddCharacterAsync(Alice, ServerA, new ForeverCharacterInput("Asha", "Brightvale", ForeverRegion.US));
-        Assert.False(unknown.Ok);
-        Assert.Contains("ruleset I don't know yet", unknown.Error);
+        var unknown = await _forever.AddCharacterAsync(Alice, ServerA, "Asha", "Brightvale", ForeverRegion.US);
 
-        var typed = await _forever.AddCharacterAsync(Alice, ServerA,
-            new ForeverCharacterInput("Asha", "Brightvale", ForeverRegion.US, ForeverRuleset.PvP, ForeverFaction.Alliance));
-        Assert.True(typed.Ok, typed.Error);
-        Assert.Equal((ForeverRuleset.PvP, ForeverFaction.Horde), (typed.Value!.Character.Ruleset, typed.Value.Character.Faction));
+        Assert.False(unknown.Ok);
+        Assert.Contains("ruleset or faction I don't know yet", unknown.Error);
+        Assert.Empty(await _forever.GetCharactersAsync(Alice));
     }
 
     [Fact]
-    public async Task Edit_with_no_changes_brings_a_character_up_to_date_with_the_armory()
+    public async Task The_first_character_added_in_a_server_becomes_the_main_there()
     {
-        var asha = (await _forever.AddCharacterAsync(Alice, ServerA,
-            new ForeverCharacterInput("asha", "brightvale", ForeverRegion.US, ForeverRuleset.PvP, ForeverFaction.Horde, ForeverClass.Mage))).Value!.Character;
+        await SetGuild(ServerA);
+        await SetGuild(ServerB);
+
+        var asha = await Add(Alice, "Asha");
+        Assert.Equal(asha.Id, await _forever.GetMainIdAsync(Alice, ServerA));
+        Assert.Null(await _forever.GetMainIdAsync(Alice, ServerB));
+
+        await Add(Alice, "Thalen");
+        Assert.Equal(asha.Id, await _forever.GetMainIdAsync(Alice, ServerA));
+
+        // No main in the other server yet, so the first one added from there takes it.
+        var mira = await Add(Alice, "Mira", server: ServerB);
+        Assert.Equal(mira.Id, await _forever.GetMainIdAsync(Alice, ServerB));
+        Assert.Equal(asha.Id, await _forever.GetMainIdAsync(Alice, ServerA));
+    }
+
+    [Fact]
+    public async Task Refresh_brings_a_saved_character_up_to_date_and_keeps_it_when_the_armory_is_quiet()
+    {
+        var asha = await Add(Alice, "Asha", "Brightvale");
         _armory.AddCharacter(ForeverRegion.US, "Asha", "BrightVale", ForeverClass.Druid, ForeverRuleset.Normal, ForeverFaction.Alliance);
 
-        var refreshed = await _forever.EditCharacterAsync(Alice, asha.Id, new ForeverCharacterInput());
+        var refreshed = await _forever.RefreshCharacterAsync(Alice, asha.Id);
 
         Assert.True(refreshed.Ok, refreshed.Error);
         Assert.Equal(ForeverLookupStatus.Found, refreshed.Value!.Lookup);
+        Assert.Equal(asha.Id, refreshed.Value.Character.Id);
         var stored = (await _forever.GetCharacterAsync(Alice, asha.Id))!;
         Assert.Equal(("Asha BrightVale", ForeverRuleset.Normal, ForeverFaction.Alliance, (ForeverClass?)ForeverClass.Druid),
             (stored.FullName, stored.Ruleset, stored.Faction, stored.Class));
+        Assert.Equal(asha.Id, await _forever.GetMainIdAsync(Alice, ServerA));
 
-        // Off the armory, an edit is still just an edit.
         _armory.Down = true;
-        var manual = await _forever.EditCharacterAsync(Alice, asha.Id, new ForeverCharacterInput(Class: ForeverClass.Rogue));
-        Assert.Equal((ForeverLookupStatus?)ForeverLookupStatus.Unavailable, manual.Value!.Lookup);
-        Assert.Equal(ForeverClass.Rogue, (await _forever.GetCharacterAsync(Alice, asha.Id))!.Class);
+        var quiet = await _forever.RefreshCharacterAsync(Alice, asha.Id);
+        Assert.True(quiet.Ok);
+        Assert.Equal((ForeverLookupStatus?)ForeverLookupStatus.Unavailable, quiet.Value!.Lookup);
+        Assert.Equal(ForeverClass.Druid, (await _forever.GetCharacterAsync(Alice, asha.Id))!.Class);
+
+        Assert.False((await _forever.RefreshCharacterAsync(Bob, asha.Id)).Ok);
     }
 
     [Fact]
-    public async Task Guild_set_fills_in_from_the_armory_and_remembers_its_slug()
+    public async Task Guild_set_takes_the_armorys_spelling_ruleset_and_faction()
     {
         _armory.AddGuild(ForeverRegion.EU, "Kael's Chosen", ForeverRuleset.Roleplay, ForeverFaction.Alliance, FakeForeverArmory.Member("Asha", "Brightvale"));
 
-        var result = await _forever.SetGuildAsync(ServerA, "kael's chosen", ForeverRegion.EU, ForeverRuleset.PvP, null, 1, "officer");
+        var result = await _forever.SetGuildAsync(ServerA, "kael's chosen", ForeverRegion.EU, 1, "officer");
 
         Assert.True(result.Ok, result.Error);
         Assert.Equal(ForeverLookupStatus.Found, result.Value!.Lookup);
@@ -189,40 +203,33 @@ public sealed class ForeverServiceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_guild_the_armory_does_not_have_is_saved_as_typed_and_unmatched()
+    public async Task A_guild_the_armory_does_not_have_cannot_be_set_and_leaves_the_old_one()
     {
-        _armory.AddGuild(ForeverRegion.EU, "Synthetic Guild");
-        Assert.True((await _forever.SetGuildAsync(ServerA, "Synthetic Guild", ForeverRegion.EU, null, null, 1, "officer")).Ok);
+        await SetGuild();
 
-        var incomplete = await _forever.SetGuildAsync(ServerA, "Other Guild", ForeverRegion.EU, ForeverRuleset.PvP, null, 1, "officer");
-        Assert.False(incomplete.Ok);
-        Assert.Contains("couldn't find **Other Guild** on the EU armory", incomplete.Error);
-        Assert.Contains("pick a faction", incomplete.Error);
-        Assert.Equal("synthetic-guild", (await _forever.GetGuildAsync(ServerA))!.ArmorySlug);
+        var missing = await _forever.SetGuildAsync(ServerA, "Other Guild", ForeverRegion.EU, 1, "officer");
+        Assert.False(missing.Ok);
+        Assert.Contains("couldn't find **Other Guild** on the EU armory", missing.Error);
 
-        var typed = await _forever.SetGuildAsync(ServerA, "Other Guild", ForeverRegion.EU, ForeverRuleset.PvP, ForeverFaction.Horde, 1, "officer");
-        Assert.True(typed.Ok, typed.Error);
-        Assert.Equal(ForeverLookupStatus.NotFound, typed.Value!.Lookup);
-        var guild = (await _forever.GetGuildAsync(ServerA))!;
-        Assert.Equal(("Other Guild", (string)null, ForeverRuleset.PvP), (guild.Name, guild.ArmorySlug, guild.Ruleset));
+        _armory.AddGuild(ForeverRegion.EU, "Odd Guild", ruleset: null, faction: ForeverFaction.Horde);
+        var unknown = await _forever.SetGuildAsync(ServerA, "Odd Guild", ForeverRegion.EU, 1, "officer");
+        Assert.False(unknown.Ok);
+        Assert.Contains("ruleset or faction I don't know yet", unknown.Error);
 
         _armory.Down = true;
-        var down = await _forever.SetGuildAsync(ServerB, "Synthetic Guild", ForeverRegion.EU, null, null, 1, "officer");
+        var down = await _forever.SetGuildAsync(ServerA, "Synthetic Guild", ForeverRegion.US, 1, "officer");
         Assert.False(down.Ok);
-        Assert.Contains("didn't answer", down.Error);
+        Assert.Equal(ForeverService.ArmoryDownMessage, down.Error);
+
+        Assert.False((await _forever.SetGuildAsync(ServerA, "bad\nname", ForeverRegion.EU, 2, "x")).Ok);
+        var kept = (await _forever.GetGuildAsync(ServerA))!;
+        Assert.Equal(("Synthetic Guild", "synthetic-guild", ForeverRegion.US), (kept.Name, kept.ArmorySlug, kept.Region));
     }
 
     [Fact]
-    public async Task Roster_carries_the_armory_roster_only_for_a_matched_guild()
+    public async Task Roster_carries_the_armory_roster_and_survives_it_going_quiet()
     {
-        await SetGuild();
-        var unmatched = (await _forever.GetRosterAsync(ServerA, _ => true)).Value!;
-        Assert.Null(unmatched.Armory);
-        Assert.False(unmatched.ArmoryMissed);
-
-        _armory.AddGuild(ForeverRegion.US, "Synthetic Guild", ForeverRuleset.PvP, ForeverFaction.Horde,
-            FakeForeverArmory.Member("Asha", "Brightvale"), FakeForeverArmory.Member("Thalen", "Brightvale"));
-        await SetGuild();
+        await SetGuild(ServerA, FakeForeverArmory.Member("Asha", "Brightvale"), FakeForeverArmory.Member("Thalen", "Brightvale"));
         var asha = await Add(Alice, "Asha");
         Assert.True((await _forever.ShareAsync(Alice, ServerA, asha.Id)).Ok);
 
@@ -231,7 +238,7 @@ public sealed class ForeverServiceTests : IAsyncLifetime
         Assert.False(matched.ArmoryMissed);
         Assert.Single(matched.Members);
 
-        // The armory going quiet leaves what members shared.
+        // The armory going quiet leaves what members put on the roster.
         _armory.Down = true;
         var quiet = (await _forever.GetRosterAsync(ServerA, _ => true)).Value!;
         Assert.Null(quiet.Armory);
@@ -245,7 +252,7 @@ public sealed class ForeverServiceTests : IAsyncLifetime
         await SetGuild();
         await Add(Alice, "Asha");
 
-        var dupe = await _forever.AddCharacterAsync(Alice, ServerA, new ForeverCharacterInput("ASHA", "brightvale"));
+        var dupe = await _forever.AddCharacterAsync(Alice, ServerA, "ASHA", "brightvale");
         Assert.False(dupe.Ok);
         Assert.Contains("already have", dupe.Error);
 
@@ -273,28 +280,6 @@ public sealed class ForeverServiceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Edit_keeps_id_main_and_share_and_rejects_collisions()
-    {
-        await SetGuild();
-        var asha = await Add(Alice, "Asha");
-        await Add(Alice, "Thalen");
-        Assert.True((await _forever.SetMainAsync(Alice, ServerA, asha.Id)).Ok);
-        Assert.True((await _forever.ShareAsync(Alice, ServerA, asha.Id)).Ok);
-
-        var renamed = await _forever.EditCharacterAsync(Alice, asha.Id, new ForeverCharacterInput("Ashara", Class: ForeverClass.Mage));
-        Assert.True(renamed.Ok, renamed.Error);
-        Assert.Equal(asha.Id, renamed.Value!.Character.Id);
-        Assert.Equal("Ashara Brightvale", renamed.Value.Character.FullName);
-        Assert.Equal(ForeverClass.Mage, renamed.Value.Character.Class);
-        Assert.Equal(asha.Id, await _forever.GetMainIdAsync(Alice, ServerA));
-        Assert.Contains(asha.Id, await _forever.GetSharedIdsAsync(Alice, ServerA));
-
-        var collision = await _forever.EditCharacterAsync(Alice, asha.Id, new ForeverCharacterInput("thalen"));
-        Assert.False(collision.Ok);
-        Assert.Equal("Ashara", (await _forever.GetCharacterAsync(Alice, asha.Id))!.FirstName);
-    }
-
-    [Fact]
     public async Task Remove_clears_main_and_shares_in_every_server_and_nothing_else()
     {
         await SetGuild(ServerA);
@@ -311,7 +296,8 @@ public sealed class ForeverServiceTests : IAsyncLifetime
         Assert.NotNull(await _forever.RemoveCharacterAsync(Alice, asha.Id));
 
         await using var db = Db();
-        Assert.Empty(await db.ForeverMains.ToListAsync());
+        Assert.Empty(await db.ForeverMains.Where(m => m.UserId == Alice).ToListAsync());
+        Assert.Equal(bobs.Id, await _forever.GetMainIdAsync(Bob, ServerA));
         Assert.Equal(2, await db.ForeverRosterShares.CountAsync(s => s.UserId == Bob));
         Assert.Equal(0, await db.ForeverRosterShares.CountAsync(s => s.UserId == Alice));
         Assert.Null(await _forever.GetCharacterAsync(Alice, asha.Id));
@@ -320,15 +306,15 @@ public sealed class ForeverServiceTests : IAsyncLifetime
     [Fact]
     public async Task Main_is_per_server_and_one_row_per_user()
     {
-        var asha = await AddUsPvpHorde(Alice, "Asha", ServerA);
         await SetGuild();
+        var asha = await Add(Alice, "Asha");
         var thalen = await Add(Alice, "Thalen");
 
-        Assert.True((await _forever.SetMainAsync(Alice, ServerA, asha.Id)).Ok);
         Assert.True((await _forever.SetMainAsync(Alice, ServerB, thalen.Id)).Ok);
         Assert.True((await _forever.SetMainAsync(Alice, ServerA, thalen.Id)).Ok);
+        Assert.True((await _forever.SetMainAsync(Alice, ServerA, asha.Id)).Ok);
 
-        Assert.Equal(thalen.Id, await _forever.GetMainIdAsync(Alice, ServerA));
+        Assert.Equal(asha.Id, await _forever.GetMainIdAsync(Alice, ServerA));
         Assert.Equal(thalen.Id, await _forever.GetMainIdAsync(Alice, ServerB));
         await using var db = Db();
         Assert.Equal(2, await db.ForeverMains.CountAsync());
@@ -342,22 +328,22 @@ public sealed class ForeverServiceTests : IAsyncLifetime
 
         Assert.False((await _forever.SetMainAsync(Bob, ServerA, asha.Id)).Ok);
         Assert.False((await _forever.ShareAsync(Bob, ServerA, asha.Id)).Ok);
-        Assert.False((await _forever.EditCharacterAsync(Bob, asha.Id, new ForeverCharacterInput("Mine"))).Ok);
+        Assert.False((await _forever.RefreshCharacterAsync(Bob, asha.Id)).Ok);
+        Assert.False(await _forever.UnshareAsync(Bob, ServerA, asha.Id));
         Assert.Null(await _forever.RemoveCharacterAsync(Bob, asha.Id));
         Assert.Null(await _forever.GetCharacterAsync(Bob, asha.Id));
         Assert.Equal("Asha", (await _forever.GetCharacterAsync(Alice, asha.Id))!.FirstName);
     }
 
     [Fact]
-    public async Task Share_needs_a_guild_the_roster_on_and_a_matching_character()
+    public async Task Share_needs_a_guild_and_a_character_that_fits_it()
     {
-        var asha = await AddUsPvpHorde(Alice, "Asha", ServerB);
+        var asha = await Add(Alice, "Asha", server: ServerB);
         Assert.Equal(ForeverService.NoGuildMessage, (await _forever.ShareAsync(Alice, ServerA, asha.Id)).Error);
 
-        await SetGuild(roster: false);
-        Assert.Equal(ForeverService.RosterOffMessage, (await _forever.ShareAsync(Alice, ServerA, asha.Id)).Error);
-
-        await _forever.SetRosterEnabledAsync(ServerA, true, 1, "officer");
+        // Setting the guild is all it takes: there is no roster switch to turn on first.
+        await SetGuild();
+        Assert.True((await _forever.GetGuildAsync(ServerA))!.RosterEnabled);
         var alliance = await Add(Alice, "Mira", faction: ForeverFaction.Alliance);
         var mismatch = await _forever.ShareAsync(Alice, ServerA, alliance.Id);
         Assert.False(mismatch.Ok);
@@ -389,8 +375,9 @@ public sealed class ForeverServiceTests : IAsyncLifetime
         Assert.Equal(thalen.Id, alice.MainId);
         Assert.DoesNotContain(alice.Characters, c => c.Id == hidden.Id);
 
-        // A context change hides shares that no longer match, without deleting them.
-        await _forever.EditCharacterAsync(Alice, asha.Id, new ForeverCharacterInput(Region: ForeverRegion.EU));
+        // A character that changed faction no longer fits the guild: it is hidden, not taken off.
+        _armory.AddCharacter(ForeverRegion.US, "Asha", "Brightvale", ForeverClass.Priest, ForeverRuleset.PvP, ForeverFaction.Alliance);
+        Assert.True((await _forever.RefreshCharacterAsync(Alice, asha.Id)).Ok);
         alice = Assert.Single((await _forever.GetRosterAsync(ServerA, id => id == Alice)).Value!.Members);
         Assert.Equal(new[] { thalen.Id }, alice.Characters.Select(c => c.Id));
         Assert.Contains(asha.Id, await _forever.GetSharedIdsAsync(Alice, ServerA));
@@ -400,32 +387,35 @@ public sealed class ForeverServiceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Roster_off_or_unset_hides_everything_and_unset_keeps_characters()
+    public async Task Unsetting_the_guild_hides_the_roster_and_keeps_characters()
     {
         await SetGuild();
         var asha = await Add(Alice, "Asha");
         Assert.True((await _forever.ShareAsync(Alice, ServerA, asha.Id)).Ok);
 
-        await _forever.SetRosterEnabledAsync(ServerA, false, 1, "officer");
-        Assert.Equal(ForeverService.RosterOffMessage, (await _forever.GetRosterAsync(ServerA, _ => true)).Error);
-
         Assert.True(await _forever.UnsetGuildAsync(ServerA));
         Assert.Equal(ForeverService.NoGuildMessage, (await _forever.GetRosterAsync(ServerA, _ => true)).Error);
         Assert.False(await _forever.UnsetGuildAsync(ServerA));
         Assert.NotNull(await _forever.GetCharacterAsync(Alice, asha.Id));
+
+        // What was on the roster comes back with the guild.
+        await SetGuild();
+        Assert.Single((await _forever.GetRosterAsync(ServerA, _ => true)).Value!.Members);
     }
 
     [Fact]
-    public async Task Setting_the_guild_again_updates_in_place_and_keeps_the_roster_switch()
+    public async Task Setting_the_guild_again_updates_it_in_place()
     {
         await SetGuild();
-        var updated = await _forever.SetGuildAsync(ServerA, "Renamed", ForeverRegion.EU, ForeverRuleset.Normal, ForeverFaction.Alliance, 2, "other");
+        _armory.AddGuild(ForeverRegion.EU, "Renamed", ForeverRuleset.Normal, ForeverFaction.Alliance);
 
-        Assert.True(updated.Ok);
+        var updated = await _forever.SetGuildAsync(ServerA, "Renamed", ForeverRegion.EU, 2, "other");
+
+        Assert.True(updated.Ok, updated.Error);
         var guild = await _forever.GetGuildAsync(ServerA);
-        Assert.Equal(("Renamed", ForeverRegion.EU, true, 2L), (guild!.Name, guild.Region, guild.RosterEnabled, guild.SetById!.Value));
-        Assert.False((await _forever.SetGuildAsync(ServerA, "bad\nname", ForeverRegion.EU, ForeverRuleset.Normal, ForeverFaction.Alliance, 2, "x")).Ok);
-        Assert.False((await _forever.SetRosterEnabledAsync(ServerB, true, 1, "x")).Ok);
+        Assert.Equal(("Renamed", ForeverRegion.EU, ForeverFaction.Alliance, 2L), (guild!.Name, guild.Region, guild.Faction, guild.SetById!.Value));
+        await using var db = Db();
+        Assert.Equal(1, await db.ForeverGuilds.CountAsync());
     }
 
     [Fact]

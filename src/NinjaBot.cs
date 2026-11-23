@@ -150,6 +150,11 @@ namespace NinjaBotCore
                 .AddSingleton<RaidRecapLiveService>()
                 .AddSingleton<IForeverArmory, ForeverArmory>()
                 .AddSingleton<ForeverService>()
+                .AddSingleton<IForeverCatalog, ForeverCatalog>()
+                .AddSingleton<IForeverPrices, ForeverPrices>()
+                .AddSingleton<IForeverCrafters, ForeverCrafters>()
+                .AddSingleton<ForeverWorkshop>()
+                .AddSingleton<ForeverCamps>()
                 .AddSingleton<AudioService>()
                 .AddWarcraftClients(_config["WoWClient"], _config["WoWSecret"])         
                 .AddSingleton<LoggingService>();                   

@@ -46,10 +46,10 @@ public class ForeverViewsTests
         Avatar,
         new[]
         {
-            new ForeverArmoryItem("MAIN_HAND", "Main Hand", "Executor Staff", "COMMON", 5),
+            new ForeverArmoryItem("MAIN_HAND", "Main Hand", "Executor Staff", "COMMON", 5, Id: 3277, Enchants: new[] { "Weapon Damage +2", "Flame_tongue 1" }),
             new ForeverArmoryItem("ODD_SLOT", "Odd", "Mystery *Item*", null, null),
-            new ForeverArmoryItem("FINGER_1", "Ring 1", "Copper Band", "RARE", 14),
-            new ForeverArmoryItem("HEAD", "Head", "Linen Hood", "UNCOMMON", 12)
+            new ForeverArmoryItem("FINGER_1", "Ring 1", "Copper Band", "RARE", 14, Id: 11965),
+            new ForeverArmoryItem("HEAD", "Head", "Linen Hood", "UNCOMMON", 12, Id: 4000, Enchants: Array.Empty<string>())
         },
         new[]
         {
@@ -61,7 +61,8 @@ public class ForeverViewsTests
         },
         new[] { new ForeverArmoryTalentTree("Frost", 15), new ForeverArmoryTalentTree("Fire", 5) },
         new ForeverArmoryStats(Deaths: 2, Quests: 1241, Kills: null, Dungeons: 5),
-        Render);
+        Render,
+        new[] { new ForeverArmorySet("Synthetic Raiment", Equipped: 2, Pieces: 5, Id: 2133, ActiveBonuses: 1, Bonuses: 4) });
 
     private static ForeverArmoryMember[] Guildmates() => new[]
     {
@@ -93,7 +94,7 @@ public class ForeverViewsTests
             "🐾 **Mira Dawn** · 40 Druid · Rank 3",
             "⚔️ **Thalen Duskvale** · 12 Warrior · Rank 3",
             "❔ **New Recruit**",
-            "\n__Shared here, not in the guild on the armory__\n🗡️ **Private Alt** — Rogue — Alice\\_A"
+            "\n__On this server's roster, not in the guild on the armory__\n🗡️ **Private Alt** — Rogue — Alice\\_A"
         }, lines);
     }
 
@@ -214,7 +215,7 @@ public class ForeverViewsTests
         var shared = new[] { new ForeverRosterMember(Alice, new[] { Shared(1, Alice, "Asha") }, MainId: 1) };
 
         var unmatched = ForeverViews.RosterPage(new ForeverRoster(MatchedGuild, shared), _ => "Alice", 0, Caller).Card;
-        Assert.Contains("**1** member · member-reported characters · US · PvP · Horde", Text(unmatched));
+        Assert.Contains("**1** member · characters members added · US · PvP · Horde", Text(unmatched));
         Assert.DoesNotContain("armory", Text(unmatched));
         Assert.Contains("__Alice__\n★ ✨ **Asha Brightvale** — Priest", Text(unmatched));
         Assert.Empty(All<SelectMenuComponent>(unmatched));
@@ -226,7 +227,7 @@ public class ForeverViewsTests
 
         var nobody = ForeverViews.RosterPage(new ForeverRoster(MatchedGuild, Array.Empty<ForeverRosterMember>()), _ => null, 0, Caller);
         Assert.Equal((0, 0), (nobody.Page, nobody.PageCount));
-        Assert.Contains("Nobody has shared a character yet", Text(nobody.Card));
+        Assert.Contains("Nobody has put a character on the roster yet", Text(nobody.Card));
 
         var empty = ForeverViews.RosterPage(new ForeverRoster(MatchedGuild, Array.Empty<ForeverRosterMember>(), new ForeverArmoryRoster(Array.Empty<ForeverArmoryMember>())), _ => null, 0, Caller);
         Assert.Equal((0, 0), (empty.Page, empty.PageCount));
@@ -433,24 +434,162 @@ public class ForeverViewsTests
         Assert.Equal(new[] { "Journeyman", "Expert", "Artisan", null, null }, new[] { 75, 150, 225, 300, 310 }.Select(ForeverProfessions.NextRank));
     }
 
+    private static ForeverArmoryCard Wearing(IReadOnlyList<ForeverArmoryItem> gear, params ForeverArmorySet[] sets) => new(
+        Armory(), Avatar, gear, Array.Empty<ForeverArmoryProfession>(), Array.Empty<ForeverArmoryTalentTree>(), null, Render, sets);
+
+    private static string GearBody(ForeverArmoryCard card)
+        => All<TextDisplayComponent>(ForeverViews.Card(card, ForeverViews.CardGear, Caller))[1].Content.Replace("\r\n", "\n");
+
+    // One of everything a level 60 wears, each with a Wowhead id.
+    private static ForeverArmoryItem[] FullSet(Func<int, string> name) => new[]
+    {
+        ("HEAD", "Head"), ("NECK", "Neck"), ("SHOULDER", "Shoulders"), ("BACK", "Back"), ("CHEST", "Chest"), ("SHIRT", "Shirt"),
+        ("TABARD", "Tabard"), ("WRIST", "Wrist"), ("HANDS", "Hands"), ("WAIST", "Waist"), ("LEGS", "Legs"), ("FEET", "Feet"),
+        ("FINGER_1", "Ring 1"), ("FINGER_2", "Ring 2"), ("TRINKET_1", "Trinket 1"), ("TRINKET_2", "Trinket 2"),
+        ("MAIN_HAND", "Main Hand"), ("OFF_HAND", "Off Hand"), ("RANGED", "Ranged")
+    }.Select((slot, i) => new ForeverArmoryItem(slot.Item1, slot.Item2, name(i), "EPIC", 60 + i, Id: 280000 + i, Enchants: new[] { "Stamina +7" })).ToArray();
+
     [Fact]
-    public void Card_gear_is_grouped_in_slot_order_with_unknown_slots_last_and_the_render_below()
+    public void Card_gear_is_one_aligned_line_an_item_under_its_group_with_the_render_below()
     {
         var card = ForeverViews.Card(Card(), ForeverViews.CardGear, Caller);
 
         Assert.Equal("# 🔮 Asha Brightvale", Lines(card)[0]);
         var body = All<TextDisplayComponent>(card)[1].Content.Replace("\r\n", "\n");
         Assert.Equal(
-            "🛡️ **Item level** 19\n\n"
-            + "🟢 **Head** Linen Hood · 12\n\n"
-            + "🔵 **Ring 1** Copper Band · 14\n\n"
-            + "⚪ **Main Hand** Executor Staff · 5\n\n"
-            + @"⚪ **Odd** Mystery \*Item\*",
+            "🛡️ **Item level** 19\n"
+            + "🧩 **Set** [Synthetic Raiment](https://www.wowhead.com/forever/item-set=2133) 2/5 · 1 of 4 bonuses active\n"
+            // The item of no known quality gets a dot but is nobody's count.
+            + "-# 🔵 1 rare · 🟢 1 uncommon · ⚪ 1 common\n"
+            + "### Armor\n"
+            + "`Head      12` 🟢 [Linen Hood](https://www.wowhead.com/forever/item=4000)\n"
+            + "### Jewelry\n"
+            + "`Ring 1    14` 🔵 [Copper Band](https://www.wowhead.com/forever/item=11965)\n"
+            + "### Weapons\n"
+            + "`Main Hand  5` ⚪ [Executor Staff](https://www.wowhead.com/forever/item=3277)\n"
+            + @"-# ↳ ✨ Weapon Damage +2 · Flame\_tongue 1" + "\n"
+            + "### Other\n"
+            + @"`Odd        –` ⚪ Mystery \*Item\*" + "\n"
+            + "-# Empty slots: Neck · Shoulders · Back · Chest · Wrist · Hands · Waist · Legs · Feet · Ring 2 · Trinket 1 · Trinket 2",
             body);
         Assert.Equal(Render, Assert.Single(Assert.Single(All<MediaGalleryComponent>(card)).Items).Media.Url);
-        // No profession is named on this tab, so its footer doesn't mention Wowhead.
+        Assert.Equal("-# From Blizzard's armory · updates when the character logs out · item names open Wowhead", Lines(card).Last());
+        AssertFits(card);
+    }
+
+    [Fact]
+    public void Gear_groups_follow_the_character_sheet_and_a_full_set_has_no_empty_slots()
+    {
+        var gear = FullSet(i => $"Item {i}").Reverse()
+            .Append(new ForeverArmoryItem("AMMO", "Ammo", "Jagged Arrow", "COMMON", 45, Id: 11285))
+            .ToArray();
+
+        var lines = GearBody(Wearing(gear)).Split('\n');
+
+        Assert.Equal(
+            new[]
+            {
+                "### Armor", "Head", "Shoulders", "Back", "Chest", "Shirt", "Tabard", "Wrist", "Hands", "Waist", "Legs", "Feet",
+                "### Jewelry", "Neck", "Ring 1", "Ring 2", "Trinket 1", "Trinket 2",
+                "### Weapons", "Main Hand", "Off Hand", "Ranged", "Ammo"
+            },
+            lines.Where(l => l.StartsWith('`') || l.StartsWith("###")).Select(l => l.StartsWith('`') ? l[1..10].TrimEnd() : l));
+        Assert.Equal("`Main Hand 76` 🟣 [Item 16](https://www.wowhead.com/forever/item=280016)", lines.Single(l => l.Contains("Main Hand")));
+        Assert.Equal("`Ammo      45` ⚪ [Jagged Arrow](https://www.wowhead.com/forever/item=11285)", lines.Single(l => l.Contains("Ammo")));
+        Assert.Equal(19, lines.Count(l => l == "-# ↳ ✨ Stamina +7"));
+        Assert.Equal("-# 🟣 19 epic · ⚪ 1 common", lines[1]);
+        Assert.DoesNotContain(lines, l => l.Contains("Empty slots"));
+        AssertFits(ForeverViews.Card(Wearing(gear), ForeverViews.CardGear, Caller));
+    }
+
+    [Fact]
+    public void Gear_columns_line_up_whatever_the_slot_names_and_item_levels_are()
+    {
+        var body = GearBody(Wearing(new[]
+        {
+            new ForeverArmoryItem("HEAD", "Head", "Cap", "POOR", 7),
+            new ForeverArmoryItem("CHEST", "Chest`piece\nof the Extremely Long Slot", "Robe", "LEGENDARY", 105),
+            // No name from the armory: the slot's type stands in.
+            new ForeverArmoryItem("OFF_HAND", " ", "Torch", "epic", 0),
+            new ForeverArmoryItem("", "", "Loose Thing", "Shiny", null)
+        }));
+
+        var rows = body.Split('\n').Where(l => l.StartsWith('`')).ToArray();
+        Assert.Equal(
+            new[]
+            {
+                "`Head           7` 🔘 Cap",
+                "`Chest'piece  105` 🟠 Robe",
+                "`Off Hand       –` 🟣 Torch",
+                "`Item           –` ⚪ Loose Thing"
+            },
+            rows);
+        // Every label is as wide as the next, and none can end its own code span early.
+        Assert.Single(rows.Select(r => r.IndexOf("` ", StringComparison.Ordinal)).Distinct());
+        Assert.All(rows, r => Assert.Equal(2, r.Count(ch => ch == '`')));
+        Assert.Contains("-# 🟠 1 legendary · 🟣 1 epic · 🔘 1 poor\n", body);
+
+        // With no item levels at all there is no column for them.
+        var bare = GearBody(Wearing(new[] { new ForeverArmoryItem("HEAD", "Head", "Cap", null, null), new ForeverArmoryItem("NECK", "Neck", "Chain", null, null) }));
+        Assert.Contains("`Head` ⚪ Cap\n", bare);
+        Assert.Contains("`Neck` ⚪ Chain\n", bare);
+        Assert.DoesNotContain("-# ⚪", bare);
+    }
+
+    [Fact]
+    public void Gear_links_only_what_wowhead_can_be_asked_for()
+    {
+        var card = Wearing(
+            new[]
+            {
+                new ForeverArmoryItem("HEAD", "Head", "Linen Hood", "COMMON", 12),
+                new ForeverArmoryItem("NECK", "Neck", "Zero Chain", "COMMON", 12, Id: 0),
+                // A square bracket in the name would end the link early, so the name stays plain.
+                new ForeverArmoryItem("BACK", "Back", "Test Cloak [DNT]", "COMMON", 12, Id: 5),
+                new ForeverArmoryItem("CHEST", "Chest", "Half] Robe", "COMMON", 12, Id: 6)
+            },
+            new ForeverArmorySet("Nameless [PH] Set", 1, 2, Id: 9),
+            new ForeverArmorySet("Unnumbered Set", 0, 0));
+
+        var body = GearBody(card);
+
+        Assert.DoesNotContain("wowhead", body);
+        Assert.Contains("🧩 **Set** Nameless [PH] Set 1/2\n", body);
+        // Without piece or bonus counts the set is just named.
+        Assert.Contains("🧩 **Set** Unnumbered Set\n", body);
+        Assert.Contains("`Back  12` ⚪ Test Cloak [DNT]\n", body);
+        Assert.Contains("`Chest 12` ⚪ Half] Robe\n", body);
+        Assert.Equal("-# From Blizzard's armory · updates when the character logs out", Lines(ForeverViews.Card(card, ForeverViews.CardGear, Caller)).Last());
+    }
+
+    [Fact]
+    public void Gear_gives_up_its_links_before_it_would_be_cut_short()
+    {
+        // Nineteen enchanted items with names far longer than the game's: linked, they would not fit.
+        var longNames = Wearing(FullSet(i => new string((char)('a' + i), 120)));
+        var card = ForeverViews.Card(longNames, ForeverViews.CardGear, Caller);
+        var body = GearBody(longNames);
+
+        Assert.DoesNotContain("wowhead", body);
+        Assert.DoesNotContain("…", body);
+        Assert.Equal(19, body.Split('\n').Count(l => l.StartsWith('`')));
+        Assert.Equal(19, body.Split('\n').Count(l => l == "-# ↳ ✨ Stamina +7"));
         Assert.Equal("-# From Blizzard's armory · updates when the character logs out", Lines(card).Last());
         AssertFits(card);
+
+        // The longest names the game has keep their links.
+        var gameNames = Wearing(FullSet(i => new string((char)('a' + i), 60)));
+        Assert.Equal(19, GearBody(gameNames).Split('\n').Count(l => l.Contains("](https://www.wowhead.com/forever/item=")));
+        AssertFits(ForeverViews.Card(gameNames, ForeverViews.CardGear, Caller));
+    }
+
+    [Fact]
+    public void Wowhead_links_are_built_from_blizzards_ids()
+    {
+        Assert.Equal("https://www.wowhead.com/forever/item=250499", ForeverWowhead.Item(250499));
+        Assert.Equal("https://www.wowhead.com/forever/item-set=2133", ForeverWowhead.ItemSet(2133));
+        Assert.Equal(new string[] { null, null, null }, new int?[] { null, 0, -4 }.Select(ForeverWowhead.Item));
+        Assert.Equal(new string[] { null, null, null }, new int?[] { null, 0, -4 }.Select(ForeverWowhead.ItemSet));
     }
 
     [Fact]
@@ -510,7 +649,7 @@ public class ForeverViewsTests
     // ===== Saved characters =====
 
     [Fact]
-    public void A_saved_character_says_where_its_details_came_from_and_what_can_be_done_next()
+    public void A_saved_character_says_what_the_armory_knows_and_what_it_is_to_the_caller_here()
     {
         var character = Shared(1, Alice, "Asha", characterClass: ForeverClass.Mage);
 
@@ -518,21 +657,21 @@ public class ForeverViewsTests
             new ForeverSavedCharacter(character, Armory(guild: "*Synthetic*"), ForeverLookupStatus.Found), "added", false, false, Caller, canShare: true);
         Assert.Equal(new[]
         {
-            "## ✅ Forever character added",
-            "### 🔮 Asha Brightvale",
+            "## 🔮 Asha Brightvale · added ✅",
             "Mage · US · PvP · Horde",
             $@"[On the armory]({ArmoryLink}): level 29 Undead, in \*Synthetic\*",
             "Not your main in this server.",
-            "🔒 Private: only you can see it.",
-            "-# Class, ruleset and faction from Blizzard's armory · ownership isn't verified"
+            "🔒 Private: only you can see that it's yours.",
+            "-# From Blizzard's armory · nothing proves a character is yours"
         }, Lines(found));
         Assert.Equal(
             new[]
             {
-                ("Make main here", "forever_main~7~1"),
-                ("Share to roster", "forever_share~7~1"),
-                ("Character card", "forever_card~7~o~0~Asha~Brightvale"),
-                ("Armory", null)
+                ("Make main", "forever_main~7~1"),
+                ("Show on roster", "forever_share~7~1"),
+                ("Armory card", "forever_card~7~o~0~Asha~Brightvale"),
+                ("Remove", "forever_remove~7~1~n"),
+                ("Your characters", "forever_list~7")
             },
             Buttons(found).Select(b => (b.Label, b.CustomId)));
         Assert.Equal(new Color(0x69CCF0), Accent(found));
@@ -541,22 +680,22 @@ public class ForeverViewsTests
         var notFound = ForeverViews.CharacterSaved(new ForeverSavedCharacter(character, null, ForeverLookupStatus.NotFound), "added", false, false, Caller, canShare: false);
         Assert.Contains("Not on the armory yet", Text(notFound));
         Assert.Contains("level 10", Text(notFound));
-        Assert.Equal("-# Self-reported, not verified with Blizzard", Lines(notFound).Last());
-        Assert.Equal("Make main here", Assert.Single(Buttons(notFound)).Label);
+        Assert.Equal(new[] { "Make main", "Remove", "Your characters" }, Buttons(notFound).Select(b => b.Label));
 
-        var down = ForeverViews.CharacterSaved(new ForeverSavedCharacter(character, null, ForeverLookupStatus.Unavailable), "added", false, false, Caller, canShare: false);
+        var down = ForeverViews.CharacterSaved(new ForeverSavedCharacter(character, null, ForeverLookupStatus.Unavailable), null, false, false, Caller, canShare: false);
         Assert.Contains("didn't answer", Text(down));
+        Assert.StartsWith("## 🔮 Asha Brightvale\n", Text(down));
 
-        var notAsked = ForeverViews.CharacterSaved(new ForeverSavedCharacter(character, null, null), "shared", true, true, Caller, canShare: false);
-        Assert.Contains("## ✅ Forever character shared", Text(notAsked));
-        Assert.DoesNotContain("armory", Text(notAsked));
-        Assert.Contains("★ Your main", Text(notAsked));
-        Assert.Contains("📋 On this server's roster.", Text(notAsked));
-        Assert.Empty(All<ActionRowComponent>(notAsked));
+        var onRoster = ForeverViews.CharacterSaved(new ForeverSavedCharacter(character, null, null), "on the roster", true, true, Caller, canShare: true);
+        Assert.Contains("## 🔮 Asha Brightvale · on the roster ✅", Text(onRoster));
+        Assert.DoesNotContain("armory yet", Text(onRoster));
+        Assert.Contains("★ Your main", Text(onRoster));
+        Assert.Contains("👥 On this server's roster, with your name next to it.", Text(onRoster));
+        Assert.Equal(new[] { "Hide from roster", "Remove", "Your characters" }, Buttons(onRoster).Select(b => b.Label));
     }
 
     [Fact]
-    public void The_character_list_marks_mains_and_shares_and_opens_any_of_them()
+    public void The_character_list_marks_mains_and_the_roster_and_opens_any_of_them()
     {
         var mine = new[] { Shared(11, Alice, "Asha"), Shared(12, Alice, "Thalen", "Ash_vale", ForeverClass.Rogue), Shared(13, Alice, "Mira", "Dawn", characterClass: null) };
 
@@ -567,17 +706,17 @@ public class ForeverViewsTests
             "# 📜 Your Forever characters",
             "**3** characters · only you can see this list",
             "★ ✨ **Asha Brightvale** — Priest · US · PvP · Horde",
-            @"📋 🗡️ **Thalen Ash\_vale** — Rogue · US · PvP · Horde",
-            "❔ **Mira Dawn** — no class set · US · PvP · Horde",
-            "-# ★ main in this server · 📋 on this server's roster"
+            @"👥 🗡️ **Thalen Ash\_vale** — Rogue · US · PvP · Horde",
+            "❔ **Mira Dawn** — class not known yet · US · PvP · Horde",
+            "-# ★ main in this server · 👥 on this server's roster · add another with /forever char add"
         }, Lines(card));
-        var menu = Menu(card, ForeverViews.OpenCardPrefix);
-        Assert.Equal("forever_open~7", menu.CustomId);
+        var menu = Menu(card, ForeverViews.ManagePrefix);
+        Assert.Equal("forever_manage~7", menu.CustomId);
         Assert.Equal(new[] { ("Asha Brightvale", "11"), ("Thalen Ash_vale", "12"), ("Mira Dawn", "13") }, menu.Options.Select(o => (o.Label, o.Value)));
         AssertFits(card);
 
         var none = ForeverViews.CharacterList(Array.Empty<ForeverCharacter>(), null, new HashSet<long>(), Caller);
-        Assert.Contains("You haven't added any yet. Use `/forever char add`.", Text(none));
+        Assert.Contains("You haven't saved any yet. Use `/forever char add`.", Text(none));
         Assert.Empty(All<SelectMenuComponent>(none));
 
         var many = Enumerable.Range(1, 40).Select(i => Shared(i, Alice, "Asha", "N" + new string('x', i % 20 + 1))).ToList();
@@ -592,26 +731,108 @@ public class ForeverViewsTests
         Assert.Equal(new[]
         {
             @"# 👤 Alice\_A",
-            "**2** characters shared in WoW Forever",
+            "**2** characters on this server's Forever roster",
             "★ ✨ **Asha Brightvale** — Priest",
             "🗡️ **Private Alt** — Rogue",
-            "-# ★ main · Member-reported, not verified with Blizzard"
+            "-# ★ main · Put there by the member · nothing proves a character is theirs"
         }, Lines(card));
         Assert.Equal("https://cdn.example/alice.png", Assert.Single(All<ThumbnailComponent>(card)).Media.Url);
 
         var nothing = ForeverViews.Member("Bob", null, Array.Empty<ForeverCharacter>(), null);
-        Assert.Contains("No characters shared to this server's roster.", Text(nothing));
+        Assert.Contains("No characters on this server's roster.", Text(nothing));
         Assert.Empty(All<ThumbnailComponent>(nothing));
+    }
+
+    // ===== Recipes on the Professions tab =====
+
+    private static ForeverArmoryCard CardWithRecipes(params ForeverKnownRecipe[] tailoring) => Card() with
+    {
+        Professions = new[]
+        {
+            new ForeverArmoryProfession("Tailoring", 107, 150, Id: 197, Recipes: tailoring.Length, Known: tailoring),
+            // Nothing known, and one whose id the armory didn't send: neither can be listed.
+            new ForeverArmoryProfession("Fishing", 150, 150, Id: 356, IsPrimary: false, Known: Array.Empty<ForeverKnownRecipe>()),
+            new ForeverArmoryProfession("Rune_carving", 12, 0, Recipes: 1, Known: new[] { new ForeverKnownRecipe(1, "Odd") })
+        }
+    };
+
+    [Fact]
+    public void The_professions_tab_lists_a_professions_recipes_from_its_menu()
+    {
+        var card = CardWithRecipes(
+            new ForeverKnownRecipe(2385, "Brown Linen Vest"), new ForeverKnownRecipe(2963, "Bolt of *Linen* Cloth"), new ForeverKnownRecipe(0, "brown linen vest"));
+
+        var skills = ForeverViews.Card(card, "p", Caller);
+        var menu = Menu(skills, ForeverViews.CardMenuPrefix);
+        Assert.Equal("forever_cardmenu~7~n~0~Asha~Brightvale", menu.CustomId);
+        Assert.Equal(new[] { ("Tailoring recipes", "k197", "3 known", false) }, menu.Options.Select(o => (o.Label, o.Value, o.Description, o.IsDefault == true)));
+        AssertFits(skills);
+
+        // Opened from the roster, the way back is kept through the menu too.
+        var recipes = ForeverViews.Card(card, "rk197", Caller);
+        Assert.Equal(new[]
+        {
+            "### 🧵 [Tailoring](https://www.wowhead.com/forever/skill=197) · 2 recipes",
+            "-# 107/150 · Journeyman · `/forever craft` shows what one takes and who else makes it",
+            @"Bolt of \*Linen\* Cloth · Brown Linen Vest",
+            "-# From Blizzard's armory · updates when the character logs out · profession names open Wowhead"
+        }, Lines(recipes).Skip(3));
+        var back = Menu(recipes, ForeverViews.CardMenuPrefix);
+        Assert.Equal("forever_cardmenu~7~r~0~Asha~Brightvale", back.CustomId);
+        Assert.Equal(new[] { ("Skill bars", "p", false), ("Tailoring recipes", "k197", true) }, back.Options.Select(o => (o.Label, o.Value, o.IsDefault == true)));
+        // The Professions tab stays lit, and every tab still leads back to the roster.
+        Assert.Equal(
+            new[] { ("Overview", "forever_card~7~ro~0~Asha~Brightvale", ButtonStyle.Primary), ("Gear", "forever_card~7~rg~0~Asha~Brightvale", ButtonStyle.Primary),
+                ("Professions", "forever_card~7~rp~0~Asha~Brightvale", ButtonStyle.Success) },
+            Buttons(recipes).Take(3).Select(b => (b.Label, b.CustomId, b.Style)));
+        Assert.Contains(Buttons(recipes), b => b.Label == "Roster");
+        AssertFits(recipes);
+
+        // A profession the character doesn't have, or has nothing listed for, shows the skill bars instead.
+        Assert.Equal(Text(skills), Text(ForeverViews.Card(card, "k999", Caller)));
+        Assert.Equal(Text(skills), Text(ForeverViews.Card(card, "k356", Caller)));
+        // The other tabs have no recipe menu, and neither has a character whose recipes the armory didn't send.
+        Assert.Empty(All<SelectMenuComponent>(ForeverViews.Card(card, "o", Caller)));
+        Assert.Empty(All<SelectMenuComponent>(ForeverViews.Card(card, "g", Caller)));
+        Assert.Empty(All<SelectMenuComponent>(ForeverViews.Card(Card(), "p", Caller)));
+    }
+
+    [Fact]
+    public void A_long_recipe_list_is_cut_at_a_whole_name_and_says_how_many_are_left()
+    {
+        var many = Enumerable.Range(1, 600).Select(i => new ForeverKnownRecipe(i, $"Recipe Number {i:D3} of the Long_Name")).ToArray();
+
+        var card = ForeverViews.Card(CardWithRecipes(many), "k197", Caller);
+
+        AssertFits(card);
+        var body = Lines(card).Skip(3).ToArray();
+        Assert.StartsWith("### 🧵 [Tailoring](https://www.wowhead.com/forever/skill=197) · 600 recipes", body[0]);
+        var shown = body[2].Split(" · ");
+        Assert.All(shown, name => Assert.Matches(@"^Recipe Number \d{3} of the Long\\_Name$", name));
+        Assert.Equal($"-# …and {600 - shown.Length} more", body[3]);
+        Assert.InRange(shown.Length, 50, 599);
+    }
+
+    [Fact]
+    public void View_codes_name_a_tab_and_anything_else_is_the_overview()
+    {
+        Assert.Equal(new[] { "o", "g", "p", "k197", "o", "g", "p", "k197" },
+            new[] { "o", "g", "p", "k197", "ro", "rg", "rp", "rk197" }.Select(ForeverViews.Tab));
+        Assert.Equal(new int?[] { 197, 164, null, null, null, null, null, null },
+            new[] { "k197", "rk164", "p", "k", "kx", "k0", "k-5", null }.Select(ForeverViews.RecipesProfession));
+        Assert.Equal(new[] { "o", "o", "o", "o", "o" }, new[] { "k", "kx", "k0", "zz", null }.Select(ForeverViews.Tab));
+        Assert.True(ForeverViews.IsFromRoster("rk197"));
+        Assert.False(ForeverViews.IsFromRoster("k197"));
     }
 
     // ===== Guild =====
 
     [Fact]
-    public void The_guild_card_says_whether_the_armory_has_the_guild()
+    public void The_guild_card_shows_what_the_armory_has_and_opens_the_roster()
     {
         var armory = new ForeverArmoryGuild(1, "Synthetic Guild", "synthetic-guild", ForeverRegion.US, ForeverFaction.Horde, ForeverRuleset.PvP, "PvP", 1234);
 
-        var justSet = ForeverViews.Guild(MatchedGuild, "Server_One", "https://cdn.example/icon.png", Caller, new ForeverSavedGuild(MatchedGuild, armory, ForeverLookupStatus.Found));
+        var justSet = ForeverViews.Guild(MatchedGuild, "Server_One", "https://cdn.example/icon.png", Caller, armory, justSet: true);
         Assert.Equal(new[]
         {
             "# 🏰 Synthetic Guild",
@@ -619,29 +840,30 @@ public class ForeverViewsTests
             "🌍 **Region** US",
             "📜 **Ruleset** PvP",
             "🔴 **Faction** Horde",
-            "🪪 **Armory** matched · 1,234 members",
-            "👥 **Roster** on — members can share characters with `/forever roster share`",
-            "-# Ruleset and faction from Blizzard's armory"
+            "👥 **Members** 1,234",
+            "Members can now save their characters with `/forever char add`, and `/forever craft` shows who can make what.",
+            "-# From Blizzard's armory"
         }, Lines(justSet));
         Assert.Equal(("View roster", "forever_roster~7~0r"), Buttons(justSet).Select(b => (b.Label, b.CustomId)).Single());
         Assert.Single(All<ThumbnailComponent>(justSet));
         AssertFits(justSet);
 
-        Assert.Contains("🪪 **Armory** matched\n", Text(ForeverViews.Guild(MatchedGuild, "Server", null, Caller)));
+        // Only showing it: no "what next", and no member count when the armory didn't answer.
+        var shown = ForeverViews.Guild(MatchedGuild, "Server", null, Caller);
+        Assert.DoesNotContain("Members", Text(shown));
+        Assert.Single(Buttons(shown));
 
+        // A guild saved before the armory was the only way in has no slug; an officer can match it by setting it again.
         var typed = new ForeverGuild
         {
             Name = "Typed", Region = ForeverRegion.EU, Ruleset = ForeverRuleset.Normal, Faction = ForeverFaction.Alliance,
             SetByName = "officer_one", TimeSet = new DateTime(2026, 11, 18, 0, 0, 0, DateTimeKind.Utc)
         };
-        var notFound = ForeverViews.Guild(typed, "Server", null, Caller, new ForeverSavedGuild(typed, null, ForeverLookupStatus.NotFound));
-        Assert.Contains("🪪 **Armory** no guild with this name on the EU armory", Text(notFound));
-        Assert.Contains("👥 **Roster** off", Text(notFound));
-        Assert.Equal(@"-# Self-reported, not verified with Blizzard · set by officer\_one on 2026-11-18", Lines(notFound).Last());
-        Assert.Empty(Buttons(notFound));
-        Assert.Equal(new Color(0, 112, 221), Accent(notFound));
-        Assert.Contains("didn't answer", Text(ForeverViews.Guild(typed, "Server", null, Caller, new ForeverSavedGuild(typed, null, ForeverLookupStatus.Unavailable))));
-        Assert.Contains("🪪 **Armory** not matched", Text(ForeverViews.Guild(typed, "Server", null, Caller)));
+        var unmatched = ForeverViews.Guild(typed, "Server", null, Caller);
+        Assert.Contains("🪪 **Armory** not matched yet. An officer can run `/forever guild set` again", Text(unmatched));
+        Assert.Equal(@"-# Added by members, not checked against Blizzard's roster · set by officer\_one on 2026-11-18", Lines(unmatched).Last());
+        Assert.Equal(new Color(0, 112, 221), Accent(unmatched));
+        Assert.DoesNotContain("Roster** o", Text(unmatched));
 
         var none = ForeverViews.NoGuild("Server", null);
         Assert.Contains("None set for **Server** yet", Text(none));
@@ -650,7 +872,7 @@ public class ForeverViewsTests
 
     // ===== Help =====
 
-    private static readonly ForeverGuild RosterOffGuild = new()
+    private static readonly ForeverGuild OtherGuild = new()
     {
         Name = "Synthetic *Guild*", Region = ForeverRegion.EU, Ruleset = ForeverRuleset.Normal, Faction = ForeverFaction.Alliance
     };
@@ -661,23 +883,22 @@ public class ForeverViewsTests
     private static MessageComponent Help(ForeverSetup setup) => ForeverViews.Help("Server_One", "https://cdn.example/icon.png", Caller, setup);
 
     [Fact]
-    public void Help_for_a_new_member_in_a_new_server_starts_with_adding_a_character()
+    public void Help_for_a_new_member_in_a_new_server_starts_with_saving_a_character()
     {
         var card = Help(Setup());
 
         Assert.Equal(new[]
         {
             "# 🧭 Getting started with WoW Forever",
-            @"in **Server\_One** · **0 of 5** steps done",
+            @"in **Server\_One** · **0 of 3** steps done",
             "⬜ **Set this server's guild** · an officer runs `/forever guild set`",
-            "⬜ **Turn the roster on** · an officer runs `/forever guild roster`",
-            "👉 **Add your character** · `/forever char add`",
-            "⬜ **Pick your main here** · `/forever char main`",
-            "⬜ **Share a character to the roster** · `/forever roster share`, once the roster is on",
+            "👉 **Save your character** · `/forever char add`",
+            "⬜ **Put it on the roster** · `/forever char list`, pick it, then **Show on roster**",
             "### Commands"
-        }, Lines(card).Take(8));
+        }, Lines(card).Take(6));
         Assert.Contains("level 10", Text(card));
-        Assert.Contains("private until you share them", Text(card));
+        Assert.Contains("Saving a character is private", Text(card));
+        Assert.Contains("TradeSkillMaster's regional averages", Text(card));
         Assert.StartsWith("-# ", Lines(card).Last());
         Assert.Empty(Buttons(card));
         Assert.Equal("https://cdn.example/icon.png", Assert.Single(All<ThumbnailComponent>(card)).Media.Url);
@@ -686,7 +907,7 @@ public class ForeverViewsTests
     }
 
     [Fact]
-    public void Help_ticks_off_what_is_done_and_offers_the_roster_once_it_is_on()
+    public void Help_ticks_off_what_is_done_and_offers_the_roster_once_there_is_a_guild()
     {
         var card = Help(Setup(MatchedGuild, characters: 2, main: "Asha Bright_vale", shared: 1, officer: true));
 
@@ -695,54 +916,45 @@ public class ForeverViewsTests
             "# 🧭 Getting started with WoW Forever",
             @"in **Server\_One** · all set up 🎉",
             "✅ **Guild set** · Synthetic Guild · US · PvP · Horde",
-            "✅ **Roster on** · members choose what to share",
-            "✅ **2 characters added** · add more with `/forever char add`",
-            @"✅ **Main here** · ★ Asha Bright\_vale · change it with `/forever char main`",
-            "✅ **1 shared to the roster** · `/forever roster share` adds another"
-        }, Lines(card).Take(7));
+            @"✅ **2 characters saved** · ★ Asha Bright\_vale is your main here",
+            "✅ **1 on the roster** · your name shows next to it"
+        }, Lines(card).Take(5));
         Assert.DoesNotContain("👉", Text(card));
         Assert.Equal(("View roster", "forever_roster~7~0r"), Buttons(card).Select(b => (b.Label, b.CustomId)).Single());
         Assert.Equal(new Color(200, 35, 35), Accent(card));
         AssertFits(card);
 
-        // With the roster off there is no roster to open, and a share is kept but hidden.
-        var off = Help(Setup(RosterOffGuild, characters: 1, main: "Asha Brightvale", shared: 1));
-        Assert.Contains(@"✅ **Guild set** · Synthetic \*Guild\* · EU · Normal · Alliance", Text(off));
-        Assert.Contains("✅ **1 character added**", Text(off));
-        Assert.Contains("✅ **1 shared to the roster**, hidden while the roster is off", Text(off));
-        Assert.Contains("**4 of 5** steps done", Text(off));
-        Assert.Empty(Buttons(off));
-        Assert.Equal(new Color(0, 112, 221), Accent(off));
+        // The roster needs nothing switched on: a guild is enough for the button, whatever older rows say.
+        var other = Help(Setup(OtherGuild, characters: 1));
+        Assert.Contains(@"✅ **Guild set** · Synthetic \*Guild\* · EU · Normal · Alliance", Text(other));
+        Assert.Contains("✅ **1 character saved**\n", Text(other));
+        Assert.Contains("**2 of 3** steps done", Text(other));
+        Assert.Single(Buttons(other));
+        Assert.Equal(new Color(0, 112, 221), Accent(other));
+        Assert.Contains("✅ **3 on the roster** · your name shows next to them", Text(Help(Setup(MatchedGuild, 3, "Asha Brightvale", 3))));
         AssertFits(Help(Setup(new ForeverGuild { Name = new string('*', 64) }, int.MaxValue, new string('_', 200), int.MaxValue)));
     }
 
     [Fact]
     public void Help_points_at_the_first_step_the_caller_can_do_right_now()
     {
-        // The five checklist lines' marks, in order: guild, roster, character, main, share.
+        // The three checklist lines' marks, in order: guild, character, roster.
         static string Marks(ForeverSetup setup)
-            => string.Concat(Lines(Help(setup)).Skip(2).Take(5).Select(line => line[..line.IndexOf(' ')]));
+            => string.Concat(Lines(Help(setup)).Skip(2).Take(3).Select(line => line[..line.IndexOf(' ')]));
 
-        // An officer starts with the guild and then the roster. A member can do neither, so starts with a character.
-        Assert.Equal("👉⬜⬜⬜⬜", Marks(Setup(officer: true)));
-        Assert.Equal("⬜⬜👉⬜⬜", Marks(Setup()));
-        Assert.Equal("✅👉⬜⬜⬜", Marks(Setup(RosterOffGuild, officer: true)));
-        Assert.Equal("✅⬜👉⬜⬜", Marks(Setup(RosterOffGuild)));
-        // A main needs a character, and neither needs the server's guild.
-        Assert.Equal("⬜⬜✅👉⬜", Marks(Setup(characters: 1)));
-        Assert.Equal("✅✅✅👉⬜", Marks(Setup(MatchedGuild, characters: 2)));
-        Assert.Equal("✅✅✅✅👉", Marks(Setup(MatchedGuild, characters: 2, main: "Asha Brightvale")));
-        // Sharing needs a character and the roster on.
-        Assert.Equal("✅✅👉⬜⬜", Marks(Setup(MatchedGuild)));
-        // With the roster off a member has nothing left to do, but an officer can turn it on.
-        Assert.Equal("✅⬜✅✅⬜", Marks(Setup(RosterOffGuild, characters: 1, main: "Asha Brightvale")));
-        Assert.Equal("✅👉✅✅⬜", Marks(Setup(RosterOffGuild, characters: 1, main: "Asha Brightvale", officer: true)));
-        Assert.Equal("✅✅✅✅✅", Marks(Setup(MatchedGuild, characters: 2, main: "Asha Brightvale", shared: 1)));
+        // An officer starts with the guild. A member can't set it, so starts with a character.
+        Assert.Equal("👉⬜⬜", Marks(Setup(officer: true)));
+        Assert.Equal("⬜👉⬜", Marks(Setup()));
+        Assert.Equal("✅👉⬜", Marks(Setup(OtherGuild)));
+        // The roster needs both a character and the server's guild.
+        Assert.Equal("⬜✅⬜", Marks(Setup(characters: 1)));
+        Assert.Equal("👉✅⬜", Marks(Setup(characters: 1, officer: true)));
+        Assert.Equal("✅✅👉", Marks(Setup(MatchedGuild, characters: 2, main: "Asha Brightvale")));
+        Assert.Equal("✅✅✅", Marks(Setup(MatchedGuild, characters: 2, main: "Asha Brightvale", shared: 1)));
 
         // Officers are told the command; everyone else is told who runs it.
         Assert.Contains("**Set this server's guild** · `/forever guild set`", Text(Help(Setup(officer: true))));
         Assert.DoesNotContain("an officer runs", Text(Help(Setup(officer: true))));
-        Assert.Contains("**Share a character to the roster** · `/forever roster share`\n", Text(Help(Setup(MatchedGuild, characters: 1))));
     }
 
     [Fact]
@@ -835,26 +1047,39 @@ public class ForeverViewsTests
     }
 
     [Fact]
-    public void Name_fields_suggest_guildmates_the_caller_has_not_added_yet()
+    public void Adding_suggests_the_typed_name_then_guildmates_not_saved_yet()
     {
         var mine = new[] { Shared(11, Alice, "Asha"), Shared(12, Alice, "Mira", "Dawn", region: ForeverRegion.EU) };
         var roster = Guildmates().Append(FakeForeverArmory.Member("Mira", "Dusk", level: 9, ForeverClass.Hunter)).ToArray();
 
-        // First name: the label is the whole character, the value only this field. Asha is already saved in US; the EU Mira isn't this one.
-        var first = ForeverSuggest.NamePart(roster, mine, ForeverRegion.US, surnameField: false, "", null);
+        // Nothing typed: guildmates by rank and level. Asha is already saved in US; the EU Mira isn't this one.
+        // A guildmate below level 10 is offered too, because the roster can stand in for the armory.
+        var all = ForeverSuggest.Add(mine, ForeverRegion.US, "", roster);
         Assert.Equal(
-            new[] { ("Mira Dawn · 40 Druid", "Mira"), ("Thalen Duskvale · 12 Warrior", "Thalen"), ("Mira Dusk · 9 Hunter", "Mira"), ("New Recruit", "New") },
-            first.Select(s => (s.Name, (string)s.Value)));
-        Assert.Equal(new[] { "Thalen" }, ForeverSuggest.NamePart(roster, mine, ForeverRegion.US, false, "th", null).Select(s => (string)s.Value));
+            new[]
+            {
+                ("Mira Dawn · 40 Druid · guild roster", "Mira Dawn"), ("Thalen Duskvale · 12 Warrior · guild roster", "Thalen Duskvale"),
+                ("Mira Dusk · 9 Hunter · guild roster", "Mira Dusk"), ("New Recruit · guild roster", "New Recruit")
+            },
+            all.Select(s => (s.Name, (string)s.Value)));
+        Assert.Equal(new[] { "Thalen Duskvale" }, ForeverSuggest.Add(mine, ForeverRegion.US, "th", roster).Select(s => (string)s.Value));
+        // A surname matches too.
+        Assert.Equal(new[] { "Mira Dusk", "Thalen Duskvale" }, ForeverSuggest.Add(mine, ForeverRegion.US, "dusk", roster).Select(s => (string)s.Value).OrderBy(v => v));
 
-        // Surname: narrowed by the first name already typed.
-        var surname = ForeverSuggest.NamePart(roster, mine, ForeverRegion.US, surnameField: true, "", "mira");
-        Assert.Equal(new[] { ("Mira Dawn · 40 Druid", "Dawn"), ("Mira Dusk · 9 Hunter", "Dusk") }, surname.Select(s => (s.Name, (string)s.Value)));
-        Assert.Equal(new[] { "Dusk", "Duskvale" }, ForeverSuggest.NamePart(roster, mine, ForeverRegion.US, true, "du", null).Select(s => (string)s.Value).OrderBy(v => v));
-        // And the first name by a surname typed first.
-        Assert.Equal(new[] { "Thalen" }, ForeverSuggest.NamePart(roster, mine, ForeverRegion.US, false, "", "Duskv").Select(s => (string)s.Value));
+        // A full name leads: with what the armory said about it, or as typed when it said nothing.
+        var live = ForeverLookup<ForeverArmoryCharacter>.Found(Armory("Mira", "Dawn"));
+        var found = ForeverSuggest.Add(mine, ForeverRegion.US, "mira dawn", roster, live);
+        Assert.Equal(("Mira Dawn · 29 Undead Mage · Synthetic Guild · on the armory", "Mira Dawn"), (found[0].Name, (string)found[0].Value));
+        Assert.Single(found);
+        Assert.Equal(("Save Zed Nobody", "Zed Nobody"), ForeverSuggest.Add(mine, ForeverRegion.US, "zed nobody").Select(s => (s.Name, (string)s.Value)).Single());
 
-        Assert.Empty(ForeverSuggest.NamePart(null, mine, ForeverRegion.US, false, "as", null));
+        // One the caller already has says so instead of offering to save it twice.
+        Assert.Equal("Asha Brightvale · already saved", ForeverSuggest.Add(mine, ForeverRegion.US, "asha brightvale", roster)[0].Name);
+
+        var hint = Assert.Single(ForeverSuggest.Add(mine, ForeverRegion.US, "as"));
+        Assert.Equal((ForeverSuggest.LookupHint, "0"), (hint.Name, (string)hint.Value));
+        var big = Enumerable.Range(1, 60).Select(i => FakeForeverArmory.Member("Member", "N" + new string('x', i % 20 + 1) + (char)('a' + i % 26), level: 20)).ToArray();
+        Assert.Equal(25, ForeverSuggest.Add(mine, ForeverRegion.US, "", big).Count);
     }
 
     [Fact]

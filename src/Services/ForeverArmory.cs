@@ -4,7 +4,6 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory;
@@ -29,6 +28,10 @@ namespace NinjaBotCore.Services
 
         Task<ForeverLookup<ForeverArmoryRoster>> GetRosterAsync(
             ForeverRegion region, string guildSlug, CancellationToken cancellationToken = default);
+
+        /// <summary>Only a character's professions, by its armory slug: one request, for reading a whole guild.</summary>
+        Task<ForeverLookup<ForeverArmoryProfessions>> GetProfessionsAsync(
+            ForeverRegion region, string characterSlug, CancellationToken cancellationToken = default);
     }
 
     /// <summary>
@@ -101,7 +104,8 @@ namespace NinjaBotCore.Services
                     Detail(professions.Result, ParseProfessions) ?? Array.Empty<ForeverArmoryProfession>(),
                     Detail(talents.Result, ParseTalents) ?? Array.Empty<ForeverArmoryTalentTree>(),
                     Detail(statistics.Result, ParseStats),
-                    Detail(media.Result, ParseRender)));
+                    Detail(media.Result, ParseRender),
+                    Detail(equipment.Result, ParseSets)));
             });
         }
 
@@ -127,41 +131,18 @@ namespace NinjaBotCore.Services
                 return Map(json, ParseRoster);
             });
 
+        public async Task<ForeverLookup<ForeverArmoryProfessions>> GetProfessionsAsync(
+            ForeverRegion region, string characterSlug, CancellationToken cancellationToken = default)
+        {
+            // Not cached here: whoever reads a whole guild keeps what it learns.
+            var json = await GetAsync(region, $"/profile/wow/character/{Uri.EscapeDataString(characterSlug)}/professions", DetailTimeout, cancellationToken);
+            return Map(json, o => ParseProfessions(o) is { } list ? new ForeverArmoryProfessions(list) : null);
+        }
+
         // ===== Requests =====
 
-        private static string Locale(ForeverRegion region) => region == ForeverRegion.EU ? "en_GB" : "en_US";
-
-        private async Task<ForeverLookup<JObject>> GetAsync(ForeverRegion region, string path, TimeSpan timeout, CancellationToken cancellationToken)
-        {
-            var regionName = region.ToString().ToLowerInvariant();
-            var url = $"{path}?namespace=profile-forever-{regionName}&locale={Locale(region)}";
-            using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutSource.CancelAfter(timeout);
-
-            try
-            {
-                var response = await _wowApi.TryGetAPIRequestAsync(url, regionName, timeoutSource.Token);
-                if (response.Status == HttpStatusCode.NotFound) return ForeverLookup<JObject>.NotFound();
-                if (response.Status != HttpStatusCode.OK)
-                {
-                    _logger.LogWarning("Forever armory returned {Status} for {Path} in {Region}", (int)response.Status, path, region);
-                    return ForeverLookup<JObject>.Unavailable();
-                }
-
-                return ForeverLookup<JObject>.Found(JObject.Parse(response.Body));
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                // Message only: a timeout or outage here is routine and shouldn't read as a crash.
-                _logger.LogWarning("Forever armory request for {Path} in {Region} failed: {Type}: {Message}",
-                    path, region, ex.GetType().Name, ex.Message);
-                return ForeverLookup<JObject>.Unavailable();
-            }
-        }
+        private Task<ForeverLookup<JObject>> GetAsync(ForeverRegion region, string path, TimeSpan timeout, CancellationToken cancellationToken)
+            => ForeverApi.GetAsync(_wowApi, _logger, region, "profile", path, timeout, cancellationToken);
 
         private ForeverLookup<T> Map<T>(ForeverLookup<JObject> json, Func<JObject, T?> parse) where T : class
         {
@@ -177,7 +158,7 @@ namespace NinjaBotCore.Services
             {
                 return parse(json.Value!);
             }
-            catch (Exception ex) when (ex is JsonException or InvalidCastException or FormatException or OverflowException or ArgumentException)
+            catch (Exception ex) when (ex is JsonException or InvalidCastException or InvalidOperationException or FormatException or OverflowException or ArgumentException)
             {
                 _logger.LogWarning("Forever armory sent {Kind} in a shape the bot doesn't read: {Message}", typeof(T).Name, ex.Message);
                 return null;
@@ -304,8 +285,46 @@ namespace NinjaBotCore.Services
                     SlotName: Text(i["slot"]?["name"]) ?? string.Empty,
                     Name: Text(i["name"]) ?? string.Empty,
                     Quality: Text(i["quality"]?["type"]),
-                    ItemLevel: Int(i["level"]?["value"])))
+                    ItemLevel: Int(i["level"]?["value"]),
+                    Id: Int(i["item"]?["id"]),
+                    Enchants: (i["enchantments"] as JArray ?? new JArray())
+                        .Select(e => Enchant(Text(e["display_string"])))
+                        .Where(e => e.Length > 0)
+                        .ToList()))
                 .Where(i => i.Name.Length > 0)
+                .ToList();
+        }
+
+        private const string EnchantLead = "Enchanted:";
+
+        /// <summary>"Enchanted: Stamina +2" is "Stamina +2"; a weapon imbue such as "Flametongue 1" has no lead to drop.</summary>
+        private static string Enchant(string? text)
+        {
+            var enchant = (text ?? string.Empty).Replace('\r', ' ').Replace('\n', ' ').Trim();
+            return enchant.StartsWith(EnchantLead, StringComparison.OrdinalIgnoreCase) ? enchant[EnchantLead.Length..].Trim() : enchant;
+        }
+
+        private static IReadOnlyList<ForeverArmorySet>? ParseSets(JObject o)
+        {
+            // The armory lists a character's sets once, and again on every piece that belongs to one.
+            var sets = o["equipped_item_sets"] as JArray
+                ?? new JArray((o["equipped_items"] as JArray ?? new JArray()).Select(i => i["set"]).Where(s => s is JObject));
+            return sets
+                .Select(s =>
+                {
+                    var pieces = s["items"] as JArray ?? new JArray();
+                    var bonuses = s["effects"] as JArray ?? new JArray();
+                    return new ForeverArmorySet(
+                        Name: Text(s["item_set"]?["name"]) ?? string.Empty,
+                        Equipped: pieces.Count(p => p["is_equipped"]?.Type == JTokenType.Boolean && p.Value<bool>("is_equipped")),
+                        Pieces: pieces.Count,
+                        Id: Int(s["item_set"]?["id"]),
+                        ActiveBonuses: bonuses.Count(b => b["is_active"]?.Type == JTokenType.Boolean && b.Value<bool>("is_active")),
+                        Bonuses: bonuses.Count);
+                })
+                .Where(s => s.Name.Length > 0)
+                .GroupBy(s => (s.Id, s.Name))
+                .Select(g => g.First())
                 .ToList();
         }
 
@@ -325,13 +344,15 @@ namespace NinjaBotCore.Services
                     var tier = tiers?.OrderByDescending(t => Int(t["max_skill_points"]) ?? 0).FirstOrDefault() ?? p;
                     // The armory lists the profession's own ranks among the recipes ("Mining" twice for a
                     // miner who trained twice), so those are left out of the count.
-                    var recipes = (tiers ?? Enumerable.Repeat(p, 1))
+                    var known = (tiers ?? Enumerable.Repeat(p, 1))
                         .SelectMany(t => t["known_recipes"] as JArray ?? Enumerable.Empty<JToken>())
-                        .Select(r => Text(r["name"]))
-                        .Count(recipe => !string.IsNullOrWhiteSpace(recipe) && !string.Equals(recipe, name, StringComparison.OrdinalIgnoreCase));
+                        .Select(r => (Id: Int(r["id"]), Name: Text(r["name"])))
+                        .Where(r => !string.IsNullOrWhiteSpace(r.Name) && !string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase))
+                        .Select(r => new ForeverKnownRecipe(r.Id ?? 0, r.Name!.Trim()))
+                        .ToList();
                     list.Add(new ForeverArmoryProfession(
                         name, Int(tier["skill_points"]) ?? 0, Int(tier["max_skill_points"]) ?? 0,
-                        Int(p["profession"]?["id"]), recipes, IsPrimary: group == "primaries"));
+                        Int(p["profession"]?["id"]), known.Count, IsPrimary: group == "primaries", Known: known));
                 }
             }
             return list;
@@ -382,21 +403,10 @@ namespace NinjaBotCore.Services
             return stats is { Deaths: null, Quests: null, Kills: null, Dungeons: null } ? null : stats;
         }
 
-        // Names are plain strings when a locale is sent; without one Blizzard sends a map per locale.
-        private static string? Text(JToken? token) => token?.Type switch
-        {
-            JTokenType.String => token.Value<string>(),
-            JTokenType.Object => Text(token["en_US"] ?? token["en_GB"] ?? token.First?.First),
-            _ => null
-        };
+        private static string? Text(JToken? token) => ForeverApi.Text(token);
 
-        private static int? Int(JToken? token) => Long(token) is { } value and >= int.MinValue and <= int.MaxValue ? (int)value : null;
+        private static int? Int(JToken? token) => ForeverApi.Int(token);
 
-        private static long? Long(JToken? token) => token?.Type switch
-        {
-            JTokenType.Integer => token.Value<long>(),
-            JTokenType.Float => (long)token.Value<double>(),
-            _ => null
-        };
+        private static long? Long(JToken? token) => ForeverApi.Long(token);
     }
 }

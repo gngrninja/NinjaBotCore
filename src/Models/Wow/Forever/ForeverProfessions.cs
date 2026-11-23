@@ -45,7 +45,7 @@ namespace NinjaBotCore.Models.Wow.Forever
 
         /// <summary>Wowhead's Forever page for the profession, or null for one the bot doesn't know has a page.</summary>
         public static string? WowheadUrl(int? id)
-            => id is { } known && Emojis.ContainsKey(known) ? $"https://www.wowhead.com/forever/skill={known}" : null;
+            => id is { } known && Emojis.ContainsKey(known) ? $"{ForeverWowhead.Site}/skill={known}" : null;
 
         /// <summary>The rank whose cap this is ("Journeyman" for 150), or null for a cap that isn't a rank's.</summary>
         public static string? Rank(int cap)

@@ -201,6 +201,54 @@ namespace NinjaBotCore.Modules.Interactions.Admin
             }
         }
 
+        /// <summary>
+        /// Asks Warcraft Logs' Forever site the questions a log watcher would depend on and hands back
+        /// the raw answers: which regions and servers it has, which zones, and how it knows one guild.
+        /// Nothing is built on that host until these answers have been read.
+        /// </summary>
+        [SlashCommand("forever-logs-probe", "Ask Warcraft Logs' Forever site what it has, and get the raw answers")]
+        [RequireOwner]
+        public async Task ForeverLogsProbe(
+            [Summary("guild", "A guild that has uploaded Forever logs, as spelled on Warcraft Logs")] string guild = null,
+            [Summary("server", "The server slug Warcraft Logs shows for that guild, if it shows one")] string server = null,
+            [Summary("region", "us, eu, kr or tw")] string region = "us")
+        {
+            await DeferAsync(ephemeral: true);
+
+            var questions = new List<(string Title, string Query, object Variables)>
+            {
+                ("Regions and their servers",
+                    "{ worldData { regions { id slug compactName name servers(limit: 40) { total data { id name slug } } } } }", null),
+                ("Expansions and zones",
+                    "{ worldData { expansions { id name zones { id name frozen encounters { id name } } } } }", null),
+                ("API points",
+                    "{ rateLimitData { limitPerHour pointsSpentThisHour pointsResetIn } }", null)
+            };
+            if (!string.IsNullOrWhiteSpace(guild))
+            {
+                var named = new { name = guild.Trim(), server = string.IsNullOrWhiteSpace(server) ? null : server.Trim(), region = region.Trim().ToLowerInvariant() };
+                questions.Add(("The guild, by name",
+                    "query($name: String, $server: String, $region: String) { guildData { guild(name: $name, serverSlug: $server, serverRegion: $region) { id name faction { name } server { id name slug region { slug } } } } }",
+                    named));
+                questions.Add(("The guild's latest reports, by name",
+                    "query($name: String, $server: String, $region: String) { reportData { reports(guildName: $name, guildServerSlug: $server, guildServerRegion: $region, limit: 3) { total data { code title startTime endTime zone { id name } owner { name } guild { id name } } } } }",
+                    named));
+            }
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"Warcraft Logs Forever probe, {DateTime.UtcNow:yyyy-MM-dd HH:mm} UTC");
+            sb.AppendLine($"guild={guild ?? "(none)"} server={server ?? "(none)"} region={region}");
+            foreach (var (title, query, variables) in questions)
+            {
+                sb.AppendLine().AppendLine($"=== {title} ===").AppendLine(query);
+                sb.AppendLine(await _warcraftLogsV2.RawQueryAsync(query, variables, WowGameVersion.Forever));
+            }
+
+            using var stream = new System.IO.MemoryStream(Encoding.UTF8.GetBytes(sb.ToString()));
+            await FollowupWithFileAsync(stream, "forever-logs-probe.txt",
+                "Raw answers from `forever.warcraftlogs.com`. Nothing was saved or changed.", ephemeral: true);
+        }
+
         [SlashCommand("refresh-raid-tier", "Refresh current raid tier from WarcraftLogs API")]
         [RequireOwner]
         public async Task RefreshRaidTier(

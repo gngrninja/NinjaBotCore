@@ -2,12 +2,12 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using Discord;
 using NinjaBotCore.Database;
 using NinjaBotCore.Models.Wow.Forever;
-using NinjaBotCore.Modules.Interactions.Wow.CharViews;
 using NinjaBotCore.Services;
 
 namespace NinjaBotCore.Modules.Interactions.Wow
@@ -22,7 +22,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
     /// <summary>How far this server and the caller are with setting Forever up. /forever help ticks these off.</summary>
     /// <param name="MainName">The caller's main in this server, or null when none is picked.</param>
-    /// <param name="Shared">How many of the caller's characters are shared to this server's roster.</param>
+    /// <param name="Shared">How many of the caller's characters are on this server's roster.</param>
     /// <param name="IsOfficer">Whether the caller can run the guild commands (Kick Members).</param>
     public sealed record ForeverSetup(ForeverGuild? Guild, int Characters, string? MainName, int Shared, bool IsOfficer);
 
@@ -31,10 +31,15 @@ namespace NinjaBotCore.Modules.Interactions.Wow
     /// one accent colour, emoji buttons inside the card and a single small footer line. Each card says
     /// whether its details are self-reported or from Blizzard's armory.
     /// </summary>
-    public static class ForeverViews
+    public static partial class ForeverViews
     {
         public const string MainButtonPrefix = "forever_main";
         public const string ShareButtonPrefix = "forever_share";
+        public const string HideButtonPrefix = "forever_hide";
+        public const string RemoveButtonPrefix = "forever_remove";
+        public const string ManagePrefix = "forever_manage";
+        public const string ListButtonPrefix = "forever_list";
+        public const string CardMenuPrefix = "forever_cardmenu";
         public const string RosterPagePrefix = "forever_roster";
         public const string RosterSortPrefix = "forever_rsort";
         public const string RosterPickPrefix = "forever_rpick";
@@ -43,12 +48,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         public const string CardOverview = "o";
         public const string CardGear = "g";
         public const string CardProfessions = "p";
+        /// <summary>Leads the id of the profession whose recipes the card lists: "k197" is Tailoring's.</summary>
+        public const string CardRecipes = "k";
         /// <summary>Leads the card's view code when it was opened from the roster, so the card offers the way back.</summary>
         public const string FromRoster = "r";
 
         public const int MaxLevel = 60;
 
-        private const string SelfReported = "Self-reported, not verified with Blizzard";
+        private const string SelfReported = "Added by members, not checked against Blizzard's roster";
         private const int MaxMembersPerPage = 15;
         private const int MaxArmoryLinesPerPage = 20;
         // Discord allows 4,000 characters of text per message; the rest is for the header and footer.
@@ -65,11 +72,27 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private static readonly Color DoneColor = new(0x3BA55D);
         private static readonly Color ProblemColor = new(0xF0B132);
 
-        private static readonly string[][] GearGroups =
+        private static readonly (string Title, string[] Slots)[] GearGroups =
         {
-            new[] { "HEAD", "NECK", "SHOULDER", "BACK", "CHEST", "SHIRT", "TABARD", "WRIST", "HANDS", "WAIST", "LEGS", "FEET" },
-            new[] { "FINGER_1", "FINGER_2", "TRINKET_1", "TRINKET_2" },
-            new[] { "MAIN_HAND", "OFF_HAND", "RANGED" }
+            ("Armor", new[] { "HEAD", "SHOULDER", "BACK", "CHEST", "SHIRT", "TABARD", "WRIST", "HANDS", "WAIST", "LEGS", "FEET" }),
+            ("Jewelry", new[] { "NECK", "FINGER_1", "FINGER_2", "TRINKET_1", "TRINKET_2" }),
+            ("Weapons", new[] { "MAIN_HAND", "OFF_HAND", "RANGED", "AMMO" })
+        };
+
+        // Slots every character can fill. A shirt, a tabard, an off hand and ammo are a choice, and
+        // not every class has something for the ranged slot, so those are never called empty.
+        private static readonly (string Slot, string Name)[] SlotsToFill =
+        {
+            ("HEAD", "Head"), ("NECK", "Neck"), ("SHOULDER", "Shoulders"), ("BACK", "Back"), ("CHEST", "Chest"), ("WRIST", "Wrist"),
+            ("HANDS", "Hands"), ("WAIST", "Waist"), ("LEGS", "Legs"), ("FEET", "Feet"), ("FINGER_1", "Ring 1"), ("FINGER_2", "Ring 2"),
+            ("TRINKET_1", "Trinket 1"), ("TRINKET_2", "Trinket 2"), ("MAIN_HAND", "Main Hand")
+        };
+
+        // Best first, which is the order the Gear tab counts them in.
+        private static readonly (string Type, string Emoji, string Name)[] Qualities =
+        {
+            ("LEGENDARY", "🟠", "legendary"), ("EPIC", "🟣", "epic"), ("RARE", "🔵", "rare"),
+            ("UNCOMMON", "🟢", "uncommon"), ("COMMON", "⚪", "common"), ("POOR", "🔘", "poor")
         };
 
         private static readonly (ForeverRosterSort Sort, char Code, string Label, string Description)[] Sorts =
@@ -81,7 +104,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         };
 
         public static string Line(ForeverCharacter c)
-            => $"{ClassEmoji(c.Class)} **{Format.Sanitize(c.FullName)}** — {c.Class?.ToString() ?? "no class set"}";
+            => $"{ClassEmoji(c.Class)} **{Format.Sanitize(c.FullName)}** — {c.Class?.ToString() ?? "class not known yet"}";
 
         // ===== Notices =====
 
@@ -107,15 +130,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         public const string HelpPointer = "New to this? `/forever help` walks you through it.";
 
         /// <summary>
-        /// Getting started: the five setup steps with the ones already done ticked off, a pointer at the
-        /// first step the caller can do right now, then the other commands and what to know about Forever.
+        /// Getting started: the three setup steps with the ones already done ticked off, a pointer at the
+        /// first step the caller can do right now, then every command and what to know about Forever.
         /// </summary>
         public static MessageComponent Help(string serverName, string? iconUrl, ulong userId, ForeverSetup setup)
         {
             var guild = setup.Guild;
-            var rosterOn = guild is { RosterEnabled: true };
             var hasCharacter = setup.Characters > 0;
-            // The guild steps need Kick Members, so everyone else is told who to ask.
+            // Setting the guild needs Kick Members, so everyone else is told who to ask.
             var byOfficer = setup.IsOfficer ? "" : "an officer runs ";
 
             var steps = new (bool Done, bool CanDoNow, string Text)[]
@@ -123,18 +145,13 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 (guild != null, setup.IsOfficer, guild != null
                     ? $"**Guild set** · {Format.Sanitize(guild.Name)} · {ForeverDisplay.Context(guild.Region, guild.Ruleset, guild.Faction)}"
                     : $"**Set this server's guild** · {byOfficer}`/forever guild set`"),
-                (rosterOn, setup.IsOfficer && guild != null, rosterOn
-                    ? "**Roster on** · members choose what to share"
-                    : $"**Turn the roster on** · {byOfficer}`/forever guild roster`"),
                 (hasCharacter, true, hasCharacter
-                    ? $"**{setup.Characters:N0} character{(setup.Characters == 1 ? "" : "s")} added** · add more with `/forever char add`"
-                    : "**Add your character** · `/forever char add`"),
-                (setup.MainName != null, hasCharacter, setup.MainName != null
-                    ? $"**Main here** · ★ {Format.Sanitize(setup.MainName)} · change it with `/forever char main`"
-                    : "**Pick your main here** · `/forever char main`"),
-                (setup.Shared > 0, hasCharacter && rosterOn, setup.Shared > 0
-                    ? $"**{setup.Shared:N0} shared to the roster**" + (rosterOn ? "" : ", hidden while the roster is off") + " · `/forever roster share` adds another"
-                    : "**Share a character to the roster** · `/forever roster share`" + (rosterOn ? "" : ", once the roster is on"))
+                    ? $"**{setup.Characters:N0} character{(setup.Characters == 1 ? "" : "s")} saved**"
+                      + (setup.MainName != null ? $" · ★ {Format.Sanitize(setup.MainName)} is your main here" : "")
+                    : "**Save your character** · `/forever char add`"),
+                (setup.Shared > 0, hasCharacter && guild != null, setup.Shared > 0
+                    ? $"**{setup.Shared:N0} on the roster** · your name shows next to {(setup.Shared == 1 ? "it" : "them")}"
+                    : "**Put it on the roster** · `/forever char list`, pick it, then **Show on roster**")
             };
             var done = steps.Count(s => s.Done);
             var next = Array.FindIndex(steps, s => !s.Done && s.CanDoNow);
@@ -154,34 +171,38 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             card.AddComponent(new TextDisplayBuilder(
                 "### Commands\n"
-                + "🪪 `/forever char view` · anyone's armory card: level, talents, professions and gear\n"
-                + "👥 `/forever roster view` · who plays what in this server; `roster unshare` takes yours off it\n"
-                + "📜 `/forever char list` · your characters; `char edit` and `char remove` change them\n"
-                + "🏰 `/forever guild view` · this server's guild\n"
-                + "🛡️ Officers (Kick Members): `/forever guild set`, `guild roster` and `guild unset`"));
+                + "🪪 `/forever char view` · anyone's armory card: level, talents, gear, professions and recipes\n"
+                + "👥 `/forever roster` · the guild's members, and who in this server plays whom\n"
+                + "🛠️ `/forever craft` · what a recipe takes, what it costs and who in the guild can make it\n"
+                + "💰 `/forever price` · what an item goes for on the auction houses\n"
+                + "🔥 `/forever camp` · post a camp card; people join and it works out who brings what\n"
+                + "📜 `/forever char add` and `/forever char list` · your own characters: main, roster, remove\n"
+                + "🏰 `/forever guild view` · this server's guild; officers (Kick Members) use `guild set` and `guild unset`"));
             AddDivider(card);
 
             card.AddComponent(new TextDisplayBuilder(
                 "### Good to know\n"
                 + "- Forever has no realms: a character is a first name and a surname, unique in its region.\n"
-                + $"- A character reaches Blizzard's armory at level {ArmoryMinLevel}, after it logs out. Before then, add it with its class, ruleset and faction.\n"
-                + "- Your characters are private until you share them, and every `/forever` reply is shown only to you.\n"
-                + "- Name fields suggest guildmates once the guild is matched to the armory and the roster is on."));
+                + $"- Everything about a character comes from Blizzard's armory, which has it from level {ArmoryMinLevel} once it logs out. A younger guildmate can still be saved from the guild's roster.\n"
+                + "- Saving a character is private. Your name only shows next to it once you put it on this server's roster.\n"
+                + "- Prices are TradeSkillMaster's regional averages, not your own auction house."));
 
-            if (rosterOn)
+            if (guild != null)
             {
                 card.AddComponent(new ActionRowBuilder().WithButton(
                     new ButtonBuilder("View roster", RosterId(userId, 0, ForeverRosterSort.Rank), ButtonStyle.Primary, emote: new Emoji("👥"))));
             }
 
-            AddFooter(card, "Class, level and rosters come from Blizzard's armory · nothing proves a character is yours");
+            AddFooter(card, "Characters and rosters come from Blizzard's armory · nothing proves a character is yours");
             return new ComponentBuilderV2().AddComponent(card).Build();
         }
 
         // ===== Guild =====
 
-        /// <param name="saved">What the armory said when the guild was just set; null when only showing it.</param>
-        public static MessageComponent Guild(ForeverGuild guild, string serverName, string? iconUrl, ulong userId, ForeverSavedGuild? saved = null)
+        /// <param name="armory">What the armory says about the guild now; null when it didn't answer.</param>
+        /// <param name="justSet">The card confirms a set, so it says what to do next.</param>
+        public static MessageComponent Guild(
+            ForeverGuild guild, string serverName, string? iconUrl, ulong userId, ForeverArmoryGuild? armory = null, bool justSet = false)
         {
             var card = new ContainerBuilder().WithAccentColor(FactionColor(guild.Faction));
             AddHeader(card,
@@ -193,19 +214,18 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             sb.Append("🌍 **Region** ").Append(guild.Region).Append('\n');
             sb.Append("📜 **Ruleset** ").Append(guild.Ruleset.Name()).Append('\n');
             sb.Append(guild.Faction.Emoji()).Append(" **Faction** ").Append(guild.Faction).Append('\n');
-            sb.Append("🪪 **Armory** ").Append(ArmoryState(guild, saved)).Append('\n');
-            sb.Append("👥 **Roster** ").Append(guild.RosterEnabled
-                ? "on — members can share characters with `/forever roster share`"
-                : "off — an officer can turn it on with `/forever guild roster`");
-            card.AddComponent(new TextDisplayBuilder(sb.ToString()));
+            if (armory is { MemberCount: > 0 })
+                sb.Append("👥 **Members** ").Append(armory.MemberCount.ToString("N0")).Append('\n');
+            else if (guild.ArmorySlug == null)
+                sb.Append("🪪 **Armory** not matched yet. An officer can run `/forever guild set` again to match it.\n");
+            if (justSet)
+                sb.Append("\nMembers can now save their characters with `/forever char add`, and `/forever craft` shows who can make what.");
+            card.AddComponent(new TextDisplayBuilder(sb.ToString().TrimEnd('\n')));
 
-            if (guild.RosterEnabled)
-            {
-                card.AddComponent(new ActionRowBuilder().WithButton(
-                    new ButtonBuilder("View roster", RosterId(userId, 0, ForeverRosterSort.Rank), ButtonStyle.Primary, emote: new Emoji("👥"))));
-            }
+            card.AddComponent(new ActionRowBuilder().WithButton(
+                new ButtonBuilder("View roster", RosterId(userId, 0, ForeverRosterSort.Rank), ButtonStyle.Primary, emote: new Emoji("👥"))));
 
-            var footer = guild.ArmorySlug != null ? "Ruleset and faction from Blizzard's armory" : SelfReported;
+            var footer = guild.ArmorySlug != null ? "From Blizzard's armory" : SelfReported;
             if (guild.TimeSet.HasValue)
                 footer += $" · set by {Format.Sanitize(guild.SetByName ?? "an officer")} on {guild.TimeSet.Value:yyyy-MM-dd}";
             AddFooter(card, footer);
@@ -218,41 +238,31 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             AddHeader(card, $"# 🏰 WoW Forever guild\nNone set for **{Format.Sanitize(serverName)}** yet", iconUrl, "Server icon");
             AddDivider(card);
             card.AddComponent(new TextDisplayBuilder(
-                "An officer can set one with `/forever guild set`.\nMembers can still add their own characters with `/forever char add`."));
+                "An officer can set one with `/forever guild set`.\nMembers can still save their own characters with `/forever char add`."));
             AddFooter(card, HelpPointer);
             return new ComponentBuilderV2().AddComponent(card).Build();
         }
 
-        private static string ArmoryState(ForeverGuild guild, ForeverSavedGuild? saved)
-        {
-            if (guild.ArmorySlug != null)
-            {
-                return saved?.Armory is { MemberCount: > 0 } armory
-                    ? $"matched · {armory.MemberCount:N0} member{(armory.MemberCount == 1 ? "" : "s")}"
-                    : "matched";
-            }
-
-            const string retry = "The roster only shows what members share until `/forever guild set` finds it.";
-            return saved?.Lookup switch
-            {
-                ForeverLookupStatus.NotFound => $"no guild with this name on the {guild.Region} armory. {retry}",
-                ForeverLookupStatus.Unavailable => $"Blizzard's armory didn't answer. {retry}",
-                _ => $"not matched. {retry}"
-            };
-        }
-
         // ===== Saved characters =====
 
+        /// <summary>
+        /// One of the caller's characters with everything they can do to it: make it their main here,
+        /// put it on or take it off this server's roster, open its armory card, or remove it.
+        /// </summary>
+        /// <param name="verb">What just happened to it ("added"), or null when the card is only showing it.</param>
+        /// <param name="canShare">It fits this server's guild, so it can go on the roster.</param>
+        /// <param name="confirmRemove">Remove was pressed once; the next press deletes it.</param>
         public static MessageComponent CharacterSaved(
-            ForeverSavedCharacter saved, string verb, bool isMain, bool isShared, ulong userId, bool canShare)
+            ForeverSavedCharacter saved, string? verb, bool isMain, bool isShared, ulong userId, bool canShare, bool confirmRemove = false)
         {
             var c = saved.Character;
             var card = new ContainerBuilder().WithAccentColor(ClassColor(c.Class, c.Faction));
 
             var sb = new StringBuilder();
-            sb.Append("## ✅ Forever character ").Append(verb).Append('\n');
-            sb.Append("### ").Append(ClassEmoji(c.Class)).Append(' ').Append(Heading(c.FullName)).Append('\n');
-            sb.Append(c.Class?.ToString() ?? "No class set").Append(" · ").Append(ForeverDisplay.Context(c.Region, c.Ruleset, c.Faction)).Append('\n');
+            sb.Append("## ").Append(ClassEmoji(c.Class)).Append(' ').Append(Heading(c.FullName));
+            if (verb != null) sb.Append(" · ").Append(verb).Append(" ✅");
+            sb.Append('\n');
+            sb.Append(c.Class?.ToString() ?? "Class not known yet").Append(" · ").Append(ForeverDisplay.Context(c.Region, c.Ruleset, c.Faction)).Append('\n');
             switch (saved.Lookup)
             {
                 case ForeverLookupStatus.Found when saved.Armory != null:
@@ -262,31 +272,37 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     sb.Append("Not on the armory yet. ").Append(ForeverService.NotOnArmoryHint).Append('\n');
                     break;
                 case ForeverLookupStatus.Unavailable:
-                    sb.Append("Blizzard's armory didn't answer, so this is saved as typed.\n");
+                    sb.Append("Blizzard's armory didn't answer just now.\n");
                     break;
             }
             card.AddComponent(new TextDisplayBuilder(sb.ToString().TrimEnd('\n')));
             AddDivider(card);
             card.AddComponent(new TextDisplayBuilder(
                 (isMain ? "★ Your main in this server." : "Not your main in this server.") + "\n"
-                + (isShared ? "📋 On this server's roster." : "🔒 Private: only you can see it.")));
+                + (isShared
+                    ? "👥 On this server's roster, with your name next to it."
+                    : canShare
+                        ? "🔒 Private: only you can see that it's yours."
+                        : "🔒 Private. This server's roster is for its own guild's region, ruleset and faction, which this character isn't.")));
 
             var row = new ActionRowBuilder();
             if (!isMain)
-                row.WithButton(new ButtonBuilder("Make main here", $"{MainButtonPrefix}~{userId}~{c.Id}", ButtonStyle.Primary, emote: new Emoji("⭐")));
-            if (canShare && !isShared)
-                row.WithButton(new ButtonBuilder("Share to roster", $"{ShareButtonPrefix}~{userId}~{c.Id}", ButtonStyle.Success, emote: new Emoji("📋")));
-            if (saved.Armory != null)
-            {
-                if (CardId(userId, CardOverview, saved.Armory) is { } cardId)
-                    row.WithButton(new ButtonBuilder("Character card", cardId, ButtonStyle.Secondary, emote: new Emoji("🪪")));
-                row.WithButton(new ButtonBuilder("Armory", style: ButtonStyle.Link, url: ForeverNames.ArmoryUrl(saved.Armory.Region, saved.Armory.Slug)));
-            }
-            if (row.Components.Count > 0) card.AddComponent(row);
+                row.WithButton(new ButtonBuilder("Make main", $"{MainButtonPrefix}~{userId}~{c.Id}", ButtonStyle.Primary, emote: new Emoji("⭐")));
+            if (isShared)
+                row.WithButton(new ButtonBuilder("Hide from roster", $"{HideButtonPrefix}~{userId}~{c.Id}", ButtonStyle.Secondary, emote: new Emoji("🔒")));
+            else if (canShare)
+                row.WithButton(new ButtonBuilder("Show on roster", $"{ShareButtonPrefix}~{userId}~{c.Id}", ButtonStyle.Success, emote: new Emoji("👥")));
+            if (saved.Armory != null && CardId(userId, CardOverview, saved.Armory) is { } cardId)
+                row.WithButton(new ButtonBuilder("Armory card", cardId, ButtonStyle.Secondary, emote: new Emoji("🪪")));
+            row.WithButton(confirmRemove
+                ? new ButtonBuilder("Really remove it", $"{RemoveButtonPrefix}~{userId}~{c.Id}~y", ButtonStyle.Danger, emote: new Emoji("🗑️"))
+                : new ButtonBuilder("Remove", $"{RemoveButtonPrefix}~{userId}~{c.Id}~n", ButtonStyle.Secondary, emote: new Emoji("🗑️")));
+            row.WithButton(new ButtonBuilder("Your characters", $"{ListButtonPrefix}~{userId}", ButtonStyle.Secondary, emote: new Emoji("📜")));
+            card.AddComponent(row);
 
-            AddFooter(card, saved.Armory != null
-                ? "Class, ruleset and faction from Blizzard's armory · ownership isn't verified"
-                : SelfReported);
+            AddFooter(card, confirmRemove
+                ? "Removing deletes it here, as your main and from every server's roster. The character itself is untouched."
+                : "From Blizzard's armory · nothing proves a character is yours");
             return new ComponentBuilderV2().AddComponent(card).Build();
         }
 
@@ -298,8 +314,9 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             return line;
         }
 
+        /// <param name="note">A line to lead with, such as what was just removed.</param>
         public static MessageComponent CharacterList(
-            IReadOnlyList<ForeverCharacter> characters, long? mainId, IReadOnlySet<long> sharedIds, ulong userId)
+            IReadOnlyList<ForeverCharacter> characters, long? mainId, IReadOnlySet<long> sharedIds, ulong userId, string? note = null)
         {
             var card = new ContainerBuilder().WithAccentColor(ForeverColor);
             var count = characters.Count;
@@ -311,22 +328,23 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             if (count == 0)
             {
-                card.AddComponent(new TextDisplayBuilder("You haven't added any yet. Use `/forever char add`."));
+                card.AddComponent(new TextDisplayBuilder((note == null ? "" : note + "\n") + "You haven't saved any yet. Use `/forever char add`."));
                 AddFooter(card, HelpPointer);
                 return new ComponentBuilderV2().AddComponent(card).Build();
             }
 
             var sb = new StringBuilder();
+            if (note != null) sb.Append(note).Append("\n\n");
             foreach (var c in characters)
             {
-                var marks = (c.Id == mainId ? "★ " : "") + (sharedIds.Contains(c.Id) ? "📋 " : "");
+                var marks = (c.Id == mainId ? "★ " : "") + (sharedIds.Contains(c.Id) ? "👥 " : "");
                 sb.Append(marks).Append(Line(c)).Append(" · ").Append(ForeverDisplay.Context(c.Region, c.Ruleset, c.Faction)).Append('\n');
             }
             card.AddComponent(new TextDisplayBuilder(Clip(sb.ToString().TrimEnd('\n'), MaxBodyChars)));
 
             var menu = new SelectMenuBuilder()
-                .WithCustomId($"{OpenCardPrefix}~{userId}")
-                .WithPlaceholder("Open a character's armory card…")
+                .WithCustomId($"{ManagePrefix}~{userId}")
+                .WithPlaceholder("Pick a character: main, roster, armory card, remove…")
                 .WithMinValues(1)
                 .WithMaxValues(1);
             foreach (var c in characters.Take(25))
@@ -334,12 +352,12 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 menu.AddOption(
                     label: Clip(c.FullName, 100),
                     value: c.Id.ToString(),
-                    description: Clip($"{c.Class?.ToString() ?? "No class set"} · {ForeverDisplay.Context(c.Region, c.Ruleset, c.Faction)}", 100),
+                    description: Clip($"{c.Class?.ToString() ?? "Class not known yet"} · {ForeverDisplay.Context(c.Region, c.Ruleset, c.Faction)}", 100),
                     emote: new Emoji(ClassEmoji(c.Class)));
             }
             card.AddComponent(new ActionRowBuilder().WithSelectMenu(menu));
 
-            AddFooter(card, "★ main in this server · 📋 on this server's roster");
+            AddFooter(card, "★ main in this server · 👥 on this server's roster · add another with /forever char add");
             return new ComponentBuilderV2().AddComponent(card).Build();
         }
 
@@ -350,14 +368,14 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 $"# 👤 {Heading(displayName)}\n"
                 + (characters.Count == 0
                     ? "in WoW Forever"
-                    : $"**{characters.Count}** character{(characters.Count == 1 ? "" : "s")} shared in WoW Forever"),
+                    : $"**{characters.Count}** character{(characters.Count == 1 ? "" : "s")} on this server's Forever roster"),
                 avatarUrl, "Member avatar");
             AddDivider(card);
 
             var sb = new StringBuilder();
             if (characters.Count == 0)
             {
-                sb.Append("No characters shared to this server's roster.");
+                sb.Append("No characters on this server's roster.");
             }
             else
             {
@@ -366,7 +384,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             }
             card.AddComponent(new TextDisplayBuilder(Clip(sb.ToString().TrimEnd('\n'), MaxBodyChars)));
 
-            AddFooter(card, (characters.Any(c => c.Id == mainId) ? "★ main · " : "") + "Member-reported, not verified with Blizzard");
+            AddFooter(card, (characters.Any(c => c.Id == mainId) ? "★ main · " : "") + "Put there by the member · nothing proves a character is theirs");
             return new ComponentBuilderV2().AddComponent(card).Build();
         }
 
@@ -486,7 +504,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             if (unlisted.Count > 0)
             {
                 // The heading rides on its first line so a page never ends with a bare heading.
-                unlisted[0] = $"\n__Shared here, not in the guild on the armory__\n{unlisted[0]}";
+                unlisted[0] = $"\n__On this server's roster, not in the guild on the armory__\n{unlisted[0]}";
                 rows.AddRange(unlisted.Select(line => (line, (ForeverArmoryMember?)null)));
             }
             return rows;
@@ -597,7 +615,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             AddPager(card, userId, page, pages.Count, sort);
 
-            var footer = "A name after the dash shared that character with `/forever roster share` · ★ main";
+            var footer = "A name after the dash put that character on the roster from `/forever char list` · ★ main";
             footer += " · the armory's roster can be 3 hours behind";
             if (count >= ArmoryRosterCap) footer += $" · Blizzard lists the first {ArmoryRosterCap:N0}";
             AddFooter(card, footer);
@@ -613,15 +631,15 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             AddHeader(card,
                 $"# 👥 {Heading(guild.Name)} roster\n"
                 + (memberCount > 0 ? $"**{memberCount:N0}** member{(memberCount == 1 ? "" : "s")} · " : "")
-                + $"member-reported characters · {ForeverDisplay.Context(guild.Region, guild.Ruleset, guild.Faction)}"
-                + (roster.ArmoryMissed ? "\nBlizzard's armory didn't send the guild's roster, so this only shows what members shared." : ""),
+                + $"characters members added · {ForeverDisplay.Context(guild.Region, guild.Ruleset, guild.Faction)}"
+                + (roster.ArmoryMissed ? "\nBlizzard's armory didn't send the guild's roster, so this only shows what members put on it." : ""),
                 iconUrl, "Server icon");
             AddDivider(card);
 
             if (pages.Count == 0)
             {
-                card.AddComponent(new TextDisplayBuilder("Nobody has shared a character yet. Share yours with `/forever roster share`."));
-                AddFooter(card, "Not verified with Blizzard");
+                card.AddComponent(new TextDisplayBuilder("Nobody has put a character on the roster yet. Add yours from `/forever char list`."));
+                AddFooter(card, SelfReported);
                 return new ComponentBuilderV2().AddComponent(card).Build();
             }
 
@@ -631,7 +649,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             card.AddComponent(new TextDisplayBuilder(Clip(sb.ToString().TrimEnd('\n'), MaxBodyChars)));
 
             AddPager(card, userId, page, pages.Count, ForeverRosterSort.Rank);
-            AddFooter(card, "★ main · Not verified with Blizzard");
+            AddFooter(card, "★ main · " + SelfReported);
             return new ComponentBuilderV2().AddComponent(card).Build();
         }
 
@@ -690,16 +708,34 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
         public static bool IsProfessions(string? view) => view != null && view.EndsWith(CardProfessions, StringComparison.Ordinal);
 
+        /// <summary>The profession whose recipes a view code asks for ("k197", or "rk197" from the roster), or null for any other view.</summary>
+        public static int? RecipesProfession(string? view)
+        {
+            if (view == null) return null;
+            var code = IsFromRoster(view) ? view[FromRoster.Length..] : view;
+            return code.StartsWith(CardRecipes, StringComparison.Ordinal)
+                   && int.TryParse(code[CardRecipes.Length..], NumberStyles.None, CultureInfo.InvariantCulture, out var id) && id > 0
+                ? id
+                : null;
+        }
+
         /// <summary>The tab a view code asks for. Anything the card doesn't know is the Overview.</summary>
-        public static string Tab(string? view) => IsGear(view) ? CardGear : IsProfessions(view) ? CardProfessions : CardOverview;
+        public static string Tab(string? view)
+            => IsGear(view) ? CardGear
+                : RecipesProfession(view) is { } profession ? CardRecipes + profession.ToString(CultureInfo.InvariantCulture)
+                : IsProfessions(view) ? CardProfessions
+                : CardOverview;
 
         public static bool IsFromRoster(string? view) => view != null && view.StartsWith(FromRoster, StringComparison.Ordinal);
 
-        /// <param name="view">"o", "g" or "p", led by "r" when the card was opened from the roster.</param>
+        /// <param name="view">"o", "g", "p" or "k" with a profession id, led by "r" when the card was opened from the roster.</param>
         public static MessageComponent Card(ForeverArmoryCard card, string view, ulong userId)
         {
             var c = card.Character;
             var tab = Tab(view);
+            // A profession the character has dropped since the menu was drawn falls back to the tab it came from.
+            var recipesOf = RecipesProfession(tab) is { } wanted ? card.Professions.FirstOrDefault(p => p.Id == wanted && p.Known is { Count: > 0 }) : null;
+            if (RecipesProfession(tab) != null) tab = CardProfessions;
             var gear = tab == CardGear;
             var fromRoster = IsFromRoster(view);
             var container = new ContainerBuilder().WithAccentColor(ClassColor(c.Class, c.Faction));
@@ -720,14 +756,23 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             container.AddComponent(CardButtons(userId, c, tab, fromRoster, card.Professions.Count > 0));
             AddDivider(container);
-            container.AddComponent(new TextDisplayBuilder(Clip(
-                gear ? GearText(card) : tab == CardProfessions ? ProfessionsText(card.Professions) : OverviewText(card), MaxBodyChars)));
+            var body = gear ? GearText(card)
+                : recipesOf != null ? RecipesText(recipesOf)
+                : tab == CardProfessions ? ProfessionsText(card.Professions)
+                : OverviewText(card);
+            container.AddComponent(new TextDisplayBuilder(Clip(body, MaxBodyChars)));
+            if (tab == CardProfessions && RecipeMenu(userId, c, fromRoster, card.Professions, recipesOf) is { } recipeMenu)
+                container.AddComponent(new ActionRowBuilder().WithSelectMenu(recipeMenu));
             if (gear && card.RenderUrl != null)
                 container.AddComponent(new MediaGalleryBuilder().AddItem(card.RenderUrl, $"{c.FullName.Trim()} in game"));
 
             var footer = "From Blizzard's armory · updates when the character logs out";
+            if (gear && body.Contains("](" + ForeverWowhead.Site, StringComparison.Ordinal))
+                footer += " · item names open Wowhead";
             // The Overview only links the primary professions; the Professions tab links them all.
-            if (!gear && card.Professions.Any(p => (p.IsPrimary || tab == CardProfessions) && ForeverProfessions.WowheadUrl(p.Id) != null))
+            if (!gear && (recipesOf != null
+                    ? ForeverProfessions.WowheadUrl(recipesOf.Id) != null
+                    : card.Professions.Any(p => (p.IsPrimary || tab == CardProfessions) && ForeverProfessions.WowheadUrl(p.Id) != null)))
                 footer += " · profession names open Wowhead";
             AddFooter(container, footer);
             return new ComponentBuilderV2().AddComponent(container).Build();
@@ -823,6 +868,67 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             return sb.ToString();
         }
 
+        /// <summary>One profession's recipes by name, A to Z, as many as the card holds.</summary>
+        private static string RecipesText(ForeverArmoryProfession profession)
+        {
+            var names = (profession.Known ?? Array.Empty<ForeverKnownRecipe>())
+                .Select(r => r.Name.Replace('\r', ' ').Replace('\n', ' ').Trim())
+                .Where(n => n.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var sb = new StringBuilder();
+            sb.Append("### ").Append(ForeverProfessions.Emoji(profession.Id)).Append(' ').Append(ProfessionName(profession))
+                .Append($" · {names.Count:N0} recipe{(names.Count == 1 ? "" : "s")}\n");
+            sb.Append("-# ").Append(SkillText(profession));
+            if (ForeverProfessions.Rank(profession.MaxSkill) is { } rank) sb.Append(" · ").Append(rank);
+            sb.Append(" · `/forever craft` shows what one takes and who else makes it\n");
+
+            // Room for the "and N more" line, so the list is never cut mid-name.
+            const int room = MaxBodyChars - 40;
+            var shown = 0;
+            foreach (var name in names)
+            {
+                var piece = (shown == 0 ? "" : " · ") + Format.Sanitize(name);
+                if (sb.Length + piece.Length > room) break;
+                sb.Append(piece);
+                shown++;
+            }
+            if (shown < names.Count) sb.Append($"\n-# …and {names.Count - shown:N0} more");
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// The menu under the Professions tab: one entry per profession the armory listed recipes for,
+        /// and the way back to the skill bars. Null when there is nothing to list or the id wouldn't fit.
+        /// </summary>
+        private static SelectMenuBuilder? RecipeMenu(
+            ulong userId, ForeverArmoryCharacter c, bool fromRoster, IReadOnlyList<ForeverArmoryProfession> professions, ForeverArmoryProfession? shown)
+        {
+            var listed = professions.Where(p => p.Id is > 0 && p.Known is { Count: > 0 }).DistinctBy(p => p.Id).Take(24).ToList();
+            var id = $"{CardMenuPrefix}~{userId}~{(fromRoster ? FromRoster : "n")}~{(int)c.Region}~{c.FirstName}~{c.Surname}";
+            if (listed.Count == 0 || id.Length > 100 || CardId(userId, CardOverview, c) == null) return null;
+
+            var menu = new SelectMenuBuilder()
+                .WithCustomId(id)
+                .WithPlaceholder("List a profession's recipes…")
+                .WithMinValues(1)
+                .WithMaxValues(1);
+            if (shown != null)
+                menu.AddOption("Skill bars", CardProfessions, "Back to every profession's skill", new Emoji(ForeverProfessions.DefaultEmoji));
+            foreach (var p in listed)
+            {
+                menu.AddOption(
+                    label: Clip($"{p.Name} recipes", 100),
+                    value: CardRecipes + p.Id!.Value.ToString(CultureInfo.InvariantCulture),
+                    description: $"{p.Known!.Count:N0} known",
+                    emote: new Emoji(ForeverProfessions.Emoji(p.Id)),
+                    isDefault: shown != null && p.Id == shown.Id);
+            }
+            return menu;
+        }
+
         /// <summary>The profession's name, linked to its Wowhead page when the bot knows it has one.</summary>
         private static string ProfessionName(ForeverArmoryProfession p)
             => ForeverProfessions.WowheadUrl(p.Id) is { } url ? $"[{Format.Sanitize(p.Name)}]({url})" : Format.Sanitize(p.Name);
@@ -849,31 +955,92 @@ namespace NinjaBotCore.Modules.Interactions.Wow
             return new string('█', filled) + new string('▒', trained - filled) + new string('░', width - trained);
         }
 
+        // ===== Gear =====
+
+        private const int MaxSlotLabel = 12;
+
+        /// <summary>
+        /// The Gear tab: item level, sets and a count by quality, then every item on one line under
+        /// Armor, Jewelry or Weapons. Item names link to Wowhead unless that would not fit.
+        /// </summary>
         private static string GearText(ForeverArmoryCard card)
         {
+            var linked = GearText(card, links: true);
+            return linked.Length <= MaxBodyChars ? linked : GearText(card, links: false);
+        }
+
+        private static string GearText(ForeverArmoryCard card, bool links)
+        {
             var sb = new StringBuilder();
-            if (card.Character.ItemLevel is > 0) sb.Append("🛡️ **Item level** ").Append(card.Character.ItemLevel).Append("\n\n");
+            if (card.Character.ItemLevel is > 0) sb.Append("🛡️ **Item level** ").Append(card.Character.ItemLevel).Append('\n');
             if (card.Gear.Count == 0)
                 return sb.Append("*The armory has no gear for this character right now.*").ToString();
 
-            var known = GearGroups.SelectMany(g => g).ToHashSet();
-            var groups = GearGroups
-                .Select(slots => card.Gear.Where(i => slots.Contains(i.Slot)).OrderBy(i => Array.IndexOf(slots, i.Slot)).ToList())
-                .Append(card.Gear.Where(i => !known.Contains(i.Slot)).ToList())
-                .Where(g => g.Count > 0);
-            foreach (var group in groups)
+            foreach (var set in card.Sets ?? Array.Empty<ForeverArmorySet>())
             {
-                foreach (var item in group)
-                {
-                    sb.Append(CharViewHelpers.GetQualityEmoji(item.Quality!)).Append(" **").Append(Format.Sanitize(item.SlotName)).Append("** ")
-                        .Append(Format.Sanitize(item.Name));
-                    if (item.ItemLevel is > 0) sb.Append(" · ").Append(item.ItemLevel);
-                    sb.Append('\n');
-                }
+                sb.Append("🧩 **Set** ").Append(Linked(set.Name, links ? ForeverWowhead.ItemSet(set.Id) : null));
+                if (set.Pieces > 0) sb.Append(' ').Append(set.Equipped).Append('/').Append(set.Pieces);
+                if (set.Bonuses > 0) sb.Append($" · {set.ActiveBonuses} of {set.Bonuses} bonuses active");
                 sb.Append('\n');
             }
+
+            var counts = Qualities
+                .Select(q => (q.Emoji, q.Name, Count: card.Gear.Count(i => string.Equals(i.Quality, q.Type, StringComparison.OrdinalIgnoreCase))))
+                .Where(q => q.Count > 0)
+                .Select(q => $"{q.Emoji} {q.Count} {q.Name}")
+                .ToList();
+            if (counts.Count > 0) sb.Append("-# ").Append(string.Join(" · ", counts)).Append('\n');
+
+            // One width for every group, so the slot and item level columns line up down the whole card.
+            var slotWidth = card.Gear.Max(i => SlotLabel(i).Length);
+            var levelWidth = card.Gear.Max(i => i.ItemLevel is > 0 ? i.ItemLevel.Value.ToString().Length : 0);
+
+            var known = GearGroups.SelectMany(g => g.Slots).ToHashSet();
+            var groups = GearGroups
+                .Select(g => (g.Title, Items: card.Gear.Where(i => g.Slots.Contains(i.Slot)).OrderBy(i => Array.IndexOf(g.Slots, i.Slot)).ToList()))
+                .Append((Title: "Other", Items: card.Gear.Where(i => !known.Contains(i.Slot)).ToList()))
+                .Where(g => g.Items.Count > 0);
+            foreach (var (title, items) in groups)
+            {
+                sb.Append("### ").Append(title).Append('\n');
+                foreach (var item in items)
+                {
+                    sb.Append('`').Append(SlotLabel(item).PadRight(slotWidth));
+                    if (levelWidth > 0) sb.Append(' ').Append((item.ItemLevel is > 0 ? item.ItemLevel.Value.ToString() : "–").PadLeft(levelWidth));
+                    sb.Append("` ").Append(QualityEmoji(item.Quality)).Append(' ')
+                        .Append(Linked(item.Name, links ? ForeverWowhead.Item(item.Id) : null)).Append('\n');
+
+                    var enchants = (item.Enchants ?? Array.Empty<string>()).Where(e => !string.IsNullOrWhiteSpace(e)).ToList();
+                    if (enchants.Count > 0)
+                        sb.Append("-# ↳ ✨ ").Append(string.Join(" · ", enchants.Select(e => Format.Sanitize(e.Trim())))).Append('\n');
+                }
+            }
+
+            var worn = card.Gear.Select(i => i.Slot).ToHashSet();
+            var empty = SlotsToFill.Where(slot => !worn.Contains(slot.Slot)).Select(slot => slot.Name).ToList();
+            if (empty.Count > 0) sb.Append("-# Empty slots: ").Append(string.Join(" · ", empty)).Append('\n');
             return sb.ToString().TrimEnd('\n');
         }
+
+        private static string QualityEmoji(string? quality)
+        {
+            var known = Array.FindIndex(Qualities, q => string.Equals(q.Type, quality, StringComparison.OrdinalIgnoreCase));
+            return known >= 0 ? Qualities[known].Emoji : "⚪";
+        }
+
+        /// <summary>The slot as the armory names it, kept short and free of anything that would end the code span it sits in.</summary>
+        private static string SlotLabel(ForeverArmoryItem item)
+        {
+            var label = (string.IsNullOrWhiteSpace(item.SlotName)
+                    ? CultureInfo.InvariantCulture.TextInfo.ToTitleCase(item.Slot.Replace('_', ' ').ToLowerInvariant())
+                    : item.SlotName)
+                .Replace('`', '\'').Replace('\r', ' ').Replace('\n', ' ').Trim();
+            return label.Length == 0 ? "Item" : label.Length > MaxSlotLabel ? label[..MaxSlotLabel] : label;
+        }
+
+        /// <summary>A name as a link. A name with a square bracket in it stays plain, because it would end the link early.</summary>
+        private static string Linked(string name, string? url)
+            => url == null || name.Contains('[') || name.Contains(']') ? Format.Sanitize(name) : $"[{Format.Sanitize(name)}]({url})";
 
         /// <summary>
         /// The view tabs (Professions only when the character has any), the way back to the roster when
@@ -919,6 +1086,22 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         }
 
         // ===== Shell =====
+
+        /// <summary>Every block of text on a card that came back from Discord, wherever it is nested.</summary>
+        public static IEnumerable<string> Texts(IEnumerable<IMessageComponent>? components)
+        {
+            foreach (var component in components ?? Enumerable.Empty<IMessageComponent>())
+            {
+                if (component is TextDisplayComponent text && text.Content != null) yield return text.Content;
+                IEnumerable<IMessageComponent>? children = component switch
+                {
+                    ContainerComponent container => container.Components,
+                    SectionComponent section => section.Components,
+                    _ => null
+                };
+                foreach (var nested in Texts(children)) yield return nested;
+            }
+        }
 
         private static void AddHeader(ContainerBuilder card, string heading, string? thumbnailUrl, string thumbnailLabel)
         {

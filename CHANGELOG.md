@@ -12,23 +12,22 @@
 
 ### WoW Forever
 
-- Added `/forever guild set|view|unset|roster`. Officers set the server's Forever guild (name, region, ruleset, faction) separately from Retail and Classic, and turn the member roster on or off.
-- Added `/forever char add|list|edit|remove|main`. Characters have a first name and a surname with no realm, belong to the member rather than the server, and have a main per server. Nothing is written to the Retail character table.
-- Added `/forever roster view|share|unshare`. Characters stay private until shared. The roster shows only current members' characters that match the guild, and leaving a server removes your shares there.
-- `/help` has a WoW Forever category and shows the option names people actually type.
-- `/forever char add` and `/forever guild set` look the character or guild up on Blizzard's armory and take the class, ruleset, faction and spelling from it, so only the name and region are needed. A character appears on the armory at level 10, after it has logged out once; until then it is saved as typed.
-- `/forever char edit` checks the armory too, so an edit with no changes brings an earlier character up to date.
-- Added `/forever char view`: an armory card for any Forever character, with level, guild, talents, item level, professions, deaths, quests and a gear view.
-- `/forever roster view` shows Blizzard's guild roster (level, class, rank) when the guild is matched to the armory, with the Discord name of whoever shared each character. Shared characters the armory doesn't list in the guild are still shown.
-- Blizzard hasn't documented the Forever API, so every lookup is optional. When the armory doesn't answer, `/forever` works on what members typed, and a missing character is not logged as an error.
-- Every `/forever` reply is now a Components V2 card in the same shell as `/char` and `/raid-recap`: a titled header, one accent colour, buttons inside the card and a single footer line. One-line confirmations and errors are small cards too. Buttons on replies sent before this keep working.
-- The `/forever char view` card takes the class's colour and shows the portrait, a level bar, and Overview and Gear tabs. Gear is grouped into armour, jewellery and weapons, with Blizzard's full-body render when it has one.
-- `/forever roster view` counts the guild's classes and level 60s, sorts by rank, level, name or class, shows the page it is on, and has a menu that opens any listed character's armory card with a button back to the roster.
-- `/forever char list` has a menu that opens a character's armory card, and a saved character's card links to its armory card. The guild card has a **View roster** button.
-- Autocomplete without a search endpoint (Blizzard has none for Forever): `/forever char view` suggests your characters, guildmates from Blizzard's roster and characters shared in the server, and checks a typed full name against the armory. `/forever char add` suggests guildmates for the first name and surname. `/forever guild set` checks the typed name in the chosen region, or in every region when none is chosen, and offers the guilds of your own characters.
-- Guild lookups are remembered for a few minutes, and the same armory question asked twice at once is one request, so typing does not multiply calls to Blizzard.
-- The `/forever char view` card shows professions as skill bars instead of a line of numbers, and has a **Professions** tab with each profession's rank, recipes known and a bar of the whole climb to 300. Profession names link to Wowhead's Forever page for the twelve professions that have one; a profession Blizzard adds later is shown without a link until it is added to `ForeverProfessions`.
-- Added `/forever help`: a getting-started card with the five setup steps, the ones the server and the member have already done ticked off, and a pointer at the next step that member can do. It also lists the other commands and what to know about Forever. The empty guild and character cards point to it.
+`/forever` was reworked around Blizzard's armory. Members only say which characters are theirs; class, level, ruleset, faction, gear, professions and the guild roster all come from the armory.
+
+- **Commands now:** `/forever help`, `/forever guild set|view|unset`, `/forever char view|add|list`, `/forever roster`, `/forever craft`, `/forever price` and `/forever camp`.
+- **Removed since v3.2.19:** `/forever char edit`, `char remove`, `char main`, `roster share`, `roster unshare` and `guild roster`, and the class, ruleset and faction options on `char add` and `guild set`. Main, roster and remove are buttons on a character's card from `/forever char list`; `/forever roster view` is now `/forever roster`. Buttons on cards sent before this keep working.
+- **Setup is three steps instead of five:** an officer sets the guild, a member saves a character, and optionally shows it on the roster. The roster no longer needs switching on, and the first character a member saves in a server becomes their main there.
+- `/forever guild set` takes a name and a region and saves the guild as the armory has it. A guild the armory doesn't have can't be set.
+- `/forever char add` takes one name ("Asha Brightvale") and suggests guildmates from Blizzard's roster. A character must be on the armory (level 10, logged out once); a younger guildmate is saved from the guild's roster instead. Opening a character from `/forever char list` brings it up to date with the armory.
+- `/forever char view` is an armory card in the class's colour with Overview, Gear and Professions tabs. Gear lists each item on one line, with its slot and item level in an aligned column, under Armor, Jewelry and Weapons, with a count by quality, enchants, set progress and empty slots; item and set names link to Wowhead's Forever site. Professions shows skill bars against 300 and a menu that lists a profession's known recipes.
+- `/forever roster` shows Blizzard's guild roster (level, class, rank) with class counts, sorting and a menu that opens any member's armory card. A Discord name appears only next to characters members chose to show.
+- **New: `/forever craft`** shows what a recipe makes and takes (from Blizzard's game data), what the materials cost against buying the item, and who in the guild knows the recipe. The guild's professions are read from the armory the first time someone asks, with progress on the card, and kept for six hours; up to 600 characters are read, highest level first.
+- **New: `/forever price`** shows an item's regional market value, usual sale price, sale rate and daily sales.
+- Prices come from TradeSkillMaster's public Forever files, credited on every card that shows one. They are regional averages, downloaded at most once every four hours per region.
+- **New: `/forever camp`** posts a public camp card. Members join with a button, and the card works out who brings which camp object (one per player, no object twice), who can light the campfire, and which objects add nothing because a class at the camp casts the buff they replace. The sign-ups are kept on the card itself, so a card keeps working after a restart.
+- Blizzard has no search for Forever, so suggestions come from the guild's roster, from what the bot has saved and from checking the typed name against the armory. Guild lookups are remembered for a few minutes, and the same question asked twice at once is one request.
+- Every `/forever` reply is a Components V2 card in the same shell as `/char` and `/raid-recap`. All of them are shown only to the caller except the camp card.
+- Added `/forever-logs-probe` for the bot owner (owner server only): it asks Warcraft Logs' Forever site which regions, servers and zones it has and how it knows a guild, and returns the raw answers. Forever log watching is not built yet; it waits on those answers.
 
 ### Raid Recap
 
