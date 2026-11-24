@@ -79,6 +79,10 @@ namespace NinjaBotCore.Tests
                 sp.GetRequiredService<IServiceScopeFactory>(),
                 sp.GetRequiredService<NinjaBotCore.Services.DeliveryProblems.IDeliveryProblemDiscord>(),
                 NullLogger<NinjaBotCore.Services.DeliveryProblems.DeliveryProblemService>.Instance));
+            // WoW Forever: the armory is a fake that knows only what a test puts in it.
+            services.AddSingleton<FakeForeverArmory>();
+            services.AddSingleton<IForeverArmory>(sp => sp.GetRequiredService<FakeForeverArmory>());
+            services.AddSingleton<ForeverService>();
             RootProvider = services.BuildServiceProvider();
 
             // Create simple dependencies for CommandsApiService constructor

@@ -238,4 +238,15 @@ namespace NinjaBotCore.Services.Api
         [property: JsonPropertyName("ids")] List<string>? Ids,
         [property: JsonPropertyName("user_id")] string? UserId
     );
+
+    /// <summary>
+    /// Request body for setting a server's WoW Forever guild. Only the name and region are asked
+    /// for; the ruleset and faction come from the armory.
+    /// </summary>
+    public record UpdateForeverGuildRequest(
+        [property: JsonPropertyName("name")] string? Name,
+        [property: JsonPropertyName("region")] string? Region,
+        [property: JsonPropertyName("user_id")] string? UserId,
+        [property: JsonPropertyName("username")] string? Username
+    );
 }

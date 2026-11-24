@@ -75,6 +75,8 @@ Officers (Kick Members) set the server's guild. The armory fills in the spelling
 /forever guild set name:"Synthetic Guild" region:US
 ```
 
+The same can be done on the web dashboard's server page, under **WoW Forever Guild**: set the guild, change it or unlink it. It runs the same armory check.
+
 Blizzard has no search for Forever guilds or characters, so the suggestions come from what can be known. While you type a guild name, NinjaBot asks the armory about that exact name and shows the region, ruleset, faction and member count when it exists. It also offers the guilds your own saved characters are in.
 
 Members save their own characters. The region defaults to the server's guild, and `character` suggests guildmates from Blizzard's roster, so you can pick yours instead of spelling it. A guildmate below level 10 is saved from the guild's roster. The first character you save in a server becomes your main there:

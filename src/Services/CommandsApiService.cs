@@ -85,6 +85,7 @@ namespace NinjaBotCore.Services
                 _app.MapCraftRoleMappingEndpoints(deps, filter);
                 _app.MapRaidRecapLiveEndpoints(deps, filter);
                 _app.MapDeliveryProblemEndpoints(deps, filter);
+                _app.MapForeverEndpoints(deps, filter);
 
                 // Start the web server in the background
                 _runTask = Task.Run(async () =>

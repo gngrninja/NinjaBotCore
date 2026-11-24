@@ -27,6 +27,7 @@
 - **New: `/forever camp`** posts a public camp card. Members join with a button, and the card works out who brings which camp object (one per player, no object twice), who can light the campfire, and which objects add nothing because a class at the camp casts the buff they replace. The sign-ups are kept on the card itself, so a card keeps working after a restart.
 - Blizzard has no search for Forever, so suggestions come from the guild's roster, from what the bot has saved and from checking the typed name against the armory. Guild lookups are remembered for a few minutes, and the same question asked twice at once is one request.
 - Every `/forever` reply is a Components V2 card in the same shell as `/char` and `/raid-recap`. All of them are shown only to the caller except the camp card.
+- The commands API has `GET`, `PUT` and `DELETE /api/guilds/{guildId}/forever-guild`, so the web dashboard can show, set and unlink a server's Forever guild. Setting takes `{name, region, user_id, username}` and runs the same armory check as `/forever guild set`: a guild the armory doesn't have is a 400 with the reason in plain text, and an armory outage is a 503 that leaves the saved guild alone.
 - Added `/forever-logs-probe` for the bot owner (owner server only): it asks Warcraft Logs' Forever site which regions, servers and zones it has and how it knows a guild, and returns the raw answers. Forever log watching is not built yet; it waits on those answers.
 
 ### Raid Recap
