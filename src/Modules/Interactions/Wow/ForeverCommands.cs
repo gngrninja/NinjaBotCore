@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Discord;
 using Discord.Interactions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using NinjaBotCore.Common;
 using NinjaBotCore.Models.Wow.Forever;
@@ -14,13 +15,13 @@ using NinjaBotCore.Services;
 namespace NinjaBotCore.Modules.Interactions.Wow
 {
     /// <summary>
-    /// /forever: a server's WoW Forever guild and roster, members' characters, armory cards, crafting
-    /// and camps. Everything about a character comes from Blizzard's armory; members only say which
+    /// /forever: a server's WoW Forever guild and roster, members' characters, armory cards, crafting,
+    /// camps and the guild's logs. Everything about a character comes from Blizzard's armory; members only say which
     /// characters are theirs. Replies are Components V2 cards built by <see cref="ForeverViews"/>,
     /// shown only to the caller except the camp card, which is posted for everyone to join.
     /// </summary>
     [RequireContext(ContextType.Guild)]
-    [Group("forever", "WoW Forever: characters, guild roster, crafting and camps")]
+    [Group("forever", "WoW Forever: characters, guild roster, crafting, camps and logs")]
     public class ForeverCommands : NinjaBotBaseModule
     {
         private readonly ForeverService _forever;
@@ -28,11 +29,13 @@ namespace NinjaBotCore.Modules.Interactions.Wow
         private readonly ForeverCamps _camps;
         private readonly IForeverCatalog _catalog;
         private readonly IForeverPrices _prices;
+        private readonly ForeverLogs _logs;
 
         public ForeverCommands(
             IServiceScopeFactory scopeFactory, ForeverService forever, ForeverWorkshop workshop, ForeverCamps camps,
-            IForeverCatalog catalog, IForeverPrices prices) : base(scopeFactory)
+            IForeverCatalog catalog, IForeverPrices prices, ForeverLogs logs) : base(scopeFactory)
         {
+            _logs = logs;
             _forever = forever;
             _workshop = workshop;
             _camps = camps;
@@ -150,6 +153,28 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 return;
             }
             await ShowAsync(ForeverViews.Price(price, prices));
+        }
+
+        [SlashCommand("logs", "This server's Forever guild on Warcraft Logs: its latest logs")]
+        public async Task Logs()
+        {
+            await DeferAsync(ephemeral: true);
+            var guildId = (long)Context.Guild.Id;
+            var guild = await _forever.GetGuildAsync(guildId);
+            if (guild == null)
+            {
+                await ShowAsync(ForeverViews.Problem(
+                    "This server has no Forever guild yet. An officer can set one with `/forever guild set`, and its logs show up here."));
+                return;
+            }
+
+            var answer = await _logs.LatestAsync(guild.Name, guild.Region);
+            // The same switch retail and classic logs use: /watchlogs, in the channel they should post in.
+            var watch = await WithDbAsync(async db => await db.LogMonitoring.AsNoTracking()
+                .Where(l => l.ServerId == guildId)
+                .Select(l => new ForeverLogWatch(l.MonitorLogs, l.ChannelId))
+                .FirstOrDefaultAsync());
+            await ShowAsync(ForeverViews.Logs(guild, answer, watch));
         }
 
         [SlashCommand("camp", "Post a camp card: people join and it works out who brings what")]

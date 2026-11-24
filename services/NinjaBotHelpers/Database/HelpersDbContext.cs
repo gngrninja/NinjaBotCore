@@ -34,6 +34,7 @@ public class HelpersDbContext : DbContext
     public DbSet<WowGuildAssociations> WowGuildAssociations { get; set; } = null!;
     public DbSet<WowClassicGuild> WowClassicGuild { get; set; } = null!;
     public DbSet<WowVanillaGuild> WowVanillaGuild { get; set; } = null!;
+    public DbSet<ForeverGuild> ForeverGuilds { get; set; } = null!;
 
     // Delivery problems for the owner's Actionable Alerts page (shared with NinjaBotCore)
     public DbSet<DeliveryProblem> DeliveryProblems { get; set; } = null!;
@@ -92,6 +93,9 @@ public class HelpersDbContext : DbContext
 
         modelBuilder.Entity<WowVanillaGuild>()
             .ToTable("WowVanillaGuild");
+
+        modelBuilder.Entity<ForeverGuild>()
+            .ToTable("ForeverGuilds");
 
         modelBuilder.Entity<DeliveryProblem>()
             .ToTable("DeliveryProblems")

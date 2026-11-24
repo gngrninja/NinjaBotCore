@@ -348,7 +348,7 @@ namespace NinjaBotCore.Services
                     Id = "wow_forever",
                     Name = "WoW Forever",
                     Emoji = "🌄",
-                    Description = "Forever characters and guild roster, who can craft what, prices and camps",
+                    Description = "Forever characters and guild roster, who can craft what, prices, camps and logs",
                     PermissionLevel = "public",
                     Commands = wowForeverCommands
                 });

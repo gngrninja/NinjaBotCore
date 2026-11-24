@@ -202,9 +202,9 @@ namespace NinjaBotCore.Modules.Interactions.Admin
         }
 
         /// <summary>
-        /// Asks Warcraft Logs' Forever site the questions a log watcher would depend on and hands back
-        /// the raw answers: which regions and servers it has, which zones, and how it knows one guild.
-        /// Nothing is built on that host until these answers have been read.
+        /// Asks Warcraft Logs' Forever site the questions the Forever log watcher depends on and hands
+        /// back the raw answers: which regions and servers it has, which zones, and how it knows one
+        /// guild. It is the way to see for yourself what <c>/forever logs</c> and the watcher work from.
         /// </summary>
         [SlashCommand("forever-logs-probe", "Ask Warcraft Logs' Forever site what it has, and get the raw answers")]
         [RequireOwner]

@@ -81,6 +81,20 @@ internal sealed class WclAuthentication(TimeProvider clock, ILogger logger)
         }
     }
 
+    /// <summary>
+    /// One attempt with the current token against a host that isn't known to honour it. Whatever it
+    /// answers, a 401 included, is the caller's to handle: the token is never retired or replayed and
+    /// auth health never changes, so a host that turns the bot away can't take the other sites with it.
+    /// </summary>
+    public async Task<HttpResponseMessage> SendOnceAsync(
+        Func<CancellationToken, Task<(string Value, long Lifetime)>> fetch,
+        Func<string, CancellationToken, Task<HttpResponseMessage>> send, CancellationToken ct, CancellationToken callerCancellation)
+    {
+        var token = await GetAsync(fetch, ct, callerCancellation).ConfigureAwait(false);
+        ct.ThrowIfCancellationRequested();
+        return await send(token.Value, ct).ConfigureAwait(false);
+    }
+
     private async Task<Token> GetAsync(Func<CancellationToken, Task<(string Value, long Lifetime)>> fetch, CancellationToken ct, CancellationToken callerCancellation)
     {
         // WaitAsync cancellation never owns/releases the gate, nor changes dependency health.

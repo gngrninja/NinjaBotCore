@@ -37,6 +37,17 @@ namespace NinjaBotCore.Database
         /// </summary>
         public DateTime? LastCheckedVanilla { get; set; }
 
+        /// <summary>The newest Forever report posted for this server.</summary>
+        public string ForeverReportId { get; set; }
+
+        /// <summary>When a Forever log was last posted, or when watching was turned on. Decides how often the guild is checked.</summary>
+        public DateTime? LatestLogForever { get; set; }
+
+        /// <summary>
+        /// When we last checked WCL for Forever logs (for tiered checking)
+        /// </summary>
+        public DateTime? LastCheckedForever { get; set; }
+
         /// <summary>Who turned log watching on, so they can be told when posts stop working.</summary>
         public long? SetById { get; set; }
 

@@ -61,7 +61,7 @@ Example:
 /setclassicguild "Disorder" "Rattlegore"
 ```
 
-### WoW Forever: characters, roster, crafting and camps
+### WoW Forever: characters, roster, crafting, camps and logs
 
 Forever has no realms, and a character's full name (first name + surname) is unique per region. NinjaBot reads everything about a character from Blizzard's armory: class, level, ruleset, faction, gear, professions and the guild roster. A character appears there at level 10, after it has logged out once. Members only say which characters are theirs; nothing proves it, and every reply except the camp card is only visible to you.
 
@@ -110,13 +110,21 @@ Post a camp card for everyone to join. It works out who brings which camp object
 /forever camp note:Fishing night at Menethil
 ```
 
+See the guild's latest logs on Warcraft Logs, and have new ones posted. `/watchlogs` is the same switch retail and classic use: run it in the channel the logs should go to. There is nothing else to set up, because the guild from `/forever guild set` is the one that is watched:
+```
+/forever logs
+/watchlogs
+```
+
+Forever has no realms, but Warcraft Logs files every guild under a server. NinjaBot asks Warcraft Logs' Forever site which servers it has and looks for the guild there; when a name turns up on more than one, it shows and posts nothing instead of guessing. A guild appears once someone has created it on Warcraft Logs' Forever site and uploaded a log, and its name there has to match the one in game.
+
 Blizzard hasn't documented the Forever API, so every lookup can fail: a card says so and nothing is saved from a guess.
 
 Leaving a server removes your main and your roster entries there. Removing a character from `/forever char list` deletes it everywhere.
 
 ## WoW Commands
 
-### [Warcraft Logs](https://www.warcraftlogs.com) Auto Log Poster (Retail and Classic)
+### [Warcraft Logs](https://www.warcraftlogs.com) Auto Log Poster (Retail, Classic and Forever)
 
 To use the auto log poster, use this command in the channel you want them automatically posted to:
 ```
@@ -124,6 +132,8 @@ To use the auto log poster, use this command in the channel you want them automa
 ```
 
 You can use the same exact command to disable the auto log posting, and then use it again to enable it (in the channel you want them posted to).
+
+One switch covers every guild the server has linked: retail (`/setguild`), classic (`/setclassicguild`) and WoW Forever (`/forever guild set`).
 
 ### [Warcraft Logs](https://www.warcraftlogs.com) Last Three Logs
 

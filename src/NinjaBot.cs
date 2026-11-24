@@ -155,6 +155,8 @@ namespace NinjaBotCore
                 .AddSingleton<IForeverCrafters, ForeverCrafters>()
                 .AddSingleton<ForeverWorkshop>()
                 .AddSingleton<ForeverCamps>()
+                .AddSingleton<IForeverLogSite, WclForeverLogSite>()
+                .AddSingleton<ForeverLogs>()
                 .AddSingleton<AudioService>()
                 .AddWarcraftClients(_config["WoWClient"], _config["WoWSecret"])         
                 .AddSingleton<LoggingService>();                   

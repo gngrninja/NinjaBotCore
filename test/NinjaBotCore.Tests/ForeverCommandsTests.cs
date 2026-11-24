@@ -39,6 +39,9 @@ public class ForeverCommandsTests
             .AddSingleton<ForeverService>()
             .AddSingleton<ForeverWorkshop>()
             .AddSingleton<ForeverCamps>()
+            .AddSingleton<ILogger<ForeverLogs>>(NullLogger<ForeverLogs>.Instance)
+            .AddSingleton<IForeverLogSite>(new FakeForeverLogSite())
+            .AddSingleton<ForeverLogs>()
             .BuildServiceProvider();
         await service.AddModuleAsync<ForeverCommands>(deps);
         await service.AddModuleAsync<ForeverComponentHandlers>(deps);
@@ -73,7 +76,7 @@ public class ForeverCommandsTests
             "forever char add", "forever char list", "forever char view",
             "forever craft",
             "forever guild set", "forever guild unset", "forever guild view",
-            "forever help", "forever price", "forever roster"
+            "forever help", "forever logs", "forever price", "forever roster"
         }, commands.Select(FullName).OrderBy(n => n, StringComparer.Ordinal));
         Assert.Empty(commands.Single(c => FullName(c) == "forever help").Parameters);
 
@@ -101,6 +104,8 @@ public class ForeverCommandsTests
         Assert.Equal(new[] { ("recipe", true) }, Options("forever craft"));
         Assert.Equal(new[] { ("item", true), ("region", false) }, Options("forever price"));
         Assert.Equal(new[] { ("note", false) }, Options("forever camp"));
+        // The guild is the one the server is linked to, so there is nothing to ask for.
+        Assert.Empty(Options("forever logs"));
 
         // Blizzard has no search, so names are suggested from the guild's roster and by asking the armory about what's typed.
         Assert.IsType<ForeverLookupAutocomplete>(Suggests("forever char view"));
@@ -167,7 +172,7 @@ public class ForeverCommandsTests
     }
 
     // A command as the help card writes it: in backticks, in full or shortened to "group command".
-    private const string Command = @"`(?:/forever )?((?:guild|char) [a-z]+|roster|craft|price|camp)`";
+    private const string Command = @"`(?:/forever )?((?:guild|char) [a-z]+|roster|craft|price|camp|logs)`";
 
     // The help card is written by hand, so this keeps it honest when a command is added, renamed or removed.
     [Fact]
@@ -191,7 +196,9 @@ public class ForeverCommandsTests
 
             Assert.Empty(named.Except(registered));
             Assert.Empty(registered.Except(named).Except(new[] { "forever help" }));
-            Assert.Equal(Regex.Matches(text, "`").Count / 2, Regex.Matches(text, Command).Count);
+            // The one command named that isn't a /forever one: the switch that posts new logs, shared with retail and classic.
+            Assert.Single(Regex.Matches(text, "`/watchlogs`"));
+            Assert.Equal(Regex.Matches(text, "`").Count / 2, Regex.Matches(text, Command).Count + 1);
         }
     }
 

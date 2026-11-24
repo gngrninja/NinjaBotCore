@@ -32,7 +32,7 @@ namespace NinjaBotCore.Modules.Wow
         ClassicFresh,
         /// <summary>Vanilla Classic</summary>
         Vanilla,
-        /// <summary>WoW Forever. Only the owner's probe asks this host so far; nothing else is built on it.</summary>
+        /// <summary>WoW Forever, on its own site. It has no realms; ForeverLogs works out where a guild is filed.</summary>
         Forever
     }
 
@@ -79,7 +79,8 @@ namespace NinjaBotCore.Modules.Wow
         private const string ApiUrlClassic = "https://classic.warcraftlogs.com/api/v2/client";
         private const string ApiUrlClassicFresh = "https://fresh.warcraftlogs.com/api/v2/client";
         private const string ApiUrlVanilla = "https://vanilla.warcraftlogs.com/api/v2/client";
-        // The host exists; that it serves this API the way the other hosts do is what the probe finds out.
+        // New to this client. Until it has a record, nothing it answers may touch the sign-in or the
+        // pauses the other sites share: see ExecuteGraphQLInternalAsync.
         private const string ApiUrlForever = "https://forever.warcraftlogs.com/api/v2/client";
         private const int RateLimitCheckInterval = 10; // Check every 10 requests
         private const double WarningThreshold = 80.0; // Warn at 80% usage
@@ -283,13 +284,25 @@ namespace NinjaBotCore.Modules.Wow
             using var requestBudget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             requestBudget.CancelAfter(client.Timeout);
             var json = JsonConvert.SerializeObject(new GraphQLRequest { Query = query, Variables = variables });
-            using var response = await _auth.SendAsync(FetchAccessTokenAsync, async (token, ct) =>
+            Func<string, CancellationToken, Task<HttpResponseMessage>> send = async (token, ct) =>
             {
                 using var request = new HttpRequestMessage(HttpMethod.Post, GetApiUrl(gameVersion));
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
                 request.Content = new StringContent(json, Encoding.UTF8, "application/json");
                 return await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-            }, requestBudget.Token, cancellationToken);
+            };
+            // The Forever site gets one attempt, and a refusal from it stays its own: a 401 doesn't retire
+            // the token and a 429 or Retry-After doesn't pause the other sites, which a mistake about a
+            // site this client has never used would otherwise do to every Warcraft Logs feature.
+            var isolated = gameVersion == WowGameVersion.Forever;
+            using var response = isolated
+                ? await _auth.SendOnceAsync(FetchAccessTokenAsync, send, requestBudget.Token, cancellationToken)
+                : await _auth.SendAsync(FetchAccessTokenAsync, send, requestBudget.Token, cancellationToken);
+            if (isolated && !response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("[WCL v2] Forever site answered HTTP {Status}", (int)response.StatusCode);
+                throw new HttpRequestException($"WCL Forever request failed with HTTP {(int)response.StatusCode}.", null, response.StatusCode);
+            }
             EnsureWclSuccess(response, "GraphQL");
             var content = await ReadResponseAsync(response, requestBudget.Token);
             var result = ParseResponse<GraphQLResponse<T>>(content);
@@ -314,7 +327,9 @@ namespace NinjaBotCore.Modules.Wow
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
-                _logger.LogError("GraphQL execution failed ({ErrorType})", ex.GetType().Name);
+                // The Forever site failing is something its callers expect and say on their cards; it isn't an error to raise an alert over.
+                _logger.Log(gameVersion == WowGameVersion.Forever ? LogLevel.Warning : LogLevel.Error,
+                    "GraphQL execution failed ({ErrorType})", ex.GetType().Name);
                 throw;
             }
         }
@@ -798,6 +813,14 @@ namespace NinjaBotCore.Modules.Wow
                 throw;
             }
         }
+
+        /// <summary>
+        /// A query's data for callers that read an answer field by field. Errors beside the data are
+        /// left to the caller: a field Warcraft Logs couldn't fill is null in the data.
+        /// Throws when the site doesn't answer, like every other query here.
+        /// </summary>
+        public virtual async Task<JToken> QueryAsync(string query, object variables, WowGameVersion gameVersion, CancellationToken cancellationToken = default)
+            => (await ExecuteGraphQLAsync<JToken>(query, variables, gameVersion, cancellationToken)).Data;
 
         /// <summary>
         /// One query's raw answer, errors included, for looking at a host the bot hasn't used before.

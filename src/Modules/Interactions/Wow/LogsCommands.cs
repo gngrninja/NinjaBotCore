@@ -82,6 +82,8 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                     if (shouldEnable)
                     {
                         updateGuild.LatestLogRetail = DateTime.UtcNow;
+                        // Counts as a fresh start for a linked Forever guild too, so it is checked every round.
+                        updateGuild.LatestLogForever = DateTime.UtcNow;
                         updateGuild.SetById = (long)Context.User.Id;
                         updateGuild.SetByName = SetByName();
                     }
@@ -97,6 +99,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                         MonitorLogs = shouldEnable,
                         LatestLog = DateTime.UtcNow,
                         LatestLogRetail = shouldEnable ? DateTime.UtcNow : null,
+                        LatestLogForever = shouldEnable ? DateTime.UtcNow : null,
                         SetById = shouldEnable ? (long)Context.User.Id : null,
                         SetByName = shouldEnable ? SetByName() : null
                     });

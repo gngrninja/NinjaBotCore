@@ -832,7 +832,13 @@ namespace NinjaBotCore.Migrations
                     b.Property<string>("ClassicReportId")
                         .HasColumnType("text");
 
+                    b.Property<string>("ForeverReportId")
+                        .HasColumnType("text");
+
                     b.Property<DateTime?>("LastCheckedClassic")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastCheckedForever")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("LastCheckedRetail")
@@ -845,6 +851,9 @@ namespace NinjaBotCore.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("LatestLogClassic")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LatestLogForever")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("LatestLogRetail")

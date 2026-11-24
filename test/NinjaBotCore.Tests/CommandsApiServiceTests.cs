@@ -859,6 +859,34 @@ namespace NinjaBotCore.Tests
             Assert.Equal("999", json.GetProperty("settings").GetProperty("channel_id").GetString());
         }
 
+        [Fact]
+        public async Task PutLogMonitoring_TurningOnStartsRetailAndForeverAsActive()
+        {
+            await _client.PutAsJsonAsync("/api/guilds/400003/log-monitoring", new
+            {
+                channel_id = "999", channel_name = "logs-channel", monitor_logs = false, server_name = "Test Server"
+            });
+            var (before, dbBefore) = _fixture.CreateDbScope();
+            using (before)
+            {
+                var off = await dbBefore.LogMonitoring.SingleAsync(l => l.ServerId == 400003);
+                Assert.Null(off.LatestLogRetail);
+                Assert.Null(off.LatestLogForever);
+            }
+
+            await _client.PutAsJsonAsync("/api/guilds/400003/log-monitoring", new { monitor_logs = true });
+
+            var (after, dbAfter) = _fixture.CreateDbScope();
+            using (after)
+            {
+                var on = await dbAfter.LogMonitoring.SingleAsync(l => l.ServerId == 400003);
+                Assert.True(on.MonitorLogs);
+                Assert.NotNull(on.LatestLogRetail);
+                // A linked Forever guild is checked every round from here, like the retail one.
+                Assert.NotNull(on.LatestLogForever);
+            }
+        }
+
         #endregion
 
         #region Greeting Settings Endpoints

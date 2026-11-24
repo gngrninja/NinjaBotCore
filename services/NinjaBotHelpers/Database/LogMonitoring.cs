@@ -97,4 +97,19 @@ public class LogMonitoring
     /// When we last checked WCL for Vanilla logs (for tiered checking)
     /// </summary>
     public DateTime? LastCheckedVanilla { get; set; }
+
+    /// <summary>
+    /// Latest Forever report ID that was processed
+    /// </summary>
+    public string? ForeverReportId { get; set; }
+
+    /// <summary>
+    /// Timestamp when last Forever log was found, or when Forever watching was turned on
+    /// </summary>
+    public DateTime? LatestLogForever { get; set; }
+
+    /// <summary>
+    /// When we last checked WCL for Forever logs (for tiered checking)
+    /// </summary>
+    public DateTime? LastCheckedForever { get; set; }
 }

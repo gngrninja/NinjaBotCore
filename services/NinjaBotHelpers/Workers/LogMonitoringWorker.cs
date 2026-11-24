@@ -21,6 +21,7 @@ public class LogMonitoringWorker : BackgroundService
     private readonly WarcraftLogsClient _wclClient;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly DeliveryProblemRecorder? _deliveryProblems;
+    private readonly ForeverLogAddresses _foreverAddresses;
 
     private const int ColorBlue = 0x3498DB;
     private const int MaxBatchSize = 50;
@@ -41,6 +42,7 @@ public class LogMonitoringWorker : BackgroundService
         _wclClient = wclClient;
         _httpClientFactory = httpClientFactory;
         _deliveryProblems = deliveryProblems;
+        _foreverAddresses = new ForeverLogAddresses(wclClient, logger);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -83,7 +85,7 @@ public class LogMonitoringWorker : BackgroundService
         _logger.LogInformation("LogMonitoring stopping");
     }
 
-    private async Task CheckForNewLogsAsync(CancellationToken cancellationToken)
+    internal async Task CheckForNewLogsAsync(CancellationToken cancellationToken)
     {
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<HelpersDbContext>();
@@ -105,6 +107,7 @@ public class LogMonitoringWorker : BackgroundService
         await CheckGameVersionAsync(WowGameVersion.Retail, monitoringConfigs, db, cancellationToken);
         await CheckGameVersionAsync(WowGameVersion.Classic, monitoringConfigs, db, cancellationToken);
         await CheckGameVersionAsync(WowGameVersion.Vanilla, monitoringConfigs, db, cancellationToken);
+        await CheckGameVersionAsync(WowGameVersion.Forever, monitoringConfigs, db, cancellationToken);
     }
 
     private async Task CheckGameVersionAsync(
@@ -198,6 +201,35 @@ public class LogMonitoringWorker : BackgroundService
                     });
                 break;
 
+            case WowGameVersion.Forever:
+                var foreverGuilds = await db.ForeverGuilds
+                    .Where(g => serverIds.Contains(g.DiscordGuildId))
+                    .ToListAsync(cancellationToken);
+
+                // Only guilds that are due cost a look on Warcraft Logs, the server list included.
+                foreverGuilds = foreverGuilds
+                    .Where(g => monitoringConfigs.FirstOrDefault(m => m.ServerId == g.DiscordGuildId) is { } due
+                        && ShouldCheckGuild(Later(due.LatestLogForever, g.TimeSet), due.LastCheckedForever, now))
+                    .ToList();
+
+                // Forever has no realms; this is where the server Warcraft Logs files each guild under comes from.
+                var foreverServers = await _foreverAddresses.ResolveAsync(foreverGuilds, cancellationToken);
+
+                guildAssociations = foreverGuilds
+                    .Where(g => foreverServers.ContainsKey(g.DiscordGuildId))
+                    .Select(g => new GuildCheckInfo
+                    {
+                        ServerId = g.DiscordGuildId,
+                        GuildName = g.Name.Trim(),
+                        ServerSlug = foreverServers[g.DiscordGuildId],
+                        ServerRegion = ForeverLogAddresses.RegionSlug(g.Region) ?? "us",
+                        GuildKey = $"forever_{g.DiscordGuildId}_{g.Name}_{g.Region}",
+                        // A guild linked or changed a moment ago counts as active, so its first logs aren't a day late.
+                        LinkedAt = g.TimeSet
+                    })
+                    .ToList();
+                break;
+
             default:
                 return result;
         }
@@ -214,6 +246,7 @@ public class LogMonitoringWorker : BackgroundService
                 WowGameVersion.Retail => config.LatestLogRetail ?? config.LatestLog,
                 WowGameVersion.Classic => config.LatestLogClassic,
                 WowGameVersion.Vanilla => config.LatestLogVanilla,
+                WowGameVersion.Forever => Later(config.LatestLogForever, guild.LinkedAt),
                 _ => null
             };
 
@@ -223,6 +256,7 @@ public class LogMonitoringWorker : BackgroundService
                 WowGameVersion.Retail => config.LastCheckedRetail,
                 WowGameVersion.Classic => config.LastCheckedClassic,
                 WowGameVersion.Vanilla => config.LastCheckedVanilla,
+                WowGameVersion.Forever => config.LastCheckedForever,
                 _ => null
             };
 
@@ -236,6 +270,8 @@ public class LogMonitoringWorker : BackgroundService
 
         return result;
     }
+
+    private static DateTime? Later(DateTime? a, DateTime? b) => a == null || b > a ? b ?? a : a;
 
     /// <summary>
     /// Determines if a guild should be checked based on tiered intervals.
@@ -327,6 +363,9 @@ public class LogMonitoringWorker : BackgroundService
                 case WowGameVersion.Vanilla:
                     config.LastCheckedVanilla = now;
                     break;
+                case WowGameVersion.Forever:
+                    config.LastCheckedForever = now;
+                    break;
             }
         }
         await db.SaveChangesAsync(cancellationToken);
@@ -356,6 +395,7 @@ public class LogMonitoringWorker : BackgroundService
                 WowGameVersion.Retail => guild.MonitoringConfig?.RetailReportId ?? guild.MonitoringConfig?.ReportId,
                 WowGameVersion.Classic => guild.MonitoringConfig?.ClassicReportId,
                 WowGameVersion.Vanilla => guild.MonitoringConfig?.VanillaReportId,
+                WowGameVersion.Forever => guild.MonitoringConfig?.ForeverReportId,
                 _ => null
             };
 
@@ -389,16 +429,21 @@ public class LogMonitoringWorker : BackgroundService
         {
             WowGameVersion.Classic => " (Classic)",
             WowGameVersion.Vanilla => " (Vanilla)",
+            WowGameVersion.Forever => " (Forever)",
             _ => ""
         };
 
         var embed = DiscordEmbed.Create($"New log for [{guild.GuildName}]{gameVersionLabel}!", ColorBlue)
-            .WithDescription($"[**{report.Title}** / **{report.ZoneName}**]({report.ReportURL})")
+            .WithDescription($"[**{report.Title}** / **{report.ZoneName}**]({WclSites.ReportUrl(gameVersion, report.Code)})")
             .WithField("Start Time", $"<t:{report.StartTime / 1000}:f>", true)
-            .WithField("Created By", report.OwnerName, true)
-            .WithField("Links",
-                $"[WoWAnalyzer](https://wowanalyzer.com/report/{report.Code}) | [WipeFest](https://www.wipefest.net/report/{report.Code})")
-            .WithFooter("WarcraftLogs Monitor | NinjaBotHelpers");
+            .WithField("Created By", report.OwnerName, true);
+        // WoWAnalyzer and WipeFest read retail reports; neither has anything for a Forever one.
+        if (gameVersion != WowGameVersion.Forever)
+        {
+            embed = embed.WithField("Links",
+                $"[WoWAnalyzer](https://wowanalyzer.com/report/{report.Code}) | [WipeFest](https://www.wipefest.net/report/{report.Code})");
+        }
+        embed = embed.WithFooter("WarcraftLogs Monitor | NinjaBotHelpers");
 
         // Send to Discord. The client owns detailed/throttled failure logging.
         var delivery = await _discordClient.SendChannelMessageWithResultAsync(
@@ -433,6 +478,10 @@ public class LogMonitoringWorker : BackgroundService
                         config.VanillaReportId = report.Code;
                         config.LatestLogVanilla = DateTime.UtcNow;
                         break;
+                    case WowGameVersion.Forever:
+                        config.ForeverReportId = report.Code;
+                        config.LatestLogForever = DateTime.UtcNow;
+                        break;
                 }
             }
 
@@ -448,8 +497,10 @@ public class LogMonitoringWorker : BackgroundService
 
             await db.SaveChangesAsync(cancellationToken);
 
-            // Invalidate WCL caches on the main bot (fire and forget, don't block on failure)
-            _ = InvalidateBotCachesAsync(guild.GuildName, guild.ServerSlug, guild.ServerRegion, cancellationToken);
+            // Invalidate WCL caches on the main bot (fire and forget, don't block on failure).
+            // The bot keeps none for Forever, and its realm slug would mean nothing there.
+            if (gameVersion != WowGameVersion.Forever)
+                _ = InvalidateBotCachesAsync(guild.GuildName, guild.ServerSlug, guild.ServerRegion, cancellationToken);
         }
         else
         {
@@ -522,5 +573,7 @@ internal class GuildCheckInfo
     public string ServerSlug { get; set; } = string.Empty;
     public string ServerRegion { get; set; } = string.Empty;
     public string GuildKey { get; set; } = string.Empty;
+    /// <summary>When the server linked this guild. Forever only: it stands in for "last log" until there is one.</summary>
+    public DateTime? LinkedAt { get; set; }
     public LogMonitoring? MonitoringConfig { get; set; }
 }

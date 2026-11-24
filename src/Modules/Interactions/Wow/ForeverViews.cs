@@ -176,6 +176,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
                 + "🛠️ `/forever craft` · what a recipe takes, what it costs and who in the guild can make it\n"
                 + "💰 `/forever price` · what an item goes for on the auction houses\n"
                 + "🔥 `/forever camp` · post a camp card; people join and it works out who brings what\n"
+                + "⚔️ `/forever logs` · the guild's latest logs on Warcraft Logs; `/watchlogs` posts new ones in a channel\n"
                 + "📜 `/forever char add` and `/forever char list` · your own characters: main, roster, remove\n"
                 + "🏰 `/forever guild view` · this server's guild; officers (Kick Members) use `guild set` and `guild unset`"));
             AddDivider(card);

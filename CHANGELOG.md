@@ -14,7 +14,7 @@
 
 `/forever` was reworked around Blizzard's armory. Members only say which characters are theirs; class, level, ruleset, faction, gear, professions and the guild roster all come from the armory.
 
-- **Commands now:** `/forever help`, `/forever guild set|view|unset`, `/forever char view|add|list`, `/forever roster`, `/forever craft`, `/forever price` and `/forever camp`.
+- **Commands now:** `/forever help`, `/forever guild set|view|unset`, `/forever char view|add|list`, `/forever roster`, `/forever craft`, `/forever price`, `/forever camp` and `/forever logs`.
 - **Removed since v3.2.19:** `/forever char edit`, `char remove`, `char main`, `roster share`, `roster unshare` and `guild roster`, and the class, ruleset and faction options on `char add` and `guild set`. Main, roster and remove are buttons on a character's card from `/forever char list`; `/forever roster view` is now `/forever roster`. Buttons on cards sent before this keep working.
 - **Setup is three steps instead of five:** an officer sets the guild, a member saves a character, and optionally shows it on the roster. The roster no longer needs switching on, and the first character a member saves in a server becomes their main there.
 - `/forever guild set` takes a name and a region and saves the guild as the armory has it. A guild the armory doesn't have can't be set.
@@ -28,7 +28,12 @@
 - Blizzard has no search for Forever, so suggestions come from the guild's roster, from what the bot has saved and from checking the typed name against the armory. Guild lookups are remembered for a few minutes, and the same question asked twice at once is one request.
 - Every `/forever` reply is a Components V2 card in the same shell as `/char` and `/raid-recap`. All of them are shown only to the caller except the camp card.
 - The commands API has `GET`, `PUT` and `DELETE /api/guilds/{guildId}/forever-guild`, so the web dashboard can show, set and unlink a server's Forever guild. Setting takes `{name, region, user_id, username}` and runs the same armory check as `/forever guild set`: a guild the armory doesn't have is a 400 with the reason in plain text, and an armory outage is a 503 that leaves the saved guild alone.
-- Added `/forever-logs-probe` for the bot owner (owner server only): it asks Warcraft Logs' Forever site which regions, servers and zones it has and how it knows a guild, and returns the raw answers. Forever log watching is not built yet; it waits on those answers.
+- **New: Forever logs.** `/watchlogs` now also posts new logs of the server's Forever guild, the one set with `/forever guild set`, next to retail and classic. A Forever post links to Warcraft Logs' Forever site and leaves out the WoWAnalyzer and WipeFest links, which have nothing for it.
+- **New: `/forever logs`** lists the guild's five newest logs with zone, start time, length and uploader, and says whether new ones are posted in the server.
+- Forever has no realms, but Warcraft Logs finds a guild by name, server and region. The bot and the helpers ask the Forever site which servers a region has. With one server, that is the guild's. With up to eight, the guild is looked for on each and used only when exactly one has it; a name on several servers is shown and posted for nobody. This has only been run against synthetic answers so far, not the live Forever site.
+- Requests to the Forever site can't hurt the other Warcraft Logs features: a 401 from it doesn't retire the shared token, a 429 or Retry-After from it doesn't pause the other sites, and points are always read from the main site. A site that is down is asked again after 30 minutes, not every round.
+- `LogMonitoring` has three new columns (`ForeverReportId`, `LatestLogForever`, `LastCheckedForever`), added by the `AddForeverLogMonitoring` migration. A guild linked, re-linked or switched on in the last two weeks is checked every round, like an active retail guild.
+- Added `/forever-logs-probe` for the bot owner (owner server only): it asks Warcraft Logs' Forever site which regions, servers and zones it has and how it knows a guild, and returns the raw answers.
 
 ### Raid Recap
 

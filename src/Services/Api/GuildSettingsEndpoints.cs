@@ -129,6 +129,11 @@ namespace NinjaBotCore.Services.Api
                     {
                         settings.LatestLogRetail = DateTime.UtcNow;
                     }
+                    // The same start for a linked Forever guild, so it is checked every round at first.
+                    if (body.MonitorLogs.Value && !settings.LatestLogForever.HasValue)
+                    {
+                        settings.LatestLogForever = DateTime.UtcNow;
+                    }
                 }
 
                 if (!string.IsNullOrEmpty(body.ServerName))

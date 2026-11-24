@@ -35,6 +35,7 @@ public class WarcraftLogsClient
     private const string ApiUrlRetail = "https://www.warcraftlogs.com/api/v2/client";
     private const string ApiUrlClassic = "https://classic.warcraftlogs.com/api/v2/client";
     private const string ApiUrlVanilla = "https://vanilla.warcraftlogs.com/api/v2/client";
+    private const string ApiUrlForever = "https://forever.warcraftlogs.com/api/v2/client";
 
     private const int RateLimitCheckInterval = 10;
     private const double WarningThreshold = 80.0;
@@ -130,6 +131,7 @@ public class WarcraftLogsClient
             WowGameVersion.Classic => ApiUrlClassic,
             WowGameVersion.ClassicFresh => ApiUrlClassic,
             WowGameVersion.Vanilla => ApiUrlVanilla,
+            WowGameVersion.Forever => ApiUrlForever,
             _ => ApiUrlRetail
         };
     }
@@ -162,14 +164,19 @@ public class WarcraftLogsClient
         context.Properties.Set(RequestStarted, started);
         try
         {
-            using var response = await _auth.SendAsync(FetchAccessTokenAsync, (token, ct) =>
+            Func<string, CancellationToken, Task<HttpResponseMessage>> send = (token, ct) =>
                 _resiliencePipeline.ExecuteAsync(async retryContext =>
                 {
                     using var request = new HttpRequestMessage(HttpMethod.Post, GetApiUrl(gameVersion));
                     request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
                     request.Content = new StringContent(json, Encoding.UTF8, "application/json");
                     return await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, retryContext.CancellationToken);
-                }, context).AsTask(), budget.Token, cancellationToken);
+                }, context).AsTask();
+            // The Forever site is new to this client. Until it has a record, a 401 from it is that
+            // site's answer and nothing more: it must not retire the token the other sites run on.
+            using var response = gameVersion == WowGameVersion.Forever
+                ? await _auth.SendOnceAsync(FetchAccessTokenAsync, send, budget.Token, cancellationToken)
+                : await _auth.SendAsync(FetchAccessTokenAsync, send, budget.Token, cancellationToken);
             if (!response.IsSuccessStatusCode)
                 throw new HttpRequestException($"WCL GraphQL failed with HTTP {(int)response.StatusCode}.", null, response.StatusCode);
             var content = await WclResponseBody.ReadAsync(response, budget.Token);
@@ -205,7 +212,7 @@ public class WarcraftLogsClient
             await Task.Delay(TimeSpan.FromSeconds(waitSeconds), cancellationToken);
 
             // Refresh rate limit data after waiting
-            await CheckRateLimitAsync(gameVersion, cancellationToken);
+            await CheckRateLimitAsync(QuotaSite(gameVersion), cancellationToken);
 
             // If STILL over limit after waiting, throw typed exception
             if (_lastRateLimitData != null && _lastRateLimitData.UsagePercent >= CriticalThreshold)
@@ -229,7 +236,7 @@ public class WarcraftLogsClient
         {
             try
             {
-                await CheckRateLimitAsync(gameVersion, cancellationToken);
+                await CheckRateLimitAsync(QuotaSite(gameVersion), cancellationToken);
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
@@ -241,6 +248,13 @@ public class WarcraftLogsClient
 
         return result;
     }
+
+    /// <summary>
+    /// The site asked about points. They are one budget across every site, so the Forever site's
+    /// own reading is never needed, and an odd answer from it can't stall the others.
+    /// </summary>
+    private static WowGameVersion QuotaSite(WowGameVersion gameVersion)
+        => gameVersion == WowGameVersion.Forever ? WowGameVersion.Retail : gameVersion;
 
     /// <summary>
     /// Check current rate limit status
@@ -473,6 +487,77 @@ public class WarcraftLogsClient
             _logger.LogError("[WCL Batch] Failed to execute batch query ({ErrorType})", ex.GetType().Name);
             throw;
         }
+    }
+
+    /// <summary>
+    /// The servers a Warcraft Logs site files guilds under, by region slug in lower case.
+    /// Throws when the site doesn't answer or answers with something else.
+    /// </summary>
+    public async Task<Dictionary<string, WclServerList>> GetServersByRegionAsync(
+        WowGameVersion gameVersion, int limit, CancellationToken cancellationToken = default)
+    {
+        var query = $"query {{ worldData {{ regions {{ slug servers(limit: {limit}) {{ total data {{ slug }} }} }} }} }}";
+        var result = await ExecuteGraphQLAsync<JObject>(query, null, gameVersion, cancellationToken);
+        if ((result.Data?["worldData"] as JObject)?["regions"] is not JArray regions)
+            throw new InvalidOperationException("WCL returned no regions.");
+
+        var byRegion = new Dictionary<string, WclServerList>(StringComparer.OrdinalIgnoreCase);
+        foreach (var region in regions.OfType<JObject>())
+        {
+            var slug = region.Value<string>("slug");
+            if (string.IsNullOrWhiteSpace(slug)) continue;
+            var servers = region["servers"] as JObject;
+            var slugs = (servers?["data"] as JArray ?? new JArray())
+                .OfType<JObject>()
+                .Select(s => s.Value<string>("slug"))
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Select(s => s!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var total = servers?["total"]?.Type == JTokenType.Integer ? servers.Value<int>("total") : slugs.Count;
+            byRegion[slug.ToLowerInvariant()] = new WclServerList(slugs, Math.Max(total, slugs.Count));
+        }
+        return byRegion;
+    }
+
+    /// <summary>
+    /// For each guild, the servers among <c>serverSlugs</c> where Warcraft Logs has a guild of that
+    /// name. A guild it has nowhere comes back with an empty list. Throws when the site doesn't answer.
+    /// </summary>
+    public async Task<Dictionary<string, List<string>>> FindGuildServersAsync(
+        IReadOnlyList<(string guildName, string serverRegion, IReadOnlyList<string> serverSlugs, string guildKey)> guilds,
+        WowGameVersion gameVersion,
+        CancellationToken cancellationToken = default)
+    {
+        var found = new Dictionary<string, List<string>>();
+        var asked = new List<(string Alias, string Key, string Slug)>();
+        var queryBuilder = new StringBuilder("query {");
+        for (var i = 0; i < guilds.Count; i++)
+        {
+            var (guildName, serverRegion, serverSlugs, guildKey) = guilds[i];
+            found[guildKey] = new List<string>();
+            for (var j = 0; j < serverSlugs.Count; j++)
+            {
+                var alias = $"g{i}_{j}";
+                asked.Add((alias, guildKey, serverSlugs[j]));
+                queryBuilder.Append(
+                    $" {alias}: guildData {{ guild(name: \"{EscapeGraphQLString(guildName)}\", " +
+                    $"serverSlug: \"{EscapeGraphQLString(serverSlugs[j])}\", " +
+                    $"serverRegion: \"{EscapeGraphQLString(serverRegion)}\") {{ id }} }}");
+            }
+        }
+        queryBuilder.Append(" }");
+        if (asked.Count == 0) return found;
+
+        var result = await ExecuteGraphQLAsync<JObject>(queryBuilder.ToString(), null, gameVersion, cancellationToken);
+        if (result.Data == null) throw new InvalidOperationException("WCL returned no data.");
+        foreach (var (alias, key, slug) in asked)
+        {
+            // A guild Warcraft Logs doesn't have is a null here, with or without an error beside it.
+            if (result.Data[alias] is JObject data && data["guild"] is JObject guild && guild["id"]?.Type == JTokenType.Integer)
+                found[key].Add(slug);
+        }
+        return found;
     }
 
     /// <summary>

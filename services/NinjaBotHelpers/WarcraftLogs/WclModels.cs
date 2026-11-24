@@ -200,5 +200,21 @@ public enum WowGameVersion
     Retail,
     Classic,
     ClassicFresh,
-    Vanilla
+    Vanilla,
+    /// <summary>WoW Forever, on its own site. It has no realms; see <see cref="ForeverLogAddresses"/>.</summary>
+    Forever
+}
+
+/// <summary>A region's servers on a Warcraft Logs site.</summary>
+/// <param name="Slugs">The ones the answer listed.</param>
+/// <param name="Total">How many the site says there are, which can be more than it listed.</param>
+public sealed record WclServerList(IReadOnlyList<string> Slugs, int Total);
+
+public static class WclSites
+{
+    /// <summary>A report's page. Forever reports live on the Forever site; the rest open from the main one.</summary>
+    public static string ReportUrl(WowGameVersion gameVersion, string code)
+        => gameVersion == WowGameVersion.Forever
+            ? $"https://forever.warcraftlogs.com/reports/{code}"
+            : $"https://www.warcraftlogs.com/reports/{code}";
 }
