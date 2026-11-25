@@ -98,6 +98,13 @@ namespace NinjaBotCore.Services
             if (NinjaBot.IsDebug())
             {
                 // The test guild gets everything, owner tools included
+                var testCount = SlashCommandLimits.TopLevelCount(globalModules) + SlashCommandLimits.TopLevelCount(ownerModules);
+                if (testCount > SlashCommandLimits.MaxTopLevelCommands)
+                {
+                    _logger.LogError("{Count} top-level slash commands is over Discord's limit of {Max} for one server. Discord will reject the update and the test guild's commands will stay stale",
+                        testCount, SlashCommandLimits.MaxTopLevelCommands);
+                }
+
                 _logger.LogInformation("All shards ready - Registering {Count} slash commands to test guild {GuildId}",
                     _handler.SlashCommands.Count,
                     _configuration["testGuild"]);

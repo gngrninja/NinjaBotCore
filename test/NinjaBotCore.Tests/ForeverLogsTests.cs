@@ -627,11 +627,6 @@ public class ForeverLogsTests
         // Nor did a 429 or a Retry-After put the main site on hold.
         var main = await client.QueryAsync(query, null, WowGameVersion.Retail);
         Assert.Equal("US", main["worldData"]!["regions"]![0]!.Value<string>("slug"));
-
-        // The owner's probe goes the same way and reports the refusal instead of throwing.
-        var raw = await client.RawQueryAsync(query, null, WowGameVersion.Forever);
-        Assert.Contains($"HTTP {(int)refusal}", raw);
-        Assert.False(client.AuthHealth.Unavailable);
     }
 
     [Fact]

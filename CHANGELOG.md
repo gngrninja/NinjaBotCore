@@ -34,7 +34,7 @@
 - Forever has no realms, but Warcraft Logs finds a guild by name, server and region. The bot and the helpers ask the Forever site which servers a region has. With one server, that is the guild's. With up to eight, the guild is looked for on each and used only when exactly one has it; a name on several servers is shown and posted for nobody. This has only been run against synthetic answers so far, not the live Forever site.
 - Requests to the Forever site can't hurt the other Warcraft Logs features: a 401 from it doesn't retire the shared token, a 429 or Retry-After from it doesn't pause the other sites, and points are always read from the main site. A site that is down is asked again after 30 minutes, not every round.
 - `LogMonitoring` has three new columns (`ForeverReportId`, `LatestLogForever`, `LastCheckedForever`), added by the `AddForeverLogMonitoring` migration. A guild linked, re-linked or switched on in the last two weeks is checked every round, like an active retail guild.
-- Added `/forever-logs-probe` for the bot owner (owner server only): it asks Warcraft Logs' Forever site which regions, servers and zones it has and how it knows a guild, and returns the raw answers.
+- A dev build registers every command, owner tools included, to one test server, and Discord allows a server 100. The owner-only `/forever-logs-probe` added with the rework made it 101, so Discord refused the whole update and the test server kept its commands from before the rework. The probe is gone (`/forever logs` shows what it was for), which makes it 100 again, and a test now fails when the two sets together go over.
 
 ### Raid Recap
 

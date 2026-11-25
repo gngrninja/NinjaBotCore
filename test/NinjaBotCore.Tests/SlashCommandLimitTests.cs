@@ -196,6 +196,18 @@ public class SlashCommandLimitTests
     }
 
     [Fact]
+    public async Task A_dev_builds_test_server_has_room_for_every_command_at_once()
+    {
+        // A dev build registers the global commands and the owner tools to one server, and a server
+        // holds 100. One over and Discord rejects the whole update: every command stays as it was.
+        var (global, owner) = SlashCommandLimits.Split((await Registered.Value).Modules);
+
+        var problems = CheckScope("Test server", global.Concat(owner).ToArray());
+
+        Assert.True(problems.Count == 0, string.Join("\n", problems));
+    }
+
+    [Fact]
     public async Task Owner_commands_are_only_registered_to_the_owner_server()
     {
         var (global, owner) = SlashCommandLimits.Split((await Registered.Value).Modules);

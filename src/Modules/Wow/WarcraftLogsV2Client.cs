@@ -823,23 +823,6 @@ namespace NinjaBotCore.Modules.Wow
             => (await ExecuteGraphQLAsync<JToken>(query, variables, gameVersion, cancellationToken)).Data;
 
         /// <summary>
-        /// One query's raw answer, errors included, for looking at a host the bot hasn't used before.
-        /// Never throws: a failure comes back as its message.
-        /// </summary>
-        public async Task<string> RawQueryAsync(string query, object variables, WowGameVersion gameVersion, CancellationToken cancellationToken = default)
-        {
-            try
-            {
-                var result = await ExecuteGraphQLInternalAsync<Newtonsoft.Json.Linq.JToken>(query, variables, gameVersion, cancellationToken);
-                return JsonConvert.SerializeObject(new { data = result.Data, errors = result.Errors }, Formatting.Indented);
-            }
-            catch (Exception ex)
-            {
-                return $"{ex.GetType().Name}: {ex.Message}";
-            }
-        }
-
-        /// <summary>
         /// Test method to compare v2 API response with v1
         /// </summary>
         public async Task<string> TestGuildReportsAsync(string guildName, string serverSlug, string serverRegion, WowGameVersion gameVersion = WowGameVersion.Retail)
