@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,6 +20,15 @@ internal sealed class FakeForeverArmory : IForeverArmory
 
     /// <summary>Every lookup answers Unavailable, as when Blizzard is down or changed a route.</summary>
     public bool Down { get; set; }
+
+    /// <summary>How many times a guild was looked up by name.</summary>
+    public int GuildAsks { get; private set; }
+
+    /// <summary>Runs while a guild lookup is on its way back: what happens in the meantime, or the armory throwing.</summary>
+    public Func<Task> WhileFindingGuild { get; set; }
+
+    /// <summary>A roster doesn't answer until this does, as when Blizzard is slow.</summary>
+    public Task RosterHeld { get; set; } = Task.CompletedTask;
 
     public ForeverArmoryCharacter AddCharacter(
         ForeverRegion region, string first, string last,
@@ -64,13 +74,20 @@ internal sealed class FakeForeverArmory : IForeverArmory
             : new ForeverLookup<ForeverArmoryCard>(character.Status, null);
     }
 
-    public Task<ForeverLookup<ForeverArmoryGuild>> GetGuildAsync(
+    public async Task<ForeverLookup<ForeverArmoryGuild>> GetGuildAsync(
         ForeverRegion region, string guildName, CancellationToken cancellationToken = default)
-        => Answer(_guilds, (region, ForeverNames.Slug(guildName)));
+    {
+        GuildAsks++;
+        if (WhileFindingGuild != null) await WhileFindingGuild();
+        return await Answer(_guilds, (region, ForeverNames.Slug(guildName)));
+    }
 
-    public Task<ForeverLookup<ForeverArmoryRoster>> GetRosterAsync(
+    public async Task<ForeverLookup<ForeverArmoryRoster>> GetRosterAsync(
         ForeverRegion region, string guildSlug, CancellationToken cancellationToken = default)
-        => Answer(_rosters, (region, guildSlug));
+    {
+        await RosterHeld;
+        return await Answer(_rosters, (region, guildSlug));
+    }
 
     /// <summary>Gives a character professions. One the armory has no professions for answers "not found".</summary>
     public void AddProfessions(ForeverRegion region, string first, string last, params ForeverArmoryProfession[] professions)

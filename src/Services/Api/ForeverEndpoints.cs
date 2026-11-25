@@ -45,7 +45,7 @@ namespace NinjaBotCore.Services.Api
                     return Bad("Invalid guild_id format");
                 }
 
-                var guild = await forever.GetGuildAsync(id);
+                var guild = await forever.GetSavedGuildAsync(id);
                 return Results.Json(new
                 {
                     success = true,

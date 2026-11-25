@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using Discord;
@@ -23,9 +24,20 @@ namespace NinjaBotCore.Services
     {
         public const int Max = 25;
         public const string LookupHint = "Type a first name and surname, like Asha Brightvale";
+        public const string RosterLoadingHint = "Still loading the guild's roster. Type another letter in a moment";
 
-        /// <summary>Discord drops an autocomplete answer after three seconds.</summary>
-        public static readonly TimeSpan Budget = TimeSpan.FromMilliseconds(1800);
+        /// <summary>
+        /// How long a box may take over its answer, from the moment it is asked. Discord drops an answer
+        /// after three seconds, and its clock also runs while the question travels here and the answer back.
+        /// </summary>
+        public static readonly TimeSpan Budget = TimeSpan.FromMilliseconds(1500);
+
+        /// <summary>What is left of a budget that started at <paramref name="startedAt"/> (a <see cref="Stopwatch"/> timestamp).</summary>
+        public static TimeSpan Left(TimeSpan budget, long startedAt)
+        {
+            var left = budget - Stopwatch.GetElapsedTime(startedAt);
+            return left > TimeSpan.Zero ? left : TimeSpan.Zero;
+        }
 
         // A character reaches the armory at this level.
         private const int ArmoryMinLevel = 10;
@@ -84,19 +96,23 @@ namespace NinjaBotCore.Services
         // ===== Anyone, for armory lookups =====
 
         /// <summary>
-        /// The typed name first (with what the armory said about it, when it answered), then the caller's
-        /// own characters, then guildmates from Blizzard's roster and characters shared in this server.
-        /// A saved character's value is its Id; everyone else's is the name.
+        /// A full name the armory confirmed first, then the caller's own characters, guildmates from
+        /// Blizzard's roster and characters shared in this server. A full name nothing confirmed comes
+        /// last, after the real characters it might be the start of. A saved character's value is its Id;
+        /// everyone else's is the name.
         /// </summary>
+        /// <param name="rosterLoading">The roster was asked for and isn't back yet, so the list says more is coming.</param>
         public static List<AutocompleteResult> Lookup(
             IReadOnlyList<Database.ForeverCharacter> own,
             string input,
             IReadOnlyList<ForeverArmoryMember>? roster = null,
             IReadOnlyList<Database.ForeverCharacter>? shared = null,
-            ForeverLookup<ForeverArmoryCharacter>? live = null)
+            ForeverLookup<ForeverArmoryCharacter>? live = null,
+            bool rosterLoading = false)
         {
             var results = new List<AutocompleteResult>();
             var taken = new HashSet<(string, string)>(own.Select(c => (c.NormalizedFirstName, c.NormalizedLastName)));
+            AutocompleteResult? typed = null;
 
             if (ForeverNames.TrySplitFullName(input, out var first, out var last, out _)
                 && !taken.Contains((ForeverNames.Normalize(first), ForeverNames.Normalize(last))))
@@ -108,17 +124,22 @@ namespace NinjaBotCore.Services
                     : $"Look up {name} on the armory";
                 if (label.Length <= 100)
                 {
-                    results.Add(new AutocompleteResult(label, name));
-                    taken.Add((ForeverNames.Normalize(first), ForeverNames.Normalize(last)));
+                    if (found == null) typed = new AutocompleteResult(label, name);
+                    else
+                    {
+                        results.Add(new AutocompleteResult(label, name));
+                        taken.Add((ForeverNames.Normalize(first), ForeverNames.Normalize(last)));
+                    }
                 }
             }
 
-            results.AddRange(Own(own, input, Max - results.Count));
+            var room = Max - (typed != null ? 1 : 0) - (rosterLoading ? 1 : 0);
+            results.AddRange(Own(own, input, room - results.Count));
 
             // The armory can't show a character below level 10, so there is nothing to look up yet.
             foreach (var m in Ranked(roster, input).Where(m => m.Level >= ArmoryMinLevel))
             {
-                if (results.Count >= Max) break;
+                if (results.Count >= room) break;
                 if (!taken.Add((ForeverNames.Normalize(m.FirstName), ForeverNames.Normalize(m.Surname)))) continue;
                 results.Add(new AutocompleteResult(Clip(Join(m.FullName, Kind(m.Level, null, m.Class?.ToString()), "guild roster")), m.FullName));
             }
@@ -127,57 +148,79 @@ namespace NinjaBotCore.Services
                          .Where(c => input.Length == 0 || c.FullName.Contains(input, StringComparison.OrdinalIgnoreCase))
                          .OrderBy(c => c.FullName, StringComparer.OrdinalIgnoreCase))
             {
-                if (results.Count >= Max) break;
+                if (results.Count >= room) break;
                 if (!IsUsable(c.FirstName, c.LastName) || !taken.Add((c.NormalizedFirstName, c.NormalizedLastName))) continue;
                 results.Add(new AutocompleteResult(Clip(Join(c.FullName, c.Class?.ToString(), "shared in this server")), c.FullName));
             }
 
-            if (results.Count == 0) results.Add(new AutocompleteResult(LookupHint, "0"));
-            return results;
+            return Finish(results, typed, rosterLoading);
         }
 
         // ===== A character to save =====
 
         /// <summary>
-        /// The typed name first (with what the armory said about it, when it answered), then guildmates
-        /// from Blizzard's roster the caller hasn't saved yet. Guildmates below level 10 are offered too:
-        /// the armory doesn't have them, but the roster does. Every value is a full name.
+        /// Guildmates from Blizzard's roster the caller hasn't saved yet, best match first, so a member
+        /// picks their character instead of spelling it. A full name the armory confirmed leads; one
+        /// nothing confirmed comes last, after the guildmates it might be the start of. Guildmates below
+        /// level 10 are offered too: the armory doesn't have them, but the roster does. Every value is a
+        /// full name.
         /// </summary>
+        /// <param name="rosterLoading">The roster was asked for and isn't back yet, so the list says more is coming.</param>
         public static List<AutocompleteResult> Add(
             IReadOnlyList<Database.ForeverCharacter> own,
             ForeverRegion? region,
             string input,
             IReadOnlyList<ForeverArmoryMember>? roster = null,
-            ForeverLookup<ForeverArmoryCharacter>? live = null)
+            ForeverLookup<ForeverArmoryCharacter>? live = null,
+            bool rosterLoading = false)
         {
             var results = new List<AutocompleteResult>();
             var taken = own.Where(c => region == null || c.Region == region)
                 .Select(c => (c.NormalizedFirstName, c.NormalizedLastName)).ToHashSet();
+            AutocompleteResult? typed = null;
 
             if (ForeverNames.TrySplitFullName(input, out var first, out var last, out _))
             {
                 var key = (ForeverNames.Normalize(first), ForeverNames.Normalize(last));
+                var saved = taken.Contains(key);
                 var found = live is { IsFound: true } ? live.Value : null;
                 var name = found != null && IsUsable(found.FirstName, found.Surname) ? found.FullName : ForeverNames.FullName(first, last);
-                var label = taken.Contains(key)
+                var label = saved
                     ? $"{name} · already saved"
                     : found != null
                         ? Join(name, Kind(found.Level, found.Race, found.ClassName ?? found.Class?.ToString()), found.GuildName, "on the armory")
                         : $"Save {name}";
                 if (label.Length <= 100)
                 {
-                    results.Add(new AutocompleteResult(label, name));
-                    taken.Add(key);
+                    if (!saved && found == null) typed = new AutocompleteResult(label, name);
+                    else
+                    {
+                        results.Add(new AutocompleteResult(label, name));
+                        taken.Add(key);
+                    }
                 }
             }
 
+            var room = Max - (typed != null ? 1 : 0) - (rosterLoading ? 1 : 0);
             foreach (var m in Ranked(roster, input))
             {
-                if (results.Count >= Max) break;
+                if (results.Count >= room) break;
                 if (!taken.Add((ForeverNames.Normalize(m.FirstName), ForeverNames.Normalize(m.Surname)))) continue;
                 results.Add(new AutocompleteResult(Clip(Join(m.FullName, Kind(m.Level, null, m.Class?.ToString()), "guild roster")), m.FullName));
             }
 
+            return Finish(results, typed, rosterLoading);
+        }
+
+        /// <summary>
+        /// Ends a list of characters: the name as typed, unless one of the rows already is that character,
+        /// then word that the roster is still on its way, or the hint when there is nothing else to show.
+        /// </summary>
+        private static List<AutocompleteResult> Finish(List<AutocompleteResult> results, AutocompleteResult? typed, bool rosterLoading)
+        {
+            if (typed != null && !results.Any(r => string.Equals(r.Value as string, (string)typed.Value, StringComparison.OrdinalIgnoreCase)))
+                results.Add(typed);
+            if (rosterLoading) results.Add(new AutocompleteResult(RosterLoadingHint, "0"));
             if (results.Count == 0) results.Add(new AutocompleteResult(LookupHint, "0"));
             return results;
         }
@@ -273,12 +316,13 @@ namespace NinjaBotCore.Services
 
         // ===== Helpers =====
 
-        /// <summary>Roster members matching the input: names that start with it first, then by rank and level.</summary>
+        /// <summary>Roster members matching the input: the exact name first, then names that start with it, then by rank and level.</summary>
         private static IEnumerable<ForeverArmoryMember> Ranked(IReadOnlyList<ForeverArmoryMember>? roster, string input)
             => (roster ?? Array.Empty<ForeverArmoryMember>())
                 .Where(m => IsUsable(m.FirstName, m.Surname))
                 .Where(m => input.Length == 0 || m.FullName.Contains(input, StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(m => input.Length > 0
+                .OrderByDescending(m => string.Equals(m.FullName, input, StringComparison.OrdinalIgnoreCase))
+                .ThenByDescending(m => input.Length > 0
                     && (m.FullName.StartsWith(input, StringComparison.OrdinalIgnoreCase) || m.Surname.StartsWith(input, StringComparison.OrdinalIgnoreCase)))
                 .ThenBy(m => m.Rank ?? int.MaxValue)
                 .ThenByDescending(m => m.Level)
@@ -311,6 +355,39 @@ namespace NinjaBotCore.Services
         internal static List<AutocompleteResult> Suggestions(IReadOnlyList<Database.ForeverCharacter> characters, string input)
             => ForeverSuggest.Lookup(characters, input);
 
+        /// <summary>What the box offers, apart from Discord so it can be tried without one.</summary>
+        internal static async Task<List<AutocompleteResult>> SuggestAsync(
+            ForeverService forever, IForeverArmory armory, long? serverId, long userId, string input,
+            ForeverRegion? chosenRegion, Func<long, bool> isMember, TimeSpan budget)
+        {
+            var startedAt = Stopwatch.GetTimestamp();
+            // As stored: the roster below links the guild to the armory if it has to, inside the time there is.
+            var guild = serverId == null ? null : await forever.GetSavedGuildAsync(serverId.Value);
+            var region = chosenRegion ?? guild?.Region;
+
+            // The roster is the server's own guild, so it only fits lookups in that guild's region.
+            var rosterTask = guild != null && region == guild.Region
+                ? forever.GetRosterAsync(guild.DiscordGuildId, isMember)
+                : Task.FromResult(ForeverResult<ForeverRoster>.Fail("no roster"));
+            var liveTask = region != null && ForeverNames.TrySplitFullName(input, out var first, out var last, out _)
+                ? armory.GetCharacterAsync(region.Value, first, last)
+                : Task.FromResult(ForeverLookup<ForeverArmoryCharacter>.NotFound());
+            var characters = await forever.GetCharactersAsync(userId);
+
+            // The reads above came out of the same three seconds, so the roster gets what they left.
+            var roster = (await ForeverSuggest.WithinAsync(rosterTask, ForeverSuggest.Left(budget, startedAt)))?.Value;
+            // Both started together, so the second wait is only whatever is left of the first.
+            var live = await ForeverSuggest.WithinAsync(liveTask, TimeSpan.FromMilliseconds(200));
+
+            return ForeverSuggest.Lookup(
+                characters,
+                input,
+                roster?.Armory?.Members,
+                roster?.Members.SelectMany(m => m.Characters).Where(c => c.UserId != userId).ToList(),
+                live,
+                rosterLoading: !rosterTask.IsCompleted);
+        }
+
         public override async Task<AutocompletionResult> GenerateSuggestionsAsync(
             IInteractionContext context,
             IAutocompleteInteraction autocompleteInteraction,
@@ -319,33 +396,15 @@ namespace NinjaBotCore.Services
         {
             try
             {
-                var forever = services.GetRequiredService<ForeverService>();
-                var armory = services.GetRequiredService<IForeverArmory>();
-                var input = ForeverSuggest.Current(autocompleteInteraction);
-                var userId = (long)context.User.Id;
-
-                var characters = await forever.GetCharactersAsync(userId);
-                var guild = context.Guild == null ? null : await forever.GetGuildAsync((long)context.Guild.Id);
-                var region = ForeverSuggest.Region(autocompleteInteraction) ?? guild?.Region;
-
-                // The roster is the server's own guild, so it only fits lookups in that guild's region.
-                var rosterTask = guild != null && region == guild.Region
-                    ? forever.GetRosterAsync((long)guild.DiscordGuildId, ForeverSuggest.IsMember(context))
-                    : Task.FromResult(ForeverResult<ForeverRoster>.Fail("no roster"));
-                var liveTask = region != null && ForeverNames.TrySplitFullName(input, out var first, out var last, out _)
-                    ? armory.GetCharacterAsync(region.Value, first, last)
-                    : Task.FromResult(ForeverLookup<ForeverArmoryCharacter>.NotFound());
-
-                var roster = (await ForeverSuggest.WithinAsync(rosterTask, ForeverSuggest.Budget))?.Value;
-                // Both started together, so the second wait is only whatever is left of the first.
-                var live = await ForeverSuggest.WithinAsync(liveTask, TimeSpan.FromMilliseconds(200));
-
-                return AutocompletionResult.FromSuccess(ForeverSuggest.Lookup(
-                    characters,
-                    input,
-                    roster?.Armory?.Members,
-                    roster?.Members.SelectMany(m => m.Characters).Where(c => c.UserId != userId).ToList(),
-                    live));
+                return AutocompletionResult.FromSuccess(await SuggestAsync(
+                    services.GetRequiredService<ForeverService>(),
+                    services.GetRequiredService<IForeverArmory>(),
+                    context.Guild == null ? null : (long)context.Guild.Id,
+                    (long)context.User.Id,
+                    ForeverSuggest.Current(autocompleteInteraction),
+                    ForeverSuggest.Region(autocompleteInteraction),
+                    ForeverSuggest.IsMember(context),
+                    ForeverSuggest.Budget));
             }
             catch (Exception ex)
             {
@@ -356,11 +415,38 @@ namespace NinjaBotCore.Services
     }
 
     /// <summary>
-    /// For /forever char add: the name being typed, checked against the armory, and guildmates from
-    /// Blizzard's roster of this server's guild, so a member can pick their character instead of spelling it.
+    /// For /forever char add: guildmates from Blizzard's roster of this server's guild, so a member can
+    /// pick their character instead of spelling it, and the name being typed, checked against the armory.
     /// </summary>
     public class ForeverAddAutocomplete : AutocompleteHandler
     {
+        /// <summary>What the box offers, apart from Discord so it can be tried without one.</summary>
+        internal static async Task<List<AutocompleteResult>> SuggestAsync(
+            ForeverService forever, IForeverArmory armory, long? serverId, long userId, string input,
+            ForeverRegion? chosenRegion, TimeSpan budget)
+        {
+            var startedAt = Stopwatch.GetTimestamp();
+            // As stored: the roster below links the guild to the armory if it has to, inside the time there is.
+            var guild = serverId == null ? null : await forever.GetSavedGuildAsync(serverId.Value);
+            var region = chosenRegion ?? guild?.Region;
+
+            // The roster is the server's own guild, so it only fits a character in that guild's region.
+            var rosterTask = guild != null && region == guild.Region
+                ? forever.GetArmoryRosterAsync(guild)
+                : Task.FromResult(ForeverLookup<ForeverArmoryRoster>.NotFound());
+            var liveTask = region != null && ForeverNames.TrySplitFullName(input, out var first, out var last, out _)
+                ? armory.GetCharacterAsync(region.Value, first, last)
+                : Task.FromResult(ForeverLookup<ForeverArmoryCharacter>.NotFound());
+            var own = await forever.GetCharactersAsync(userId);
+
+            // The reads above came out of the same three seconds, so the roster gets what they left.
+            var roster = await ForeverSuggest.WithinAsync(rosterTask, ForeverSuggest.Left(budget, startedAt));
+            // Both started together, so the second wait is only whatever is left of the first.
+            var live = await ForeverSuggest.WithinAsync(liveTask, TimeSpan.FromMilliseconds(200));
+
+            return ForeverSuggest.Add(own, region, input, roster?.Value?.Members, live, rosterLoading: !rosterTask.IsCompleted);
+        }
+
         public override async Task<AutocompletionResult> GenerateSuggestionsAsync(
             IInteractionContext context,
             IAutocompleteInteraction autocompleteInteraction,
@@ -369,26 +455,14 @@ namespace NinjaBotCore.Services
         {
             try
             {
-                var forever = services.GetRequiredService<ForeverService>();
-                var armory = services.GetRequiredService<IForeverArmory>();
-                var input = ForeverSuggest.Current(autocompleteInteraction);
-                var guild = context.Guild == null ? null : await forever.GetGuildAsync((long)context.Guild.Id);
-                var region = ForeverSuggest.Region(autocompleteInteraction) ?? guild?.Region;
-                var own = await forever.GetCharactersAsync((long)context.User.Id);
-
-                // The roster is the server's own guild, so it only fits a character in that guild's region.
-                var rosterTask = guild?.ArmorySlug != null && region == guild.Region
-                    ? armory.GetRosterAsync(guild.Region, guild.ArmorySlug)
-                    : Task.FromResult(ForeverLookup<ForeverArmoryRoster>.NotFound());
-                var liveTask = region != null && ForeverNames.TrySplitFullName(input, out var first, out var last, out _)
-                    ? armory.GetCharacterAsync(region.Value, first, last)
-                    : Task.FromResult(ForeverLookup<ForeverArmoryCharacter>.NotFound());
-
-                var roster = await ForeverSuggest.WithinAsync(rosterTask, ForeverSuggest.Budget);
-                // Both started together, so the second wait is only whatever is left of the first.
-                var live = await ForeverSuggest.WithinAsync(liveTask, TimeSpan.FromMilliseconds(200));
-
-                return AutocompletionResult.FromSuccess(ForeverSuggest.Add(own, region, input, roster?.Value?.Members, live));
+                return AutocompletionResult.FromSuccess(await SuggestAsync(
+                    services.GetRequiredService<ForeverService>(),
+                    services.GetRequiredService<IForeverArmory>(),
+                    context.Guild == null ? null : (long)context.Guild.Id,
+                    (long)context.User.Id,
+                    ForeverSuggest.Current(autocompleteInteraction),
+                    ForeverSuggest.Region(autocompleteInteraction),
+                    ForeverSuggest.Budget));
             }
             catch (Exception ex)
             {
@@ -436,7 +510,7 @@ namespace NinjaBotCore.Services
             {
                 var forever = services.GetRequiredService<ForeverService>();
                 var prices = services.GetRequiredService<IForeverPrices>();
-                var guild = context.Guild == null ? null : await forever.GetGuildAsync((long)context.Guild.Id);
+                var guild = context.Guild == null ? null : await forever.GetSavedGuildAsync((long)context.Guild.Id);
                 var region = ForeverSuggest.Region(autocompleteInteraction) ?? guild?.Region ?? ForeverRegion.US;
 
                 var sheet = prices.IfLoaded(region)

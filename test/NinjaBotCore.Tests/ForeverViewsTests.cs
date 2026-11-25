@@ -1047,7 +1047,7 @@ public class ForeverViewsTests
     }
 
     [Fact]
-    public void Adding_suggests_the_typed_name_then_guildmates_not_saved_yet()
+    public void Adding_suggests_guildmates_not_saved_yet_around_the_typed_name()
     {
         var mine = new[] { Shared(11, Alice, "Asha"), Shared(12, Alice, "Mira", "Dawn", region: ForeverRegion.EU) };
         var roster = Guildmates().Append(FakeForeverArmory.Member("Mira", "Dusk", level: 9, ForeverClass.Hunter)).ToArray();
@@ -1080,6 +1080,96 @@ public class ForeverViewsTests
         Assert.Equal((ForeverSuggest.LookupHint, "0"), (hint.Name, (string)hint.Value));
         var big = Enumerable.Range(1, 60).Select(i => FakeForeverArmory.Member("Member", "N" + new string('x', i % 20 + 1) + (char)('a' + i % 26), level: 20)).ToArray();
         Assert.Equal(25, ForeverSuggest.Add(mine, ForeverRegion.US, "", big).Count);
+    }
+
+    [Fact]
+    public void Adding_puts_real_guildmates_above_a_name_nothing_confirmed()
+    {
+        var mine = new[] { Shared(11, Alice, "Asha") };
+        var roster = Guildmates()
+            .Append(FakeForeverArmory.Member("Mira", "Dusk", level: 9, ForeverClass.Hunter, rank: 5))
+            .Append(FakeForeverArmory.Member("Mira", "Duskvale", level: 60, ForeverClass.Mage, rank: 0))
+            .ToArray();
+        static (string, string)[] Rows(List<AutocompleteResult> list) => list.Select(s => (s.Name, (string)s.Value)).ToArray();
+
+        // Two words that aren't a whole name yet: the guildmates they start, then the words as typed.
+        Assert.Equal(
+            new[]
+            {
+                ("Mira Duskvale · 60 Mage · guild roster", "Mira Duskvale"), ("Mira Dusk · 9 Hunter · guild roster", "Mira Dusk"),
+                ("Save Mira Du", "Mira Du")
+            },
+            Rows(ForeverSuggest.Add(mine, ForeverRegion.US, "mira du", roster)));
+
+        // A guildmate's whole name: that guildmate first, above a longer name of higher rank, and no
+        // "Save" row for a character the list already has. The armory doesn't know her below level 10.
+        Assert.Equal(
+            new[] { ("Mira Dusk · 9 Hunter · guild roster", "Mira Dusk"), ("Mira Duskvale · 60 Mage · guild roster", "Mira Duskvale") },
+            Rows(ForeverSuggest.Add(mine, ForeverRegion.US, "MIRA dusk", roster, ForeverLookup<ForeverArmoryCharacter>.NotFound())));
+
+        // Typed without the capital the guildmate's surname has: still her, so still no "Save" row.
+        var scots = new[] { FakeForeverArmory.Member("Kael", "McBright") };
+        Assert.Equal(new[] { ("Kael McBright · 30 Priest · guild roster", "Kael McBright") },
+            Rows(ForeverSuggest.Add(mine, ForeverRegion.US, "kael mcbright", scots)));
+
+        // A name the armory confirmed still leads: it is exactly who was asked for.
+        var live = ForeverLookup<ForeverArmoryCharacter>.Found(Armory("Mira", "Dusk", guild: "Other Crew"));
+        Assert.Equal(
+            new[] { ("Mira Dusk · 29 Undead Mage · Other Crew · on the armory", "Mira Dusk"), ("Mira Duskvale · 60 Mage · guild roster", "Mira Duskvale") },
+            Rows(ForeverSuggest.Add(mine, ForeverRegion.US, "mira dusk", roster, live)));
+
+        // While the roster is on its way the list says so, last, and without it there is nothing else to say.
+        Assert.Equal(new[] { ("Save Zed Nobody", "Zed Nobody"), (ForeverSuggest.RosterLoadingHint, "0") },
+            Rows(ForeverSuggest.Add(mine, ForeverRegion.US, "zed nobody", null, null, rosterLoading: true)));
+        Assert.Equal(new[] { (ForeverSuggest.RosterLoadingHint, "0") }, Rows(ForeverSuggest.Add(mine, ForeverRegion.US, "", null, null, rosterLoading: true)));
+
+        // Twenty-five rows at most, with the typed name and the loading note kept in.
+        var big = Enumerable.Range(1, 60).Select(i => FakeForeverArmory.Member("Member", "N" + new string('x', i % 20 + 1) + (char)('a' + i % 26), level: 20)).ToArray();
+        var full = Rows(ForeverSuggest.Add(mine, ForeverRegion.US, "member nx", big, null, rosterLoading: true));
+        Assert.Equal(25, full.Length);
+        Assert.Equal(new[] { ("Save Member Nx", "Member Nx"), (ForeverSuggest.RosterLoadingHint, "0") }, full[^2..]);
+        Assert.All(full[..^2], row => Assert.EndsWith("guild roster", row.Item1));
+    }
+
+    [Fact]
+    public void A_box_gives_the_roster_only_what_is_left_of_its_time()
+    {
+        var second = System.Diagnostics.Stopwatch.Frequency;
+        var now = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        // Asked a second ago with a second and a half to answer in: about half a second is left.
+        Assert.InRange(ForeverSuggest.Left(TimeSpan.FromMilliseconds(1500), now - second), TimeSpan.FromMilliseconds(300), TimeSpan.FromMilliseconds(500));
+        // Out of time is no time, not a negative wait.
+        Assert.Equal(TimeSpan.Zero, ForeverSuggest.Left(TimeSpan.FromMilliseconds(1500), now - 5 * second));
+        // Discord allows three seconds in all; the box keeps well inside that.
+        Assert.InRange(ForeverSuggest.Budget, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public void Looking_up_puts_real_characters_above_a_name_nothing_confirmed()
+    {
+        var mine = new[] { Shared(11, Alice, "Mira", "Dane") };
+        var roster = Guildmates();
+        var shared = new[] { Shared(21, Bob, "Mira", "Dale") };
+        static (string, string)[] Rows(List<AutocompleteResult> list) => list.Select(s => (s.Name, (string)s.Value)).ToArray();
+
+        var rows = Rows(ForeverSuggest.Lookup(mine, "mira da", roster, shared));
+
+        Assert.Equal(
+            new[] { "11", "Mira Dawn", "Mira Dale", "Mira Da" },
+            rows.Select(r => r.Item2).ToArray());
+        Assert.Equal("Look up Mira Da on the armory", rows[^1].Item1);
+
+        // A guildmate's whole name needs no "Look up" row of its own.
+        Assert.Equal(new[] { "Mira Dawn" }, Rows(ForeverSuggest.Lookup(mine, "mira dawn", roster, shared)).Select(r => r.Item2).ToArray());
+
+        // Still loading: the caller's own, the typed name, then the note.
+        Assert.Equal(new[] { "11", "Mira Da", "0" },
+            Rows(ForeverSuggest.Lookup(mine, "mira da", null, null, null, rosterLoading: true)).Select(r => r.Item2).ToArray());
+        var big = Enumerable.Range(1, 60).Select(i => FakeForeverArmory.Member("Mira", "Da" + new string('x', i % 20 + 1) + (char)('a' + i % 26), level: 20)).ToArray();
+        var full = Rows(ForeverSuggest.Lookup(mine, "mira da", big, shared, null, rosterLoading: true));
+        Assert.Equal(25, full.Length);
+        Assert.Equal(new[] { "Mira Da", "0" }, full[^2..].Select(r => r.Item2).ToArray());
     }
 
     [Fact]

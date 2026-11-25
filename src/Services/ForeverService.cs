@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -53,15 +54,22 @@ namespace NinjaBotCore.Services
         public const string ArmoryDownMessage = "Blizzard's armory didn't answer. Try again in a few minutes.";
         private const string NotFoundMessage = "Character not found. Pick one of yours from the list.";
 
+        // How long a guild is left alone after the armory had no match for it, or didn't answer.
+        private static readonly TimeSpan LinkRetryMissing = TimeSpan.FromHours(6);
+        private static readonly TimeSpan LinkRetryDown = TimeSpan.FromMinutes(5);
+
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly IForeverArmory _armory;
         private readonly ILogger<ForeverService> _logger;
+        private readonly TimeProvider _clock;
+        private readonly ConcurrentDictionary<long, DateTimeOffset> _linkRetryAt = new();
 
-        public ForeverService(IServiceScopeFactory scopeFactory, IForeverArmory armory, ILogger<ForeverService> logger)
+        public ForeverService(IServiceScopeFactory scopeFactory, IForeverArmory armory, ILogger<ForeverService> logger, TimeProvider? clock = null)
         {
             _scopeFactory = scopeFactory;
             _armory = armory;
             _logger = logger;
+            _clock = clock ?? TimeProvider.System;
         }
 
         /// <summary>Drops a departing member's shares and main for that server; rejoining doesn't restore them.</summary>
@@ -87,8 +95,83 @@ namespace NinjaBotCore.Services
 
         // ===== Guild =====
 
-        public Task<ForeverGuild?> GetGuildAsync(long guildId)
+        /// <summary>
+        /// The server's Forever guild. One saved before the bot read the armory has no armory link, and
+        /// without it there is no roster, so it is matched the first time it is asked for.
+        /// </summary>
+        public async Task<ForeverGuild?> GetGuildAsync(long guildId)
+        {
+            var guild = await GetSavedGuildAsync(guildId);
+            return guild == null ? null : await LinkedAsync(guild);
+        }
+
+        /// <summary>The guild as it is stored, without asking the armory about it: for a caller with no time to wait.</summary>
+        public Task<ForeverGuild?> GetSavedGuildAsync(long guildId)
             => WithDbAsync(db => db.ForeverGuilds.AsNoTracking().FirstOrDefaultAsync(g => g.DiscordGuildId == guildId));
+
+        /// <summary>
+        /// The guild with its armory link, made now if it had none and the armory has a guild of that name
+        /// in its region. The armory's spelling, ruleset and faction replace what the officer typed, as
+        /// <see cref="SetGuildAsync"/> would; who set it and when stay. Never throws: a guild that can't be
+        /// matched comes back as it was and is left alone for a while. Null when it was unset meanwhile.
+        /// </summary>
+        public async Task<ForeverGuild?> LinkedAsync(ForeverGuild guild)
+        {
+            if (guild.ArmorySlug != null) return guild;
+
+            var id = guild.DiscordGuildId;
+            var now = _clock.GetUtcNow();
+            if (_linkRetryAt.TryGetValue(id, out var retryAt) && now < retryAt) return guild;
+
+            try
+            {
+                var lookup = await _armory.GetGuildAsync(guild.Region, guild.Name);
+                var armory = lookup.Value;
+                if (!lookup.IsFound || armory!.Ruleset == null || armory.Faction == null
+                    || ForeverNames.Slug(armory.Name) != ForeverNames.Slug(guild.Name))
+                {
+                    _linkRetryAt[id] = now + (lookup.Status == ForeverLookupStatus.Unavailable ? LinkRetryDown : LinkRetryMissing);
+                    return guild;
+                }
+
+                var name = ForeverNames.TryCleanGuildName(armory.Name, out var armoryName, out _) ? armoryName : guild.Name;
+                var (ruleset, faction, slug) = (armory.Ruleset.Value, armory.Faction.Value, armory.Slug);
+                var linked = false;
+                var current = await WithDbAsync(async db =>
+                {
+                    var row = await db.ForeverGuilds.FirstOrDefaultAsync(g => g.DiscordGuildId == id);
+                    // Unset or set again in the meantime: what is there now is newer than this answer.
+                    if (row == null || row.ArmorySlug != null || row.Region != guild.Region || row.Name != guild.Name) return row;
+
+                    row.Name = name;
+                    row.Ruleset = ruleset;
+                    row.Faction = faction;
+                    row.ArmorySlug = Truncate(slug, ForeverGuild.MaxArmorySlugLength);
+                    row.RosterEnabled = true;
+                    await db.SaveChangesAsync();
+                    linked = true;
+                    return row;
+                });
+                _linkRetryAt.TryRemove(id, out _);
+                if (linked) _logger.LogInformation("Linked the Forever guild of server {GuildId} to the armory", id);
+                return current;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Couldn't link the Forever guild of server {GuildId} to the armory ({ErrorType})", id, ex.GetType().Name);
+                _linkRetryAt[id] = now + LinkRetryDown;
+                return guild;
+            }
+        }
+
+        /// <summary>Blizzard's roster of a server's guild, linking the guild to the armory first if it wasn't yet.</summary>
+        public async Task<ForeverLookup<ForeverArmoryRoster>> GetArmoryRosterAsync(ForeverGuild guild)
+        {
+            var linked = await LinkedAsync(guild);
+            return linked?.ArmorySlug != null
+                ? await _armory.GetRosterAsync(linked.Region, linked.ArmorySlug)
+                : ForeverLookup<ForeverArmoryRoster>.NotFound();
+        }
 
         /// <summary>
         /// Saves the server's guild as the armory has it: its spelling, ruleset and faction.

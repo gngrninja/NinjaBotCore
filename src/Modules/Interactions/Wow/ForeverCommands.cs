@@ -317,7 +317,7 @@ namespace NinjaBotCore.Modules.Interactions.Wow
 
             [SlashCommand("add", "Save one of your WoW Forever characters")]
             public async Task Add(
-                [Summary("character", "First name and surname, like Asha Brightvale")][Autocomplete(typeof(ForeverAddAutocomplete))] string character,
+                [Summary("character", "Pick a guildmate from the list, or type a first name and surname")][Autocomplete(typeof(ForeverAddAutocomplete))] string character,
                 [Summary("region", "Defaults to this server's Forever guild")] ForeverRegion? region = null)
             {
                 await DeferAsync(ephemeral: true);

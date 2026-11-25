@@ -6,6 +6,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using NinjaBotCore.Database;
 using NinjaBotCore.Models.Wow.Forever;
 using Xunit;
 
@@ -208,6 +209,31 @@ namespace NinjaBotCore.Tests
             Assert.Equal(HttpStatusCode.BadRequest, (await _client.PutAsync(Url(server),
                 new StringContent("{ not json", System.Text.Encoding.UTF8, "application/json"))).StatusCode);
             Assert.Null(SavedName(server));
+        }
+
+        [Fact]
+        public async Task ReadingAGuildFromBeforeTheArmoryDoesNotAskTheArmory()
+        {
+            const long server = 700000000000000211;
+            _armory.AddGuild(ForeverRegion.US, "Older Guild", ForeverRuleset.PvP, ForeverFaction.Horde);
+            var (scope, db) = _fixture.CreateDbScope();
+            using (scope)
+            {
+                db.ForeverGuilds.Add(new ForeverGuild
+                {
+                    DiscordGuildId = server, Name = "older guild", Region = ForeverRegion.US,
+                    Ruleset = ForeverRuleset.Normal, Faction = ForeverFaction.Alliance
+                });
+                db.SaveChanges();
+            }
+            var asked = _armory.GuildAsks;
+
+            var json = await _client.GetFromJsonAsync<JsonElement>(Url(server));
+
+            // As stored: a page calls this on every load, so it doesn't wait on Blizzard to match the guild.
+            Assert.Equal("older guild", json.GetProperty("guild").GetProperty("name").GetString());
+            Assert.Equal("Alliance", json.GetProperty("guild").GetProperty("faction").GetString());
+            Assert.Equal(asked, _armory.GuildAsks);
         }
 
         [Fact]
