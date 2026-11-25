@@ -312,6 +312,21 @@ public sealed class ForeverGuildLinkTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_roster_that_takes_a_moment_is_waited_for_while_there_is_time()
+    {
+        await SaveOldGuild();
+        PutGuildOnArmory(Guildmates());
+
+        // Well inside the time allowed: the guildmates, and no word of anything still loading.
+        _armory.RosterHeld = Task.Delay(300);
+        Assert.Equal(
+            new[] { "Mira Dawn · 40 Druid · guild roster", "Thalen Duskvale · 12 Warrior · guild roster", "Low Bie · 9 Hunter · guild roster" },
+            await AddBox(""));
+        _armory.RosterHeld = Task.Delay(300);
+        Assert.Equal(new[] { "Mira Dawn · 40 Druid · guild roster", "Thalen Duskvale · 12 Warrior · guild roster" }, await ViewBox(""));
+    }
+
+    [Fact]
     public async Task Saving_a_character_in_another_region_or_with_no_guild_offers_no_guildmates()
     {
         // No guild at all: only the hint, and nothing is said to be loading.

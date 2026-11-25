@@ -1112,6 +1112,12 @@ public class ForeverViewsTests
         Assert.Equal(new[] { ("Kael McBright · 30 Priest · guild roster", "Kael McBright") },
             Rows(ForeverSuggest.Add(mine, ForeverRegion.US, "kael mcbright", scots)));
 
+        // A name the caller already saved says so first, above a guildmate whose name it starts.
+        var near = Guildmates().Append(FakeForeverArmory.Member("Asha", "Brightvalen", level: 20, ForeverClass.Rogue)).ToArray();
+        Assert.Equal(
+            new[] { ("Asha Brightvale · already saved", "Asha Brightvale"), ("Asha Brightvalen · 20 Rogue · guild roster", "Asha Brightvalen") },
+            Rows(ForeverSuggest.Add(mine, ForeverRegion.US, "asha brightvale", near)));
+
         // A name the armory confirmed still leads: it is exactly who was asked for.
         var live = ForeverLookup<ForeverArmoryCharacter>.Found(Armory("Mira", "Dusk", guild: "Other Crew"));
         Assert.Equal(
